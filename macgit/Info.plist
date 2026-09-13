@@ -58,7 +58,7 @@
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://commit-plus.github.io/macgit/appcast.xml</string>
+	<string>https://commit-plus.github.io/commit-plus/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>$(SPARKLE_PUBLIC_ED_KEY)</string>
 </dict>
