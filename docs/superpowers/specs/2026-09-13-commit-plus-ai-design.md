@@ -1,7 +1,7 @@
 # Commit+ AI managed provider
 
 Date: 2026-09-13
-Status: Written for user review; implementation has not started.
+Status: Approved by the user on 2026-09-13; implementation has not started.
 
 ## Purpose and agreed scope
 
@@ -109,7 +109,7 @@ Adapter checks cover streaming termination, tool-call serialization, token categ
 
 macOS integration must cover every selector and both commit generation and Repository AI. Follow repository verification instructions: build the macOS app, do not launch it, and do not rerun a test suite that crashes during bootstrapping. A build is compilation evidence, not runtime UI validation.
 
-Implementation plans will be written after this document is reviewed. Backend and macOS changes use their respective repositories and feature branches. This document does not authorize production deployment or billing configuration changes.
+Implementation plans are linked from [the roadmap](../plans/2026-09-13-commit-plus-ai-roadmap.md). Backend and macOS changes use their respective repositories and feature branches. This document does not authorize production deployment or billing configuration changes.
 
 ## Sources checked
 
