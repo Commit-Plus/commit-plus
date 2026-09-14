@@ -95,13 +95,29 @@ struct macgitApp: App {
                 }
             )
         )
+        let managedUsage = CommitPlusAIUsageController()
+        managedUsage.setSession(uid: accountController.account?.uid)
+        let managedTokens = FirebaseCommitPlusAITokenProvider()
+        let managedClient = CommitPlusAIClient(baseURL: CommitPlusAIClient.configuredURL(), tokens: managedTokens) { [weak managedUsage] allowance, identity in
+            guard managedTokens.currentSession() == identity else { return }
+            managedUsage?.accept(allowance, uid: identity.uid)
+        }
+        managedUsage.loader = { try await managedClient.allowance() }
+        let managedAccess: @MainActor @Sendable () -> Bool = {
+            CommitPlusAISelectionPolicy.canSelect(isSignedIn: accountController.account != nil,
+                                                 hasProAccess: accountController.entitlement.hasProAccess)
+        }
+        let managedProvider = CommitPlusAIProvider(client: managedClient, usage: managedUsage, canAccess: managedAccess)
         _aiProviderController = StateObject(wrappedValue: AIProviderController(
             restrictedProviderAccess: {
                 featureAccessController.decision(
                     for: .aiBringYourOwnKey,
                     entitlement: accountController.account == nil ? .free : accountController.entitlement
                 )
-            }
+            },
+            managedProviderAccess: managedAccess,
+            managedProvider: managedProvider,
+            managedUsageController: managedUsage
         ))
         _repositoryVisibilityController = StateObject(
             wrappedValue: RepositoryVisibilityController(
@@ -210,6 +226,18 @@ struct macgitApp: App {
             .preferredColorScheme(appState.appearance.colorScheme)
             .task {
                 appUpdateController.start()
+            }
+            .onChange(of: accountController.account?.uid, initial: true) { _, uid in
+                aiProviderController.managedUsageController?.setSession(uid: uid)
+                Task { await aiProviderController.refreshAvailability() }
+            }
+            .onChange(of: accountController.entitlement) { _, _ in
+                Task { await aiProviderController.refreshAvailability() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                Task {
+                    await aiProviderController.managedUsageController?.refresh(force: true)
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .showAppSettings)) { notification in
                 if let rawSection = notification.userInfo?["section"] as? String,

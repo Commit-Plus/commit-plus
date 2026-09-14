@@ -547,6 +547,7 @@ struct ConflictMergeToolView: View {
             || isPerformingMergeAction
             || isAIResolutionInProgress
             || aiProviderController.isGenerating
+            || !aiProviderController.selectedProviderAvailability.isAvailable
             || hasUnsavedChanges
     }
 

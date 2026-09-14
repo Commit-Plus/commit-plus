@@ -17,18 +17,8 @@
 //
 import Foundation
 
-struct AIProviderID: RawRepresentable, Hashable, Codable, Sendable {
-    let rawValue: String
-
-    init(rawValue: String) {
-        self.rawValue = rawValue
+struct CommitPlusAISelectionPolicy {
+    static func canSelect(isSignedIn: Bool, hasProAccess: Bool) -> Bool {
+        isSignedIn && hasProAccess
     }
-
-    static let commitPlusAI = Self(rawValue: "commit-plus-ai")
-    static let appleIntelligence = Self(rawValue: "apple-intelligence")
-    static let openAI = Self(rawValue: "openai")
-    static let anthropic = Self(rawValue: "anthropic")
-    static let googleGemini = Self(rawValue: "google-gemini")
-    static let deepSeek = Self(rawValue: "deepseek")
-    static let openRouter = Self(rawValue: "openrouter")
 }

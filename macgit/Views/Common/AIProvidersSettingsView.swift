@@ -36,14 +36,21 @@ struct AIProvidersSettingsView: View {
                     )
                 }
 
-                LabeledContent("Model") {
-                    Text(controller.model(for: controller.selectedDescriptor) ?? "On-device")
-                        .foregroundStyle(.secondary)
+                if controller.selectedDescriptor.billing != .commitPlus {
+                    LabeledContent("Model") {
+                        Text(controller.model(for: controller.selectedDescriptor) ?? "On-device")
+                            .foregroundStyle(.secondary)
+                    }
                 }
             } header: {
                 Label("Default AI Provider", systemImage: "sparkles")
             } footer: {
-                Text("This provider is used for AI features throughout Commit+. It currently powers commit-message generation and will also be used by future AI actions.")
+                Text("This provider is used for AI features throughout Commit+. It powers commit-message generation, repository chat, AI actions, and conflict resolution.")
+            }
+
+            if controller.selectedDescriptor.billing == .commitPlus,
+               let usage = controller.managedUsageController {
+                CommitPlusAIUsageView(controller: usage)
             }
 
             ForEach($drafts) { $draft in
@@ -74,6 +81,9 @@ struct AIProvidersSettingsView: View {
         }
         .task {
             await controller.refreshAvailability()
+            if controller.selectedDescriptor.billing == .commitPlus {
+                await controller.managedUsageController?.refresh(force: true)
+            }
         }
     }
 

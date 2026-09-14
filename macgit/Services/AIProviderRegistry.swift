@@ -31,9 +31,10 @@ struct AIProviderRegistry: Sendable {
     static func live(
         credentialStore: any AIProviderCredentialStore = KeychainAIProviderCredentialStore(),
         modelStore: any AIProviderModelStore = UserDefaultsAIProviderModelStore(),
-        httpClient: any AIProviderHTTPClient = URLSessionAIProviderHTTPClient()
+        httpClient: any AIProviderHTTPClient = URLSessionAIProviderHTTPClient(),
+        managedProvider: CommitPlusAIProvider? = nil
     ) -> Self {
-        Self(providers: [
+        var providers: [any CommitMessageAIProvider] = [
             AppleIntelligenceCommitMessageProvider(),
             OpenAICommitMessageProvider(
                 credentialStore: credentialStore,
@@ -61,6 +62,8 @@ struct AIProviderRegistry: Sendable {
                 modelStore: modelStore,
                 httpClient: httpClient
             ),
-        ])
+        ]
+        if let managedProvider { providers.insert(managedProvider, at: 1) }
+        return Self(providers: providers)
     }
 }

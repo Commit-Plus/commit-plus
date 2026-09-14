@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "requestID": "f019f2fc-6a66-460e-a377-0c53f194c950",
+  "operation": "commit_message",
+  "responseFormat": "json_object",
+  "messages": [
+    { "role": "system", "content": "Return a JSON commit message with subject and body." },
+    { "role": "user", "content": "Synthetic diff: correct a typo in the README." }
+  ],
+  "tools": [],
+  "stream": false
+}

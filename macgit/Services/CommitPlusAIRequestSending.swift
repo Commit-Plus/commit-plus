@@ -17,18 +17,14 @@
 //
 import Foundation
 
-struct AIProviderID: RawRepresentable, Hashable, Codable, Sendable {
-    let rawValue: String
+protocol CommitPlusAIRequestSending: Sendable {
+    func send(operation: CommitPlusAIOperation, messages: [CommitPlusAIWireMessage], toolsData: Data,
+              structured: Bool, onTextDelta: (@Sendable (String) async -> Void)?) async throws -> CommitPlusAIResult
+}
 
-    init(rawValue: String) {
-        self.rawValue = rawValue
+extension CommitPlusAIRequestSending {
+    func infer(operation: CommitPlusAIOperation, messages: [CommitPlusAIWireMessage], toolsData: Data = Data("[]".utf8),
+               structured: Bool, onTextDelta: (@Sendable (String) async -> Void)? = nil) async throws -> CommitPlusAIResult {
+        try await send(operation: operation, messages: messages, toolsData: toolsData, structured: structured, onTextDelta: onTextDelta)
     }
-
-    static let commitPlusAI = Self(rawValue: "commit-plus-ai")
-    static let appleIntelligence = Self(rawValue: "apple-intelligence")
-    static let openAI = Self(rawValue: "openai")
-    static let anthropic = Self(rawValue: "anthropic")
-    static let googleGemini = Self(rawValue: "google-gemini")
-    static let deepSeek = Self(rawValue: "deepseek")
-    static let openRouter = Self(rawValue: "openrouter")
 }

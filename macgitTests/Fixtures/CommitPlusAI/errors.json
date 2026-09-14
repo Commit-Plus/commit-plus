@@ -1,0 +1,69 @@
+[
+  {
+    "status": 401,
+    "body": {
+      "code": "unauthenticated",
+      "message": "Sign in again."
+    }
+  },
+  {
+    "status": 403,
+    "body": {
+      "code": "pro_required",
+      "message": "Commit+ Pro is required."
+    }
+  },
+  {
+    "status": 429,
+    "body": {
+      "code": "credits_exhausted",
+      "message": "Your AI credits are used up.",
+      "resetsAt": "2026-10-13T08:00:00.000Z"
+    }
+  },
+  {
+    "status": 409,
+    "body": {
+      "code": "request_in_progress",
+      "message": "This request is still running.",
+      "requestID": "f019f2fc-6a66-460e-a377-0c53f194c950"
+    }
+  },
+  {
+    "status": 409,
+    "body": {
+      "code": "request_already_completed",
+      "message": "This request already completed; output is not retained.",
+      "requestID": "f019f2fc-6a66-460e-a377-0c53f194c950"
+    }
+  },
+  {
+    "status": 409,
+    "body": {
+      "code": "request_id_conflict",
+      "message": "The request ID was already used for different content."
+    }
+  },
+  {
+    "status": 429,
+    "body": {
+      "code": "rate_limited",
+      "message": "Wait before sending another request."
+    }
+  },
+  {
+    "status": 503,
+    "body": {
+      "code": "provider_unavailable",
+      "message": "Commit+ AI is temporarily unavailable."
+    }
+  },
+  {
+    "status": 409,
+    "body": {
+      "code": "accounting_pending",
+      "message": "Usage is being reconciled.",
+      "requestID": "f019f2fc-6a66-460e-a377-0c53f194c950"
+    }
+  }
+]

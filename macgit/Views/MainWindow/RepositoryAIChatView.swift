@@ -278,8 +278,8 @@ struct RepositoryAIChatView: View {
                         .buttonStyle(.borderedProminent)
                         .buttonBorderShape(.circle)
                         .controlSize(.large)
-                        .disabled(!controller.canSubmit)
-                        .help("Send")
+                        .disabled(!controller.canSubmit || !providerController.selectedProviderAvailability.isAvailable)
+                        .help(providerController.selectedProviderAvailability.isAvailable ? "Send" : providerController.selectedProviderAvailability.detail)
                 }
             }
         }
@@ -458,6 +458,7 @@ struct RepositoryAIChatView: View {
     }
 
     private func submitDraft() {
+        guard providerController.selectedProviderAvailability.isAvailable else { return }
         guard accessDecision.isAllowed else {
             onRequestAccess()
             return

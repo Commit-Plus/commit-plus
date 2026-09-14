@@ -106,6 +106,7 @@ struct AIProviderMenu: View {
     }
 
     private func menuTitle(for descriptor: AIProviderDescriptor) -> String {
+        if descriptor.billing == .commitPlus { return "\(descriptor.displayName) — Pro" }
         if descriptor.id == .appleIntelligence {
             return "\(descriptor.displayName) — On-device"
         }
@@ -113,6 +114,11 @@ struct AIProviderMenu: View {
     }
 
     private func menuHelp(for descriptor: AIProviderDescriptor) -> String {
+        if descriptor.billing == .commitPlus {
+            return controller.canSelect(descriptor, restrictedProviderAccess: restrictedProviderAccess)
+                ? controller.availability(for: descriptor.id).detail
+                : "Sign in with an active Commit+ Pro subscription to use Commit+ AI."
+        }
         if controller.canSelect(
             descriptor,
             restrictedProviderAccess: restrictedProviderAccess
@@ -123,7 +129,7 @@ struct AIProviderMenu: View {
            !restrictedProviderAccess.isAllowed {
             return "Commit+ Pro required to use this provider."
         }
-        if descriptor.dataProcessing == .cloud,
+        if descriptor.billing == .bringYourOwnKey,
            !controller.isAPIKeyConfigured(for: descriptor.id) {
             return "Configure an API key in Settings → AI Providers."
         }

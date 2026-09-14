@@ -366,6 +366,7 @@
 				CODE_SIGN_ENTITLEMENTS = macgit/macgit.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMMIT_PLUS_DOCS_BASE_URL = "https://2026commitplusinc.mintlify.site/";
+				COMMIT_PLUS_AI_BASE_URL = "";
 				COMMIT_PLUS_WEB_BASE_URL = "http://localhost:3000";
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -426,6 +427,7 @@
 				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_STYLE = Manual;
 				COMMIT_PLUS_DOCS_BASE_URL = "https://2026commitplusinc.mintlify.site/";
+				COMMIT_PLUS_AI_BASE_URL = "";
 				COMMIT_PLUS_WEB_BASE_URL = "https://macgit.vercel.app";
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;

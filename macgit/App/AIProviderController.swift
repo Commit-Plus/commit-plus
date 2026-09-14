@@ -26,6 +26,9 @@ final class AIProviderController: ObservableObject {
     @Published private(set) var isGenerating = false
     @Published private(set) var selectedProviderID: AIProviderID
 
+    let managedUsageController: CommitPlusAIUsageController?
+    private var usageObservation: AnyCancellable?
+    private let managedProviderAccess: () -> Bool
     private let restrictedProviderAccess: () -> FeatureAccessDecision
     private let registry: AIProviderRegistry
     private let snapshotLoader: any CommitChangeSnapshotLoading
@@ -38,12 +41,15 @@ final class AIProviderController: ObservableObject {
     private let selectedProviderDefaultsKey = "ai.commitMessage.selectedProvider"
 
     convenience init(
-        restrictedProviderAccess: @escaping () -> FeatureAccessDecision = { .denied(.requiresPro) }
+        restrictedProviderAccess: @escaping () -> FeatureAccessDecision = { .denied(.requiresPro) },
+        managedProviderAccess: @escaping () -> Bool = { false },
+        managedProvider: CommitPlusAIProvider? = nil,
+        managedUsageController: CommitPlusAIUsageController? = nil
     ) {
         let credentialStore = KeychainAIProviderCredentialStore()
         let modelStore = UserDefaultsAIProviderModelStore()
         self.init(
-            registry: .live(credentialStore: credentialStore, modelStore: modelStore),
+            registry: .live(credentialStore: credentialStore, modelStore: modelStore, managedProvider: managedProvider),
             snapshotLoader: GitStatusService.shared,
             repositoryToolExecutor: GitStatusService.shared,
             repositoryFileContextService: GitStatusService.shared,
@@ -51,7 +57,9 @@ final class AIProviderController: ObservableObject {
             defaults: .standard,
             credentialStore: credentialStore,
             modelStore: modelStore,
-            restrictedProviderAccess: restrictedProviderAccess
+            restrictedProviderAccess: restrictedProviderAccess,
+            managedProviderAccess: managedProviderAccess,
+            managedUsageController: managedUsageController
         )
     }
 
@@ -64,8 +72,12 @@ final class AIProviderController: ObservableObject {
         defaults: UserDefaults,
         credentialStore: any AIProviderCredentialStore = KeychainAIProviderCredentialStore(),
         modelStore: any AIProviderModelStore = UserDefaultsAIProviderModelStore(),
-        restrictedProviderAccess: @escaping () -> FeatureAccessDecision = { .denied(.requiresPro) }
+        restrictedProviderAccess: @escaping () -> FeatureAccessDecision = { .denied(.requiresPro) },
+        managedProviderAccess: @escaping () -> Bool = { false },
+        managedUsageController: CommitPlusAIUsageController? = nil
     ) {
+        self.managedUsageController = managedUsageController
+        self.managedProviderAccess = managedProviderAccess
         self.restrictedProviderAccess = restrictedProviderAccess
         self.registry = registry
         self.snapshotLoader = snapshotLoader
@@ -84,13 +96,23 @@ final class AIProviderController: ObservableObject {
 
         for descriptor in registry.descriptors {
             availabilityByProviderID[descriptor.id] = descriptor.isImplemented ? .checking : .comingSoon
-            if descriptor.dataProcessing == .cloud,
+            if descriptor.billing == .bringYourOwnKey,
                (try? credentialStore.apiKey(for: descriptor.id)) != nil {
                 configuredProviderIDs.insert(descriptor.id)
             }
-            if let customModel = modelStore.customModel(for: descriptor.id) {
+            if descriptor.billing == .bringYourOwnKey,
+               let customModel = modelStore.customModel(for: descriptor.id) {
                 customModelsByProviderID[descriptor.id] = customModel
             }
+        }
+        usageObservation = managedUsageController?.$state.sink { [weak self] state in
+            let availability: AIProviderAvailability
+            switch state {
+            case .idle, .loading: availability = .checking
+            case .loaded(let value): availability = value.availability
+            case .unavailable(let reason): availability = .unavailable(reason)
+            }
+            self?.availabilityByProviderID[.commitPlusAI] = availability
         }
     }
 
@@ -104,17 +126,25 @@ final class AIProviderController: ObservableObject {
     }
 
     var selectedProviderAvailability: AIProviderAvailability {
-        availabilityByProviderID[selectedProviderID] ?? .checking
+        availability(for: selectedProviderID)
     }
 
     func availability(for id: AIProviderID) -> AIProviderAvailability {
-        availabilityByProviderID[id] ?? .checking
+        if registry.provider(for: id)?.descriptor.billing == .commitPlus, !managedProviderAccess() {
+            return .unavailable("Sign in with an active Commit+ Pro subscription to use Commit+ AI.")
+        }
+        return availabilityByProviderID[id] ?? .checking
     }
 
     func selectProvider(_ id: AIProviderID) {
-        guard registry.provider(for: id)?.descriptor.isImplemented == true else { return }
+        guard let descriptor = registry.provider(for: id)?.descriptor,
+              descriptor.isImplemented else { return }
+        if descriptor.billing == .commitPlus {
+            guard managedProviderAccess(), !isGenerating else { return }
+        }
         selectedProviderID = id
         defaults.set(id.rawValue, forKey: selectedProviderDefaultsKey)
+        if descriptor.billing == .commitPlus { Task { await managedUsageController?.refresh(force: true) } }
     }
 
     func isAPIKeyConfigured(for id: AIProviderID) -> Bool {
@@ -125,11 +155,14 @@ final class AIProviderController: ObservableObject {
         _ descriptor: AIProviderDescriptor,
         restrictedProviderAccess: FeatureAccessDecision
     ) -> Bool {
+        if descriptor.billing == .commitPlus {
+            return descriptor.isImplemented && managedProviderAccess() && !isGenerating
+        }
         guard descriptor.isImplemented,
               availability(for: descriptor.id).isAvailable else {
             return false
         }
-        if descriptor.dataProcessing == .cloud,
+        if descriptor.billing == .bringYourOwnKey,
            !isAPIKeyConfigured(for: descriptor.id) {
             return false
         }
@@ -141,18 +174,22 @@ final class AIProviderController: ObservableObject {
     }
 
     func model(for descriptor: AIProviderDescriptor) -> String? {
-        customModelsByProviderID[descriptor.id] ?? descriptor.defaultModel
+        guard descriptor.billing != .commitPlus else { return nil }
+        return customModelsByProviderID[descriptor.id] ?? descriptor.defaultModel
     }
 
     func configurationDrafts() -> [AIProviderConfigurationDraft] {
         descriptors.compactMap { descriptor in
-            guard descriptor.dataProcessing == .cloud,
+            guard descriptor.billing == .bringYourOwnKey,
                   let model = model(for: descriptor) else { return nil }
             return AIProviderConfigurationDraft(id: descriptor.id, model: model)
         }
     }
 
     func saveAPIKey(_ apiKey: String, for id: AIProviderID) throws {
+        guard registry.provider(for: id)?.descriptor.billing == .bringYourOwnKey else {
+            throw CommitMessageGenerationError.providerRequestFailed("This provider does not use a personal API key.")
+        }
         let normalizedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedKey.isEmpty else {
             throw CommitMessageGenerationError.providerRequestFailed("Enter an API key before saving.")
@@ -162,6 +199,9 @@ final class AIProviderController: ObservableObject {
     }
 
     func removeAPIKey(for id: AIProviderID) throws {
+        guard registry.provider(for: id)?.descriptor.billing == .bringYourOwnKey else {
+            throw CommitMessageGenerationError.providerRequestFailed("This provider does not use a personal API key.")
+        }
         try credentialStore.deleteAPIKey(for: id)
         configuredProviderIDs.remove(id)
         if selectedProviderID == id {
@@ -173,6 +213,11 @@ final class AIProviderController: ObservableObject {
         _ drafts: [AIProviderConfigurationDraft],
         restrictedProviderAccess: FeatureAccessDecision
     ) throws {
+        for draft in drafts {
+            guard registry.provider(for: draft.id)?.descriptor.billing == .bringYourOwnKey else {
+                throw CommitMessageGenerationError.providerRequestFailed("Only personal-key providers can be configured here.")
+            }
+        }
         for draft in drafts where !draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             guard let descriptor = registry.provider(for: draft.id)?.descriptor else { continue }
             if descriptor.requiresProToConfigureAPIKey,
@@ -202,6 +247,12 @@ final class AIProviderController: ObservableObject {
     }
 
     private func validateProviderAccess(_ descriptor: AIProviderDescriptor) throws {
+        if descriptor.billing == .commitPlus {
+            guard managedProviderAccess() else {
+                throw AIProviderConfigurationError.unavailableOnCurrentPlan(providerName: descriptor.displayName)
+            }
+            return
+        }
         guard descriptor.requiresProToConfigureAPIKey else { return }
         // A saved key or persisted selection does not grant access after logout/downgrade.
         guard restrictedProviderAccess().isAllowed else {
@@ -210,8 +261,14 @@ final class AIProviderController: ObservableObject {
     }
 
     func refreshAvailability() async {
-        for provider in registry.providers {
-            availabilityByProviderID[provider.descriptor.id] = await provider.availability()
+        await withTaskGroup(of: (AIProviderID, AIProviderAvailability).self) { group in
+            for provider in registry.providers {
+                let id = provider.descriptor.id
+                group.addTask { (id, await provider.availability()) }
+            }
+            for await (id, availability) in group {
+                availabilityByProviderID[id] = availability
+            }
         }
     }
 

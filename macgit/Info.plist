@@ -43,6 +43,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CommitPlusDocsBaseURL</key>
 	<string>$(COMMIT_PLUS_DOCS_BASE_URL)</string>
+	<key>CommitPlusAIBaseURL</key>
+	<string>$(COMMIT_PLUS_AI_BASE_URL)</string>
 	<key>CommitPlusWebBaseURL</key>
 	<string>$(COMMIT_PLUS_WEB_BASE_URL)</string>
 	<key>GitHubOAuthClientID</key>

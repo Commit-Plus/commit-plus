@@ -1,0 +1,13 @@
+{
+  "periodID": "2026-09-13T08:00:00.000Z",
+  "periodStart": "2026-09-13T08:00:00.000Z",
+  "periodEnd": "2026-10-13T08:00:00.000Z",
+  "resetsAt": "2026-10-13T08:00:00.000Z",
+  "allowanceUnits": 500000000,
+  "consumedUnits": 100000,
+  "reservedUnits": 0,
+  "availableUnits": 499900000,
+  "unitsPerCredit": 1000000,
+  "access": "active",
+  "accountingPending": false
+}
