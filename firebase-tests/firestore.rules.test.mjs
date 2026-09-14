@@ -14,7 +14,7 @@ import {
   setDoc,
 } from "firebase/firestore";
 
-const projectId = "macgit-rules-test";
+const projectId = "demo-commit-plus-ai";
 let environment;
 
 before(async () => {
@@ -553,4 +553,19 @@ describe("Firestore ownership rules", () => {
     await assertFails(setDoc(ownDevice, validDeviceRecord({ serial: "secret" })));
     await assertFails(deleteDoc(ownDevice));
   });
+});
+
+
+test("managed AI records and deletion fences deny all client access", async () => {
+  const paths = ["aiState", "aiPeriods", "aiRequests", "aiRequestIDs", "aiOutbox"]
+    .flatMap(collection => [`users/user-a/${collection}/record`, `users/user-a/${collection}/record/nested/record`]);
+  paths.push("accountDeletionFences/user-a", "aiConfig/runtime", "aiJobs/periods");
+  for (const context of [environment.authenticatedContext("user-a"), environment.authenticatedContext("user-b"), environment.unauthenticatedContext()]) {
+    for (const path of paths) {
+      const reference = doc(context.firestore(), path);
+      await assertFails(getDoc(reference));
+      await assertFails(setDoc(reference, { allowanceUnits: 500_000_000 }));
+      await assertFails(deleteDoc(reference));
+    }
+  }
 });

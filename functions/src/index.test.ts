@@ -27,6 +27,7 @@ test("account deletion removes owned documents and auth user", async () => {
   const deletedDocuments: string[] = [];
   const deletedUsers: string[] = [];
   const dependencies: AccountDeletionDependencies = {
+    async beginDeletion() {},
     async deletePolarCustomer(uid, email) {
       deletedPolarCustomers.push({ uid, email });
     },
@@ -47,6 +48,11 @@ test("account deletion removes owned documents and auth user", async () => {
     "users/user-a/settings/app",
   ]);
   assert.deepEqual(deletedCollections.sort(), [
+    "users/user-a/aiOutbox",
+    "users/user-a/aiPeriods",
+    "users/user-a/aiRequestIDs",
+    "users/user-a/aiRequests",
+    "users/user-a/aiState",
     "users/user-a/devices",
     "users/user-a/gitFlowConfigurations",
     "users/user-a/gitProviderAccounts",
@@ -57,6 +63,7 @@ test("account deletion removes owned documents and auth user", async () => {
 
 test("account deletion is idempotent when the auth user is already absent", async () => {
   const dependencies: AccountDeletionDependencies = {
+    async beginDeletion() {},
     async deletePolarCustomer() {},
     async deleteDocument() {},
     async deleteCollection() {},
@@ -70,6 +77,7 @@ test("account deletion is idempotent when the auth user is already absent", asyn
 
 test("unexpected auth deletion failures propagate", async () => {
   const dependencies: AccountDeletionDependencies = {
+    async beginDeletion() {},
     async deletePolarCustomer() {},
     async deleteDocument() {},
     async deleteCollection() {},
@@ -84,6 +92,7 @@ test("unexpected auth deletion failures propagate", async () => {
 test("Polar deletion failure preserves Firebase account data for retry", async () => {
   let firebaseDeletionAttempted = false;
   const dependencies: AccountDeletionDependencies = {
+    async beginDeletion() {},
     async deletePolarCustomer() {
       throw new Error("polar unavailable");
     },
@@ -94,4 +103,19 @@ test("Polar deletion failure preserves Firebase account data for retry", async (
 
   await assert.rejects(deleteAccountData("user-a", dependencies), /polar unavailable/);
   assert.equal(firebaseDeletionAttempted, false);
+});
+
+
+test("deletion fence precedes every external or local deletion and remains after completion", async () => {
+  const calls: string[] = [];
+  const dependencies: AccountDeletionDependencies = {
+    async beginDeletion() { calls.push("fence"); },
+    async deletePolarCustomer() { calls.push("polar"); },
+    async deleteDocument(path) { assert.ok(!path.startsWith("accountDeletionFences/")); calls.push("document"); },
+    async deleteCollection() { calls.push("collection"); },
+    async deleteUser() { calls.push("auth"); },
+  };
+  await deleteAccountData("user-a", dependencies);
+  assert.deepEqual(calls.slice(0, 2), ["fence", "polar"]);
+  assert.equal(calls.at(-1), "auth");
 });

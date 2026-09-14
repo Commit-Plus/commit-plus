@@ -10,6 +10,26 @@
 
 ---
 
+## Completion status — 2026-09-14
+
+**[completed] Implementation and local/sandbox verification.** No production deployment or live model enablement.
+
+| Task | Delivered outcome | Status |
+| --- | --- | --- |
+| 1 | Codebase ownership, records, emulator setup, deployment guide | completed |
+| 2 | Shared billing projection, stable anchor, paid-end/freshness checks and refresh | completed |
+| 3 | Monthly periods, reservations, pricing snapshots and bounded maintenance | completed |
+| 4 | DeepSeek/Groq adapter profiles, streaming/usage/tool validation and bounds | completed |
+| 5 | Firebase-authenticated inference/allowance/status and runtime disable | completed |
+| 6 | Ordered outbox, settlement/corrections, recovery and retention | completed |
+| 7 | Rules coverage, recursive account deletion, builds and 93 passing tests | completed |
+
+Implementation consolidations: provider differences live in one `providers/chat.ts` with reviewed profiles rather than duplicated adapters; settlement/correction live in `credits/service.ts`; `commitPlusAIMaintenance` combines bounded idempotent jobs. Queries use only single-field indexes, documented with their exact shapes. Legacy rules already deny new paths, so tests were extended without broadening rules. Account deletion retains a minimal fence permanently to reject late work.
+
+The billing projection is shared with the website. Its test compiler uses ESNext/Bundler and relative-extension rewriting (`pnpm test:ai`) because the original NodeNext recipe conflicts with the website's CommonJS package boundary and Turbopack. Actual website build and a separate no-emit type check pass. The checklist below is the original execution recipe; this completion table and `landing-page/functions/docs/backend-verification.md` record the delivered outcomes and actual commands rather than claiming the recipe's exact historical commit/test order.
+
+Live Polar lifecycle/replay is verified. No live LLM call was made: production provider credentials/smoke tests remain a Phase 3 gate. Conservative full-context reservations are explicitly documented; old ambiguous Polar sends stop for reconciliation instead of assuming unlimited dedup retention.
+
 ## Prerequisites and execution roots
 
 - Phase 0's signed-event lifecycle must pass in Polar sandbox before implementing the outbox against it. Use its versioned HTTP fixtures without independently redefining them.

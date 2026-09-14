@@ -36,14 +36,24 @@ export const createWebSignInToken = onCall({ invoker: "public" }, async (request
 });
 
 export interface AccountDeletionDependencies {
+  beginDeletion(uid: string): Promise<void>;
   deletePolarCustomer(uid: string, verifiedEmail?: string): Promise<void>;
   deleteDocument(path: string): Promise<void>;
   deleteCollection(path: string): Promise<void>;
   deleteUser(uid: string): Promise<void>;
 }
 
+export async function deleteOwnedCollection(path: string): Promise<void> {
+  const firestore = getFirestore();
+  await firestore.recursiveDelete(firestore.collection(path));
+}
+
 function productionDependencies(): AccountDeletionDependencies {
   return {
+    beginDeletion: async (uid) => {
+      // Retain this minimal tombstone: delayed billing events and workers must stay fenced.
+      await getFirestore().doc(`accountDeletionFences/${uid}`).set({ deleting: true });
+    },
     deletePolarCustomer: async (uid, verifiedEmail) => {
       const apiURL = polarServer.value() === "production"
         ? "https://api.polar.sh"
@@ -102,16 +112,7 @@ function productionDependencies(): AccountDeletionDependencies {
     deleteDocument: async (path) => {
       await getFirestore().doc(path).delete();
     },
-    deleteCollection: async (path) => {
-      const firestore = getFirestore();
-      while (true) {
-        const snapshot = await firestore.collection(path).limit(400).get();
-        if (snapshot.empty) return;
-        const batch = firestore.batch();
-        for (const document of snapshot.docs) batch.delete(document.ref);
-        await batch.commit();
-      }
-    },
+    deleteCollection: deleteOwnedCollection,
     deleteUser: (uid) => getAuth().deleteUser(uid),
   };
 }
@@ -121,9 +122,13 @@ export async function deleteAccountData(
   dependencies: AccountDeletionDependencies = productionDependencies(),
   verifiedEmail?: string,
 ): Promise<void> {
+  await dependencies.beginDeletion(uid);
   await dependencies.deletePolarCustomer(uid, verifiedEmail);
 
   await Promise.all([
+    ...["aiState", "aiPeriods", "aiRequests", "aiRequestIDs", "aiOutbox"].map(
+      (collection) => dependencies.deleteCollection(`users/${uid}/${collection}`),
+    ),
     dependencies.deleteCollection(`users/${uid}/devices`),
     dependencies.deleteCollection(`users/${uid}/gitProviderAccounts`),
     dependencies.deleteCollection(`users/${uid}/repositoryBookmarks`),

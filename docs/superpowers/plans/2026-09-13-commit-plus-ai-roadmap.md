@@ -8,8 +8,8 @@ The written specification was approved on 2026-09-13. Phase 0 implementation sta
 
 | Phase | Status | Scope | Exit evidence |
 | --- | --- | --- | --- |
-| [0: Contract validation](2026-09-13-commit-plus-ai-phase-0-contracts.md) | [in progress] | Polar sandbox lifecycle and adapter/accounting contract | Grant, fractional usage, expiration, duplicate events, and late settlements converge correctly without overage billing |
-| [1: Backend](2026-09-13-commit-plus-ai-phase-1-backend.md) | [in progress] | Firebase inference, periods, reservations, recovery, and Polar outbox in landing-page | Targeted backend and adapter checks pass, including concurrent requests and period rollover |
+| [0: Contract validation](2026-09-13-commit-plus-ai-phase-0-contracts.md) | [completed] | Polar sandbox lifecycle and adapter/accounting contract | Grant, fractional usage, expiration, duplicate events, and late settlements converge correctly without overage billing |
+| [1: Backend](2026-09-13-commit-plus-ai-phase-1-backend.md) | [completed] | Firebase inference, periods, reservations, recovery, and Polar outbox in landing-page | Targeted backend and adapter checks pass, including concurrent requests and period rollover |
 | [2: macOS](2026-09-13-commit-plus-ai-phase-2-macos.md) | [pending] | Commit+ AI integration across macOS selectors and AI workflows | Provider access and allowance presentation reviewed; macOS build succeeds without launching the app |
 | [3: Verification and rollout](2026-09-13-commit-plus-ai-phase-3-verification.md) | [pending] | Cross-system verification and release preparation | Subscription transitions, exhausted allowance, failures, and monthly/annual periods verified; rollout configuration documented |
 
@@ -36,16 +36,24 @@ Phase 0 establishes the exact Polar contract before Phase 1 depends on it. Phase
 | Privacy, account deletion, operational disable | Phase 1 tasks 5–7; Phase 3 tasks 1–3 |
 | Production readiness without launching the Mac app | Phase 3 tasks 2–4 |
 
-## Phase 0 execution evidence
+## Phase 0 initial execution evidence (superseded by final verification below)
 
 - Implemented an isolated Node 22 package in landing-page with fixed-point accounting, strict HTTP contracts, synthetic fixtures and a restartable sandbox experiment.
 - Local unit tests and build pass; live Polar lifecycle is not yet verified.
 - Polar sandbox rejected the synthetic `example.com` customer address with HTTP 422 because the domain does not accept email. Execution awaits a valid sandbox customer email; no customer, product or metered price was created by the rejected requests.
 - Detailed implementation/evidence: `landing-page/functions/docs/polar-sandbox-evidence.md`. Keep this phase in progress until lifecycle and replay pass against Polar.
 
-## Phase 1 foundation checkpoint
+## Phase 1 initial foundation checkpoint (superseded below)
 
 - Implemented monthly credit periods, transactional reservations, local settlement, invocation fencing and stable billing anchors in landing-page.
 - Backend build and 23 unit tests, 7 billing projection tests, website TypeScript check and 5 real emulator integration tests pass.
 - See `landing-page/functions/docs/backend-verification.md` for exact scope and remaining work. HTTP/provider integration, jobs, deletion/rules support and Polar delivery remain unfinished.
 - Phase 0 sandbox lifecycle remains pending; starting independent Phase 1 foundations does not waive that gate.
+
+## Final Phase 0 and Phase 1 verification — 2026-09-14
+
+- Phase 0 live sandbox lifecycle, acknowledgement-loss resume and full event replay passed. A dedicated plus alias of the authorized user email isolated the test from the existing sandbox customer. Final balance is 500,000,000 subunits; no product, price or production billing mutation occurred.
+- Phase 1 implements authenticated HTTP inference/allowance/status, DeepSeek/Groq adapters, monthly credit transactions, ordered Polar delivery, recovery/cleanup, stable entitlement refresh and account-deletion fencing.
+- 93 automated tests pass: 28 backend unit, 23 backend Auth/Firestore emulator, 8 billing projection, 6 legacy function and 28 rules/admin/deletion emulator tests. Backend and website builds pass; website TypeScript check passes separately.
+- Evidence and rollout configuration: `landing-page/functions/docs/backend-verification.md`, `deployment.md`, `polar-sandbox-verified.json`.
+- Production remains disabled and undeployed. Live model smoke tests/production secrets are Phase 3 rollout checks. Phase 2 macOS integration remains pending.

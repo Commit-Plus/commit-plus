@@ -138,3 +138,7 @@ assert.deepEqual(event, {
 Implemented in `landing-page/functions` on `codex/commit-plus-ai-contracts`. The arithmetic regression was added before implementation; the first compile also exposed a TypeScript 6 `types: ["node"]` bootstrap requirement, which was corrected. A later missing-contract-module red test was verified before the parser implementation. Node 22.23.2 local verification passes.
 
 The live experiment requires `POLAR_SANDBOX_CUSTOMER_EMAIL`; example.com was rejected by Polar email validation before any resource creation. A valid email was requested from the user. Grant, expiration, lost-acknowledgement resume, and full replay remain unchecked until live evidence exists. Provider readiness is documented with both candidates disabled; no provider key or LLM smoke request is part of the completed evidence.
+
+## Final verification — 2026-09-14
+
+**[completed]** The signed event lifecycle, simulated lost acknowledgement, resume and complete replay passed against Polar sandbox. Final balance: 500,000,000 subunits. Redacted numeric evidence is committed in `landing-page/functions/docs/polar-sandbox-verified.json`. This resolves the earlier missing-email gate; live model smoke testing remains a rollout prerequisite.
