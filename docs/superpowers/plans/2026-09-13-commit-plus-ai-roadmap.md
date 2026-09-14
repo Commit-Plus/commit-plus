@@ -9,7 +9,7 @@ The written specification was approved on 2026-09-13. Phase 0 implementation sta
 | Phase | Status | Scope | Exit evidence |
 | --- | --- | --- | --- |
 | [0: Contract validation](2026-09-13-commit-plus-ai-phase-0-contracts.md) | [in progress] | Polar sandbox lifecycle and adapter/accounting contract | Grant, fractional usage, expiration, duplicate events, and late settlements converge correctly without overage billing |
-| [1: Backend](2026-09-13-commit-plus-ai-phase-1-backend.md) | [pending] | Firebase inference, periods, reservations, recovery, and Polar outbox in landing-page | Targeted backend and adapter checks pass, including concurrent requests and period rollover |
+| [1: Backend](2026-09-13-commit-plus-ai-phase-1-backend.md) | [in progress] | Firebase inference, periods, reservations, recovery, and Polar outbox in landing-page | Targeted backend and adapter checks pass, including concurrent requests and period rollover |
 | [2: macOS](2026-09-13-commit-plus-ai-phase-2-macos.md) | [pending] | Commit+ AI integration across macOS selectors and AI workflows | Provider access and allowance presentation reviewed; macOS build succeeds without launching the app |
 | [3: Verification and rollout](2026-09-13-commit-plus-ai-phase-3-verification.md) | [pending] | Cross-system verification and release preparation | Subscription transitions, exhausted allowance, failures, and monthly/annual periods verified; rollout configuration documented |
 
@@ -17,7 +17,7 @@ Phase 0 establishes the exact Polar contract before Phase 1 depends on it. Phase
 
 ## Current repository constraints
 
-- The user switched both repositories to latest clean `main`; Phase 0 now runs on `codex/commit-plus-ai-contracts` in both repositories.
+- On 2026-09-14, Phase 0 was fast-forward merged locally into clean `main` in both repositories, as authorized. Phase 1 branches are `codex/commit-plus-ai-backend` (landing-page) and `codex/commit-plus-ai-backend-support` (macgit). No push or deployment occurred.
 - Before creating future phase branches, follow macgit's AGENTS.md: each relevant repository must be on clean `main`. Integrate the prior phase through the agreed workflow before creating its successor.
 - Existing Firebase functions `createWebSignInToken` and `deleteAccount` belong to macgit. New landing-page functions use the distinct `commit-plus-ai` codebase; preserve existing function names and ownership.
 - Firestore rules are maintained in macgit, not landing-page. Use server-only AI collections under `users/{uid}` so existing account deletion can remove them, and verify that deletion recursively removes nested records.
@@ -42,3 +42,10 @@ Phase 0 establishes the exact Polar contract before Phase 1 depends on it. Phase
 - Local unit tests and build pass; live Polar lifecycle is not yet verified.
 - Polar sandbox rejected the synthetic `example.com` customer address with HTTP 422 because the domain does not accept email. Execution awaits a valid sandbox customer email; no customer, product or metered price was created by the rejected requests.
 - Detailed implementation/evidence: `landing-page/functions/docs/polar-sandbox-evidence.md`. Keep this phase in progress until lifecycle and replay pass against Polar.
+
+## Phase 1 foundation checkpoint
+
+- Implemented monthly credit periods, transactional reservations, local settlement, invocation fencing and stable billing anchors in landing-page.
+- Backend build and 23 unit tests, 7 billing projection tests, website TypeScript check and 5 real emulator integration tests pass.
+- See `landing-page/functions/docs/backend-verification.md` for exact scope and remaining work. HTTP/provider integration, jobs, deletion/rules support and Polar delivery remain unfinished.
+- Phase 0 sandbox lifecycle remains pending; starting independent Phase 1 foundations does not waive that gate.
