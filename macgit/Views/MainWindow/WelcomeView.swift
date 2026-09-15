@@ -30,17 +30,20 @@ struct WelcomeView: View {
     let onRepositoryOpened: (URL) -> Void
 
     var body: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 0) {
+        PersistentHSplit(
+            autosaveName: "WelcomeDashboardMainSplit",
+            left: {
                 RepoPickerView(isDashboardSidebar: true, onRepositoryOpened: onRepositoryOpened)
-                    .frame(width: min(420, max(340, geometry.size.width * 0.32)))
-                Divider()
+                    .frame(minWidth: 340, idealWidth: 420, maxWidth: 600)
+            },
+            right: {
                 WelcomeDashboardContent(
                     model: model, accountDisplayName: accountDisplayName, repositoryCount: store.repositories.count,
                     onRefresh: refreshImmediately, onReviewAttention: reviewAttention, onRepositoryOpened: openRepository
                 )
+                .frame(minWidth: 560)
             }
-        }
+        )
         .frame(minWidth: 900, minHeight: 620)
         .alert("Repository Unavailable", isPresented: $showingUnavailableRepository) {
             Button("OK", role: .cancel) {}

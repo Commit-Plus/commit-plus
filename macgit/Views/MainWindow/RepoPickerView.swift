@@ -37,15 +37,6 @@ func determineRepoIconName(from remoteURLString: String) -> String {
     }
 }
 
-struct RepoPickerRowState {
-    var currentBranch: String?
-    var commitCount: Int = 0
-    var pullCount: Int = 0
-    var pushCount: Int = 0
-    var isMissing: Bool
-    var isLoading: Bool
-}
-
 enum RepoPickerSortOption: String, CaseIterable, Identifiable {
     case lastOpened = "Last Opened"
     case name = "Name"
@@ -609,9 +600,9 @@ struct RepoPickerView: View {
             loadingRepoIcons.remove(repo.url)
             rowStates[repo.url] = RepoPickerRowState(
                 currentBranch: nil,
-                commitCount: 0,
-                pullCount: 0,
-                pushCount: 0,
+                changedFileCount: nil,
+                behindCount: nil,
+                aheadCount: nil,
                 isMissing: true,
                 isLoading: false
             )
@@ -641,24 +632,34 @@ struct RepoPickerView: View {
                 .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .accessibilityLabel(loadingRepoIcons.contains(repo.url) ? "Detecting repository provider" : "Repository provider")
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(repo.name)
-                    .font(.body.weight(.medium))
-                    .lineLimit(1)
-                Text(repo.url.path)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(repo.name)
+                        .font(.body.weight(.medium))
+                        .lineLimit(1)
+                        .layoutPriority(1)
 
-            Spacer()
+                    rowStatusView(for: repo)
 
-            VStack(alignment: .trailing, spacing: 6) {
-                if !isDashboardSidebar { rowStatusView(for: repo) }
-                Text(timeAgoString(from: repo.lastOpened))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+
+                HStack(spacing: 8) {
+                    Text(repo.url.path)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+
+                    Spacer(minLength: 0)
+
+                    Text(timeAgoString(from: repo.lastOpened))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 4)
@@ -669,10 +670,7 @@ struct RepoPickerView: View {
     private func rowStatusView(for repo: RecentRepository) -> some View {
         let rowState = rowStates[repo.url]
 
-        if rowState?.isLoading == true {
-            ProgressView()
-                .controlSize(.small)
-        } else if rowState?.isMissing == true {
+        if rowState?.isMissing == true {
             Text("Repository moved or deleted")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.white)
@@ -684,15 +682,30 @@ struct RepoPickerView: View {
                 if let branch = rowState.currentBranch, !branch.isEmpty {
                     Label(branch, systemImage: "arrow.triangle.branch")
                         .font(.caption.weight(.medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(.quaternary, in: Capsule())
+                        .frame(maxWidth: isDashboardSidebar ? 104 : 160)
+                        .help(branch)
                 }
 
-                RepoPickerCountBadge(icon: "checkmark", label: "Commit", count: rowState.commitCount, tint: .yellow)
-                RepoPickerCountBadge(icon: "arrow.down.to.line", label: "Pull", count: rowState.pullCount, tint: .purple)
-                RepoPickerCountBadge(icon: "arrow.up.to.line", label: "Push", count: rowState.pushCount, tint: .green)
+                if let changedFileCount = rowState.changedFileCount {
+                    RepoPickerCountBadge(icon: "pencil", label: "Changed files", count: changedFileCount, tint: .yellow)
+                }
+                if let behindCount = rowState.behindCount {
+                    RepoPickerCountBadge(icon: "arrow.down.to.line", label: "Behind", count: behindCount, tint: .purple)
+                }
+                if let aheadCount = rowState.aheadCount {
+                    RepoPickerCountBadge(icon: "arrow.up.to.line", label: "Ahead", count: aheadCount, tint: .green)
+                }
+                if rowState.isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                }
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
     }
 
@@ -701,9 +714,9 @@ struct RepoPickerView: View {
             loadingRepoIcons.insert(repo.url)
             rowStates[repo.url] = RepoPickerRowState(
                 currentBranch: rowStates[repo.url]?.currentBranch,
-                commitCount: 0,
-                pullCount: 0,
-                pushCount: 0,
+                changedFileCount: nil,
+                behindCount: nil,
+                aheadCount: nil,
                 isMissing: false,
                 isLoading: true
             )
@@ -718,9 +731,9 @@ struct RepoPickerView: View {
                 loadingRepoIcons.remove(repo.url)
                 rowStates[repo.url] = RepoPickerRowState(
                     currentBranch: nil,
-                    commitCount: 0,
-                    pullCount: 0,
-                    pushCount: 0,
+                    changedFileCount: nil,
+                    behindCount: nil,
+                    aheadCount: nil,
                     isMissing: true,
                     isLoading: false
                 )
@@ -728,35 +741,51 @@ struct RepoPickerView: View {
             return
         }
 
-        async let branch = GitStatusService.shared.currentBranch(in: repo.url)
-        async let remoteURLString = GitStatusService.shared.remoteURL(remote: "origin", in: repo.url)
-        async let commitCount = GitStatusService.shared.uncommittedChangeCount(in: repo.url)
-        async let aheadBehind = GitStatusService.shared.aheadBehindCount(in: repo.url)
-        let remoteURL = await remoteURLString
+        await withTaskGroup(of: RepoPickerRowPresentationUpdate.self) { group in
+            group.addTask {
+                .branch(await GitStatusService.shared.currentBranch(in: repo.url))
+            }
+            group.addTask {
+                .remoteURL(await GitStatusService.shared.remoteURL(remote: "origin", in: repo.url))
+            }
+            group.addTask {
+                .changedFiles(await GitStatusService.shared.uncommittedChangeCount(in: repo.url))
+            }
+            group.addTask {
+                let counts = await GitStatusService.shared.aheadBehindCount(in: repo.url)
+                return .aheadBehind(ahead: counts.ahead, behind: counts.behind)
+            }
 
-        await MainActor.run {
-            repoIcons[repo.url] = remoteURL.isEmpty ? "code-branch" : determineRepoIconName(from: remoteURL)
-            loadingRepoIcons.remove(repo.url)
-            if let bookmark = bookmarkController.bookmark(remoteURLString: remoteURL) {
-                bookmarkController.link(bookmark, to: repo.url)
+            for await update in group {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    return
+                }
+
+                await MainActor.run {
+                    switch update {
+                    case .branch(let branch):
+                        rowStates[repo.url]?.currentBranch = branch
+                    case .changedFiles(let count):
+                        rowStates[repo.url]?.changedFileCount = count
+                    case .aheadBehind(let ahead, let behind):
+                        rowStates[repo.url]?.aheadCount = ahead
+                        rowStates[repo.url]?.behindCount = behind
+                    case .remoteURL(let remoteURL):
+                        repoIcons[repo.url] = remoteURL.isEmpty ? "code-branch" : determineRepoIconName(from: remoteURL)
+                        loadingRepoIcons.remove(repo.url)
+                        if let bookmark = bookmarkController.bookmark(remoteURLString: remoteURL) {
+                            bookmarkController.link(bookmark, to: repo.url)
+                        }
+                    }
+                }
             }
         }
 
-        let (currentBranch, uncommittedCount, syncCounts) = await (
-            branch,
-            commitCount,
-            aheadBehind
-        )
+        guard !Task.isCancelled else { return }
 
         await MainActor.run {
-            rowStates[repo.url] = RepoPickerRowState(
-                currentBranch: currentBranch,
-                commitCount: uncommittedCount,
-                pullCount: syncCounts.behind,
-                pushCount: syncCounts.ahead,
-                isMissing: false,
-                isLoading: false
-            )
+            rowStates[repo.url]?.isLoading = false
         }
     }
 
@@ -916,6 +945,7 @@ private struct RepoPickerCountBadge: View {
                     .background(tint.opacity(0.2), in: Capsule())
                     .help("\(label): \(count)")
                     .accessibilityLabel("\(label): \(count)")
+                    .fixedSize()
             }
         }
     }
