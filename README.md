@@ -12,8 +12,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Commit-Plus/macgit/releases/latest"><img src="https://img.shields.io/github/v/release/Commit-Plus/macgit?label=release" alt="Latest release"></a>
-  <a href="https://github.com/Commit-Plus/macgit/releases/latest"><img src="https://img.shields.io/badge/Swift-5.0-orange" alt="Swift"></a>
+  <a href="https://github.com/Commit-Plus/commit-plus/releases/latest"><img src="https://img.shields.io/github/v/release/Commit-Plus/commit-plus?label=release" alt="Latest release"></a>
+  <a href="https://github.com/Commit-Plus/commit-plus/releases/latest"><img src="https://img.shields.io/badge/Swift-5.0-orange" alt="Swift"></a>
   <a href="https://img.shields.io/badge/macOS-26.2%2B-blue"><img src="https://img.shields.io/badge/macOS-26.2%2B-blue" alt="macOS"></a>
   <a href="https://www.gnu.org/licenses/agpl-3.0"><img src="https://img.shields.io/badge/License-AGPL_v3-blue.svg" alt="License: AGPL v3"></a>
 </p>
