@@ -12,6 +12,8 @@
 
 ## Roots, prerequisites and phase status
 
+Execution started on 2026-09-14. Existing Phase 1 lifecycle fixtures and deployment documentation are extended in place where this plan originally says to create them. This avoids duplicate sources of truth while preserving every Phase 3 evidence requirement.
+
 Backend root: `/Users/thanhtran/Project/Commit+/landing-page`; branch `codex/commit-plus-ai-verification` from clean `main` after Phase 1 integration. macOS documentation/necessary fixes use `codex/commit-plus-ai-release-prep` from clean `main` after Phase 2 integration. Follow the repository branch prerequisite before creating either.
 
 Inputs are Phase 0's live evidence and frozen contract, Phase 1's emulator evidence, and Phase 2's macOS build result. Missing inputs are explicit incomplete checks, not assumed successes. Production deployments, billing changes and real-provider spending use the execution authorization available at that time; prepare the concrete rollout first before requesting any missing approval.
