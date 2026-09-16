@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate GoogleService-Info.plist
+        run: |
+          cat > macgit/GoogleService-Info.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>API_KEY</key>
+            <string>${{ vars.FIREBASE_API_KEY }}</string>
+            <key>BUNDLE_ID</key>
+            <string>dev.thanhtran.macgit</string>
+            <key>CLIENT_ID</key>
+            <string>${{ vars.FIREBASE_CLIENT_ID }}</string>
+            <key>GOOGLE_APP_ID</key>
+            <string>${{ vars.FIREBASE_GOOGLE_APP_ID }}</string>
+            <key>GCM_SENDER_ID</key>
+            <string>${{ vars.FIREBASE_GCM_SENDER_ID }}</string>
+            <key>PROJECT_ID</key>
+            <string>${{ vars.FIREBASE_PROJECT_ID }}</string>
+            <key>REVERSED_CLIENT_ID</key>
+            <string>${{ vars.FIREBASE_REVERSED_CLIENT_ID }}</string>
+            <key>STORAGE_BUCKET</key>
+            <string>${{ vars.FIREBASE_STORAGE_BUCKET }}</string>
+            <key>PLIST_VERSION</key>
+            <string>1</string>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Resolve dependencies
+        run: |
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project macgit.xcodeproj \
+            -scheme macgit
+
+      - name: Build
+        run: |
+          xcodebuild \
+            -project macgit.xcodeproj \
+            -scheme macgit \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Test
+        run: |
+          xcodebuild \
+            -project macgit.xcodeproj \
+            -scheme macgit \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            test
