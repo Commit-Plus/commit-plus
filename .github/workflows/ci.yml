@@ -78,4 +78,5 @@ jobs:
             -scheme macgit \
             -destination 'platform=macOS' \
             CODE_SIGNING_ALLOWED=NO \
+            -parallel-testing-enabled NO \
             test

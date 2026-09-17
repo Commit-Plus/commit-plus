@@ -40,7 +40,7 @@ final class RepositoryAIPullRequestContextServiceTests: XCTestCase {
         XCTAssertEqual(provider.detailNumber, 12)
         XCTAssertEqual(provider.changesNumber, 12)
         XCTAssertEqual(result.toolName, "pull_request_context")
-        XCTAssertTrue(result.content.contains("PR #12"))
+        XCTAssertTrue(result.content.contains("Number: #12"))
         XCTAssertFalse(result.content.contains("secret-token"))
         XCTAssertFalse(result.content.contains("refresh-secret"))
         XCTAssertFalse(result.content.contains("Authorization"))

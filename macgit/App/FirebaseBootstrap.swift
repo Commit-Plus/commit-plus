@@ -25,6 +25,16 @@ import FirebaseCore
 import Foundation
 
 enum FirebaseBootstrap {
+    /// Unit tests launch the real app as their host. Anything that opens the
+    /// shared Firestore LevelDB cache makes concurrent/parallel test hosts abort
+    /// at launch with "Failed to open DB". Production stays unchanged; tests only
+    /// skip the cloud-backed stores. `FirebaseApp` is still configured so
+    /// Auth-backed members stay constructible.
+    static var isRunningUnitTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || NSClassFromString("XCTestCase") != nil
+    }
+
     static func configure(bundle: Bundle = .main) -> FirebaseBootstrapStatus {
         if FirebaseApp.app() != nil {
             return .configured

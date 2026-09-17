@@ -113,7 +113,7 @@ final class AICommitMessageTests: XCTestCase {
             ids,
             [.appleIntelligence, .openAI, .googleGemini, .anthropic, .deepSeek, .openRouter]
         )
-        XCTAssertEqual(registry.provider(for: .appleIntelligence)?.descriptor.billing, .none)
+        XCTAssertEqual(registry.provider(for: .appleIntelligence)?.descriptor.billing, AIProviderBilling.none)
         for id in [AIProviderID.openAI, .anthropic, .googleGemini, .deepSeek, .openRouter] {
             let provider = registry.provider(for: id)
             let availability = await provider?.availability()
