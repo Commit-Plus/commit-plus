@@ -55,7 +55,7 @@ enum CommitPlusWebConfiguration {
     }
 
     nonisolated static func reportIssueURL() throws -> URL {
-        guard let url = URL(string: "https://github.com/Commit-Plus/macgit/issues/new") else {
+        guard let url = URL(string: "https://github.com/Commit-Plus/commit-plus/issues/new") else {
             throw WebAccountSessionError.invalidBaseURL
         }
         return url

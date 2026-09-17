@@ -282,7 +282,7 @@ packageReferences = (
 packageProductDependencies = (
     /* Sparkle */
 );
-INFOPLIST_KEY_SUFeedURL = "https://tranthanh98.github.io/macgit/appcast.xml";
+INFOPLIST_KEY_SUFeedURL = "https://commit-plus.github.io/commit-plus/appcast.xml";
 INFOPLIST_KEY_SUPublicEDKey = "$(SPARKLE_PUBLIC_ED_KEY)";
 INFOPLIST_KEY_SUAutomaticallyUpdate = NO;
 INFOPLIST_KEY_SUEnableAutomaticChecks = YES;

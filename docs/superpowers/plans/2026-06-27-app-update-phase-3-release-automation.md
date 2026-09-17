@@ -16,7 +16,7 @@
 
 This phase assumes the production feed URL is intentionally fixed at:
 
-`https://tranthanh98.github.io/macgit/appcast.xml`
+`https://commit-plus.github.io/commit-plus/appcast.xml`
 
 `SUFeedURL` in the app target, `SPARKLE_FEED_URL` in GitHub Actions, and the published Pages artifact must all stay aligned with that value.
 
@@ -46,7 +46,7 @@ Document and use these exact names:
   - `SPARKLE_PUBLIC_ED_KEY`
   - `SPARKLE_FEED_URL`
 
-`SPARKLE_FEED_URL` must equal `https://tranthanh98.github.io/macgit/appcast.xml`.
+`SPARKLE_FEED_URL` must equal `https://commit-plus.github.io/commit-plus/appcast.xml`.
 
 ## Task 1: Add Release Script Scaffolding And Secrets Documentation
 

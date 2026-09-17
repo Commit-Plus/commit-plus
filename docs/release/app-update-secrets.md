@@ -13,7 +13,7 @@
 ## GitHub Actions variables
 
 - `SPARKLE_PUBLIC_ED_KEY`: public Sparkle Ed25519 key embedded in the app bundle
-- `SPARKLE_FEED_URL`: `https://commit-plus.github.io/macgit/appcast.xml`
+- `SPARKLE_FEED_URL`: `https://commit-plus.github.io/commit-plus/appcast.xml`
 
 ## One-time setup notes
 

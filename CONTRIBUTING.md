@@ -22,7 +22,7 @@ Be respectful and constructive in all interactions. We are committed to providin
 
 ### Reporting Bugs
 
-- Check [existing issues](https://github.com/Commit-Plus/macgit/issues) first to avoid duplicates.
+- Check [existing issues](https://github.com/Commit-Plus/commit-plus/issues) first to avoid duplicates.
 - Open a new issue with a clear title and description.
 - Include your macOS version, Commit+ version, and steps to reproduce.
 
@@ -55,7 +55,7 @@ Please **do not** report security vulnerabilities through public issues. See [SE
 ### Clone the Repository
 
 ```bash
-git clone https://github.com/Commit-Plus/macgit.git
+git clone https://github.com/Commit-Plus/commit-plus.git
 cd macgit
 ```
 

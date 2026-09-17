@@ -37,7 +37,7 @@ Please include the following information in your report:
 
 ### Scope
 
-This security policy applies to the Commit+ application ([Commit-Plus/macgit](https://github.com/Commit-Plus/macgit)). The following are **out of scope**:
+This security policy applies to the Commit+ application ([Commit-Plus/commit-plus](https://github.com/Commit-Plus/commit-plus)). The following are **out of scope**:
 
 - Vulnerabilities in the system Git executable itself
 - Security issues in third-party dependencies (please report these to the respective maintainers)
@@ -45,7 +45,7 @@ This security policy applies to the Commit+ application ([Commit-Plus/macgit](ht
 
 ## Security Best Practices
 
-- Always download Commit+ from [official releases](https://github.com/Commit-Plus/macgit/releases/latest) or build from source.
+- Always download Commit+ from [official releases](https://github.com/Commit-Plus/commit-plus/releases/latest) or build from source.
 - Keep your macOS and system Git up to date.
 - Be cautious when opening untrusted repositories, as they may contain malicious configuration files (e.g., `.gitconfig`, hooks).
 

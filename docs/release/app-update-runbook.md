@@ -77,7 +77,7 @@ spctl --assess --type open --context context:primary-signature --verbose /path/t
 6. Confirm the published appcast is reachable:
 
 ```bash
-curl --fail --silent --show-error --location https://commit-plus.github.io/macgit/appcast.xml --output /dev/null
+curl --fail --silent --show-error --location https://commit-plus.github.io/commit-plus/appcast.xml --output /dev/null
 ```
 
 7. Inspect the appcast entry and confirm it references the just-published ZIP asset, not the DMG.
