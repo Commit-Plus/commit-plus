@@ -120,6 +120,16 @@ extension GitStatusService {
         }
         let expected = restoring ? plan.localHash : plan.remoteHash
         let target = restoring ? plan.remoteHash : plan.localHash
+        // `--force-with-lease` is skipped by Git when the push is a no-op, so
+        // verify the reviewed remote tip explicitly before replacing anything.
+        let currentRemoteTip = try await remoteBranchTip(
+            plan.remoteBranch, at: plan.remoteURL, in: repositoryURL, injection: injection
+        )
+        guard currentRemoteTip == expected else {
+            throw GitError.commandFailed(
+                "The remote branch changed since Force Push was reviewed. Review it again before replacing it."
+            )
+        }
         _ = try await forcePushCommit(target, in: repositoryURL)
         do {
             // A URL and one full refspec avoid remote.push/mirror config expanding the scope.
@@ -143,5 +153,19 @@ extension GitStatusService {
     private func forcePushCommit(_ ref: String, in repositoryURL: URL) async throws -> String {
         try await runGit(arguments: ["rev-parse", "--verify", "\(ref)^{commit}"], in: repositoryURL)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func remoteBranchTip(
+        _ branch: String,
+        at url: String,
+        in repositoryURL: URL,
+        injection: GitCredentialInjection?
+    ) async throws -> String? {
+        let output = try await runRemoteGit(
+            arguments: ["ls-remote", "--heads", "--", url, "refs/heads/\(branch)"],
+            in: repositoryURL, injection: injection
+        )
+        return output.split(whereSeparator: \.isNewline).first?
+            .split(whereSeparator: \.isWhitespace).first.map(String.init)
     }
 }

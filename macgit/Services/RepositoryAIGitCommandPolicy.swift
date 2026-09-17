@@ -41,6 +41,12 @@ nonisolated enum RepositoryAIGitCommandPolicy {
         "verify-pack", "whatchanged",
     ]
 
+    /// Commands that can render a diff, and therefore must not invoke an
+    /// external diff driver or textconv filter.
+    private static let diffProducingBuiltins: Set<String> = [
+        "diff", "diff-files", "diff-index", "diff-tree", "log", "show", "whatchanged",
+    ]
+
     static func validatedArguments(_ arguments: [String]) throws -> [String] {
         guard let command = arguments.first?.trimmingCharacters(in: .whitespacesAndNewlines),
               !command.isEmpty else {
@@ -57,7 +63,7 @@ nonisolated enum RepositoryAIGitCommandPolicy {
             )
         }
 
-        let builtinSafetyArguments = command.hasPrefix("diff")
+        let builtinSafetyArguments = diffProducingBuiltins.contains(command)
             ? ["--no-ext-diff", "--no-textconv"]
             : []
         return safeGlobalArguments + [command] + builtinSafetyArguments + commandArguments

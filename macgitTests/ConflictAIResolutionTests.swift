@@ -28,7 +28,7 @@ final class ConflictAIResolutionTests: XCTestCase {
                 {
                   "sectionIndex": 1,
                   "action": "replace",
-                  "replacementText": "merged()\n",
+                  "replacementText": "merged()\\n",
                   "reason": "Combines both behaviors",
                   "question": "",
                   "options": []

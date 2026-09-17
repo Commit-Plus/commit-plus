@@ -102,7 +102,7 @@ final class RepositoryBookmarkTests: XCTestCase {
             )
         )
         let bookmark = RepositoryBookmark(identity: identity)
-        let localURL = URL(fileURLWithPath: "/Users/test/Project/codex")
+        let localURL = URL(fileURLWithPath: "/Users/test/Project/codex", isDirectory: true)
 
         controller.link(bookmark, to: localURL)
 

@@ -216,6 +216,10 @@ nonisolated enum RepositoryAIAnswerDecoder {
         let content: String
         if let suffixRange = body.range(of: #"\"\s*\}\s*$"#, options: [.regularExpression, .backwards]) {
             content = String(body[..<suffixRange.lowerBound])
+        } else if body.hasSuffix("\"") {
+            // The provider hit its output cap before closing the JSON wrapper, so
+            // the text value still carries its closing quote.
+            content = String(body.dropLast())
         } else {
             // A provider can reach its output cap before the JSON wrapper is
             // closed. The text value remains safe to display as prose.

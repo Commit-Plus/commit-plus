@@ -38,34 +38,37 @@ struct macgitApp: App {
     init() {
         NSWindow.allowsAutomaticWindowTabbing = true
         let firebaseStatus = FirebaseBootstrap.configure()
+        // Unit-test hosts must not open Firestore: the shared LevelDB cache
+        // aborts when several test hosts (or a running app) use it at once.
+        let cloudFeaturesEnabled = firebaseStatus == .configured && !FirebaseBootstrap.isRunningUnitTests
         let appState = AppState.shared
         _appState = StateObject(wrappedValue: appState)
         let accountController = AccountSessionController(
             auth: FirebaseAuthService(),
             bootstrapStatus: firebaseStatus,
-            entitlementProvider: firebaseStatus == .configured
+            entitlementProvider: cloudFeaturesEnabled
                 ? FirestoreEntitlementStore()
                 : nil,
             entitlementCache: UserDefaultsEntitlementCache(),
-            webAccountSessionProvider: firebaseStatus == .configured
+            webAccountSessionProvider: cloudFeaturesEnabled
                 ? FirebaseWebAccountSessionService()
                 : nil,
             openWebURL: NSWorkspace.shared.open,
             appState: appState,
-            settingsStore: firebaseStatus == .configured
+            settingsStore: cloudFeaturesEnabled
                 ? FirestoreSettingsStore()
                 : nil,
-            deviceIdentity: firebaseStatus == .configured
+            deviceIdentity: cloudFeaturesEnabled
                 ? CommitPlusDeviceIdentityProvider()
                 : nil,
-            deviceAccessProvider: firebaseStatus == .configured
+            deviceAccessProvider: cloudFeaturesEnabled
                 ? FirestoreDeviceAccessService()
                 : nil,
             deviceSessionCache: UserDefaultsAccountDeviceSessionCache()
         )
         _accountController = StateObject(wrappedValue: accountController)
         let featureAccessController = FeatureAccessController(
-            provider: firebaseStatus == .configured
+            provider: cloudFeaturesEnabled
                 ? FirestoreFeaturePolicyStore()
                 : nil,
             cache: UserDefaultsFeaturePolicyCache()
@@ -73,7 +76,7 @@ struct macgitApp: App {
         _featureAccessController = StateObject(wrappedValue: featureAccessController)
         let providerConfiguration = GitHubProviderAuthConfiguration.appConfiguration()
         let gitLabProviderConfiguration = GitLabProviderAuthConfiguration.appConfiguration()
-        let providerCloudStore: GitProviderAccountCloudStore? = firebaseStatus == .configured
+        let providerCloudStore: GitProviderAccountCloudStore? = cloudFeaturesEnabled
             ? FirestoreGitProviderAccountStore()
             : nil
         let providerStore = LocalFirstGitProviderAccountStore(cloudStore: providerCloudStore)
@@ -131,14 +134,14 @@ struct macgitApp: App {
         )
         _repositoryBookmarkController = StateObject(
             wrappedValue: RepositoryBookmarkController(
-                cloudStore: firebaseStatus == .configured
+                cloudStore: cloudFeaturesEnabled
                     ? FirestoreRepositoryBookmarkStore()
                     : nil
             )
         )
         _gitFlowConfigurationSyncController = StateObject(
             wrappedValue: GitFlowConfigurationSyncController(
-                cloudStore: firebaseStatus == .configured
+                cloudStore: cloudFeaturesEnabled
                     ? FirestoreGitFlowConfigurationStore()
                     : nil
             )
