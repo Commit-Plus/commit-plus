@@ -37,4 +37,12 @@ extension SidebarView {
             expandedTagFolders.insert(path)
         }
     }
+
+    func toggleSubmoduleFolder(_ path: String) {
+        if expandedSubmoduleFolders.contains(path) {
+            expandedSubmoduleFolders.remove(path)
+        } else {
+            expandedSubmoduleFolders.insert(path)
+        }
+    }
 }

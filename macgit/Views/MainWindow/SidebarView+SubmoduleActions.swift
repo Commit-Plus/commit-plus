@@ -82,10 +82,23 @@ extension SidebarView {
         do {
             let entries = try await GitStatusService.shared.submodules(in: repositoryURL)
             guard activeSubmoduleLoadID == loadID else { return }
+            let hadLoadedSubmodules = hasLoadedSubmodules
+            let allFolders = collectFolderPaths(
+                from: SidebarTreeBuilder.buildTree(from: entries.map(\.path))
+            )
             submoduleEntries = entries
             hasLoadedSubmodules = true
             isLoadingSubmodules = false
             activeSubmoduleLoadID = nil
+            // Refreshes preserve the user's tree state while dropping removed
+            // folders. The selected submodule is revealed only on initial load.
+            expandedSubmoduleFolders = expandedSubmoduleFolders.intersection(allFolders)
+            if !hadLoadedSubmodules, case .submodule(let path) = selection {
+                expandedSubmoduleFolders.formUnion(
+                    SidebarTreeBuilder.expandedFolderPaths(revealing: path)
+                        .intersection(allFolders)
+                )
+            }
             if case .submodule(let path) = selection,
                !entries.contains(where: { $0.path == path }) {
                 selection = nil

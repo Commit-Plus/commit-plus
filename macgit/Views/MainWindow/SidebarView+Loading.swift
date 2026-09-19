@@ -130,6 +130,17 @@ extension SidebarView {
         SidebarTreeBuilder.visibleRows(from: tagNodes, expandedFolders: expandedTagFolders)
     }
 
+    var visibleSubmoduleRows: [BranchRowItem] {
+        SidebarTreeBuilder.visibleRows(
+            from: SidebarTreeBuilder.buildTree(from: submoduleEntries.map(\.path)),
+            expandedFolders: expandedSubmoduleFolders
+        )
+    }
+
+    var submoduleEntriesByPath: [String: GitSubmoduleEntry] {
+        Dictionary(uniqueKeysWithValues: submoduleEntries.map { ($0.path, $0) })
+    }
+
     var visibleRemoteRows: [BranchRowItem] {
         SidebarTreeBuilder.visibleRows(from: remoteNodes, expandedFolders: expandedRemoteFolders)
     }
@@ -319,7 +330,7 @@ extension SidebarView {
         }
     }
 
-    private func collectFolderPaths(from nodes: [BranchNode]) -> Set<String> {
+    func collectFolderPaths(from nodes: [BranchNode]) -> Set<String> {
         var paths = Set<String>()
         for node in nodes where node.isFolder {
             paths.insert(node.fullPath)

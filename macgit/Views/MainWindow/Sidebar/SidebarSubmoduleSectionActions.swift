@@ -19,6 +19,7 @@ import Foundation
 
 struct SidebarSubmoduleSectionActions {
     let toggleSection: () -> Void
+    let toggleFolder: (String) -> Void
     let open: (URL) -> Void
     let showInFinder: (URL) -> Void
     let openInTerminal: (URL) -> Void

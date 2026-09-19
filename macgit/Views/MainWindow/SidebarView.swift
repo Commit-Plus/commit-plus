@@ -122,6 +122,7 @@ struct SidebarView: View {
     @State var submoduleEntries: [GitSubmoduleEntry] = []
     @State var hasLoadedSubmodules = false
     @State var isLoadingSubmodules = false
+    @State var expandedSubmoduleFolders: Set<String> = []
     @State var activeSubmoduleLoadID: UUID?
     @State private var submoduleToEdit: GitSubmoduleEntry?
     @State var submoduleToDeinitialize: GitSubmoduleEntry?
@@ -470,6 +471,7 @@ struct SidebarView: View {
     var submoduleSectionActions: SidebarSubmoduleSectionActions {
         SidebarSubmoduleSectionActions(
             toggleSection: { toggleSection(.submodules) },
+            toggleFolder: toggleSubmoduleFolder,
             open: onRequestOpenSubmodule,
             showInFinder: onRequestShowSubmoduleInFinder,
             openInTerminal: onRequestOpenSubmoduleInTerminal,
@@ -828,7 +830,9 @@ struct SidebarView: View {
         if appState.showSubmodules {
             SidebarSubmodulesSection(
                 repositoryURL: repositoryURL,
-                entries: submoduleEntries,
+                rows: visibleSubmoduleRows,
+                entriesByPath: submoduleEntriesByPath,
+                expandedFolders: expandedSubmoduleFolders,
                 isExpanded: sectionStates.submodulesExpanded,
                 isLoading: isLoadingSubmodules,
                 onAddSubmodule: onRequestAddSubmodule,

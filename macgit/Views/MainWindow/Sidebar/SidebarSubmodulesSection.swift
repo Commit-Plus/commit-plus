@@ -19,7 +19,9 @@ import SwiftUI
 
 struct SidebarSubmodulesSection: View {
     let repositoryURL: URL
-    let entries: [GitSubmoduleEntry]
+    let rows: [BranchRowItem]
+    let entriesByPath: [String: GitSubmoduleEntry]
+    let expandedFolders: Set<String>
     let isExpanded: Bool
     let isLoading: Bool
     let onAddSubmodule: () -> Void
@@ -30,20 +32,24 @@ struct SidebarSubmodulesSection: View {
             headerRow
 
             if isExpanded {
-                if isLoading && entries.isEmpty {
+                if isLoading && rows.isEmpty {
                     ProgressView()
                         .scaleEffect(0.6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.leading, 4)
-                } else if entries.isEmpty {
+                } else if rows.isEmpty {
                     Text("No submodules")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(entries) { entry in
-                        row(for: entry)
-                            .padding(.leading, 6)
-                            .sidebarPointingHandCursor()
+                    ForEach(rows) { row in
+                        if row.isFolder {
+                            folderRow(for: row)
+                        } else if let entry = entriesByPath[row.fullPath] {
+                            self.row(for: entry)
+                                .padding(.leading, 6 + CGFloat(row.indent) * 16)
+                                .sidebarPointingHandCursor()
+                        }
                     }
                 }
             }
@@ -65,6 +71,37 @@ struct SidebarSubmodulesSection: View {
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        .sidebarPointingHandCursor()
+    }
+
+    private func folderRow(for row: BranchRowItem) -> some View {
+        HStack(spacing: 4) {
+            HStack(spacing: 0) {
+                ForEach(0..<row.indent, id: \.self) { _ in
+                    Color.clear
+                        .frame(width: 16)
+                }
+            }
+
+            Image(systemName: expandedFolders.contains(row.fullPath) ? "chevron.down" : "chevron.right")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 16, alignment: .center)
+
+            Image(systemName: "folder")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+
+            Text(row.name)
+                .lineLimit(1)
+
+            Spacer(minLength: 6)
+        }
+        .contentShape(.rect)
+        .padding(.leading, 6)
+        .onTapGesture {
+            actions.toggleFolder(row.fullPath)
+        }
         .sidebarPointingHandCursor()
     }
 
