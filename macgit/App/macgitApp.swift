@@ -236,7 +236,7 @@ struct macgitApp: App {
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 Task {
-                    await aiProviderController.managedUsageController?.refresh(force: true)
+                    await aiProviderController.managedUsageController?.refresh()
                 }
             }
     }

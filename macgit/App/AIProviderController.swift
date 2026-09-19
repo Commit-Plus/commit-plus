@@ -144,7 +144,7 @@ final class AIProviderController: ObservableObject {
         }
         selectedProviderID = id
         defaults.set(id.rawValue, forKey: selectedProviderDefaultsKey)
-        if descriptor.billing == .commitPlus { Task { await managedUsageController?.refresh(force: true) } }
+        if descriptor.billing == .commitPlus { Task { await managedUsageController?.refresh() } }
     }
 
     func isAPIKeyConfigured(for id: AIProviderID) -> Bool {

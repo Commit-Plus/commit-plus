@@ -20,6 +20,8 @@ import Foundation
 
 @MainActor
 final class CommitPlusAIUsageController: ObservableObject {
+    nonisolated static let cacheDuration: TimeInterval = 5 * 60
+
     enum State: Equatable {
         case idle, loading
         case loaded(CommitPlusAIAllowance)
@@ -30,7 +32,15 @@ final class CommitPlusAIUsageController: ObservableObject {
     private var generation = UUID()
     private var pending: Task<CommitPlusAIAllowance, Error>?
     private var loadedAt: Date?
+    private let now: () -> Date
+    private let cacheDuration: TimeInterval
     var loader: (@Sendable () async throws -> CommitPlusAIAllowance)?
+
+    init(cacheDuration: TimeInterval = CommitPlusAIUsageController.cacheDuration,
+         now: @escaping () -> Date = { .now }) {
+        self.cacheDuration = cacheDuration
+        self.now = now
+    }
 
     func setSession(uid: String?) {
         guard self.uid != uid else { return }
@@ -48,11 +58,12 @@ final class CommitPlusAIUsageController: ObservableObject {
         pending?.cancel()
         pending = nil
         state = .loaded(allowance)
-        loadedAt = Date()
+        loadedAt = now()
     }
     func refresh(force: Bool = false) async {
         guard uid != nil else { state = .unavailable(CommitPlusAIError.signedOut.localizedDescription); return }
-        if !force, case .loaded = state, let loadedAt, Date().timeIntervalSince(loadedAt) < 60 { return }
+        if !force, case .loaded = state, let loadedAt,
+           now().timeIntervalSince(loadedAt) < cacheDuration { return }
         let epoch = generation
         let task: Task<CommitPlusAIAllowance, Error>
         if let pending { task = pending }
@@ -66,7 +77,7 @@ final class CommitPlusAIUsageController: ObservableObject {
             let allowance = try await task.value
             guard generation == epoch else { return }
             state = .loaded(allowance)
-            loadedAt = Date()
+            loadedAt = now()
         } catch {
             guard generation == epoch else { return }
             state = .unavailable(error.localizedDescription)

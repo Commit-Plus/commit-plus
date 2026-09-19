@@ -81,9 +81,6 @@ struct AIProvidersSettingsView: View {
         }
         .task {
             await controller.refreshAvailability()
-            if controller.selectedDescriptor.billing == .commitPlus {
-                await controller.managedUsageController?.refresh(force: true)
-            }
         }
     }
 

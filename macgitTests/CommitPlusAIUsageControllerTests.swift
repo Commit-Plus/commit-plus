@@ -83,12 +83,60 @@ final class CommitPlusAIUsageControllerTests: XCTestCase {
         XCTAssertFalse(controller.availability.isAvailable)
     }
 
+    func testRefreshUsesCachedAllowanceForFiveMinutes() async throws {
+        let value = try allowance()
+        let counter = AllowanceLoadCounter(value: value)
+        var now = Date(timeIntervalSince1970: 1_800_000_000)
+        let controller = CommitPlusAIUsageController(now: { now })
+        controller.setSession(uid: "a")
+        controller.loader = { await counter.load() }
+
+        await controller.refresh()
+        now.addTimeInterval(CommitPlusAIUsageController.cacheDuration - 1)
+        await controller.refresh()
+
+        let loadCount = await counter.loadCount
+        XCTAssertEqual(loadCount, 1)
+        XCTAssertEqual(controller.state, .loaded(value))
+    }
+
+    func testRefreshReloadsAfterCacheExpires() async throws {
+        let value = try allowance()
+        let counter = AllowanceLoadCounter(value: value)
+        var now = Date(timeIntervalSince1970: 1_800_000_000)
+        let controller = CommitPlusAIUsageController(now: { now })
+        controller.setSession(uid: "a")
+        controller.loader = { await counter.load() }
+
+        await controller.refresh()
+        now.addTimeInterval(CommitPlusAIUsageController.cacheDuration)
+        await controller.refresh()
+
+        let loadCount = await counter.loadCount
+        XCTAssertEqual(loadCount, 2)
+        XCTAssertEqual(controller.state, .loaded(value))
+    }
+
     private func allowance(consumed: Int = 100_000) throws -> CommitPlusAIAllowance {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "Fixtures/CommitPlusAI/allowance.json")
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
         object["consumedUnits"] = consumed
         object["availableUnits"] = 500_000_000 - consumed
         return try JSONDecoder().decode(CommitPlusAIAllowance.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+}
+
+private actor AllowanceLoadCounter {
+    private(set) var loadCount = 0
+    let value: CommitPlusAIAllowance
+
+    init(value: CommitPlusAIAllowance) {
+        self.value = value
+    }
+
+    func load() -> CommitPlusAIAllowance {
+        loadCount += 1
+        return value
     }
 }
 
