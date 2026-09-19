@@ -188,6 +188,7 @@ extension GitStatusService {
     ) async throws {
         let path = try validatedSubmodulePath(path)
         try await rejectDirtySubmoduleCheckout(path: path, force: force, in: repositoryURL)
+        try await rejectUncommittedSubmoduleStaging(path: path, force: force, in: repositoryURL)
 
         var arguments = ["rm"]
         if force {
@@ -196,7 +197,7 @@ extension GitStatusService {
         arguments += ["--", path]
         _ = try await runGit(arguments: arguments, in: repositoryURL)
 
-        if configuredSubmodulePaths(in: repositoryURL).isEmpty {
+        if await remainingSubmodulePaths(in: repositoryURL).isEmpty {
             let gitmodulesURL = repositoryURL.appendingPathComponent(".gitmodules")
             if FileManager.default.fileExists(atPath: gitmodulesURL.path) {
                 _ = try await runGit(arguments: ["rm", "-f", "--", ".gitmodules"], in: repositoryURL)
@@ -385,6 +386,47 @@ extension GitStatusService {
         guard status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw GitError.commandFailed("This submodule has uncommitted changes. Confirm force to continue.")
         }
+    }
+
+    private func rejectUncommittedSubmoduleStaging(
+        path: String,
+        force: Bool,
+        in repositoryURL: URL
+    ) async throws {
+        guard !force else { return }
+        // `git rm` refuses to remove a staged-new (added but uncommitted) gitlink
+        // without `-f`, which makes a just-added submodule impossible to remove
+        // through the non-force confirmation. Surface the same explicit force
+        // requirement used for dirty checkouts instead of leaking the raw git error.
+        let staged = try await runGit(
+            arguments: ["diff", "--cached", "--name-only", "--", path],
+            in: repositoryURL
+        )
+        let stagedPaths = staged
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard stagedPaths.contains(path) else { return }
+        throw GitError.commandFailed("This submodule has staged changes that are not committed. Confirm force to continue.")
+    }
+
+    private func remainingSubmodulePaths(in repositoryURL: URL) async -> Set<String> {
+        let gitmodulesURL = repositoryURL.appendingPathComponent(".gitmodules")
+        guard FileManager.default.fileExists(atPath: gitmodulesURL.path) else {
+            return []
+        }
+        guard let output = try? await runGit(
+            arguments: ["config", "--file", ".gitmodules", "--get-regexp", #"^submodule\..*\.path$"#],
+            in: repositoryURL
+        ) else {
+            return []
+        }
+        return Set(output.split(separator: "\n").compactMap { line -> String? in
+            let fields = line.split(maxSplits: 1, whereSeparator: { $0 == " " || $0 == "\t" })
+            guard fields.count == 2 else { return nil }
+            let normalized = String(fields[1]).replacingOccurrences(of: "\\", with: "/")
+            return NSString(string: normalized).standardizingPath
+        })
     }
 
     private func validatedSubmodulePath(_ rawPath: String) throws -> String {

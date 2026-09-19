@@ -35,6 +35,7 @@ extension SidebarView {
             showingError = true
             return
         }
+        forceRemoveSubmodule = false
         submoduleToRemove = entry
     }
 
@@ -54,6 +55,7 @@ extension SidebarView {
 
     func runSubmoduleRemove(_ entry: GitSubmoduleEntry, force: Bool) {
         submoduleToRemove = nil
+        forceRemoveSubmodule = false
         onRunRepositoryOperation("Removing submodule \(entry.path)...") {
             do {
                 try await onRequestRemoveSubmodule(entry.path, force)
@@ -61,12 +63,28 @@ extension SidebarView {
                     selection = .item(.fileStatus)
                 }
             } catch {
-                await MainActor.run {
-                    errorMessage = error.localizedDescription
-                    showingError = true
+                let message = error.localizedDescription
+                // A just-added submodule is staged but uncommitted, so `git rm`
+                // requires `-f` even though the entry looks clean. Re-present the
+                // confirmation offering explicit force removal instead of
+                // dead-ending in an error alert the user cannot act on.
+                if !force, Self.isStagedSubmoduleError(message) {
+                    await MainActor.run {
+                        forceRemoveSubmodule = true
+                        submoduleToRemove = entry
+                    }
+                } else {
+                    await MainActor.run {
+                        errorMessage = message
+                        showingError = true
+                    }
                 }
             }
         }
+    }
+
+    private static func isStagedSubmoduleError(_ message: String) -> Bool {
+        message.contains("staged changes") || message.contains("changes staged in the index")
     }
 
     @MainActor

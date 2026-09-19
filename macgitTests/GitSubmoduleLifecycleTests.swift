@@ -17,6 +17,7 @@
 //
 
 import XCTest
+import SwiftUI
 @testable import macgit
 
 final class GitSubmoduleLifecycleTests: XCTestCase {
@@ -153,6 +154,70 @@ final class GitSubmoduleLifecycleTests: XCTestCase {
         let staged = try runGitCapture(["diff", "--cached", "--name-status"], in: setup.parent)
         XCTAssertTrue(staged.contains("D\t.gitmodules"))
         XCTAssertTrue(staged.contains("D\tPackages/SharedKit"))
+    }
+
+    func testStagedNewRemovalIsRejectedWithoutNotification() async throws {
+        let setup = try makeRepositories()
+        try runGit(["submodule", "add", "--", setup.child.path, "Packages/SharedKit"], in: setup.parent)
+        let notification = invertedRepositoryNotificationExpectation()
+
+        do {
+            try await GitStatusService.shared.removeSubmodule(path: "Packages/SharedKit", force: false, in: setup.parent)
+            XCTFail("Expected staged remove rejection")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Confirm force"))
+        }
+
+        await fulfillment(of: [notification.expectation], timeout: 0.2)
+        NotificationCenter.default.removeObserver(notification.observer)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: setup.parent.appendingPathComponent("Packages/SharedKit").path))
+    }
+
+    func testForcedRemovalOfStagedNewSubmoduleCleansUp() async throws {
+        let setup = try makeRepositories()
+        try runGit(["submodule", "add", "--", setup.child.path, "Packages/SharedKit"], in: setup.parent)
+
+        try await GitStatusService.shared.removeSubmodule(path: "Packages/SharedKit", force: true, in: setup.parent)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: setup.parent.appendingPathComponent("Packages/SharedKit").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: setup.parent.appendingPathComponent(".gitmodules").path))
+        XCTAssertTrue(try runGitCapture(["status", "--porcelain"], in: setup.parent).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    @MainActor
+    func testRemoveThroughViewCallbackChainRemovesStagedSubmodule() async throws {
+        // Drives the production wiring: a MainActor-isolated remove closure
+        // stored in SidebarView, invoked through a Task-based operation runner
+        // exactly like RepositoryOperationProgress + SidebarView do at runtime.
+        // A calling-convention mismatch on this seam used to corrupt the path
+        // argument and crash inside validatedSubmodulePath (EXC_BAD_ACCESS).
+        let setup = try makeRepositories()
+        try runGit(["submodule", "add", "--", setup.child.path, "Packages/SharedKit"], in: setup.parent)
+        let entries = try await GitStatusService.shared.submodules(in: setup.parent)
+        guard let entry = entries.first(where: { $0.path == "Packages/SharedKit" }) else {
+            XCTFail("Expected staged submodule entry")
+            return
+        }
+        let notification = expectation(forNotification: .repositoryDidChange, object: nil) { value in
+            (value.userInfo?["repositoryURL"] as? URL) == setup.parent
+        }
+        var view = SidebarView(
+            repositoryURL: setup.parent,
+            selection: .constant(nil),
+            onRequestCheckout: { _, _ in },
+            onRequestFetchBranch: { _ in },
+            onRequestRemoveSubmodule: { path, force in
+                try await GitStatusService.shared.removeSubmodule(path: path, force: force, in: setup.parent)
+            },
+            onRunRepositoryOperation: { _, operation in
+                Task { await operation() }
+            }
+        )
+        view.runSubmoduleRemove(entry, force: true)
+
+        await fulfillment(of: [notification], timeout: 5)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: setup.parent.appendingPathComponent("Packages/SharedKit").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: setup.parent.appendingPathComponent(".gitmodules").path))
     }
 
     func testRemovingOneOfMultipleSubmodulesKeepsGitmodulesWithRemainingSection() async throws {

@@ -21,7 +21,7 @@ struct EditSubtreeSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let entry: GitSubtreeEntry
-    let onSave: (GitSubtreeEntry) async throws -> Void
+    let onSave: @MainActor (GitSubtreeEntry) async throws -> Void
     let onRunRepositoryOperation: RepositoryOperationRunner
 
     @State private var name: String
@@ -34,7 +34,7 @@ struct EditSubtreeSheet: View {
 
     init(
         entry: GitSubtreeEntry,
-        onSave: @escaping (GitSubtreeEntry) async throws -> Void,
+        onSave: @escaping @MainActor (GitSubtreeEntry) async throws -> Void,
         onRunRepositoryOperation: @escaping RepositoryOperationRunner
     ) {
         self.entry = entry

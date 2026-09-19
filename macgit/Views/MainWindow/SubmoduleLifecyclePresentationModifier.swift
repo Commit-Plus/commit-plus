@@ -21,8 +21,9 @@ struct SubmoduleLifecyclePresentationModifier: ViewModifier {
     @Binding var submoduleToEdit: GitSubmoduleEntry?
     @Binding var submoduleToDeinitialize: GitSubmoduleEntry?
     @Binding var submoduleToRemove: GitSubmoduleEntry?
+    @Binding var forceRemoveSubmodule: Bool
 
-    let onSaveSettings: (GitSubmoduleEntry, String, String?) async throws -> Void
+    let onSaveSettings: @MainActor (GitSubmoduleEntry, String, String?) async throws -> Void
     let onDeinitialize: (GitSubmoduleEntry, Bool) -> Void
     let onRemove: (GitSubmoduleEntry, Bool) -> Void
     let onRunRepositoryOperation: RepositoryOperationRunner
@@ -41,11 +42,17 @@ struct SubmoduleLifecyclePresentationModifier: ViewModifier {
 
     private var removeMessage: String {
         guard let entry = submoduleToRemove else { return "" }
+        if forceRemoveSubmodule {
+            return "This submodule has staged changes that are not committed. Force removal discards the staged submodule registration."
+        }
         let decision = SubmoduleLifecyclePolicy.decision(for: .remove(force: false), entry: entry)
         return decision.message ?? "Remove \(entry.path)?"
     }
 
     private var removeRequiresForce: Bool {
+        if forceRemoveSubmodule {
+            return true
+        }
         guard let entry = submoduleToRemove else { return false }
         let decision = SubmoduleLifecyclePolicy.decision(for: .remove(force: false), entry: entry)
         return !decision.isAllowed && decision.requiresConfirmation
@@ -86,11 +93,13 @@ struct SubmoduleLifecyclePresentationModifier: ViewModifier {
                 set: { isPresented in
                     if !isPresented {
                         submoduleToRemove = nil
+                        forceRemoveSubmodule = false
                     }
                 }
             )) {
                 Button("Cancel", role: .cancel) {
                     submoduleToRemove = nil
+                    forceRemoveSubmodule = false
                 }
                 Button(removeRequiresForce ? "Force Remove" : "Remove", role: .destructive) {
                     if let entry = submoduleToRemove {

@@ -21,7 +21,7 @@ struct EditSubmoduleSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let entry: GitSubmoduleEntry
-    let onSave: (_ url: String, _ branch: String?) async throws -> Void
+    let onSave: @MainActor (_ url: String, _ branch: String?) async throws -> Void
     let onRunRepositoryOperation: RepositoryOperationRunner
 
     @State private var repositoryURL: String
@@ -31,7 +31,7 @@ struct EditSubmoduleSheet: View {
 
     init(
         entry: GitSubmoduleEntry,
-        onSave: @escaping (_ url: String, _ branch: String?) async throws -> Void,
+        onSave: @escaping @MainActor (_ url: String, _ branch: String?) async throws -> Void,
         onRunRepositoryOperation: @escaping RepositoryOperationRunner
     ) {
         self.entry = entry

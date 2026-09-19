@@ -21,8 +21,8 @@ struct SidebarSubtreePresentationModifier: ViewModifier {
     @Binding var subtreeToEdit: GitSubtreeEntry?
     @Binding var subtreeToUnlink: GitSubtreeEntry?
 
-    let updateSubtree: (GitSubtreeEntry) async throws -> Void
-    let unlinkSubtree: (GitSubtreeEntry) async -> Void
+    let updateSubtree: @MainActor (GitSubtreeEntry) async throws -> Void
+    let unlinkSubtree: @MainActor (GitSubtreeEntry) async -> Void
     let onRunRepositoryOperation: RepositoryOperationRunner
 
     func body(content: Content) -> some View {

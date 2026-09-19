@@ -79,14 +79,14 @@ struct SidebarView: View {
     let onRequestOpenSubtreeInTerminal: (URL) -> Void
     let onRequestPullSubtree: (GitSubtreeEntry) -> Void
     let onRequestPushSubtree: (GitSubtreeEntry) -> Void
-    let onRequestUpdateSubtreeLink: (GitSubtreeEntry) async throws -> Void
-    let onRequestUnlinkSubtree: (GitSubtreeEntry) async throws -> Void
+    let onRequestUpdateSubtreeLink: @MainActor (GitSubtreeEntry) async throws -> Void
+    let onRequestUnlinkSubtree: @MainActor (GitSubtreeEntry) async throws -> Void
     let onRequestInitializeSubmodule: (String) -> Void
     let onRequestUpdateSubmodule: (String, SubmoduleUpdateMode) -> Void
     let onRequestSynchronizeSubmoduleURL: (String) -> Void
-    let onRequestUpdateSubmoduleSettings: (String, String, String?) async throws -> Void
-    let onRequestDeinitializeSubmodule: (String, Bool) async throws -> Void
-    let onRequestRemoveSubmodule: (String, Bool) async throws -> Void
+    let onRequestUpdateSubmoduleSettings: @MainActor (String, String, String?) async throws -> Void
+    let onRequestDeinitializeSubmodule: @MainActor (String, Bool) async throws -> Void
+    let onRequestRemoveSubmodule: @MainActor (String, Bool) async throws -> Void
     let onRequestSearch: () -> Void
     let onRequestStartGitFlow: (GitFlowTopicKind) -> Void
     let onRequestFinishGitFlow: (GitFlowTopicKind) -> Void
@@ -127,6 +127,7 @@ struct SidebarView: View {
     @State private var submoduleToEdit: GitSubmoduleEntry?
     @State var submoduleToDeinitialize: GitSubmoduleEntry?
     @State var submoduleToRemove: GitSubmoduleEntry?
+    @State var forceRemoveSubmodule = false
     @State var subtreeEntries: [GitSubtreeEntry] = []
     @State var hasLoadedSubtrees = false
     @State var isLoadingSubtrees = false
@@ -237,14 +238,14 @@ struct SidebarView: View {
         onRequestOpenSubtreeInTerminal: @escaping (URL) -> Void = { _ in },
         onRequestPullSubtree: @escaping (GitSubtreeEntry) -> Void = { _ in },
         onRequestPushSubtree: @escaping (GitSubtreeEntry) -> Void = { _ in },
-        onRequestUpdateSubtreeLink: @escaping (GitSubtreeEntry) async throws -> Void = { _ in },
-        onRequestUnlinkSubtree: @escaping (GitSubtreeEntry) async throws -> Void = { _ in },
+        onRequestUpdateSubtreeLink: @escaping @MainActor (GitSubtreeEntry) async throws -> Void = { _ in },
+        onRequestUnlinkSubtree: @escaping @MainActor (GitSubtreeEntry) async throws -> Void = { _ in },
         onRequestInitializeSubmodule: @escaping (String) -> Void = { _ in },
         onRequestUpdateSubmodule: @escaping (String, SubmoduleUpdateMode) -> Void = { _, _ in },
         onRequestSynchronizeSubmoduleURL: @escaping (String) -> Void = { _ in },
-        onRequestUpdateSubmoduleSettings: @escaping (String, String, String?) async throws -> Void = { _, _, _ in },
-        onRequestDeinitializeSubmodule: @escaping (String, Bool) async throws -> Void = { _, _ in },
-        onRequestRemoveSubmodule: @escaping (String, Bool) async throws -> Void = { _, _ in },
+        onRequestUpdateSubmoduleSettings: @escaping @MainActor (String, String, String?) async throws -> Void = { _, _, _ in },
+        onRequestDeinitializeSubmodule: @escaping @MainActor (String, Bool) async throws -> Void = { _, _ in },
+        onRequestRemoveSubmodule: @escaping @MainActor (String, Bool) async throws -> Void = { _, _ in },
         onRequestSearch: @escaping () -> Void = {},
         onRequestStartGitFlow: @escaping (GitFlowTopicKind) -> Void = { _ in },
         onRequestFinishGitFlow: @escaping (GitFlowTopicKind) -> Void = { _ in },
@@ -629,6 +630,7 @@ struct SidebarView: View {
                     submoduleToEdit: $submoduleToEdit,
                     submoduleToDeinitialize: $submoduleToDeinitialize,
                     submoduleToRemove: $submoduleToRemove,
+                    forceRemoveSubmodule: $forceRemoveSubmodule,
                     onSaveSettings: { entry, url, branch in
                         try await onRequestUpdateSubmoduleSettings(entry.path, url, branch)
                     },
