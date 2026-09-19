@@ -1249,8 +1249,12 @@ struct MainWindowView: View {
                 }
             case .stash(let ref):
                 StashView(repositoryURL: repositoryURL, stashRef: ref)
-            case .submodule:
-                EmptyStateView(message: "Double-click to open this submodule")
+            case .submodule(let path):
+                SubmoduleDetailPlaceholderView {
+                    openWorktreeInNewWindow(
+                        at: repositoryURL.appendingPathComponent(path, isDirectory: true)
+                    )
+                }
             case .subtree:
                 EmptyStateView(message: "Select a subtree action from the sidebar")
             case .item(.search):

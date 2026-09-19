@@ -658,7 +658,7 @@ struct SidebarView: View {
             isSidebarHovered = false
         }
         .contextMenu {
-            sidebarCreationMenu
+            sidebarContextMenu
         }
         .task(id: "\(repositoryURL.path)|\(appState.showSubmodules)") {
             loadSectionStates()
@@ -733,6 +733,18 @@ struct SidebarView: View {
         Divider()
         Button("New Branch...", systemImage: "arrow.triangle.branch", action: onRequestCreateBranch)
         Button("New Tag...", systemImage: "tag", action: onRequestCreateTag)
+    }
+
+    @ViewBuilder
+    private var sidebarContextMenu: some View {
+        sidebarCreationMenu
+        Divider()
+        Toggle(isOn: $appState.showSubmodules) {
+            Label("Show Submodules", systemImage: "folder.badge.gearshape")
+        }
+        Toggle(isOn: $appState.showSubtrees) {
+            Label("Show Subtrees", systemImage: "tree")
+        }
     }
 
     @ViewBuilder
