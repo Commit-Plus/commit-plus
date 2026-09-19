@@ -230,6 +230,109 @@ final class GitSubtreeOperationTests: XCTestCase {
         XCTAssertFalse(addEnvironment.values.contains { $0.contains(token) })
     }
 
+    func testAddSubtreeRejectsExistingNonEmptyPrefixBeforeMutation() async throws {
+        let repository = try makeTemporaryDirectory()
+        let prefix = repository.appendingPathComponent("Vendor/SharedKit", isDirectory: true)
+        try FileManager.default.createDirectory(at: prefix, withIntermediateDirectories: true)
+        try "leftover\n".write(to: prefix.appendingPathComponent("kept.txt"), atomically: true, encoding: .utf8)
+        let runner = RecordingSubtreeOperationRunner(outputs: [
+            "subtree -h": "usage: git subtree add --prefix=<prefix> <repository> <ref>",
+            "status --porcelain=v1 -z": ""
+        ])
+        let registry = RecordingSubtreeRegistry()
+        let service = GitStatusService(runner: runner)
+
+        await XCTAssertThrowsErrorAsync({
+            try await service.addSubtree(
+                request(),
+                in: repository,
+                credentialResolver: nil,
+                registry: registry
+            )
+        }) { error in
+            XCTAssertEqual(error as? GitSubtreeRegistryError, .prefixAlreadyExists("Vendor/SharedKit"))
+        }
+        let savedEntries = await registry.savedEntries()
+        let calls = await runner.recordedArguments()
+        XCTAssertEqual(savedEntries, [])
+        XCTAssertEqual(calls, [["subtree", "-h"], ["status", "--porcelain=v1", "-z"]])
+    }
+
+    func testAddSubtreeRemovesEmptyPrefixFolderAndSucceeds() async throws {
+        let repository = try makeTemporaryDirectory()
+        let prefix = repository.appendingPathComponent("Vendor/SharedKit", isDirectory: true)
+        try FileManager.default.createDirectory(at: prefix, withIntermediateDirectories: true)
+        let runner = RecordingSubtreeOperationRunner(outputs: [
+            "subtree -h": "usage: git subtree add --prefix=<prefix> <repository> <ref>",
+            "status --porcelain=v1 -z": "",
+            "subtree add --prefix=Vendor/SharedKit https://example.com/shared.git main": ""
+        ])
+        let registry = RecordingSubtreeRegistry()
+        let service = GitStatusService(runner: runner)
+
+        let entry = try await service.addSubtree(
+            request(),
+            in: repository,
+            credentialResolver: nil,
+            registry: registry
+        )
+
+        XCTAssertEqual(entry.path, "Vendor/SharedKit")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: prefix.path))
+        let savedPaths = await registry.savedEntries().map(\.path)
+        XCTAssertEqual(savedPaths, ["Vendor/SharedKit"])
+    }
+
+    func testAddSubtreeRejectsInvalidLocalRepository() async throws {
+        let repository = try makeTemporaryDirectory()
+        let notARepo = repository.appendingPathComponent("not-a-repo-\(UUID().uuidString)", isDirectory: true)
+        let runner = RecordingSubtreeOperationRunner(outputs: [
+            "subtree -h": "usage: git subtree add --prefix=<prefix> <repository> <ref>",
+            "status --porcelain=v1 -z": ""
+        ])
+        let registry = RecordingSubtreeRegistry()
+        let service = GitStatusService(runner: runner)
+
+        await XCTAssertThrowsErrorAsync({
+            try await service.addSubtree(
+                request(repository: notARepo.path),
+                in: repository,
+                credentialResolver: nil,
+                registry: registry
+            )
+        }) { error in
+            XCTAssertEqual(error as? GitSubtreeRegistryError, .invalidLocalRepository)
+        }
+        let savedAfterReject = await registry.savedEntries()
+        XCTAssertEqual(savedAfterReject, [])
+    }
+
+    func testAddSubtreeAllowsFileProtocolForLocalRepository() async throws {
+        let repository = try makeTemporaryDirectory()
+        let upstream = repository.appendingPathComponent("upstream", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: upstream.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        let runner = RecordingSubtreeOperationRunner(outputs: [
+            "subtree -h": "usage: git subtree add --prefix=<prefix> <repository> <ref>",
+            "status --porcelain=v1 -z": "",
+            "subtree add --prefix=Vendor/SharedKit \(upstream.path) main": ""
+        ])
+        let service = GitStatusService(runner: runner)
+
+        _ = try await service.addSubtree(
+            request(repository: upstream.path),
+            in: repository,
+            credentialResolver: nil,
+            registry: RecordingSubtreeRegistry()
+        )
+
+        let environments = await runner.recordedEnvironments()
+        XCTAssertEqual(environments.count, 3)
+        XCTAssertEqual(environments[2]?["GIT_ALLOW_PROTOCOL"], "file")
+    }
+
     private func request(
         name: String = "SharedKit",
         path: String = "Vendor/SharedKit",

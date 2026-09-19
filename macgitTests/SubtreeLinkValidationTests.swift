@@ -112,6 +112,21 @@ final class SubtreeLinkValidationTests: XCTestCase {
         }
     }
 
+    func testRejectsInvalidLocalRepository() async throws {
+        let repository = try makeRepository()
+        let notARepo = FileManager.default.temporaryDirectory
+            .appendingPathComponent("macgit-not-a-repo-\(UUID().uuidString)", isDirectory: true)
+
+        await XCTAssertThrowsErrorAsync({
+            try await GitStatusService.shared.linkExistingSubtree(
+                request(repository: notARepo.path),
+                in: repository
+            )
+        }) { error in
+            XCTAssertEqual(error as? GitSubtreeRegistryError, .invalidLocalRepository)
+        }
+    }
+
     func testLinksValidTrackedDirectoryWithoutChangingWorkingTree() async throws {
         let repository = try makeRepository()
         try makeTrackedFile("Packages/SharedKit/file.txt", in: repository)

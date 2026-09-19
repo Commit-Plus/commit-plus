@@ -75,7 +75,12 @@ extension GitStatusService {
         if entry.squash {
             arguments.append("--squash")
         }
-        _ = try await runRemoteGit(arguments: arguments, in: repositoryURL, injection: injection)
+        try removeEmptySubtreePrefixIfNeeded(path: entry.path, in: repositoryURL)
+        if let environment = gitEnvironment(for: entry.repository, injection: injection) {
+            _ = try await runGit(arguments: arguments, in: repositoryURL, environment: environment)
+        } else {
+            _ = try await runRemoteGit(arguments: arguments, in: repositoryURL, injection: injection)
+        }
         let savedEntry = GitSubtreeEntry(
             id: entry.id,
             name: entry.name,
@@ -115,7 +120,11 @@ extension GitStatusService {
         if entry.squash {
             arguments.append("--squash")
         }
-        _ = try await runRemoteGit(arguments: arguments, in: repositoryURL, injection: injection)
+        if let environment = gitEnvironment(for: entry.repository, injection: injection) {
+            _ = try await runGit(arguments: arguments, in: repositoryURL, environment: environment)
+        } else {
+            _ = try await runRemoteGit(arguments: arguments, in: repositoryURL, injection: injection)
+        }
         notifySubtreeMutationSucceeded(in: repositoryURL)
     }
 
@@ -134,17 +143,18 @@ extension GitStatusService {
         )
         defer { injection?.cleanup() }
 
-        _ = try await runRemoteGit(
-            arguments: [
-                "subtree",
-                "push",
-                "--prefix=\(entry.path)",
-                entry.repository,
-                entry.branch
-            ],
-            in: repositoryURL,
-            injection: injection
-        )
+        let pushArguments = [
+            "subtree",
+            "push",
+            "--prefix=\(entry.path)",
+            entry.repository,
+            entry.branch
+        ]
+        if let environment = gitEnvironment(for: entry.repository, injection: injection) {
+            _ = try await runGit(arguments: pushArguments, in: repositoryURL, environment: environment)
+        } else {
+            _ = try await runRemoteGit(arguments: pushArguments, in: repositoryURL, injection: injection)
+        }
         notifySubtreeMutationSucceeded(in: repositoryURL)
     }
 
@@ -190,10 +200,7 @@ extension GitStatusService {
             throw GitSubtreeRegistryError.emptyName
         }
 
-        let repository = request.repository.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !repository.isEmpty else {
-            throw GitSubtreeRegistryError.emptyRepository
-        }
+        let repository = try validatedSubtreeRepository(request.repository)
 
         let branch = request.branch.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !branch.isEmpty else {
@@ -240,10 +247,7 @@ extension GitStatusService {
             throw GitSubtreeRegistryError.emptyName
         }
 
-        let repository = request.repository.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !repository.isEmpty else {
-            throw GitSubtreeRegistryError.emptyRepository
-        }
+        let repository = try validatedSubtreeRepository(request.repository)
 
         let branch = request.branch.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !branch.isEmpty else {
@@ -252,6 +256,7 @@ extension GitStatusService {
 
         let path = try GitSubtreeRegistry.normalizedRelativePath(request.path, in: repositoryURL)
         try GitSubtreeRegistry.rejectPathConflict(path, existing: existing)
+        try rejectExistingSubtreePrefix(path, in: repositoryURL)
 
         return GitSubtreeEntry(
             id: GitSubtreeRegistry.uniqueID(for: path, existingIDs: Set(existing.map(\.id))),
@@ -262,6 +267,95 @@ extension GitStatusService {
             squash: request.squash,
             folderExists: false
         )
+    }
+
+    /// Validates the upstream repository value. Absolute local paths must point
+    /// at a Git repository (working tree or bare), mirroring the submodule flow.
+    /// Remote URLs are returned trimmed without further checks.
+    private func validatedSubtreeRepository(_ rawValue: String) throws -> String {
+        let repository = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !repository.isEmpty else {
+            throw GitSubtreeRegistryError.emptyRepository
+        }
+        guard NSString(string: repository).isAbsolutePath else {
+            return repository
+        }
+        let localURL = URL(fileURLWithPath: repository).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        let hasDotGit = FileManager.default.fileExists(
+            atPath: localURL.appendingPathComponent(".git").path,
+            isDirectory: &isDirectory
+        )
+        let hasHead = FileManager.default.fileExists(
+            atPath: localURL.appendingPathComponent("HEAD").path
+        )
+        let hasObjects = FileManager.default.fileExists(
+            atPath: localURL.appendingPathComponent("objects").path,
+            isDirectory: &isDirectory
+        )
+        guard hasDotGit || (hasHead && hasObjects) else {
+            throw GitSubtreeRegistryError.invalidLocalRepository
+        }
+        return repository
+    }
+
+    /// `git subtree add` fails with `fatal: prefix '<path>' already exists.`
+    /// even for empty folders (e.g. left behind by Unlink, which keeps files by
+    /// design, or created by the folder picker). Fail fast with an actionable
+    /// message instead of leaking the raw git fatal. Empty folders are allowed
+    /// through and removed before git runs.
+    private func rejectExistingSubtreePrefix(_ path: String, in repositoryURL: URL) throws {
+        let prefixURL = repositoryURL.appendingPathComponent(path)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: prefixURL.path, isDirectory: &isDirectory) else {
+            return
+        }
+        guard isDirectory.boolValue else {
+            throw GitSubtreeRegistryError.prefixAlreadyExists(path)
+        }
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: prefixURL,
+            includingPropertiesForKeys: nil,
+            options: []
+        )) ?? []
+        guard contents.isEmpty else {
+            throw GitSubtreeRegistryError.prefixAlreadyExists(path)
+        }
+    }
+
+    /// Removes an empty folder at the subtree prefix so `git subtree add` does
+    /// not fail on it. Mirrors `removeEmptySubmoduleDestinationIfNeeded`.
+    private func removeEmptySubtreePrefixIfNeeded(path: String, in repositoryURL: URL) throws {
+        let prefixURL = repositoryURL.appendingPathComponent(path)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: prefixURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return
+        }
+        guard try FileManager.default.contentsOfDirectory(
+            at: prefixURL,
+            includingPropertiesForKeys: nil,
+            options: []
+        ).isEmpty else {
+            return
+        }
+        try FileManager.default.removeItem(at: prefixURL)
+    }
+
+    /// Returns an environment allowing the `file` transport when the upstream
+    /// is a local path, mirroring the submodule add flow. Returns nil when
+    /// there is neither an injection nor a local path, letting the caller use
+    /// the default `runRemoteGit` path.
+    private func gitEnvironment(
+        for repository: String,
+        injection: GitCredentialInjection?
+    ) -> [String: String]? {
+        guard NSString(string: repository).isAbsolutePath else {
+            return injection?.environment
+        }
+        var environment = injection?.environment ?? ProcessInfo.processInfo.environment
+        environment["GIT_ALLOW_PROTOCOL"] = "file"
+        return environment
     }
 
     private func rejectBlockedSubtreeOperation(in repositoryURL: URL) async throws {

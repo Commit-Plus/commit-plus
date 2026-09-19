@@ -26,10 +26,12 @@ protocol GitSubtreeRegistryProtocol {
 enum GitSubtreeRegistryError: LocalizedError, Equatable {
     case emptyName
     case emptyRepository
+    case invalidLocalRepository
     case emptyBranch
     case emptyPath
     case absolutePath
     case pathOutsideRepository
+    case prefixAlreadyExists(String)
     case duplicatePath(String)
     case overlappingPath(String)
     case emptyID
@@ -40,6 +42,8 @@ enum GitSubtreeRegistryError: LocalizedError, Equatable {
             "Enter a subtree name."
         case .emptyRepository:
             "Enter a subtree repository URL."
+        case .invalidLocalRepository:
+            "The selected local folder is not a Git repository."
         case .emptyBranch:
             "Enter a branch name."
         case .emptyPath:
@@ -48,6 +52,8 @@ enum GitSubtreeRegistryError: LocalizedError, Equatable {
             "The subtree path must be relative to this repository."
         case .pathOutsideRepository:
             "The subtree path must stay inside this repository."
+        case let .prefixAlreadyExists(path):
+            "A folder already exists at \(path). Delete it or choose another path."
         case let .duplicatePath(path):
             "A subtree is already linked at \(path)."
         case let .overlappingPath(path):

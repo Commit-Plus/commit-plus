@@ -15,6 +15,7 @@
 //  You should have received a copy of the GNU Affero General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
+import AppKit
 import SwiftUI
 
 private enum SubtreeSheetMode: String, CaseIterable, Identifiable {
@@ -92,15 +93,23 @@ struct AddLinkSubtreeSheet: View {
                 }
 
                 fieldRow(title: "Local folder") {
-                    TextField("Packages/SharedKit", text: $path)
-                        .textFieldStyle(.roundedBorder)
-                        .disableAutocorrection(true)
+                    inputWithPicker {
+                        TextField("Packages/SharedKit", text: $path)
+                            .textFieldStyle(.roundedBorder)
+                            .disableAutocorrection(true)
+                    } action: {
+                        chooseLocalFolder()
+                    }
                 }
 
                 fieldRow(title: "Repository URL") {
-                    TextField("https://github.com/user/repo.git", text: $repository)
-                        .textFieldStyle(.roundedBorder)
-                        .disableAutocorrection(true)
+                    inputWithPicker {
+                        TextField("https://github.com/user/repo.git", text: $repository)
+                            .textFieldStyle(.roundedBorder)
+                            .disableAutocorrection(true)
+                    } action: {
+                        chooseRepositoryFolder()
+                    }
                 }
 
                 fieldRow(title: "Branch") {
@@ -154,6 +163,52 @@ struct AddLinkSubtreeSheet: View {
                 .frame(width: 132, alignment: .trailing)
             content()
         }
+    }
+
+    private func inputWithPicker<Content: View>(
+        @ViewBuilder content: () -> Content,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 6) {
+            content()
+                .textFieldStyle(.roundedBorder)
+
+            Button("…", action: action)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityLabel("Choose folder")
+        }
+    }
+
+    private func chooseRepositoryFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = repositoryURL.deletingLastPathComponent()
+        panel.message = "Select a local Git repository"
+        panel.prompt = "Choose"
+
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+        repository = url.path
+    }
+
+    private func chooseLocalFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = mode == .addNew
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = repositoryURL
+        panel.message = "Select a folder inside the current repository"
+        panel.prompt = "Choose"
+
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+        path = SubmoduleRequestValidator.relativePath(for: url, in: repositoryURL) ?? url.path
     }
 
     private func submit() {
