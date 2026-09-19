@@ -150,10 +150,7 @@ enum SubmoduleRequestValidator {
         }
         if let modulesDirectory = submoduleModulesDirectory(in: repositoryURL) {
             for prefix in ancestorPrefixes(of: path) {
-                var isDirectory: ObjCBool = false
-                let candidate = modulesDirectory.appendingPathComponent(prefix)
-                if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory),
-                   isDirectory.boolValue {
+                if staleGitDirectoryURL(prefix: prefix, modulesDirectory: modulesDirectory) != nil {
                     throw SubmoduleRequestValidationError.staleSubmoduleGitDirectory(path: path, prefix: prefix)
                 }
             }
@@ -170,6 +167,25 @@ enum SubmoduleRequestValidator {
             shallow: request.shallow,
             force: request.force
         )
+    }
+
+    /// Resolves the leftover submodule git directory for a removed submodule,
+    /// if one exists. Shared by validation and the Add sheet's Finder/delete actions.
+    static func staleGitDirectoryURL(prefix: String, in repositoryURL: URL) -> URL? {
+        guard let modulesDirectory = submoduleModulesDirectory(in: repositoryURL) else {
+            return nil
+        }
+        return staleGitDirectoryURL(prefix: prefix, modulesDirectory: modulesDirectory)?.standardizedFileURL
+    }
+
+    private static func staleGitDirectoryURL(prefix: String, modulesDirectory: URL) -> URL? {
+        let candidate = modulesDirectory.appendingPathComponent(prefix)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
+        }
+        return candidate
     }
 
     private static func ancestorPrefixes(of path: String) -> [String] {

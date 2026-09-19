@@ -197,12 +197,31 @@ extension GitStatusService {
         if force {
             arguments.append("-f")
         }
-        arguments += ["--", path]
+        arguments += ["--ignore-unmatch", "--", path]
         _ = try await runGit(arguments: arguments, in: repositoryURL)
+
+        // The gitlink may be registered under a different letter case
+        // (case-insensitive filesystem vs case-sensitive index). Remove that
+        // registration too so a case-mismatched entry does not linger.
+        if let actual = await indexedGitlinkPath(matching: path, in: repositoryURL),
+           actual != path {
+            var actualArguments = ["rm"]
+            if force {
+                actualArguments.append("-f")
+            }
+            actualArguments += ["--ignore-unmatch", "--", actual]
+            _ = try await runGit(arguments: actualArguments, in: repositoryURL)
+        }
+
+        // When the gitlink was already absent, `git rm` leaves the .gitmodules
+        // registration behind. Finish that cleanup so a half-removed submodule
+        // does not linger as an unremovable Missing entry.
+        try await removeSubmoduleConfigSection(matching: path, in: repositoryURL)
 
         if await remainingSubmodulePaths(in: repositoryURL).isEmpty {
             let gitmodulesURL = repositoryURL.appendingPathComponent(".gitmodules")
-            if FileManager.default.fileExists(atPath: gitmodulesURL.path) {
+            if FileManager.default.fileExists(atPath: gitmodulesURL.path),
+               await isTracked(".gitmodules", in: repositoryURL) {
                 _ = try await runGit(arguments: ["rm", "-f", "--", ".gitmodules"], in: repositoryURL)
             }
         }
@@ -430,6 +449,67 @@ extension GitStatusService {
             let normalized = String(fields[1]).replacingOccurrences(of: "\\", with: "/")
             return NSString(string: normalized).standardizingPath
         })
+    }
+
+    private func indexedGitlinkPath(matching path: String, in repositoryURL: URL) async -> String? {
+        guard let index = try? await runGit(arguments: ["ls-files", "--stage"], in: repositoryURL) else {
+            return nil
+        }
+        let wanted = path.lowercased()
+        for line in index.split(whereSeparator: \.isNewline) {
+            guard let tab = line.firstIndex(of: "\t") else { continue }
+            let metadata = line[..<tab].split(separator: " ", omittingEmptySubsequences: true)
+            guard metadata.count >= 2, metadata[0] == "160000" else { continue }
+            let indexedPath = String(line[line.index(after: tab)...])
+            if indexedPath.lowercased() == wanted {
+                return indexedPath
+            }
+        }
+        return nil
+    }
+
+    private func removeSubmoduleConfigSection(matching path: String, in repositoryURL: URL) async throws {
+        guard let name = await submoduleSectionName(matching: path, in: repositoryURL) else {
+            return
+        }
+        _ = try? await runGit(
+            arguments: ["config", "--file", ".gitmodules", "--remove-section", "submodule.\(name)"],
+            in: repositoryURL
+        )
+        if await isTracked(".gitmodules", in: repositoryURL) {
+            _ = try await runGit(arguments: ["add", "--", ".gitmodules"], in: repositoryURL)
+        }
+    }
+
+    private func submoduleSectionName(matching path: String, in repositoryURL: URL) async -> String? {
+        let gitmodulesURL = repositoryURL.appendingPathComponent(".gitmodules")
+        guard FileManager.default.fileExists(atPath: gitmodulesURL.path),
+              let output = try? await runGit(
+                  arguments: ["config", "--file", ".gitmodules", "--get-regexp", #"^submodule\..*\.path$"#],
+                  in: repositoryURL
+              ) else {
+            return nil
+        }
+        var fallback: String?
+        for line in output.split(separator: "\n") {
+            let fields = line.split(maxSplits: 1, whereSeparator: { $0 == " " || $0 == "\t" })
+            guard fields.count == 2 else { continue }
+            let key = String(fields[0])
+            guard key.hasPrefix("submodule."), key.hasSuffix(".path") else { continue }
+            let name = String(key.dropFirst("submodule.".count).dropLast(".path".count))
+            let value = String(fields[1])
+            if value == path {
+                return name
+            }
+            if fallback == nil, value.lowercased() == path.lowercased() {
+                fallback = name
+            }
+        }
+        return fallback
+    }
+
+    private func isTracked(_ relativePath: String, in repositoryURL: URL) async -> Bool {
+        (try? await runGit(arguments: ["ls-files", "--error-unmatch", "--", relativePath], in: repositoryURL)) != nil
     }
 
     private func validatedSubmodulePath(_ rawPath: String) throws -> String {

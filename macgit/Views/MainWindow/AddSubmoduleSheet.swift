@@ -38,6 +38,8 @@ struct AddSubmoduleSheet: View {
     @State private var isLoading = false
     @State private var isValid = false
     @State private var errorMessage: String?
+    @State private var staleGitDirectoryURL: URL?
+    @State private var showingDeleteStaleConfirmation = false
 
     private var validationKey: String {
         [
@@ -110,6 +112,28 @@ struct AddSubmoduleSheet: View {
                             .foregroundStyle(.red)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+
+                    if let staleURL = staleGitDirectoryURL {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Stale git data: \(staleURL.path)")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            HStack(spacing: 12) {
+                                Button("Show in Finder") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([staleURL])
+                                }
+                                .buttonStyle(.link)
+
+                                Button("Delete Folder…", role: .destructive) {
+                                    showingDeleteStaleConfirmation = true
+                                }
+                                .buttonStyle(.link)
+                            }
+                            .font(.system(size: 12))
+                        }
+                    }
                 }
                 .padding(24)
                 .frame(maxWidth: 520, alignment: .leading)
@@ -147,6 +171,18 @@ struct AddSubmoduleSheet: View {
         .frame(minHeight: 280, idealHeight: 340)
         .task(id: validationKey) {
             refreshValidation()
+        }
+        .confirmationDialog(
+            "Delete stale submodule git directory?",
+            isPresented: $showingDeleteStaleConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Folder", role: .destructive) {
+                deleteStaleGitDirectory()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes \(staleGitDirectoryURL?.path ?? "the stale git directory"). Only continue if the previously removed submodule holds no needed work.")
         }
     }
 
@@ -247,14 +283,40 @@ struct AddSubmoduleSheet: View {
         do {
             _ = try validatedRequest()
             isValid = true
+            staleGitDirectoryURL = nil
             if !isLoading {
                 errorMessage = nil
             }
+        } catch let validationError as SubmoduleRequestValidationError {
+            isValid = false
+            if case let .staleSubmoduleGitDirectory(_, prefix) = validationError {
+                staleGitDirectoryURL = SubmoduleRequestValidator.staleGitDirectoryURL(
+                    prefix: prefix,
+                    in: repositoryURL
+                )
+            } else {
+                staleGitDirectoryURL = nil
+            }
+            if !isLoading {
+                errorMessage = validationError.localizedDescription
+            }
         } catch {
             isValid = false
+            staleGitDirectoryURL = nil
             if !isLoading {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func deleteStaleGitDirectory() {
+        guard let staleURL = staleGitDirectoryURL else { return }
+        do {
+            try FileManager.default.removeItem(at: staleURL)
+            staleGitDirectoryURL = nil
+            refreshValidation()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

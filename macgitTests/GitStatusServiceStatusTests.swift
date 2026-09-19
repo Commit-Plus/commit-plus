@@ -63,6 +63,29 @@ final class GitStatusServiceStatusTests: XCTestCase {
         XCTAssertTrue(status.untracked.contains { $0.path == "clip.mp4" }, "Untracked .mp4 file should appear in status")
     }
 
+    func testStatusHidesUntrackedEmbeddedGitRepository() async throws {
+        let repoURL = try makeTempRepo()
+        let nested = repoURL.appendingPathComponent("Package/cki-tool")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try runGit(["init", "-b", "main"], in: nested)
+        try "nested\n".write(to: nested.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        try "plain\n".write(to: repoURL.appendingPathComponent("plain.txt"), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: repoURL.appendingPathComponent("docs"), withIntermediateDirectories: true)
+        try "doc\n".write(to: repoURL.appendingPathComponent("docs/readme.md"), atomically: true, encoding: .utf8)
+
+        let status = try await GitStatusService.shared.status(for: repoURL)
+
+        XCTAssertFalse(
+            status.untracked.contains { $0.path.hasPrefix("Package/") },
+            "Embedded git repository should be hidden like other clients"
+        )
+        XCTAssertTrue(status.untracked.contains { $0.path == "plain.txt" })
+        XCTAssertTrue(
+            status.untracked.contains { $0.path == "docs/readme.md" },
+            "Normal untracked directories must still be listed"
+        )
+    }
+
     func testStatusIncludesModifiedBinaryFile() async throws {
         let repoURL = try makeTempRepo()
         let fileURL = repoURL.appendingPathComponent("clip.mp4")

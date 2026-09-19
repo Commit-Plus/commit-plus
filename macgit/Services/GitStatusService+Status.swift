@@ -118,6 +118,13 @@ extension GitStatusService {
                 let status: FileStatus = (worktreeChar == "D") ? .deleted : .modified
                 unstaged.append(StatusFile(path: path, status: status, originalPath: originalPath))
             case "?":
+                // Untracked folders that contain an embedded git repository
+                // (leftover submodule checkouts, nested clones) are hidden,
+                // matching other clients: staging one would silently register
+                // it as a gitlink, and discarding would wipe a nested checkout.
+                if path.hasSuffix("/"), Self.isEmbeddedGitRepository(at: path, in: repositoryURL) {
+                    continue
+                }
                 untracked.append(StatusFile(path: path, status: .untracked, originalPath: nil))
             default:
                 break
@@ -131,6 +138,14 @@ extension GitStatusService {
         )
 
         return GitStatus(staged: finalStaged, unstaged: finalUnstaged, untracked: finalUntracked)
+    }
+
+    private static func isEmbeddedGitRepository(at path: String, in repositoryURL: URL) -> Bool {
+        let marker = repositoryURL
+            .appendingPathComponent(path)
+            .appendingPathComponent(".git").path
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: marker, isDirectory: &isDirectory)
     }
 
     /// Coalesces worktree-level `D` entries with a same-basename partner in

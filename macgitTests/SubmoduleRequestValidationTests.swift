@@ -338,6 +338,18 @@ final class SubmoduleRequestValidationTests: XCTestCase {
         XCTAssertFalse(try SubmoduleRequestValidator.validate(addRequest: request(), in: repository).force)
     }
 
+    func testResolvesStaleGitDirectoryURL() throws {
+        let repository = try makeRepositoryDirectory()
+        let stale = repository.appendingPathComponent(".git/modules/package")
+        try FileManager.default.createDirectory(at: stale, withIntermediateDirectories: true)
+
+        XCTAssertEqual(
+            SubmoduleRequestValidator.staleGitDirectoryURL(prefix: "package", in: repository),
+            stale.standardizedFileURL
+        )
+        XCTAssertNil(SubmoduleRequestValidator.staleGitDirectoryURL(prefix: "other", in: repository))
+    }
+
     private func request(
         repository: String = "https://example.com/shared-kit.git",
         path: String = "Packages/SharedKit",

@@ -220,6 +220,71 @@ final class GitSubmoduleLifecycleTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: setup.parent.appendingPathComponent(".gitmodules").path))
     }
 
+    func testRemoveCleansRegistrationWhenGitlinkAlreadyAbsent() async throws {
+        let setup = try makeRepositories()
+        try runGit(["submodule", "add", "--", setup.child.path, "package/tool"], in: setup.parent)
+        try runGit(["commit", "-am", "add submodule"], in: setup.parent)
+        let gitmodulesBackup = try String(
+            contentsOf: setup.parent.appendingPathComponent(".gitmodules"),
+            encoding: .utf8
+        )
+        try runGit(["rm", "--cached", "--", "package/tool"], in: setup.parent)
+        try gitmodulesBackup.write(
+            to: setup.parent.appendingPathComponent(".gitmodules"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try runGit(["add", "--", ".gitmodules"], in: setup.parent)
+        try runGit(["commit", "-m", "half-removed state"], in: setup.parent)
+        let notification = expectation(forNotification: .repositoryDidChange, object: nil) { value in
+            (value.userInfo?["repositoryURL"] as? URL) == setup.parent
+        }
+
+        try await GitStatusService.shared.removeSubmodule(path: "package/tool", force: false, in: setup.parent)
+
+        await fulfillment(of: [notification], timeout: 1)
+        XCTAssertFalse(try runGitCapture(["ls-files", "--stage"], in: setup.parent).contains("package/tool"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: setup.parent.appendingPathComponent(".gitmodules").path))
+    }
+
+    func testRemoveHandlesCaseMismatchedGitlink() async throws {
+        let setup = try makeRepositories()
+        try runGit(["submodule", "add", "--", setup.child.path, "package/tool"], in: setup.parent)
+        try runGit(["commit", "-am", "add submodule"], in: setup.parent)
+        let notification = expectation(forNotification: .repositoryDidChange, object: nil) { value in
+            (value.userInfo?["repositoryURL"] as? URL) == setup.parent
+        }
+
+        try await GitStatusService.shared.removeSubmodule(path: "Package/tool", force: false, in: setup.parent)
+
+        await fulfillment(of: [notification], timeout: 1)
+        XCTAssertFalse(try runGitCapture(["ls-files", "--stage"], in: setup.parent).contains("package/tool"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: setup.parent.appendingPathComponent(".gitmodules").path))
+    }
+
+    func testRemoveWithUntrackedGitmodulesDoesNotThrow() async throws {
+        let setup = try makeRepositories()
+        try """
+        [submodule "package/tool"]
+            path = package/tool
+            url = https://example.com/tool.git
+        """.write(
+            to: setup.parent.appendingPathComponent(".gitmodules"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let notification = expectation(forNotification: .repositoryDidChange, object: nil) { value in
+            (value.userInfo?["repositoryURL"] as? URL) == setup.parent
+        }
+
+        try await GitStatusService.shared.removeSubmodule(path: "package/tool", force: false, in: setup.parent)
+
+        await fulfillment(of: [notification], timeout: 1)
+        let remaining = try runGitCapture(["config", "--file", ".gitmodules", "--list"], in: setup.parent)
+        XCTAssertTrue(remaining.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        XCTAssertTrue(try runGitCapture(["status", "--porcelain"], in: setup.parent).contains("?? .gitmodules"))
+    }
+
     func testRemovingOneOfMultipleSubmodulesKeepsGitmodulesWithRemainingSection() async throws {
         let setup = try makeParentWithCommittedSubmodule()
         let other = setup.root.appendingPathComponent("OtherKit")
