@@ -41,7 +41,7 @@ struct SidebarSubmoduleRow: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(entry.name)
+                Text(displayName)
                     .lineLimit(1)
                 Text(entry.path)
                     .font(.caption)
@@ -107,11 +107,18 @@ struct SidebarSubmoduleRow: View {
         .accessibilityAction(named: "Open in Commit+", openIfAvailable)
     }
 
+    private var displayName: String {
+        // The tree already renders ancestor folders as folder nodes, so only
+        // the leaf segment is shown as the title (custom --name values without
+        // a slash are shown in full). The full path stays in the subtitle.
+        entry.name.split(separator: "/").last.map(String.init) ?? entry.name
+    }
+
     private var accessibilityLabel: String {
         if let branch = entry.branch {
-            return "\(entry.name), \(entry.path), branch \(branch), \(entry.state.title)"
+            return "\(displayName), \(entry.path), branch \(branch), \(entry.state.title)"
         }
-        return "\(entry.name), \(entry.path), \(entry.state.title)"
+        return "\(displayName), \(entry.path), \(entry.state.title)"
     }
 
     private func openIfAvailable() {

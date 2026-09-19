@@ -168,7 +168,7 @@ struct AddSubmoduleSheet: View {
             .padding([.horizontal, .bottom], 24)
         }
         .frame(minWidth: 520, idealWidth: 560, maxWidth: 600)
-        .frame(minHeight: 280, idealHeight: 340)
+        .frame(minHeight: 280, idealHeight: 460)
         .task(id: validationKey) {
             refreshValidation()
         }
