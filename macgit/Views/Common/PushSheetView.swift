@@ -30,6 +30,25 @@ struct BranchPushInfo: Identifiable {
     var isTracked: Bool
 }
 
+enum PushRemoteSelectionPolicy {
+    static func resolve(
+        remotes: [String],
+        currentBranch: String?,
+        upstreams: [String: String]
+    ) -> String {
+        guard let currentBranch,
+              let upstream = upstreams[currentBranch] else {
+            return remotes.first ?? ""
+        }
+
+        return remotes
+            .sorted { $0.count > $1.count }
+            .first { upstream.hasPrefix("\($0)/") }
+            ?? remotes.first
+            ?? ""
+    }
+}
+
 enum BranchPushInfoBuilder {
     static func build(
         localBranches: [String],
@@ -308,8 +327,19 @@ struct PushSheetView: View {
         isLoading = true
         defer { isLoading = false }
 
-        let currentRemotes = await GitStatusService.shared.remotes(in: repositoryURL)
-        let currentRemote = currentRemotes.first ?? ""
+        async let remotesTask = GitStatusService.shared.remotes(in: repositoryURL)
+        async let currentBranchTask = GitStatusService.shared.currentBranch(in: repositoryURL)
+        async let upstreamsTask = GitStatusService.shared.localBranchUpstreams(in: repositoryURL)
+        let (currentRemotes, currentBranch, upstreams) = await (
+            remotesTask,
+            currentBranchTask,
+            upstreamsTask
+        )
+        let currentRemote = PushRemoteSelectionPolicy.resolve(
+            remotes: currentRemotes,
+            currentBranch: currentBranch,
+            upstreams: upstreams
+        )
 
         await MainActor.run {
             remotes = currentRemotes

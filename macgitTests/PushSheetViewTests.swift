@@ -19,6 +19,36 @@ import XCTest
 @testable import macgit
 
 final class PushSheetViewTests: XCTestCase {
+    func testRemoteSelectionPrefersCurrentBranchUpstream() {
+        let remote = PushRemoteSelectionPolicy.resolve(
+            remotes: ["gitlab", "origin"],
+            currentBranch: "main",
+            upstreams: ["main": "origin/main"]
+        )
+
+        XCTAssertEqual(remote, "origin")
+    }
+
+    func testRemoteSelectionFallsBackToFirstRemoteWithoutUpstream() {
+        let remote = PushRemoteSelectionPolicy.resolve(
+            remotes: ["gitlab", "origin"],
+            currentBranch: "feature/local-only",
+            upstreams: ["main": "origin/main"]
+        )
+
+        XCTAssertEqual(remote, "gitlab")
+    }
+
+    func testRemoteSelectionMatchesLongestRemoteName() {
+        let remote = PushRemoteSelectionPolicy.resolve(
+            remotes: ["team", "team/gitlab"],
+            currentBranch: "main",
+            upstreams: ["main": "team/gitlab/main"]
+        )
+
+        XCTAssertEqual(remote, "team/gitlab")
+    }
+
     func testMappingDoesNotReuseUpstreamFromAnotherRemote() {
         let infos = BranchPushInfoBuilder.build(
             localBranches: ["feature"], upstreams: ["feature": "origin/review/topic"],
