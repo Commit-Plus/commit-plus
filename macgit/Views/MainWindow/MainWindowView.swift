@@ -183,6 +183,7 @@ struct MainWindowView: View {
     @State private var showingRepositoryAIChatPanel = false
     @AppStorage("repositoryAIChat.panelWidth") private var storedRepositoryAIChatPanelWidth = 340.0
     @State private var showingToolbarShortcutPopover = false
+    @State private var releaseNotesPresentation: ReleaseNotesPresentation?
     @StateObject private var repositoryAIChatController: RepositoryAIChatController
     @ObservedObject var operationProgress: RepositoryOperationProgress
 
@@ -271,6 +272,9 @@ struct MainWindowView: View {
                     onCancel: dismissProUpgradeSheet,
                     onPrimaryAction: performProUpgradePrimaryAction
                 )
+            }
+            .sheet(item: $releaseNotesPresentation) { presentation in
+                ReleaseNotesSheet(presentation: presentation)
             }
             .confirmationDialog(
                 "Open Repository in Editor",
@@ -632,6 +636,9 @@ struct MainWindowView: View {
         .focusedSceneValue(\.gitFlowCommandState, gitFlowCommandState)
         .frame(minWidth: 900, minHeight: 600)
             .task { await performInitialLoad() }
+            .task {
+                releaseNotesPresentation = await ReleaseNotesPresentationStore.shared.claimPresentation()
+            }
             .task(id: gitFlowConfigurationSyncTaskID) {
                 await reconcileGitFlowConfigurationWithCloud()
             }

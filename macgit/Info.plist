@@ -45,6 +45,8 @@
 	<string>$(COMMIT_PLUS_DOCS_BASE_URL)</string>
 	<key>CommitPlusAIBaseURL</key>
 	<string>$(COMMIT_PLUS_AI_BASE_URL)</string>
+	<key>CommitPlusChangelogURL</key>
+	<string>https://raw.githubusercontent.com/Commit-Plus/commit-plus/main/CHANGELOG.md</string>
 	<key>CommitPlusWebBaseURL</key>
 	<string>$(COMMIT_PLUS_WEB_BASE_URL)</string>
 	<key>GitHubOAuthClientID</key>
