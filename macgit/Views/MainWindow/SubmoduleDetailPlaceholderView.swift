@@ -29,10 +29,11 @@ struct SubmoduleDetailPlaceholderView: View {
             Text("Double-click to open this submodule")
                 .font(.title3)
                 .foregroundStyle(.primary)
-            Button("Or open in a new tab") {
+            Button("or click here to open") {
                 onOpen()
             }
             .buttonStyle(.link)
+            .sidebarPointingHandCursor()
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

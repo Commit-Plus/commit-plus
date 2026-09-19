@@ -15,18 +15,24 @@
 //  You should have received a copy of the GNU Affero General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
+import AppKit
 import SwiftUI
 import GoogleSignIn
 
 struct ContentView: View {
+    @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var appUpdateController: AppUpdateController
+    @EnvironmentObject private var featureAccessController: FeatureAccessController
     @EnvironmentObject private var repositoryBookmarkController: RepositoryBookmarkController
     @Environment(\.openWindow) private var openWindow
     @ObservedObject var accountController: AccountSessionController
     @ObservedObject var providerAccountController: GitProviderAccountController
     @ObservedObject var aiProviderController: AIProviderController
     let isWelcomeWindow: Bool
-    let isShowingAppSettings: Bool
     let initialShowsHistory: Bool?
+
+    @State private var showingAppSettings = false
+    @State private var selectedAppSettingsSection: AppSettingsSection = .general
 
     @State private var repositoryOpenError = ""
     @State private var showingRepositoryOpenError = false
@@ -46,15 +52,13 @@ struct ContentView: View {
         isWelcomeWindow: Bool = false,
         accountController: AccountSessionController,
         providerAccountController: GitProviderAccountController,
-        aiProviderController: AIProviderController,
-        isShowingAppSettings: Bool = false
+        aiProviderController: AIProviderController
     ) {
         self.initialShowsHistory = request?.showsHistory
         self.isWelcomeWindow = isWelcomeWindow
         self.accountController = accountController
         self.providerAccountController = providerAccountController
         self.aiProviderController = aiProviderController
-        self.isShowingAppSettings = isShowingAppSettings
         _repositoryURL = State(initialValue: request?.repositoryURL)
         _showingCloneSheet = State(
             initialValue: request?.initialPresentation == .cloneRepository
@@ -159,6 +163,20 @@ struct ContentView: View {
             }
             .interactiveDismissDisabled(accountController.isOpeningAccountOnWeb)
         }
+        .sheet(isPresented: $showingAppSettings) {
+            AppSettingsView(
+                appState: appState,
+                accountController: accountController,
+                featureAccessController: featureAccessController,
+                providerAccountController: providerAccountController,
+                aiProviderController: aiProviderController,
+                appUpdateController: appUpdateController,
+                isPresented: $showingAppSettings,
+                selectedSection: $selectedAppSettingsSection
+            )
+                .environmentObject(featureAccessController)
+                .preferredColorScheme(appState.appearance.colorScheme)
+        }
         .alert("Current Repository is Open", isPresented: $showingKeepCurrentAlert) {
             Button("Cancel", role: .cancel) {}
             Button("Close Current", role: .destructive) {
@@ -174,6 +192,20 @@ struct ContentView: View {
             guard windowContext.owns(notification),
                   let action = notification.userInfo?["action"] as? FileMenuAction else { return }
             handleFileMenuAction(action)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showAppSettings)) { notification in
+            if let targetWindow = notification.object as? NSWindow {
+                guard targetWindow === windowContext.window else { return }
+            } else if windowContext.window !== NSApp.keyWindow {
+                return
+            }
+            if let rawSection = notification.userInfo?["section"] as? String,
+               let section = AppSettingsSection(rawValue: rawSection) {
+                selectedAppSettingsSection = section
+            } else {
+                selectedAppSettingsSection = .general
+            }
+            showingAppSettings = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .newRepositoryTab)) { notification in
             guard !isWelcomeWindow, windowContext.owns(notification) else { return }
@@ -212,7 +244,7 @@ struct ContentView: View {
             operationProgress.activeOperation == nil ? .automatic : .disabled
         )
         .modifier(CommandLineSetupTipModifier(
-            isBlocked: isShowingAppSettings || showingCloneSheet || showingRepoPickerSheet
+            isBlocked: showingAppSettings || showingCloneSheet || showingRepoPickerSheet
                 || showingKeepCurrentAlert || accountController.presentedSheet != nil
                 || operationProgress.activeOperation != nil
         ))

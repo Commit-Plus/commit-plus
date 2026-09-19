@@ -31,8 +31,6 @@ struct macgitApp: App {
     @StateObject private var repositoryVisibilityController: RepositoryVisibilityController
     @StateObject private var repositoryBookmarkController: RepositoryBookmarkController
     @StateObject private var gitFlowConfigurationSyncController: GitFlowConfigurationSyncController
-    @State private var showingAppSettings = false
-    @State private var selectedAppSettingsSection: AppSettingsSection = .general
     @FocusedValue(\.repositoryWindowCommandState) private var repositoryWindowCommandState
 
     init() {
@@ -217,8 +215,7 @@ struct macgitApp: App {
             isWelcomeWindow: isWelcomeWindow,
             accountController: accountController,
             providerAccountController: providerAccountController,
-            aiProviderController: aiProviderController,
-            isShowingAppSettings: showingAppSettings
+            aiProviderController: aiProviderController
         )
             .environmentObject(appState)
             .environmentObject(appUpdateController)
@@ -241,29 +238,6 @@ struct macgitApp: App {
                 Task {
                     await aiProviderController.managedUsageController?.refresh(force: true)
                 }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .showAppSettings)) { notification in
-                if let rawSection = notification.userInfo?["section"] as? String,
-                   let section = AppSettingsSection(rawValue: rawSection) {
-                    selectedAppSettingsSection = section
-                } else {
-                    selectedAppSettingsSection = .general
-                }
-                showingAppSettings = true
-            }
-            .sheet(isPresented: $showingAppSettings) {
-                AppSettingsView(
-                    appState: appState,
-                    accountController: accountController,
-                    featureAccessController: featureAccessController,
-                    providerAccountController: providerAccountController,
-                    aiProviderController: aiProviderController,
-                    appUpdateController: appUpdateController,
-                    isPresented: $showingAppSettings,
-                    selectedSection: $selectedAppSettingsSection
-                )
-                    .environmentObject(featureAccessController)
-                    .preferredColorScheme(appState.appearance.colorScheme)
             }
     }
 
@@ -288,8 +262,10 @@ struct macgitApp: App {
                 }
 
                 Button("Settings...") {
-                    selectedAppSettingsSection = .general
-                    showingAppSettings = true
+                    WindowScopedNotification.post(
+                        name: .showAppSettings,
+                        userInfo: ["section": AppSettingsSection.general.rawValue]
+                    )
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }

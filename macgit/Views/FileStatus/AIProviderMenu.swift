@@ -137,9 +137,8 @@ struct AIProviderMenu: View {
     }
 
     private func openAIProviderSettings() {
-        NotificationCenter.default.post(
+        WindowScopedNotification.post(
             name: .showAppSettings,
-            object: nil,
             userInfo: ["section": AppSettingsSection.aiProviders.rawValue]
         )
     }
