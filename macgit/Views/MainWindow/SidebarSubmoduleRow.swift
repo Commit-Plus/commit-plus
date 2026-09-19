@@ -65,7 +65,11 @@ struct SidebarSubmoduleRow: View {
                 .lineLimit(1)
         }
         .contentShape(.rect)
-        .onTapGesture(count: 2, perform: openIfAvailable)
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                openIfAvailable()
+            }
+        )
         .contextMenu {
             if actions.contains(.openInCommitPlus) {
                 Button("Open in Commit+", systemImage: "macwindow", action: onOpen)

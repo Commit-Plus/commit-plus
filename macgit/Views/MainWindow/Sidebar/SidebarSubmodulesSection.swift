@@ -121,5 +121,8 @@ struct SidebarSubmodulesSection: View {
             onRemove: { actions.remove(entry) }
         )
         .tag(SidebarSelection.submodule(entry.path))
+        .onTapGesture {
+            actions.select(.submodule(entry.path))
+        }
     }
 }

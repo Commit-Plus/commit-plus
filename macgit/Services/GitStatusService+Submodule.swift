@@ -34,6 +34,9 @@ extension GitStatusService {
         defer { injection?.cleanup() }
 
         var arguments = ["submodule", "add"]
+        if request.force {
+            arguments += ["--force"]
+        }
         if let branch = request.branch {
             arguments += ["--branch", branch]
         }

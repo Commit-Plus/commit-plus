@@ -31,8 +31,10 @@ struct AddSubmoduleSheet: View {
     @State private var branch = ""
     @State private var initializeAfterAdd = true
     @State private var shallow = false
+    @State private var force = false
     @State private var showingInitializeHelp = false
     @State private var showingShallowHelp = false
+    @State private var showingForceHelp = false
     @State private var isLoading = false
     @State private var isValid = false
     @State private var errorMessage: String?
@@ -43,7 +45,8 @@ struct AddSubmoduleSheet: View {
             path,
             branch,
             initializeAfterAdd ? "1" : "0",
-            shallow ? "1" : "0"
+            shallow ? "1" : "0",
+            force ? "1" : "0"
         ].joined(separator: "|")
     }
 
@@ -113,6 +116,16 @@ struct AddSubmoduleSheet: View {
             }
 
             HStack(spacing: 12) {
+                optionRow(
+                    title: "Force",
+                    isOn: $force,
+                    showingHelp: $showingForceHelp,
+                    helpTitle: "Force add",
+                    helpText: "When enabled, passes --force to git submodule add, reusing the local git directory if one already exists for this path (for example after removing and re-adding the same submodule). It does not bypass nesting conflicts."
+                )
+                .font(.system(size: 13))
+                .disabled(isLoading)
+
                 Spacer()
 
                 Button("Cancel", role: .cancel) {
@@ -252,7 +265,8 @@ struct AddSubmoduleSheet: View {
                 path: path,
                 branch: branch,
                 initializeAfterAdd: initializeAfterAdd,
-                shallow: shallow
+                shallow: shallow,
+                force: force
             ),
             in: repositoryURL
         )

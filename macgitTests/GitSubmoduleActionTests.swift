@@ -257,6 +257,75 @@ final class GitSubmoduleActionTests: XCTestCase {
         await fulfillment(of: [notification], timeout: 1)
     }
 
+    func testAddWithForcePassesForceFlagToGit() async throws {
+        let runner = RecordingSubmoduleRunner()
+        let service = GitStatusService(runner: runner)
+        let request = SubmoduleAddRequest(
+            repository: "https://github.com/example/SharedKit.git",
+            path: "Packages/SharedKit",
+            branch: nil,
+            initializeAfterAdd: true,
+            shallow: false,
+            force: true
+        )
+
+        try await service.addSubmodule(request, in: URL(fileURLWithPath: "/tmp/parent"), credentialResolver: nil)
+
+        let calls = await runner.calls
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls[0].arguments, [
+            "submodule", "add", "--force", "--",
+            "https://github.com/example/SharedKit.git", "Packages/SharedKit"
+        ])
+    }
+
+    func testForcedAddReusesStaleGitDirectory() async throws {
+        let setup = try makeRepositories()
+        try runGit(["submodule", "add", "--", setup.child.path, "package"], in: setup.parent)
+        try runGit(["commit", "-am", "add package"], in: setup.parent)
+        try runGit(["rm", "--", "package"], in: setup.parent)
+        try runGit(["rm", "-f", "--", ".gitmodules"], in: setup.parent)
+        try runGit(["commit", "-am", "remove package"], in: setup.parent)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: setup.parent.appendingPathComponent(".git/modules/package").path))
+
+        let request = SubmoduleAddRequest(
+            repository: setup.child.path,
+            path: "package",
+            branch: nil,
+            initializeAfterAdd: true,
+            shallow: false,
+            force: true
+        )
+
+        try await GitStatusService.shared.addSubmodule(request, in: setup.parent, credentialResolver: nil)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: setup.parent.appendingPathComponent("package/shared.txt").path))
+    }
+
+    func testAddWithoutForceFailsWhenGitDirectoryWouldBeReused() async throws {
+        let setup = try makeRepositories()
+        try runGit(["submodule", "add", "--", setup.child.path, "package"], in: setup.parent)
+        try runGit(["commit", "-am", "add package"], in: setup.parent)
+        try runGit(["rm", "--", "package"], in: setup.parent)
+        try runGit(["rm", "-f", "--", ".gitmodules"], in: setup.parent)
+        try runGit(["commit", "-am", "remove package"], in: setup.parent)
+        let request = SubmoduleAddRequest(
+            repository: setup.child.path,
+            path: "package",
+            branch: nil,
+            initializeAfterAdd: true,
+            shallow: false,
+            force: false
+        )
+
+        do {
+            try await GitStatusService.shared.addSubmodule(request, in: setup.parent, credentialResolver: nil)
+            XCTFail("Expected reuse rejection without force")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("--force"))
+        }
+    }
+
     private func makeRepositories() throws -> (root: URL, child: URL, parent: URL) {
         let root = try makeTemporaryDirectory()
         let child = root.appendingPathComponent("SharedKit")

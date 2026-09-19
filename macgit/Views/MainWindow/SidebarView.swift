@@ -473,6 +473,7 @@ struct SidebarView: View {
         SidebarSubmoduleSectionActions(
             toggleSection: { toggleSection(.submodules) },
             toggleFolder: toggleSubmoduleFolder,
+            select: { selection = $0 },
             open: onRequestOpenSubmodule,
             showInFinder: onRequestShowSubmoduleInFinder,
             openInTerminal: onRequestOpenSubmoduleInTerminal,

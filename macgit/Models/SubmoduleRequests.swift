@@ -23,6 +23,23 @@ struct SubmoduleAddRequest: Equatable, Sendable {
     let branch: String?
     let initializeAfterAdd: Bool
     let shallow: Bool
+    let force: Bool
+
+    init(
+        repository: String,
+        path: String,
+        branch: String?,
+        initializeAfterAdd: Bool,
+        shallow: Bool,
+        force: Bool = false
+    ) {
+        self.repository = repository
+        self.path = path
+        self.branch = branch
+        self.initializeAfterAdd = initializeAfterAdd
+        self.shallow = shallow
+        self.force = force
+    }
 }
 
 enum SubmoduleUpdateMode: Equatable, Sendable {
@@ -37,6 +54,9 @@ enum SubmoduleRequestValidationError: LocalizedError, Equatable {
     case absolutePath
     case pathOutsideRepository
     case duplicatePath(String)
+    case nestedInsideSubmodule(path: String, existing: String)
+    case ancestorOfSubmodule(path: String, existing: String)
+    case staleSubmoduleGitDirectory(path: String, prefix: String)
 
     var errorDescription: String? {
         switch self {
@@ -52,6 +72,12 @@ enum SubmoduleRequestValidationError: LocalizedError, Equatable {
             "The submodule path must stay inside this repository."
         case let .duplicatePath(path):
             "A submodule is already configured at \(path)."
+        case let .nestedInsideSubmodule(path, existing):
+            "Cannot add a submodule at \(path) because it is inside the active submodule at \(existing)."
+        case let .ancestorOfSubmodule(path, existing):
+            "Cannot add a submodule at \(path) because it would contain the active submodule at \(existing)."
+        case let .staleSubmoduleGitDirectory(path, prefix):
+            "Cannot add a submodule at \(path): a leftover submodule git directory from a removed submodule exists at .git/modules/\(prefix). Delete it (after confirming nothing needed remains) and try again."
         }
     }
 }
@@ -107,8 +133,30 @@ enum SubmoduleRequestValidator {
             throw SubmoduleRequestValidationError.pathOutsideRepository
         }
 
-        if GitStatusService.shared.configuredSubmodulePaths(in: repositoryURL).contains(path) {
+        let configured = GitStatusService.shared.configuredSubmodulePaths(in: repositoryURL)
+        if configured.contains(path) {
             throw SubmoduleRequestValidationError.duplicatePath(path)
+        }
+        // `git submodule add` cannot nest inside another submodule's git dir,
+        // and `--force` does not bypass that. Reject nested paths up front so
+        // the user gets an actionable message instead of a raw git fatal.
+        for prefix in ancestorPrefixes(of: path) {
+            if configured.contains(prefix) {
+                throw SubmoduleRequestValidationError.nestedInsideSubmodule(path: path, existing: prefix)
+            }
+        }
+        if let inner = configured.first(where: { $0.hasPrefix(path + "/") }) {
+            throw SubmoduleRequestValidationError.ancestorOfSubmodule(path: path, existing: inner)
+        }
+        if let modulesDirectory = submoduleModulesDirectory(in: repositoryURL) {
+            for prefix in ancestorPrefixes(of: path) {
+                var isDirectory: ObjCBool = false
+                let candidate = modulesDirectory.appendingPathComponent(prefix)
+                if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory),
+                   isDirectory.boolValue {
+                    throw SubmoduleRequestValidationError.staleSubmoduleGitDirectory(path: path, prefix: prefix)
+                }
+            }
         }
 
         let branch = request.branch?
@@ -119,8 +167,46 @@ enum SubmoduleRequestValidator {
             path: path.replacingOccurrences(of: "\\", with: "/"),
             branch: branch?.isEmpty == true ? nil : branch,
             initializeAfterAdd: request.initializeAfterAdd,
-            shallow: request.shallow
+            shallow: request.shallow,
+            force: request.force
         )
+    }
+
+    private static func ancestorPrefixes(of path: String) -> [String] {
+        let components = path.split(separator: "/")
+        guard components.count > 1 else { return [] }
+        return (1..<components.count).map { components.prefix($0).joined(separator: "/") }
+    }
+
+    private static func submoduleModulesDirectory(in repositoryURL: URL) -> URL? {
+        let dotGit = repositoryURL.appendingPathComponent(".git")
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: dotGit.path, isDirectory: &isDirectory) else {
+            return nil
+        }
+        if isDirectory.boolValue {
+            return dotGit.appendingPathComponent("modules")
+        }
+        // Linked worktree: `.git` is a file containing `gitdir: <path>`.
+        guard let contents = try? String(contentsOf: dotGit, encoding: .utf8),
+              let gitdirLine = contents.split(whereSeparator: \.isNewline).first(where: {
+                  $0.trimmingCharacters(in: .whitespaces).hasPrefix("gitdir:")
+              }) else {
+            return nil
+        }
+        var gitdir = String(gitdirLine)
+            .replacingOccurrences(of: "gitdir:", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !NSString(string: gitdir).isAbsolutePath {
+            gitdir = repositoryURL.appendingPathComponent(gitdir).standardizedFileURL.path
+        }
+        let gitDirURL = URL(fileURLWithPath: gitdir).standardizedFileURL
+        let components = gitDirURL.pathComponents
+        if let worktreesIndex = components.lastIndex(of: "worktrees"), worktreesIndex > 1 {
+            let base = "/" + components[1..<worktreesIndex].joined(separator: "/")
+            return URL(fileURLWithPath: base).appendingPathComponent("modules")
+        }
+        return gitDirURL.appendingPathComponent("modules")
     }
 
     static func relativePath(for url: URL, in repositoryURL: URL) -> String? {

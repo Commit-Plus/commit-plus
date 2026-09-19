@@ -241,17 +241,116 @@ final class SubmoduleRequestValidationTests: XCTestCase {
         XCTAssertEqual(validated.shallow, false)
     }
 
+    func testRejectsNestedPathInsideActiveSubmodule() throws {
+        let repository = try makeRepositoryDirectory()
+        try """
+        [submodule "package"]
+            path = package
+            url = https://example.com/package.git
+        """.write(
+            to: repository.appendingPathComponent(".gitmodules"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertThrowsError(
+            try SubmoduleRequestValidator.validate(
+                addRequest: request(path: "package/tool"),
+                in: repository
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? SubmoduleRequestValidationError,
+                .nestedInsideSubmodule(path: "package/tool", existing: "package")
+            )
+        }
+    }
+
+    func testRejectsNestedPathInsideStaleGitDirectory() throws {
+        let repository = try makeRepositoryDirectory()
+        try FileManager.default.createDirectory(
+            at: repository.appendingPathComponent(".git/modules/package"),
+            withIntermediateDirectories: true
+        )
+
+        XCTAssertThrowsError(
+            try SubmoduleRequestValidator.validate(
+                addRequest: request(path: "package/tool"),
+                in: repository
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? SubmoduleRequestValidationError,
+                .staleSubmoduleGitDirectory(path: "package/tool", prefix: "package")
+            )
+        }
+    }
+
+    func testRejectsPathContainingActiveSubmodule() throws {
+        let repository = try makeRepositoryDirectory()
+        try """
+        [submodule "Packages/OtherKit"]
+            path = Packages/OtherKit
+            url = https://example.com/other-kit.git
+        """.write(
+            to: repository.appendingPathComponent(".gitmodules"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertThrowsError(
+            try SubmoduleRequestValidator.validate(
+                addRequest: request(path: "Packages"),
+                in: repository
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? SubmoduleRequestValidationError,
+                .ancestorOfSubmodule(path: "Packages", existing: "Packages/OtherKit")
+            )
+        }
+    }
+
+    func testAllowsReaddingSamePathWithStaleGitDirectory() throws {
+        let repository = try makeRepositoryDirectory()
+        try FileManager.default.createDirectory(
+            at: repository.appendingPathComponent(".git/modules/package"),
+            withIntermediateDirectories: true
+        )
+
+        let validated = try SubmoduleRequestValidator.validate(
+            addRequest: request(path: "package"),
+            in: repository
+        )
+
+        XCTAssertEqual(validated.path, "package")
+    }
+
+    func testPreservesForceFlag() throws {
+        let repository = try makeRepositoryDirectory()
+
+        let validated = try SubmoduleRequestValidator.validate(
+            addRequest: request(force: true),
+            in: repository
+        )
+
+        XCTAssertTrue(validated.force)
+        XCTAssertFalse(try SubmoduleRequestValidator.validate(addRequest: request(), in: repository).force)
+    }
+
     private func request(
         repository: String = "https://example.com/shared-kit.git",
         path: String = "Packages/SharedKit",
-        branch: String? = nil
+        branch: String? = nil,
+        force: Bool = false
     ) -> SubmoduleAddRequest {
         SubmoduleAddRequest(
             repository: repository,
             path: path,
             branch: branch,
             initializeAfterAdd: true,
-            shallow: false
+            shallow: false,
+            force: force
         )
     }
 
