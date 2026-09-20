@@ -4,7 +4,11 @@ All notable changes to Commit+ are documented here.
 
 ## Unreleased
 
-Changes since `v1.1.1`.
+Changes since `v1.1.3`.
+
+## v1.1.3
+
+Changes since `v1.1.2`.
 
 ### Added
 
@@ -31,4 +35,4 @@ Changes since `v1.1.1`.
 - Fixed local subtree add and pull operations failing because Git's local `file` transport was not enabled.
 - Fixed repository picker status rows showing incomplete or misleading values while background metadata was still loading.
 
-[Compare changes since v1.1.1](https://github.com/Commit-Plus/commit-plus/compare/v1.1.1...main)
+[Compare changes since v1.1.2](https://github.com/Commit-Plus/commit-plus/compare/v1.1.2...v1.1.3)
