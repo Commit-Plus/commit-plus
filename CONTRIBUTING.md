@@ -136,29 +136,26 @@ Firebase rules, Cloud Functions, backend tests, and operator scripts are maintai
 
 ### License Header
 
-**Every `.swift` file** must include the AGPL v3 license header. Commits missing these markers will be blocked by the pre-commit hook:
+Preserve existing copyright and license notices, including third-party attribution. Contributors may add their own copyright notice; no specific author name or email is required.
+
+For new Swift source files, use either the full AGPL v3 header from an existing project file or a short SPDX notice:
 
 ```swift
-//
-//  macgit (Commit+) - a macOS Git client built with Swift and SwiftUI.
-//  Copyright (C) 2026  Thanh Tran <trantienthanh2412@gmail.com>
-//
-//  This program is free software: you can redistribute it and/or modify
-//  it under the terms of the GNU Affero General Public License as published by
-//  the Free Software Foundation, either version 3 of the License, or
-//  (at your option) any later version.
-//
-//  This program is distributed in the hope that it will be useful,
-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-//  GNU Affero General Public License for more details.
-//
-//  You should have received a copy of the GNU Affero General Public License
-//  along with this program.  If not, see <https://www.gnu.org/licenses/>.
-//
+// SPDX-License-Identifier: AGPL-3.0-or-later
 ```
 
-The `Copyright (C)` line is recommended but not enforced, so you can add your own name.
+The repository license is in `LICENSE`. Keep third-party code's original notices rather than replacing them with the project header.
+
+### Git Hooks
+
+Enable the shared hooks once per checkout:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+- `pre-commit` checks staged Swift content and warns about missing AGPL notices. It does not block commits or require personal attribution.
+- `pre-push` validates release tag versions against `MARKETING_VERSION`.
 
 ### Swift Style
 

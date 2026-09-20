@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Advisory license check for staged Swift sources. Never requires an author name.
+# Install with: git config core.hooksPath .githooks
+set -euo pipefail
+
+staged_files="$(mktemp -t commitplus-license.XXXXXX)"
+trap 'rm -f "$staged_files"' EXIT
+# Include renamed/copied files and use NUL delimiters for unusual filenames.
+git diff --cached --name-only -z --diff-filter=ACMR -- '*.swift' > "$staged_files"
+
+while IFS= read -r -d '' file; do
+    # Read the index, not unstaged working-tree edits.
+    content="$(git show ":$file")"
+    if ! printf '%s\n' "$content" | grep -E 'GNU Affero General Public License|SPDX-License-Identifier: AGPL-3\.0-(or-later|only)([[:space:]]|$)' > /dev/null; then
+        printf 'Warning: staged Swift file has no recognized AGPL notice: %s\n' "$file" >&2
+        printf 'For new project code, consider: // SPDX-License-Identifier: AGPL-3.0-or-later\n' >&2
+        printf 'Preserve existing copyright and third-party license notices. Commit is not blocked.\n' >&2
+    fi
+done < "$staged_files"
