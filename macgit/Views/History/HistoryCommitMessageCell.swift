@@ -22,7 +22,6 @@ struct HistoryCommitMessageCell: View {
 
     let commit: Commit
     let graphModel: CommitGraphModel
-    let rowIndex: Int
     let isDragActive: Bool
     let scrollCoordinator: HistoryTableScrollCoordinator
     let onAppear: () -> Void
@@ -34,8 +33,6 @@ struct HistoryCommitMessageCell: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            BranchGraphRowCanvas(model: graphModel, rowIndex: rowIndex)
-
             if !commit.refs.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(commit.refs.prefix(3), id: \.self) { ref in

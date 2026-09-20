@@ -20,12 +20,14 @@ import AppKit
 import SwiftUI
 
 struct SidebarPointingHandCursorModifier: ViewModifier {
+    @Environment(\.isEnabled) private var isEnabled
+
     func body(content: Content) -> some View {
         content
             .onContinuousHover { phase in
                 switch phase {
                 case .active:
-                    NSCursor.pointingHand.set()
+                    (isEnabled ? NSCursor.pointingHand : NSCursor.arrow).set()
                 case .ended:
                     NSCursor.arrow.set()
                 }

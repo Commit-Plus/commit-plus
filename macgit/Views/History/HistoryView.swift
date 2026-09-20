@@ -535,22 +535,29 @@ struct HistoryView: View {
                 let rowIndexByHash = Dictionary(
                     uniqueKeysWithValues: commits.enumerated().map { ($0.element.hash, $0.offset) }
                 )
-                GeometryReader { proxy in
-                let tableWidths = Self.tableColumnWidths(
-                    for: proxy.size.width
-                )
-
-                    ZStack(alignment: .bottom) {
+                // Fixed initial hints only; the native coordinator owns all
+                // subsequent sizing, including window and scroller changes.
+                ZStack(alignment: .bottom) {
                     Table(
                         of: Commit.self,
                         selection: $tableSelection,
                         columnCustomization: $tableColumnCustomization
                     ) {
+                        TableColumn("Graph") { commit in
+                            BranchGraphRowCanvas(
+                                model: graphModel,
+                                rowIndex: rowIndexByHash[commit.hash] ?? 0
+                            )
+                            .opacity(activeDragCommitHashes.contains(commit.hash) ? 0.4 : 1)
+                        }
+                        .width(min: 60, ideal: 200, max: .infinity)
+                        .customizationID("graph")
+                        .disabledCustomizationBehavior([.reorder, .visibility])
+
                         TableColumn("Message") { commit in
                             HistoryCommitMessageCell(
                                 commit: commit,
                                 graphModel: graphModel,
-                                rowIndex: rowIndexByHash[commit.hash] ?? 0,
                                 isDragActive: activeDragCommitHashes.contains(commit.hash),
                                 scrollCoordinator: tableScrollCoordinator,
                                 onAppear: {
@@ -560,7 +567,7 @@ struct HistoryView: View {
                         }
                         .width(
                             min: 120,
-                            ideal: tableWidths.message,
+                            ideal: 400,
                             max: .infinity
                         )
                         .customizationID("message")
@@ -575,7 +582,7 @@ struct HistoryView: View {
                         }
                         .width(
                             min: 140,
-                            ideal: tableWidths.author,
+                            ideal: 180,
                             max: .infinity
                         )
                         .customizationID("author")
@@ -597,7 +604,7 @@ struct HistoryView: View {
                         }
                         .width(
                             min: 100,
-                            ideal: tableWidths.date,
+                            ideal: 140,
                             max: .infinity
                         )
                         .alignment(.leading)
@@ -612,7 +619,7 @@ struct HistoryView: View {
                         }
                         .width(
                             min: 72,
-                            ideal: tableWidths.commit,
+                            ideal: 80,
                             max: .infinity
                         )
                         .alignment(.leading)
@@ -657,25 +664,10 @@ struct HistoryView: View {
                             .background(.regularMaterial, in: Capsule())
                             .padding(.bottom, 8)
                     }
-                    }
                 }
             }
         }
         .id(historyLoadKey)
-    }
-
-    // Initial layout preferences only. The native table coordinator restores
-    // saved proportions after SwiftUI configures the columns and on viewport resize.
-    private static func tableColumnWidths(
-        for availableWidth: CGFloat
-    ) -> (message: CGFloat, author: CGFloat, date: CGFloat, commit: CGFloat) {
-        let width = max(1, availableWidth - 1)
-        return (
-            message: width * 0.45,
-            author: width * 0.25,
-            date: width * 0.18,
-            commit: width * 0.12
-        )
     }
 
     // MARK: - Bottom Panel
