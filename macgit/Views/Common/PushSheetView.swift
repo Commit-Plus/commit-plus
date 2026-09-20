@@ -38,14 +38,13 @@ enum PushRemoteSelectionPolicy {
     ) -> String {
         guard let currentBranch,
               let upstream = upstreams[currentBranch] else {
-            return remotes.first ?? ""
+            return remotes.count == 1 ? remotes[0] : ""
         }
 
         return remotes
             .sorted { $0.count > $1.count }
             .first { upstream.hasPrefix("\($0)/") }
-            ?? remotes.first
-            ?? ""
+            ?? (remotes.count == 1 ? remotes[0] : "")
     }
 }
 
@@ -126,21 +125,16 @@ struct PushSheetView: View {
                 Text("Push to repository:")
                     .font(.system(size: 13))
                 HStack(spacing: 8) {
-                    Picker("", selection: $selectedRemote) {
+                    Picker("Remote", selection: $selectedRemote) {
+                        Text("Choose a remote…").tag("")
                         ForEach(remotes, id: \.self) { remote in
                             Text(remote).tag(remote)
                         }
                     }
                     .pickerStyle(.menu)
-                    .onChange(of: selectedRemote) { _, newValue in
-                        branches = []
-                        remoteURL = ""
-                        isLoading = true
-                        Task {
-                            await loadRemoteURL(remote: newValue)
-                            await loadBranches(remote: newValue)
-                        }
-                    }
+                    .labelsHidden()
+                    .disabled(isSubmitting)
+
 
                     if !remoteURL.isEmpty {
                         Text(remoteURL)
@@ -153,6 +147,14 @@ struct PushSheetView: View {
             .padding(.horizontal, 24)
             .padding(.top, 24)
             .padding(.bottom, 16)
+
+            if selectedRemote.isEmpty && !isLoading {
+                Text(remotes.isEmpty ? "Add a remote before pushing." : "Choose the remote where you want to publish this branch.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 12)
+            }
 
             // Branches to push
             VStack(alignment: .leading, spacing: 8) {
@@ -321,6 +323,16 @@ struct PushSheetView: View {
         .task {
             await loadData()
         }
+        .task(id: selectedRemote) {
+            branches = []
+            selectAll = false
+            remoteURL = ""
+            guard !selectedRemote.isEmpty else { return }
+            let remote = selectedRemote
+            await loadRemoteURL(remote: remote)
+            guard !Task.isCancelled else { return }
+            await loadBranches(remote: remote)
+        }
     }
 
     private func loadData() async {
@@ -346,10 +358,6 @@ struct PushSheetView: View {
             selectedRemote = currentRemote
         }
 
-        if !currentRemote.isEmpty {
-            await loadRemoteURL(remote: currentRemote)
-        }
-        await loadBranches(remote: currentRemote)
     }
 
     private func loadBranches(remote: String) async {
@@ -400,6 +408,7 @@ struct PushSheetView: View {
                 in: repositoryURL
             )
             await loadData()
+            await loadBranches(remote: selectedRemote)
         } catch {
             // Silently ignore upstream set failures
         }
@@ -407,7 +416,7 @@ struct PushSheetView: View {
 
     @MainActor
     private func performPushIfNeeded() async {
-        guard !isSubmitting else { return }
+        guard canPush else { return }
         isSubmitting = true
         defer { isSubmitting = false }
 

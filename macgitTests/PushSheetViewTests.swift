@@ -29,14 +29,33 @@ final class PushSheetViewTests: XCTestCase {
         XCTAssertEqual(remote, "origin")
     }
 
-    func testRemoteSelectionFallsBackToFirstRemoteWithoutUpstream() {
+    func testRemoteSelectionRequiresChoiceWithoutUpstream() {
         let remote = PushRemoteSelectionPolicy.resolve(
             remotes: ["gitlab", "origin"],
             currentBranch: "feature/local-only",
             upstreams: ["main": "origin/main"]
         )
 
-        XCTAssertEqual(remote, "gitlab")
+        XCTAssertEqual(remote, "")
+    }
+
+    func testRemoteSelectionUsesOnlyRemoteWithoutUpstream() {
+        XCTAssertEqual(PushRemoteSelectionPolicy.resolve(
+            remotes: ["origin"], currentBranch: "feature", upstreams: [:]
+        ), "origin")
+    }
+
+    func testRemoteSelectionRequiresChoiceWhenUpstreamRemoteIsMissing() {
+        XCTAssertEqual(PushRemoteSelectionPolicy.resolve(
+            remotes: ["gitlab", "origin"], currentBranch: "feature",
+            upstreams: ["feature": "removed/feature"]
+        ), "")
+    }
+
+    func testRemoteSelectionHandlesNoRemotes() {
+        XCTAssertEqual(PushRemoteSelectionPolicy.resolve(
+            remotes: [], currentBranch: "feature", upstreams: [:]
+        ), "")
     }
 
     func testRemoteSelectionMatchesLongestRemoteName() {
