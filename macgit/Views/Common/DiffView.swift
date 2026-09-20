@@ -55,6 +55,7 @@ struct DiffView: View {
     @State private var selectedLineIDs: Set<UUID> = []
     @State private var lastSelectedLineID: UUID?
     @State private var loadedImage: NSImage?
+    @State private var renderedBlockRange = 0..<5
 
     private static let imageExtensions: Set<String> = [
         "png", "jpg", "jpeg", "gif", "svg", "webp", "bmp",
@@ -75,25 +76,48 @@ struct DiffView: View {
         } else if hunks.isEmpty {
             EmptyStateView(message: "No diff to display", detail: "Select a file to see changes")
         } else {
+            let blocks = DiffRenderBlock.layout(hunks: hunks)
+            let range = renderedBlockRange.clamped(to: blocks.indices)
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(hunks) { hunk in
-                        HunkView(
-                            hunk: hunk,
-                            file: file,
-                            fileExtension: syntaxFileExtension,
-                            repositoryURL: repositoryURL,
-                            undoManager: undoManager,
-                            selectedLineIDs: $selectedLineIDs,
-                            lastSelectedLineID: $lastSelectedLineID,
-                            onRefresh: onRefresh,
-                            onError: onError
-                        )
+                VStack(alignment: .leading, spacing: 0) {
+                    if let first = range.first {
+                        Color.clear.frame(height: blocks[first].offset)
+                    }
+                    ForEach(blocks[range]) { block in
+                            HunkView(
+                                hunk: block.hunk,
+                                lineRange: block.lineRange,
+                                file: file,
+                                fileExtension: syntaxFileExtension,
+                                repositoryURL: repositoryURL,
+                                undoManager: undoManager,
+                                selectedLineIDs: $selectedLineIDs,
+                                lastSelectedLineID: $lastSelectedLineID,
+                                onRefresh: onRefresh,
+                                onError: onError
+                            )
+                            .frame(height: block.height)
+                            .padding(.bottom, DiffRenderBlock.spacing)
+                    }
+                    if let last = range.last, let end = blocks.last {
+                        Color.clear.frame(height: end.endOffset - blocks[last].endOffset)
                     }
                 }
                 .padding(.vertical, 12)
                 .padding(.horizontal, 12)
             }
+            .onScrollGeometryChange(for: Range<Int>.self) { geometry in
+                DiffRenderBlock.renderedRange(
+                    in: blocks,
+                    viewport: geometry.visibleRect.offsetBy(dx: 0, dy: -12)
+                )
+            } action: { _, range in
+                renderedBlockRange = range
+            }
+            .onChange(of: hunks.first?.id) {
+                renderedBlockRange = 0..<min(5, blocks.count)
+            }
+            .id(hunks.first?.id)
         }
     }
 
@@ -293,6 +317,7 @@ struct ReferenceDiffView: View {
 
 struct HunkView: View {
     let hunk: DiffHunk
+    let lineRange: Range<Int>
     let file: StatusFile?
     let fileExtension: String
     let repositoryURL: URL?
@@ -333,6 +358,13 @@ struct HunkView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
 
+                if hunk.lines.count > DiffRenderBatch.lineLimit {
+                    Text("\(lineRange.lowerBound + 1)–\(lineRange.upperBound) of \(hunk.lines.count) diff lines")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
                 Spacer()
 
                 if canInteract {
@@ -356,7 +388,7 @@ struct HunkView: View {
                 }
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .frame(height: DiffRenderBlock.headerHeight)
             .background(.secondary.opacity(0.06))
             .overlay(alignment: .bottom) {
                 Rectangle()
@@ -370,12 +402,14 @@ struct HunkView: View {
             // Lines
             ScrollView([.horizontal]) {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(hunk.lines.enumerated()), id: \.element.id) { index, line in
+                    ForEach(lineRange, id: \.self) { index in
+                        let line = hunk.lines[index]
                         DiffLineView(
                             line: line,
                             fileExtension: fileExtension,
                             isSelected: selectedLineIDs.contains(line.id)
                         )
+                        .frame(height: DiffRenderBlock.rowHeight)
                         .frame(minWidth: availableWidth, alignment: .leading)
                         .onTapGesture {
                             handleLineTap(at: index)
@@ -386,6 +420,7 @@ struct HunkView: View {
                     }
                 }
             }
+            .frame(height: CGFloat(lineRange.count) * DiffRenderBlock.rowHeight + DiffRenderBlock.scrollerHeight)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 GeometryReader { geometry in

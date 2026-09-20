@@ -359,6 +359,7 @@ struct FileStatusView: View {
                                     gitStatus.staged.count
                                 )
                             }
+                            .id(visibleStagedFileCount)
                         }
                         if gitStatus.staged.isEmpty {
                             Text("No staged files")
@@ -417,6 +418,7 @@ struct FileStatusView: View {
                                     changedFiles.count
                                 )
                             }
+                            .id(visibleChangedFileCount)
                         }
                         if changedFiles.isEmpty {
                             Text("No changed files")
@@ -442,8 +444,6 @@ struct FileStatusView: View {
         let selectionKey = FileStatusSelectionKey(file: file, isStaged: isStaged)
         let isSelected = selectedFileKey == selectionKey
         let quickAction = FileStatusRowQuickAction(isStaged: isStaged)
-        let dragPaths = actionSelection.dragPaths(startingAt: file, isStaged: isStaged)
-        let dragPayload = GitDragPayload.files(dragPaths, repositoryURL: repositoryURL)
         let isPotentialConflict = hasPotentialConflict(file)
 
         return HStack(spacing: 0) {
@@ -495,9 +495,13 @@ struct FileStatusView: View {
                 }
                 .contentShape(Rectangle())
                 .onDrag {
-                    makeFileItemProvider(payload: dragPayload)
+                    let paths = actionSelection.dragPaths(startingAt: file, isStaged: isStaged)
+                    return makeFileItemProvider(payload: .files(paths, repositoryURL: repositoryURL))
                 } preview: {
-                    FileDragPreview(pathCount: dragPaths.count, fallbackPath: file.path)
+                    FileDragPreview(
+                        pathCount: actionSelection.dragPaths(startingAt: file, isStaged: isStaged).count,
+                        fallbackPath: file.path
+                    )
                 }
             }
             .padding(.vertical, 3)

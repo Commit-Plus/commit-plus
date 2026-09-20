@@ -63,6 +63,7 @@ struct HistoryView: View {
     @State private var diffLoadID = UUID()
     @AppStorage("history.tableColumns") private var tableColumnCustomization = TableColumnCustomization<Commit>()
     @State private var tableSelection: Set<String> = []
+    @State private var isRestoringTableSelection = false
     @State private var tableScrollCoordinator = HistoryTableScrollCoordinator()
     @AppStorage("advanced.historyLoadSize") private var historyLoadSizeRaw = 120
     @State private var isLoading = false
@@ -1179,6 +1180,12 @@ struct HistoryView: View {
         )
 
         await MainActor.run {
+            let shouldPreserveTableSelection =
+                (preservingSelectionAndScroll || !reset)
+                && !commitSelection.selectedHashes.isEmpty
+            if shouldPreserveTableSelection {
+                isRestoringTableSelection = true
+            }
             commits = loadedCommits
             graphModel = newGraphModel
             let visibleHashes = loadedCommits.map(\.hash)
@@ -1226,7 +1233,7 @@ struct HistoryView: View {
 
             // Appending a page also updates the native Table's rows and can
             // transiently clear its selection, just like a background refresh.
-            if (preservingSelectionAndScroll || !reset), !commitSelection.selectedHashes.isEmpty {
+            if shouldPreserveTableSelection {
                 restoreSelectionIfTableClearsAfterReload(
                     commitSelection,
                     in: loadedCommits,
@@ -1243,13 +1250,23 @@ struct HistoryView: View {
     ) {
         Task { @MainActor in
             await Task.yield()
-            guard tableSelection.isEmpty,
-                  historyLoadKey == loadKey,
-                  commits.map(\.hash) == reloadedCommits.map(\.hash) else { return }
+            guard historyLoadKey == loadKey,
+                  commits.map(\.hash) == reloadedCommits.map(\.hash) else {
+                isRestoringTableSelection = false
+                return
+            }
+
+            guard tableSelection.isEmpty else {
+                isRestoringTableSelection = false
+                return
+            }
 
             var restoredSelection = selection
             restoredSelection.prune(visibleHashes: reloadedCommits.map(\.hash))
-            guard !restoredSelection.selectedHashes.isEmpty else { return }
+            guard !restoredSelection.selectedHashes.isEmpty else {
+                isRestoringTableSelection = false
+                return
+            }
 
             commitSelection = restoredSelection
             selectedCommit = Self.commit(
@@ -1257,6 +1274,7 @@ struct HistoryView: View {
                 in: reloadedCommits
             )
             tableSelection = Set(restoredSelection.selectedHashes)
+            isRestoringTableSelection = false
         }
     }
 
@@ -1378,6 +1396,7 @@ struct HistoryView: View {
         }
 
         guard !newSelection.isEmpty else {
+            guard !isRestoringTableSelection else { return }
             commitSelection = HistoryCommitSelection()
             selectedCommit = nil
             return

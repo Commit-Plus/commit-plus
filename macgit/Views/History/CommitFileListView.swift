@@ -26,10 +26,12 @@ struct CommitFileListView: View {
     let changes: [CommitFileChange]
     @Binding var selectedFile: CommitFileChange?
     var onPreview: ((CommitFileChange) -> Void)? = nil
+    @State private var visibleFileCount = 200
+    private let pageSize = 200
     
     var body: some View {
         List(selection: $selectedFile) {
-            ForEach(changes) { change in
+            ForEach(changes.prefix(visibleFileCount)) { change in
                 HStack(spacing: 8) {
                     Image(systemName: statusSymbol(for: change.status))
                         .font(.system(size: 14, weight: .medium))
@@ -77,8 +79,31 @@ struct CommitFileListView: View {
                 .padding(.vertical, 2)
                 .tag(change)
             }
+            if visibleFileCount < changes.count {
+                Text("Loading more files… (\(visibleFileCount) of \(changes.count))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .selectionDisabled()
+                    .id(visibleFileCount)
+                    .onAppear {
+                        visibleFileCount = min(visibleFileCount + pageSize, changes.count)
+                    }
+            }
         }
         .listStyle(.inset)
+        .onChange(of: changes.first?.id) {
+            visibleFileCount = pageSize
+            revealSelectedFile()
+        }
+        .onChange(of: selectedFile) {
+            revealSelectedFile()
+        }
+    }
+
+    private func revealSelectedFile() {
+        guard let selectedFile,
+              let index = changes.firstIndex(where: { $0.id == selectedFile.id }) else { return }
+        visibleFileCount = max(visibleFileCount, index + 1)
     }
     
     private func fileName(from path: String) -> String {
