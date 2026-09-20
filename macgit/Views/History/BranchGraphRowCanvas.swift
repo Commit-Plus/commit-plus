@@ -27,15 +27,15 @@ struct BranchGraphRowCanvas: View {
     let rowIndex: Int
     @Environment(\.backgroundProminence) private var backgroundProminence
 
-    private var graphWidth: CGFloat {
-        CGFloat(model.laneCount) * Self.laneWidth + Self.trailingPadding
-    }
-
     var body: some View {
-        Canvas { context, _ in
+        Canvas { context, size in
+            // Keep dense graphs inside their column while retaining the native
+            // lane spacing and the full row height for continuous vertical lines.
+            context.clip(to: Path(CGRect(origin: .zero, size: size)))
             drawRow(in: &context)
         }
-        .frame(width: graphWidth, height: Self.rowHeight)
+        .frame(maxWidth: .infinity)
+        .frame(height: Self.rowHeight)
         // A small native Table row proposes 16 pt of cell content with 4 pt
         // vertical insets. Extending the canvas through those insets makes the
         // graph join exactly at adjacent row boundaries.

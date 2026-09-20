@@ -77,6 +77,8 @@ struct RepoPickerView: View {
     @State private var rowStates: [URL: RepoPickerRowState] = [:]
     @State private var missingRepository: RecentRepository?
     @State private var showingMissingRepositoryAlert = false
+    @State private var hoveredRepositoryURL: URL?
+    @State private var hoveredBookmarkURL: URL?
 
     let title: String
     let showsApplicationIcon: Bool
@@ -290,27 +292,43 @@ struct RepoPickerView: View {
                     .foregroundStyle(.blue)
             }
             .padding(.bottom, 8)
-            HStack(spacing: 12) {
-                Button(action: openExistingRepository) {
-                    Label("Open", systemImage: "folder")
-                        .frame(maxWidth: .infinity)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    dashboardActionButtons
                 }
-                .buttonStyle(.borderedProminent)
-                .help("Open Repository")
-                Button { showingCloneSheet = true } label: {
-                    Label("Clone", systemImage: "arrow.down.circle")
-                        .frame(maxWidth: .infinity)
+                VStack(spacing: 6) {
+                    dashboardActionButtons
                 }
-                .buttonStyle(.bordered)
-                .help("Clone Repository")
             }
-            Button(action: createRepository) {
-                Label("Create Repository", systemImage: "plus.rectangle.on.folder")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.bordered)
         }
         .controlSize(.large)
+    }
+
+    @ViewBuilder
+    private var dashboardActionButtons: some View {
+        Button(action: openExistingRepository) {
+            Label("Open", systemImage: "folder")
+                .fixedSize()
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .sidebarPointingHandCursor()
+        .help("Open Repository")
+        Button { showingCloneSheet = true } label: {
+            Label("Clone", systemImage: "arrow.down.circle")
+                .fixedSize()
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .sidebarPointingHandCursor()
+        .help("Clone Repository")
+        Button(action: createRepository) {
+            Label("Create Repository", systemImage: "plus.rectangle.on.folder")
+                .fixedSize()
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .sidebarPointingHandCursor()
     }
 
     private func createRepository() {
@@ -366,6 +384,7 @@ struct RepoPickerView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .sidebarPointingHandCursor()
                 .controlSize(.large)
                 .frame(width: 200)
 
@@ -375,6 +394,7 @@ struct RepoPickerView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
+                .sidebarPointingHandCursor()
                 .controlSize(.large)
                 .frame(width: 200)
             }
@@ -395,6 +415,7 @@ struct RepoPickerView: View {
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.borderless)
+            .sidebarPointingHandCursor()
             .help(showBookmarkedOnly ? "Show all repositories" : "Show bookmarked repositories only")
             .accessibilityLabel(showBookmarkedOnly ? "Show all repositories" : "Show bookmarked repositories only")
 
@@ -433,6 +454,7 @@ struct RepoPickerView: View {
                     .frame(width: 28, height: 28)
             }
             .menuStyle(.borderlessButton)
+            .sidebarPointingHandCursor()
             .disabled(store.repositories.isEmpty && bookmarkController.bookmarks.isEmpty)
         }
     }
@@ -502,8 +524,16 @@ struct RepoPickerView: View {
                 repoRowContent(repo)
             }
             .buttonStyle(.plain)
+            .sidebarPointingHandCursor()
 
             bookmarkButton(for: repo)
+        }
+        .background(
+            Color.primary.opacity(hoveredRepositoryURL == repo.url ? 0.06 : 0),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+        .onHover { isHovered in
+            hoveredRepositoryURL = isHovered ? repo.url : nil
         }
         .task(id: repo.url) {
             await loadRowPresentation(for: repo)
@@ -533,16 +563,20 @@ struct RepoPickerView: View {
                 }
             }
         } label: {
-            if let bookmarkID,
-               bookmarkController.syncingBookmarkIDs.contains(bookmarkID) {
-                ProgressView()
-                    .controlSize(.small)
-            } else {
-                Image(systemName: bookmarkID == nil ? "star" : "star.fill")
+            Group {
+                if let bookmarkID,
+                   bookmarkController.syncingBookmarkIDs.contains(bookmarkID) {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: bookmarkID == nil ? "star" : "star.fill")
+                }
             }
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .frame(width: 28, height: 28)
+        .sidebarPointingHandCursor()
         .help(bookmarkID == nil ? "Bookmark repository" : "Remove bookmark")
         .accessibilityLabel(bookmarkID == nil ? "Bookmark repository" : "Remove bookmark")
     }
@@ -575,11 +609,13 @@ struct RepoPickerView: View {
                 bookmarkToClone = bookmark
             }
             .buttonStyle(.borderedProminent)
+            .sidebarPointingHandCursor()
 
             Button(isDashboardSidebar ? "Link" : "Link Folder") {
                 chooseFolderToLink(bookmark)
             }
             .buttonStyle(.bordered)
+            .sidebarPointingHandCursor()
 
             Button("Remove bookmark", systemImage: "star.fill") {
                 Task {
@@ -588,10 +624,18 @@ struct RepoPickerView: View {
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
+            .sidebarPointingHandCursor()
             .help("Remove bookmark")
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 4)
+        .background(
+            Color.primary.opacity(hoveredBookmarkURL == bookmark.remoteURL ? 0.06 : 0),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+        .onHover { isHovered in
+            hoveredBookmarkURL = isHovered ? bookmark.remoteURL : nil
+        }
     }
 
     private func openRecentRepository(_ repo: RecentRepository) {

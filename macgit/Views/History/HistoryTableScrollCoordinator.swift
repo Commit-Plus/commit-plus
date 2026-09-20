@@ -24,8 +24,9 @@ final class HistoryTableScrollCoordinator {
     private weak var tableView: NSTableView?
     private weak var observedClipView: NSClipView?
     private let defaults: UserDefaults
-    private let ratiosKey = "history.tableColumnRatios"
-    private var columnRatios: [String: Double]
+    private let layoutKey = "history.tableColumnLayout"
+    private var columnLayout: HistoryTableColumnLayout?
+    private let initialColumnRatios: [String: Double]
     private var viewportObservers: [NSObjectProtocol] = []
     private var lastViewportWidth: CGFloat = 0
     private var lastVisibleColumns: [String] = []
@@ -36,14 +37,22 @@ final class HistoryTableScrollCoordinator {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        let initial = ["message": 0.45, "author": 0.25, "date": 0.18, "commit": 0.12]
-        let saved = defaults.dictionary(forKey: ratiosKey) as? [String: Double]
+        let initial = ["graph": 0.20, "message": 0.40, "author": 0.18, "date": 0.14, "commit": 0.08]
+        let saved = defaults.dictionary(forKey: "history.tableColumnRatios") as? [String: Double]
         let legacy = defaults.dictionary(forKey: "history.tableColumnWidths") as? [String: Double]
         let valid = (saved ?? legacy ?? initial).filter {
             initial[$0.key] != nil && $0.value.isFinite && $0.value > 0
         }
         let total = valid.values.reduce(0, +)
-        columnRatios = initial.merging(valid.mapValues { $0 / max(total, 1e-9) }) { _, saved in saved }
+        // Older layouts have no Graph column. Reserve its default share and
+        // preserve the relative proportions of the user's existing columns.
+        let savedShare = valid["graph"] == nil ? 1 - initial["graph"]! : 1
+        initialColumnRatios = initial.merging(valid.mapValues { $0 / max(total, 1e-9) * savedShare }) { _, saved in saved }
+        if let data = defaults.data(forKey: layoutKey),
+           let layout = try? JSONDecoder().decode(HistoryTableColumnLayout.self, from: data),
+           layout.isValid {
+            columnLayout = layout
+        }
     }
 
     deinit {
@@ -141,61 +150,66 @@ final class HistoryTableScrollCoordinator {
               clipView.bounds.width > 0 else { return }
         let keys = visibleColumns.compactMap(Self.columnKey)
         guard abs(lastViewportWidth - clipView.bounds.width) > 0.01 || keys != lastVisibleColumns else { return }
-        applyColumnRatios()
+        applyColumnWidths()
     }
 
-    private func applyColumnRatios() {
+    private func applyColumnWidths() {
+        // Scroller tiling can notify viewport changes before AppKit publishes
+        // the dragged column's new width. Never restore stale widths mid-drag.
+        guard (tableView?.headerView?.resizedColumn ?? -1) < 0 else { return }
         let columns = visibleColumns
-        guard !columns.isEmpty, availableWidth(for: columns) > 0 else { return }
-        let weights = columns.map { CGFloat(columnRatios[Self.columnKey($0)!] ?? 1) }
-        var widths = Array(repeating: CGFloat.zero, count: columns.count)
-        var remaining = max(availableWidth(for: columns), columns.reduce(0) { $0 + $1.minWidth })
-        var pending = Array(columns.indices)
-        // Pin columns that reach their minimum, then redistribute the remaining
-        // space proportionally. Window resizing never overwrites user ratios.
-        while !pending.isEmpty {
-            let totalWeight = pending.reduce(CGFloat.zero) { $0 + weights[$1] }
-            let constrained = pending.filter { remaining * weights[$0] / totalWeight < columns[$0].minWidth }
-            if constrained.isEmpty {
-                for index in pending {
-                    widths[index] = remaining * weights[index] / totalWeight
-                }
-                break
-            }
-            for index in constrained {
-                widths[index] = columns[index].minWidth
-                remaining -= widths[index]
-            }
-            pending.removeAll { constrained.contains($0) }
+        guard !columns.isEmpty,
+              let viewportWidth = tableView?.enclosingScrollView?.contentView.bounds.width,
+              viewportWidth > 0, availableWidth(for: columns) > 0 else { return }
+        if columnLayout == nil {
+            // Convert old proportions once, using the first available viewport.
+            // Keep this reference unchanged during subsequent window resizing.
+            columnLayout = HistoryTableColumnLayout(
+                widths: initialColumnRatios.mapValues { $0 * Double(availableWidth(for: columns)) },
+                viewportWidth: Double(viewportWidth)
+            )
+            saveColumnLayout()
+        }
+        guard let columnLayout else { return }
+        let widths = columns.map { column in
+            CGFloat(columnLayout.width(
+                for: Self.columnKey(column)!,
+                viewportWidth: Double(viewportWidth),
+                minimumWidth: Double(column.minWidth)
+            ))
         }
         setWidths(widths, for: columns)
     }
 
     private func captureColumnResize(in tableView: NSTableView, index: Int) {
-        guard tableView.tableColumns.indices.contains(index) else { return }
+        guard tableView.tableColumns.indices.contains(index),
+              let viewportWidth = tableView.enclosingScrollView?.contentView.bounds.width,
+              viewportWidth > 0 else { return }
         let columns = visibleColumns
-        guard let active = columns.firstIndex(where: { $0 === tableView.tableColumns[index] }) else { return }
+        guard let active = columns.firstIndex(where: { $0 === tableView.tableColumns[index] }),
+              columnLayout != nil else { return }
         var widths = columns.map { appliedWidths[Self.columnKey($0)!] ?? $0.width }
         widths[active] = max(columns[active].minWidth, columns[active].width)
-        let target = max(availableWidth(for: columns), columns.reduce(0) { $0 + $1.minWidth })
-        var excess = widths.reduce(0, +) - target
-        // Prefer the next visible column, then the nearest remaining neighbors.
-        let neighbors = Array(columns.indices.dropFirst(active + 1)) + Array(columns.indices.prefix(active).reversed())
-        for neighbor in neighbors {
-            let adjustment = max(columns[neighbor].minWidth - widths[neighbor], -excess)
-            widths[neighbor] += adjustment
-            excess += adjustment
-            if abs(excess) < 0.01 { break }
-        }
-        widths[active] = max(columns[active].minWidth, widths[active] - excess)
-        setWidths(widths, for: columns)
-        let total = widths.reduce(0, +)
-        guard total > 0 else { return }
-        let visibleWeight = columns.reduce(0.0) { $0 + (columnRatios[Self.columnKey($1)!] ?? 0) }
+        columnLayout?.resizeColumn(
+            Self.columnKey(columns[active])!,
+            to: Double(widths[active]),
+            viewportWidth: Double(viewportWidth)
+        )
+        // AppKit owns layout during header tracking. Retiling from inside its
+        // resize notification re-enters scroller layout at the overflow boundary.
+        // Record the new width without writing column widths back to AppKit.
         for (column, width) in zip(columns, widths) {
-            columnRatios[Self.columnKey(column)!] = Double(width / total) * max(visibleWeight, 1e-9)
+            appliedWidths[Self.columnKey(column)!] = width
         }
-        defaults.set(columnRatios, forKey: ratiosKey)
+        lastViewportWidth = viewportWidth
+        lastVisibleColumns = columns.compactMap(Self.columnKey)
+        saveColumnLayout()
+    }
+
+    private func saveColumnLayout() {
+        guard let columnLayout,
+              let data = try? JSONEncoder().encode(columnLayout) else { return }
+        defaults.set(data, forKey: layoutKey)
     }
 
     private func setWidths(_ widths: [CGFloat], for columns: [NSTableColumn]) {
@@ -203,7 +217,11 @@ final class HistoryTableScrollCoordinator {
         isRestoringWidths = true
         defer { isRestoringWidths = false }
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
+        tableView.enclosingScrollView?.hasHorizontalScroller = true
         for (column, width) in zip(columns, widths) {
+            // The coordinator handles window scaling. Native size-to-fit must
+            // not shrink columns when the horizontal scroller first appears.
+            column.resizingMask = .userResizingMask
             if abs(column.width - width) > 0.01 {
                 column.width = width
             }
@@ -224,7 +242,7 @@ final class HistoryTableScrollCoordinator {
                 guard tableView.window != nil else { continue }
                 tableView.layoutSubtreeIfNeeded()
                 self.observeViewport(of: tableView)
-                self.applyColumnRatios()
+                self.applyColumnWidths()
             }
         }
     }
@@ -233,7 +251,7 @@ final class HistoryTableScrollCoordinator {
         // SwiftUI's native identifiers are fresh UUIDs on every mount. Header
         // titles remain stable even when the user reorders or hides columns.
         let key = column.title.lowercased()
-        return ["message", "author", "date", "commit"].contains(key) ? key : nil
+        return ["graph", "message", "author", "date", "commit"].contains(key) ? key : nil
     }
 
     func scrollToRowWhenReady(_ row: Int) async {
