@@ -1232,10 +1232,13 @@ struct HistoryView: View {
                 selectedCommitHash: selectedCommit?.hash
             )
 
-            if preservingSelectionAndScroll, !commitSelection.selectedHashes.isEmpty {
+            // Appending a page also updates the native Table's rows and can
+            // transiently clear its selection, just like a background refresh.
+            if (preservingSelectionAndScroll || !reset), !commitSelection.selectedHashes.isEmpty {
                 restoreSelectionIfTableClearsAfterReload(
                     commitSelection,
-                    in: loadedCommits
+                    in: loadedCommits,
+                    loadKey: cacheKey
                 )
             }
         }
@@ -1243,11 +1246,14 @@ struct HistoryView: View {
 
     private func restoreSelectionIfTableClearsAfterReload(
         _ selection: HistoryCommitSelection,
-        in reloadedCommits: [Commit]
+        in reloadedCommits: [Commit],
+        loadKey: String
     ) {
         Task { @MainActor in
             await Task.yield()
-            guard tableSelection.isEmpty else { return }
+            guard tableSelection.isEmpty,
+                  historyLoadKey == loadKey,
+                  commits.map(\.hash) == reloadedCommits.map(\.hash) else { return }
 
             var restoredSelection = selection
             restoredSelection.prune(visibleHashes: reloadedCommits.map(\.hash))

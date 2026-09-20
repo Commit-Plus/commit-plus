@@ -126,11 +126,11 @@ command-line/            # CLI tool source (commit command)
 scripts/                 # Build, test, and release automation
 macgitTests/             # XCTest test suite
 docs/                    # Design specs and implementation plans
-functions/               # Firebase Cloud Functions
-firebase-tests/          # Firebase security rules tests
 ```
 
 Git operations are centralized in `macgit/Services/GitStatusService*.swift`.
+
+Firebase rules, Cloud Functions, backend tests, and operator scripts are maintained in the private `landing-page` repository. See [Firebase setup](docs/firebase-setup.md) for native client configuration.
 
 ## Coding Conventions
 

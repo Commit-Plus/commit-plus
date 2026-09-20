@@ -4,13 +4,9 @@
 .superpowers/
 .env.local
 macgit/GoogleService-Info.plist
-.firebase/
 node_modules/
-functions/lib/
 
 */node_modules/*
-firebase-tests/
-functions/node_modules/
 *.log
 *.map
 

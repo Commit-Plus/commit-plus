@@ -1,8 +1,0 @@
-{
-  "name": "macgit-firebase-admin-scripts",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "firebase-admin": "14.1.0"
-  }
-}

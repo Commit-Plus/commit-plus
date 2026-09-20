@@ -10,7 +10,7 @@ Commit+ keeps Firebase configuration local. The app remains usable in guest mode
    - Email/Password.
    - Google.
 4. Do not enable email verification as an application requirement for the Firebase foundation phases.
-5. Create a Cloud Firestore database. Deploy the checked-in Firestore rules before using production data.
+5. Create a Cloud Firestore database. Deploy Firestore rules from the private `landing-page` repository before using production data.
 
 ## Google OAuth client
 
@@ -35,38 +35,11 @@ Google Sign-In on macOS uses an OAuth client whose application type is **iOS**.
 
 `FirebaseBootstrap` looks for `GoogleService-Info.plist` in the application bundle. If it is absent or invalid, bootstrap reports `missingConfiguration` and Commit+ continues in guest mode.
 
-## Firebase CLI and emulators
+## Backend source and deployment
 
-Install and authenticate the Firebase CLI:
+Firestore rules, Cloud Functions, emulator tests, and operator scripts are maintained in the private `landing-page` repository. See that repository's `docs/firebase-backend.md` for installation, testing, and deployment commands. Historical plans in this repository use the paths that existed when they were written.
 
-```bash
-npm install --global firebase-tools
-firebase login
-firebase use --add
-```
-
-Phase 2 adds Firestore and Functions emulator configuration. Run the commands from the repository root so `firebase.json` and rules files resolve consistently.
-
-Install the repository-local JavaScript dependencies:
-
-```bash
-npm --prefix firebase-tests install
-npm --prefix functions install
-npm --prefix scripts/firebase install
-```
-
-Run Firestore rules tests and Functions tests:
-
-```bash
-npx firebase-tools emulators:exec --project macgit-local --only firestore "npm --prefix firebase-tests test"
-npm --prefix functions test
-```
-
-Run the complete Firebase foundation emulator suite with Auth, Firestore, and Functions available:
-
-```bash
-firebase emulators:exec --project macgit-local --only auth,firestore,functions "npm --prefix firebase-tests test"
-```
+The macOS app still connects directly to the same Firebase project through the Firebase SDK. Auth, Firestore listeners, local caching, and callable function names are unchanged.
 
 ## Settings sync
 
@@ -81,50 +54,6 @@ The only synchronized values are:
 - Subtree visibility.
 
 Firestore stores these values at `users/{uid}/settings/app`. The document must contain exactly `schemaVersion`, the three boolean settings, and the server timestamp `updatedAt`. Repository state, credentials, Git history, and other preferences are never included.
-
-## Test Pro entitlement assignment
-
-`scripts/firebase/set-entitlement.mjs` is an operator-only Admin SDK tool. It is never bundled into Commit+ and must never be exposed as a client action.
-
-For a deployed Firebase project, authenticate Application Default Credentials and select the project before using the script:
-
-```bash
-gcloud auth application-default login
-export GOOGLE_CLOUD_PROJECT="your-firebase-project-id"
-node scripts/firebase/set-entitlement.mjs <firebase-uid> grant
-node scripts/firebase/set-entitlement.mjs <firebase-uid> revoke
-```
-
-Against the local Firestore emulator, set the emulator host and project explicitly:
-
-```bash
-export FIRESTORE_EMULATOR_HOST="127.0.0.1:8080"
-export GCLOUD_PROJECT="macgit-local"
-node scripts/firebase/set-entitlement.mjs <firebase-uid> grant
-node scripts/firebase/set-entitlement.mjs <firebase-uid> revoke
-```
-
-The grant command writes active test Pro access with `source: admin_test`. The revoke command writes a normalized Free entitlement. Do not run this script with production credentials unless the target UID and requested mode have been independently verified.
-
-## Release feature policy
-
-The global plan matrix lives at `featurePolicies/release`. It contains no account, repository, credential, or source-code data, so signed-in and guest clients may read it. Firestore rules deny every client write; publish it only through the operator script or another trusted Admin SDK environment.
-
-With Application Default Credentials configured for the intended Firebase project:
-
-```bash
-node scripts/firebase/set-feature-policy.mjs release
-```
-
-Against the local emulator:
-
-```bash
-export FIRESTORE_EMULATOR_HOST="127.0.0.1:8080"
-export GCLOUD_PROJECT="macgit-local"
-node scripts/firebase/set-feature-policy.mjs release
-```
-
-The release policy makes hosted private repositories and each AI feature Pro-only. Free may use Pull Requests on public repositories and Git Flow on public or local-only repositories. Update the script and increment `revision` before publishing a policy change. The app rejects unsupported schema versions, retains the last valid cached policy, and otherwise uses its bundled release defaults.
 
 ## Validation
 
