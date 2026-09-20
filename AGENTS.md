@@ -37,6 +37,15 @@ Firebase backend code, rules, and backend tests live in the separate `landing-pa
 - Keep secrets in the existing local credential stores and Keychain. Do not add credentials or machine-specific paths to synced configuration.
 - Preserve existing copyright and license notices. New Swift files may use `// SPDX-License-Identifier: AGPL-3.0-or-later` or the full AGPL header; no specific author name or email is required. The pre-commit license check is advisory.
 
+## Release Changelog
+
+- A release changelog must describe only changes introduced since the immediately preceding release tag. Identify that tag and inspect both `git log <previous-tag>..<release-ref>` and `git diff <previous-tag> <release-ref>` before writing release notes; use the intended release commit as `<release-ref>` before tagging.
+- Verify each changelog entry against that range. Do not simply rename `Unreleased`, carry forward old entries, or describe existing features as newly released. An `Unreleased` section may be stale or contain changes already shipped.
+- `CHANGELOG.md` contains only the latest release's changes compared with the immediately preceding release. Replace its contents for each release; do not retain older release sections or an `Unreleased` section. This file is not a release history archive.
+- Group user-facing changes under appropriate headings and link the exact previous/current tag comparison. Omit empty categories and avoid presenting repository maintenance as app functionality.
+- Update the marketing version and changelog, review the diff, and complete the required build before committing, tagging, and pushing a release. Inspect release scripts before invoking them because they may commit and push immediately.
+- If correcting notes after publication, do not move or force-push the existing release tag. Report separately whether the correction is local, committed, or published.
+
 ## Validation
 
 For app code changes, build without launching the app:
