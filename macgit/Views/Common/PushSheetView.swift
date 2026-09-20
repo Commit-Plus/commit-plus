@@ -34,17 +34,20 @@ enum PushRemoteSelectionPolicy {
     static func resolve(
         remotes: [String],
         currentBranch: String?,
-        upstreams: [String: String]
+        upstreams: [String: String],
+        defaultRemote: String? = nil
     ) -> String {
-        guard let currentBranch,
-              let upstream = upstreams[currentBranch] else {
-            return remotes.count == 1 ? remotes[0] : ""
+        if let currentBranch,
+           let upstream = upstreams[currentBranch],
+           let trackedRemote = remotes
+            .sorted(by: { $0.count > $1.count })
+            .first(where: { upstream.hasPrefix("\($0)/") }) {
+            return trackedRemote
         }
-
-        return remotes
-            .sorted { $0.count > $1.count }
-            .first { upstream.hasPrefix("\($0)/") }
-            ?? (remotes.count == 1 ? remotes[0] : "")
+        if let defaultRemote, remotes.contains(defaultRemote) {
+            return defaultRemote
+        }
+        return remotes.count == 1 ? remotes[0] : ""
     }
 }
 
@@ -96,6 +99,7 @@ enum BranchPushInfoBuilder {
 struct PushSheetView: View {
     @Environment(\.dismiss) private var dismiss
     let repositoryURL: URL
+    var defaultRemote: String? = nil
     var onForcePush: ((String, String, String) -> Void)? = nil
     let onPush: (GitStatusService.PushOptions) -> Void
 
@@ -350,7 +354,8 @@ struct PushSheetView: View {
         let currentRemote = PushRemoteSelectionPolicy.resolve(
             remotes: currentRemotes,
             currentBranch: currentBranch,
-            upstreams: upstreams
+            upstreams: upstreams,
+            defaultRemote: defaultRemote
         )
 
         await MainActor.run {

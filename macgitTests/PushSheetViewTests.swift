@@ -58,6 +58,27 @@ final class PushSheetViewTests: XCTestCase {
         ), "")
     }
 
+    func testRemoteSelectionUsesRepositoryDefaultForNewBranch() {
+        XCTAssertEqual(PushRemoteSelectionPolicy.resolve(
+            remotes: ["gitlab", "origin"], currentBranch: "feature", upstreams: [:],
+            defaultRemote: "origin"
+        ), "origin")
+    }
+
+    func testRemoteSelectionPrefersUpstreamOverRepositoryDefault() {
+        XCTAssertEqual(PushRemoteSelectionPolicy.resolve(
+            remotes: ["gitlab", "origin"], currentBranch: "feature",
+            upstreams: ["feature": "gitlab/feature"], defaultRemote: "origin"
+        ), "gitlab")
+    }
+
+    func testRemoteSelectionIgnoresRemovedRepositoryDefault() {
+        XCTAssertEqual(PushRemoteSelectionPolicy.resolve(
+            remotes: ["gitlab", "origin"], currentBranch: "feature", upstreams: [:],
+            defaultRemote: "removed"
+        ), "")
+    }
+
     func testRemoteSelectionMatchesLongestRemoteName() {
         let remote = PushRemoteSelectionPolicy.resolve(
             remotes: ["team", "team/gitlab"],
