@@ -21,6 +21,9 @@ struct ConflictPanelAlignment {
     let incomingRows: [ConflictCodeLine]
     let currentRows: [ConflictCodeLine]
     let resultRows: [ConflictCodeLine]
+    let incomingColumnCount: Int
+    let currentColumnCount: Int
+    private let conflictRowIndices: [Int: Int]
 
     init(document: ConflictResolutionDocument) {
         var incomingBuilder = PaneLineBuilder()
@@ -61,11 +64,21 @@ struct ConflictPanelAlignment {
         self.incomingRows = incomingRows
         self.currentRows = currentRows
         self.resultRows = resultRows
+        self.incomingColumnCount = Self.maximumColumns(in: incomingRows)
+        self.currentColumnCount = Self.maximumColumns(in: currentRows)
+        self.conflictRowIndices = Dictionary(uniqueKeysWithValues: incomingRows.enumerated().compactMap { index, row in
+            guard row.startsConflict, let section = row.conflictSectionIndex else { return nil }
+            return (section, index)
+        })
     }
 
     func rowIndex(forConflictSectionIndex sectionIndex: Int) -> Int? {
-        incomingRows.firstIndex { row in
-            row.startsConflict && row.conflictSectionIndex == sectionIndex
+        conflictRowIndices[sectionIndex]
+    }
+
+    private static func maximumColumns(in rows: [ConflictCodeLine]) -> Int {
+        rows.reduce(0) { maximum, row in
+            max(maximum, row.text.utf16.reduce(0) { $0 + ($1 == 9 ? 8 : 1) })
         }
     }
 

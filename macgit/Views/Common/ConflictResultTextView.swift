@@ -36,6 +36,7 @@ struct ConflictResultTextView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let textStorage = NSTextStorage()
         let layoutManager = ConflictResultBackgroundLayoutManager()
+        layoutManager.allowsNonContiguousLayout = true
         let textContainer = NSTextContainer(
             containerSize: NSSize(
                 width: CGFloat.greatestFiniteMagnitude,
@@ -119,6 +120,13 @@ struct ConflictResultTextView: NSViewRepresentable {
         private var pendingPresentationRefresh: DispatchWorkItem?
         private weak var registeredScrollController: SyncedScrollController?
         private var registeredScrollID: String?
+        private var viewportObserver: NSObjectProtocol?
+        private var highlightsTask: Task<Void, Never>?
+        private var presentationGeneration = 0
+        private var lineStarts = [0]
+        private var longestLineLength = 0
+        private var highlightedRows: Range<Int>?
+        private var usesWindowedHighlighting: Bool { lineStarts.count > 2_000 }
 
         init(parent: ConflictResultTextView) {
             self.parent = parent
@@ -134,11 +142,25 @@ struct ConflictResultTextView: NSViewRepresentable {
             }
 
             controller.register(scrollView, id: id)
+            if viewportObserver == nil {
+                viewportObserver = NotificationCenter.default.addObserver(
+                    forName: NSView.boundsDidChangeNotification,
+                    object: scrollView.contentView,
+                    queue: .main
+                ) { [weak self] _ in
+                    self?.highlightVisibleText()
+                }
+            }
             registeredScrollController = controller
             registeredScrollID = id
         }
 
         func unregister(scrollView: NSScrollView) {
+            if let viewportObserver {
+                NotificationCenter.default.removeObserver(viewportObserver)
+                self.viewportObserver = nil
+            }
+            highlightsTask?.cancel()
             guard let registeredScrollController, let registeredScrollID else { return }
             registeredScrollController.unregister(id: registeredScrollID, scrollView: scrollView)
             self.registeredScrollController = nil
@@ -180,6 +202,8 @@ struct ConflictResultTextView: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard !isApplyingPresentation, let textView else { return }
+            highlightsTask?.cancel()
+            presentationGeneration += 1
             parent.onTextChange(textView.string)
             schedulePresentationRefresh(for: textView.string)
         }
@@ -201,6 +225,7 @@ struct ConflictResultTextView: NSViewRepresentable {
                     return
                 }
 
+                self.pendingPresentationRefresh = nil
                 self.refreshPresentation(
                     in: textView,
                     layoutManager: layoutManager,
@@ -208,7 +233,6 @@ struct ConflictResultTextView: NSViewRepresentable {
                     fileExtension: self.parent.fileExtension,
                     baselineText: self.parent.baselineText
                 )
-                self.pendingPresentationRefresh = nil
             }
             pendingPresentationRefresh = workItem
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
@@ -221,12 +245,44 @@ struct ConflictResultTextView: NSViewRepresentable {
             fileExtension: String,
             baselineText: String
         ) {
+            lineStarts = [0]
+            longestLineLength = 0
+            var columns = 0
+            for (index, unit) in text.utf16.enumerated() {
+                if unit == 10 {
+                    lineStarts.append(index + 1)
+                    longestLineLength = max(longestLineLength, columns)
+                    columns = 0
+                } else {
+                    columns += unit == 9 ? 8 : 1
+                }
+            }
+            longestLineLength = max(longestLineLength, columns)
+            layoutManager.lineStartOffsets = lineStarts
+            highlightedRows = nil
             applySyntaxHighlighting(to: textView, text: text, fileExtension: fileExtension)
-            layoutManager.changedLineIndices = ConflictResultLineHighlights.changedLineIndices(
-                result: text,
-                baseline: baselineText
-            )
-            layoutManager.blankLineIndices = ConflictResultLineHighlights.blankLineIndices(in: text)
+            highlightsTask?.cancel()
+            presentationGeneration += 1
+            let generation = presentationGeneration
+            layoutManager.changedLineIndices = []
+            layoutManager.blankLineIndices = []
+            highlightsTask = Task { [weak self, weak layoutManager] in
+                let worker = Task.detached(priority: .utility) {
+                    let changed = ConflictResultLineHighlights.changedLineIndices(result: text, baseline: baselineText)
+                    let blank = ConflictResultLineHighlights.blankLineIndices(in: text)
+                    return (changed, blank)
+                }
+                let (changed, blank) = await withTaskCancellationHandler {
+                    await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
+                guard !Task.isCancelled, let self, self.presentationGeneration == generation,
+                      let layoutManager else { return }
+                layoutManager.changedLineIndices = changed
+                layoutManager.blankLineIndices = blank
+                layoutManager.invalidateDisplay(forCharacterRange: NSRange(location: 0, length: text.utf16.count))
+            }
             layoutManager.invalidateDisplay(
                 forCharacterRange: NSRange(location: 0, length: text.utf16.count)
             )
@@ -238,6 +294,7 @@ struct ConflictResultTextView: NSViewRepresentable {
             lastHighlightedFileExtension = fileExtension
             lastHighlightedColorScheme = parent.colorScheme
             lastHighlightedBaselineText = baselineText
+            highlightVisibleText()
         }
 
         func updateDocumentFrame(viewportSize: NSSize) {
@@ -247,8 +304,16 @@ struct ConflictResultTextView: NSViewRepresentable {
                 return
             }
 
-            layoutManager.ensureLayout(for: textContainer)
-            let usedSize = layoutManager.usedRect(for: textContainer).size
+            let usedSize: NSSize
+            if usesWindowedHighlighting {
+                usedSize = NSSize(
+                    width: CGFloat(longestLineLength) * NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).maximumAdvancement.width,
+                    height: CGFloat(lineStarts.count) * ConflictCodeView.rowHeight()
+                )
+            } else {
+                layoutManager.ensureLayout(for: textContainer)
+                usedSize = layoutManager.usedRect(for: textContainer).size
+            }
             let horizontalInset = textView.textContainerInset.width * 2
             let verticalInset = textView.textContainerInset.height * 2
             textView.frame.size = NSSize(
@@ -263,11 +328,24 @@ struct ConflictResultTextView: NSViewRepresentable {
             text: String,
             fileExtension: String
         ) {
+            // Native typing already has the paragraph/font attributes. Replacing
+            // the entire storage here would invalidate layout after every pause.
+            if usesWindowedHighlighting, hasAppliedPresentation, textView.string == text {
+                return
+            }
             let selectedRange = textView.selectedRange()
-            let highlighted = NSMutableAttributedString(
-                attributedString: SyntaxHighlighter(fileExtension: fileExtension)
-                    .nsAttributedString(for: text, fontSize: ConflictCodeView.defaultFontSize)
-            )
+            let highlighted: NSMutableAttributedString
+            if usesWindowedHighlighting {
+                highlighted = NSMutableAttributedString(string: text, attributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: ConflictCodeView.defaultFontSize, weight: .regular),
+                    .foregroundColor: NSColor.textColor,
+                ])
+            } else {
+                highlighted = NSMutableAttributedString(
+                    attributedString: SyntaxHighlighter(fileExtension: fileExtension)
+                        .nsAttributedString(for: text, fontSize: ConflictCodeView.defaultFontSize)
+                )
+            }
             let paragraphStyle = NSMutableParagraphStyle()
             let rowHeight = ConflictCodeView.rowHeight()
             paragraphStyle.minimumLineHeight = rowHeight
@@ -304,6 +382,35 @@ struct ConflictResultTextView: NSViewRepresentable {
             if shouldRestoreUndoRegistration {
                 undoManager?.enableUndoRegistration()
             }
+            isApplyingPresentation = false
+        }
+
+        private func highlightVisibleText() {
+            guard usesWindowedHighlighting, !isApplyingPresentation, pendingPresentationRefresh == nil,
+                  let textView, let storage = textView.textStorage,
+                  let scrollView = textView.enclosingScrollView else { return }
+            let bounds = scrollView.contentView.bounds
+            let rows = ConflictRenderWindow.rows(count: lineStarts.count, minY: bounds.minY, height: bounds.height)
+            guard rows != highlightedRows, !rows.isEmpty else { return }
+            highlightedRows = rows
+            let start = lineStarts[rows.lowerBound]
+            let end = rows.upperBound < lineStarts.count ? lineStarts[rows.upperBound] : storage.length
+            guard start <= end, end <= storage.length else { return }
+            let range = NSRange(location: start, length: end - start)
+            let source = (storage.string as NSString).substring(with: range)
+            let highlighted = SyntaxHighlighter(fileExtension: parent.fileExtension)
+                .nsAttributedString(for: source, fontSize: ConflictCodeView.defaultFontSize)
+            isApplyingPresentation = true
+            let undo = textView.undoManager
+            let restoreUndo = undo?.isUndoRegistrationEnabled == true
+            if restoreUndo { undo?.disableUndoRegistration() }
+            storage.beginEditing()
+            storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: range)
+            highlighted.enumerateAttributes(in: NSRange(location: 0, length: highlighted.length)) { attributes, localRange, _ in
+                storage.addAttributes(attributes, range: NSRange(location: start + localRange.location, length: localRange.length))
+            }
+            storage.endEditing()
+            if restoreUndo { undo?.enableUndoRegistration() }
             isApplyingPresentation = false
         }
     }

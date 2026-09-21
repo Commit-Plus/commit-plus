@@ -24,6 +24,15 @@ import SwiftUI
 
 /// A read-only code view that shows line numbers and can highlight specific lines.
 struct ConflictCodeView: View {
+    @Environment(\.conflictRenderedRows) private var renderedRows
+    var minimumCodeWidth: CGFloat = 0
+
+    private var visibleRows: Range<Int> {
+        (renderedRows ?? rows.indices).clamped(to: rows.indices)
+    }
+
+    private var leadingSpace: CGFloat { CGFloat(visibleRows.lowerBound) * rowHeight }
+    private var trailingSpace: CGFloat { CGFloat(rows.count - visibleRows.upperBound) * rowHeight }
     static let defaultFontSize: CGFloat = 12
     static let verticalPadding: CGFloat = 8
 
@@ -79,6 +88,7 @@ struct ConflictCodeView: View {
         rows: [ConflictCodeLine],
         fileExtension: String,
         highlightColor: Color,
+        minimumCodeWidth: CGFloat = 0,
         fontSize: CGFloat = Self.defaultFontSize,
         selectionSide: ConflictPaneSelectionSide? = nil,
         isSelected: @escaping (Int) -> Bool = { _ in false },
@@ -90,6 +100,7 @@ struct ConflictCodeView: View {
         self.highlightColor = highlightColor
         self.fontSize = fontSize
         self.rows = rows
+        self.minimumCodeWidth = minimumCodeWidth
         self.selectionSide = selectionSide
         self.isSelected = isSelected
         self.onSelectionChanged = onSelectionChanged
@@ -114,7 +125,8 @@ struct ConflictCodeView: View {
 
     private var selectionControls: some View {
         VStack(alignment: .center, spacing: 0) {
-            ForEach(rows.indices, id: \.self) { index in
+            Color.clear.frame(height: leadingSpace)
+            ForEach(visibleRows, id: \.self) { index in
                 let row = rows[index]
                 rowWithContextMenu(for: row) {
                     selectionControl(for: row)
@@ -122,7 +134,9 @@ struct ConflictCodeView: View {
                         .background(rowBackground(for: row))
                 }
             }
+            Color.clear.frame(height: trailingSpace)
         }
+        .frame(width: 28)
         .padding(.vertical, Self.verticalPadding)
         .background(.secondary.opacity(0.05))
     }
@@ -131,7 +145,8 @@ struct ConflictCodeView: View {
 
     private var lineNumbers: some View {
         VStack(alignment: .trailing, spacing: 0) {
-            ForEach(rows.indices, id: \.self) { index in
+            Color.clear.frame(height: leadingSpace)
+            ForEach(visibleRows, id: \.self) { index in
                 let row = rows[index]
                 rowWithContextMenu(for: row) {
                     Text(row.lineNumber.map(String.init) ?? "")
@@ -143,7 +158,9 @@ struct ConflictCodeView: View {
                         .background(rowBackground(for: row))
                 }
             }
+            Color.clear.frame(height: trailingSpace)
         }
+        .frame(width: 48)
         .padding(.vertical, Self.verticalPadding)
         .background(.secondary.opacity(0.05))
     }
@@ -154,7 +171,8 @@ struct ConflictCodeView: View {
         let highlighter = SyntaxHighlighter(fileExtension: fileExtension)
 
         return VStack(alignment: .leading, spacing: 0) {
-            ForEach(rows.indices, id: \.self) { index in
+            Color.clear.frame(height: leadingSpace)
+            ForEach(visibleRows, id: \.self) { index in
                 let row = rows[index]
                 rowWithContextMenu(for: row) {
                     Text(attributedText(for: row, using: highlighter))
@@ -166,7 +184,9 @@ struct ConflictCodeView: View {
                         .background(rowBackground(for: row))
                 }
             }
+            Color.clear.frame(height: trailingSpace)
         }
+        .frame(minWidth: minimumCodeWidth)
         .padding(.vertical, Self.verticalPadding)
     }
 
@@ -218,16 +238,16 @@ struct ConflictCodeView: View {
     private var conflictBlockBorders: some View {
         if selectionSide != nil {
             GeometryReader { proxy in
-                ForEach(conflictStartIndices, id: \.self) { startIndex in
+                ForEach(visibleConflictRanges, id: \.lowerBound) { range in
                     Rectangle()
                         .stroke(highlightColor.opacity(0.9), lineWidth: 1)
                         .frame(
                             width: proxy.size.width,
-                            height: CGFloat(conflictRowCount(startingAt: startIndex)) * rowHeight
+                            height: CGFloat(range.count) * rowHeight
                         )
                         .offset(
                             x: 0,
-                            y: Self.verticalPadding + CGFloat(startIndex) * rowHeight
+                            y: Self.verticalPadding + CGFloat(range.lowerBound) * rowHeight
                         )
                 }
             }
@@ -235,19 +255,18 @@ struct ConflictCodeView: View {
         }
     }
 
-    private var conflictStartIndices: [Int] {
-        rows.indices.filter { rows[$0].isConflict && rows[$0].startsConflict }
-    }
-
-    private func conflictRowCount(startingAt startIndex: Int) -> Int {
-        guard rows.indices.contains(startIndex),
-              let sectionIndex = rows[startIndex].conflictSectionIndex else {
-            return 0
+    private var visibleConflictRanges: [Range<Int>] {
+        var ranges: [Range<Int>] = []
+        var index = visibleRows.lowerBound
+        while index < visibleRows.upperBound {
+            guard rows[index].isConflict else { index += 1; continue }
+            let start = index
+            let section = rows[index].conflictSectionIndex
+            repeat { index += 1 }
+            while index < visibleRows.upperBound && rows[index].conflictSectionIndex == section
+            ranges.append(start..<index)
         }
-
-        return rows[startIndex...].prefix { row in
-            row.conflictSectionIndex == sectionIndex
-        }.count
+        return ranges
     }
 
     @ViewBuilder

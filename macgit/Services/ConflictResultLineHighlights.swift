@@ -17,10 +17,12 @@
 //
 import Foundation
 
-enum ConflictResultLineHighlights {
+nonisolated enum ConflictResultLineHighlights {
     static func changedLineIndices(result: String, baseline: String) -> Set<Int> {
+        guard !Task.isCancelled, result != baseline else { return [] }
         let resultLines = lines(in: result)
         let baselineLines = lines(in: baseline)
+        guard !Task.isCancelled else { return [] }
         let difference = resultLines.difference(from: baselineLines)
 
         return Set(difference.compactMap { change in
@@ -30,6 +32,7 @@ enum ConflictResultLineHighlights {
     }
 
     static func blankLineIndices(in text: String) -> Set<Int> {
+        guard !Task.isCancelled else { return [] }
         let textLines = lines(in: text)
         return Set(textLines.indices.filter { index in
             textLines[index].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

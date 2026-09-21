@@ -21,6 +21,7 @@ final class ConflictResultBackgroundLayoutManager: NSLayoutManager {
     var changedLineIndices: Set<Int> = []
     var blankLineIndices: Set<Int> = []
     var viewportWidth: CGFloat = 0
+    var lineStartOffsets: [Int] = [0]
 
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         guard let textStorage, let textContainer = textContainers.first else {
@@ -37,10 +38,17 @@ final class ConflictResultBackgroundLayoutManager: NSLayoutManager {
                 lineIndex = visibleLineIndex
             } else {
                 let characterIndex = characterIndexForGlyph(at: glyphRange.location)
-                let prefixRange = NSRange(location: 0, length: min(characterIndex, text.length))
-                lineIndex = text.substring(with: prefixRange).reduce(into: 0) { count, character in
-                    if character == "\n" { count += 1 }
+                var lower = 0
+                var upper = lineStartOffsets.count
+                while lower < upper {
+                    let middle = (lower + upper) / 2
+                    if lineStartOffsets[middle] <= min(characterIndex, text.length) {
+                        lower = middle + 1
+                    } else {
+                        upper = middle
+                    }
                 }
+                lineIndex = max(0, lower - 1)
             }
             visibleLineIndex = lineIndex + 1
 

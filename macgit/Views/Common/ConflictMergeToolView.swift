@@ -33,7 +33,11 @@ struct ConflictMergeToolView: View {
 
     @State private var selectedFile: StatusFile
     @State private var document: ConflictResolutionDocument?
+    @State private var panelAlignment: ConflictPanelAlignment?
+    @State private var visibleConflictFileCount = 200
+    @State private var visibleResolvedFileCount = 200
     @State private var isLoading = true
+    @State private var documentLoadID = UUID()
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var showingError = false
@@ -84,6 +88,9 @@ struct ConflictMergeToolView: View {
         .navigationTitle("")
         .toolbar { toolbarContent }
         .task(id: selectedFile.id) {
+            if let index = allConflictFiles.firstIndex(of: selectedFile) {
+                visibleConflictFileCount = max(visibleConflictFileCount, index + 1)
+            }
             await loadDocument(for: selectedFile)
         }
         .task {
@@ -167,11 +174,19 @@ struct ConflictMergeToolView: View {
                         Label("No conflicted files", systemImage: "checkmark.circle")
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(allConflictFiles) { file in
+                        ForEach(allConflictFiles.prefix(visibleConflictFileCount)) { file in
                             Label(file.displayName, systemImage: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.orange)
                                 .help(file.path)
                                 .tag(file)
+                        }
+                        if visibleConflictFileCount < allConflictFiles.count {
+                            Text("Loading more files…")
+                                .selectionDisabled()
+                                .id(visibleConflictFileCount)
+                                .onAppear {
+                                    visibleConflictFileCount = min(visibleConflictFileCount + 200, allConflictFiles.count)
+                                }
                         }
                     }
                 }
@@ -194,10 +209,17 @@ struct ConflictMergeToolView: View {
                         Text("Files you resolve appear here")
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(resolvedFiles) { file in
+                        ForEach(resolvedFiles.prefix(visibleResolvedFileCount)) { file in
                             Label(file.displayName, systemImage: "checkmark.circle.fill")
                                 .foregroundStyle(.green)
                                 .help(file.path)
+                        }
+                        if visibleResolvedFileCount < resolvedFiles.count {
+                            Text("Loading more files…")
+                                .id(visibleResolvedFileCount)
+                                .onAppear {
+                                    visibleResolvedFileCount = min(visibleResolvedFileCount + 200, resolvedFiles.count)
+                                }
                         }
                     }
                 }
@@ -257,8 +279,8 @@ struct ConflictMergeToolView: View {
             } else if isLoading {
                 ProgressView("Loading conflict details…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let document = document {
-                threePanelView(document: document)
+            } else if let document, let panelAlignment {
+                threePanelView(document: document, panels: panelAlignment)
             } else {
                 EmptyStateView(
                     icon: "arrow.triangle.merge",
@@ -272,10 +294,9 @@ struct ConflictMergeToolView: View {
 
     // MARK: - Three Panel View
 
-    private func threePanelView(document: ConflictResolutionDocument) -> some View {
-        let panels = ConflictPanelAlignment(document: document)
-        let incomingData = PanelData(rows: panels.incomingRows)
-        let currentData = PanelData(rows: panels.currentRows)
+    private func threePanelView(document: ConflictResolutionDocument, panels: ConflictPanelAlignment) -> some View {
+        let incomingData = PanelData(rows: panels.incomingRows, columnCount: panels.incomingColumnCount)
+        let currentData = PanelData(rows: panels.currentRows, columnCount: panels.currentColumnCount)
 
         return VStack(spacing: 0) {
             // Top row: Incoming | Current
@@ -347,11 +368,12 @@ struct ConflictMergeToolView: View {
             }
 
             // Content
-            SyncedScrollView(id: scrollID, controller: scrollController) {
+            SyncedScrollView(id: scrollID, controller: scrollController, virtualizedRowCount: data.rows.count) {
                 ConflictCodeView(
                     rows: data.rows,
                     fileExtension: selectedFile.fileExtension,
                     highlightColor: highlightColor,
+                    minimumCodeWidth: CGFloat(data.columnCount) * NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).maximumAdvancement.width + 16,
                     selectionSide: selectionSide,
                     isSelected: { sectionIndex in
                         guard let selectionSide else { return false }
@@ -377,6 +399,7 @@ struct ConflictMergeToolView: View {
 
     private struct PanelData {
         let rows: [ConflictCodeLine]
+        let columnCount: Int
     }
 
     private struct ConflictUndoSnapshot {
@@ -576,7 +599,8 @@ struct ConflictMergeToolView: View {
 
         let selectedWasResolved = newlyResolved.contains(selectedFile)
         allConflictFiles.removeAll { resolvedPathSet.contains($0.path) }
-        for file in newlyResolved where !resolvedFiles.contains(file) {
+        let existingResolvedPaths = Set(resolvedFiles.map(\.path))
+        for file in newlyResolved where !existingResolvedPaths.contains(file.path) {
             resolvedFiles.append(file)
         }
         resolvedFiles.sort { $0.path < $1.path }
@@ -584,6 +608,7 @@ struct ConflictMergeToolView: View {
 
         if allConflictFiles.isEmpty {
             document = nil
+            panelAlignment = nil
             resultTextBuffer.text = ""
             selectedConflictSectionIndex = nil
             hasUnsavedChanges = false
@@ -701,7 +726,7 @@ struct ConflictMergeToolView: View {
         registerConflictUndo(document: previousDocument)
         resultEditorUndoResetGeneration += 1
         hasUnsavedChanges = true
-        self.document = document
+        installDocument(document)
         resultTextBuffer.text = document.resolvedText
         focusCurrentConflict(in: document, preferredSectionIndex: sectionIndex, scroll: false)
     }
@@ -724,7 +749,7 @@ struct ConflictMergeToolView: View {
         registerConflictUndo(document: previousDocument)
         resultEditorUndoResetGeneration += 1
         hasUnsavedChanges = true
-        self.document = document
+        installDocument(document)
         resultTextBuffer.text = document.resolvedText
         focusCurrentConflict(in: document, preferredSectionIndex: sectionIndex, scroll: false)
     }
@@ -738,7 +763,7 @@ struct ConflictMergeToolView: View {
         registerConflictUndo(document: previousDocument)
         resultEditorUndoResetGeneration += 1
         hasUnsavedChanges = true
-        self.document = document
+        installDocument(document)
         resultTextBuffer.text = document.resolvedText
         focusCurrentConflict(in: document, preferredSectionIndex: selectedConflictSectionIndex, scroll: false)
     }
@@ -757,7 +782,7 @@ struct ConflictMergeToolView: View {
         registerConflictUndo(document: previousDocument)
         resultEditorUndoResetGeneration += 1
         hasUnsavedChanges = true
-        self.document = document
+        installDocument(document)
         resultTextBuffer.text = document.resolvedText
         focusCurrentConflict(in: document, preferredSectionIndex: selectedConflictSectionIndex, scroll: false)
     }
@@ -810,7 +835,7 @@ struct ConflictMergeToolView: View {
 
     private func restoreConflictSnapshot(_ snapshot: ConflictUndoSnapshot) {
         resultEditorUndoResetGeneration += 1
-        document = snapshot.document
+        installDocument(snapshot.document)
         resultTextBuffer.text = snapshot.resultText
         selectedConflictSectionIndex = snapshot.selectedConflictSectionIndex
         hasUnsavedChanges = snapshot.hasUnsavedChanges
@@ -837,8 +862,7 @@ struct ConflictMergeToolView: View {
     }
 
     private func scrollToConflict(_ sectionIndex: Int, in document: ConflictResolutionDocument) {
-        let panels = ConflictPanelAlignment(document: document)
-        guard let rowIndex = panels.rowIndex(forConflictSectionIndex: sectionIndex) else { return }
+        guard let rowIndex = panelAlignment?.rowIndex(forConflictSectionIndex: sectionIndex) else { return }
         let offset = ConflictCodeView.verticalPadding + CGFloat(rowIndex) * ConflictCodeView.rowHeight()
 
         DispatchQueue.main.async {
@@ -855,20 +879,32 @@ struct ConflictMergeToolView: View {
         }
     }
 
+    private func installDocument(_ document: ConflictResolutionDocument) {
+        self.document = document
+        panelAlignment = ConflictPanelAlignment(document: document)
+    }
+
     private func loadDocument(for file: StatusFile) async {
+        let loadID = UUID()
+        documentLoadID = loadID
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            if documentLoadID == loadID { isLoading = false }
+        }
         do {
             let loadedDocument = try await GitStatusService.shared.conflictDocument(for: file, in: repositoryURL)
+            try Task.checkCancellation()
+            guard selectedFile.id == file.id else { return }
             await MainActor.run {
                 resultTextBuffer.text = loadedDocument.resolvedText
-                document = loadedDocument
+                installDocument(loadedDocument)
                 hasUnsavedChanges = false
                 focusCurrentConflict(in: loadedDocument, preferredSectionIndex: nil, scroll: true)
             }
         } catch is CancellationError {
             // Task was cancelled, likely because user switched files. Ignore.
         } catch {
+            guard documentLoadID == loadID, selectedFile.id == file.id else { return }
             await MainActor.run {
                 errorMessage = error.localizedDescription
                 showingError = true
@@ -929,6 +965,7 @@ struct ConflictMergeToolView: View {
 
         if allConflictFiles.isEmpty {
             document = nil
+            panelAlignment = nil
             resultTextBuffer.text = ""
             selectedConflictSectionIndex = nil
         } else if let currentIndex {

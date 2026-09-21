@@ -17,11 +17,24 @@
 //
 import SwiftUI
 
+private struct ConflictRenderedRowsKey: EnvironmentKey {
+    static let defaultValue: Range<Int>? = nil
+}
+
+extension EnvironmentValues {
+    var conflictRenderedRows: Range<Int>? {
+        get { self[ConflictRenderedRowsKey.self] }
+        set { self[ConflictRenderedRowsKey.self] = newValue }
+    }
+}
+
 struct SyncedScrollView<Content: View>: View {
     let id: String
     let controller: SyncedScrollController
     let axes: Axis.Set
     let showsIndicators: Bool
+    let virtualizedRowCount: Int?
+    @State private var renderedRows = 0..<500
     @ViewBuilder let content: Content
 
     init(
@@ -29,21 +42,33 @@ struct SyncedScrollView<Content: View>: View {
         controller: SyncedScrollController,
         axes: Axis.Set = [.horizontal, .vertical],
         showsIndicators: Bool = true,
+        virtualizedRowCount: Int? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.id = id
         self.controller = controller
         self.axes = axes
         self.showsIndicators = showsIndicators
+        self.virtualizedRowCount = virtualizedRowCount
         self.content = content()
     }
 
     var body: some View {
         ScrollView(axes, showsIndicators: showsIndicators) {
             content
+                .environment(\.conflictRenderedRows, virtualizedRowCount == nil ? nil : renderedRows)
                 .background(
                     SyncedScrollConnector(id: id, controller: controller)
                 )
+        }
+        .onScrollGeometryChange(for: Range<Int>.self) { geometry in
+            ConflictRenderWindow.rows(
+                count: virtualizedRowCount ?? 0,
+                minY: geometry.visibleRect.minY,
+                height: geometry.visibleRect.height
+            )
+        } action: { _, range in
+            renderedRows = range
         }
     }
 }
