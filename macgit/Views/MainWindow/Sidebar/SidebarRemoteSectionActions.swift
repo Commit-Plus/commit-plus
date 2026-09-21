@@ -30,4 +30,5 @@ struct SidebarRemoteSectionActions {
     let finishDrag: (String) -> Void
     let setHeaderDropTargeted: (Bool) -> Void
     let drop: SidebarDropActions
+    var compare: (String) -> Void = { _ in }
 }

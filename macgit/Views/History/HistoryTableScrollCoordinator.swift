@@ -34,6 +34,7 @@ final class HistoryTableScrollCoordinator {
     private var columnResizeObserver: NSObjectProtocol?
     private var restoreWidthsTask: Task<Void, Never>?
     private var isRestoringWidths = false
+    private var contextClickMonitor: Any?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -56,6 +57,9 @@ final class HistoryTableScrollCoordinator {
     }
 
     deinit {
+        if let contextClickMonitor {
+            NSEvent.removeMonitor(contextClickMonitor)
+        }
         restoreWidthsTask?.cancel()
         if let columnResizeObserver {
             NotificationCenter.default.removeObserver(columnResizeObserver)
@@ -252,6 +256,39 @@ final class HistoryTableScrollCoordinator {
         // titles remain stable even when the user reorders or hides columns.
         let key = column.title.lowercased()
         return ["graph", "message", "author", "date", "commit"].contains(key) ? key : nil
+    }
+
+    func startContextClickMonitoring(onRow: @escaping (Int) -> Void) {
+        stopContextClickMonitoring()
+        contextClickMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.rightMouseDown, .leftMouseDown]
+        ) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard event.type == .rightMouseDown || event.modifierFlags.contains(.control),
+                      let tableView = self?.tableView,
+                      let window = tableView.window,
+                      event.window === window,
+                      let contentView = window.contentView,
+                      let hitView = contentView.hitTest(
+                        contentView.convert(event.locationInWindow, from: nil)
+                      ),
+                      hitView === tableView || hitView.isDescendant(of: tableView) else {
+                    return event
+                }
+                let row = tableView.row(at: tableView.convert(event.locationInWindow, from: nil))
+                guard row >= 0 else { return event }
+                // Update selection before AppKit dispatches the context menu.
+                onRow(row)
+                return event
+            }
+        }
+    }
+
+    func stopContextClickMonitoring() {
+        if let contextClickMonitor {
+            NSEvent.removeMonitor(contextClickMonitor)
+            self.contextClickMonitor = nil
+        }
     }
 
     func isContextClick(onRows selectedRows: IndexSet) -> Bool {
