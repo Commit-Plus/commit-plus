@@ -48,6 +48,13 @@ struct CommitFileListView: View {
                             .font(.system(size: 10))
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
+                        if let oldPath = change.oldPath {
+                            Text("From: \(oldPath)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .help(oldPath)
+                        }
                     }
                     
                     Spacer()

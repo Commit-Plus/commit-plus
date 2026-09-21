@@ -292,7 +292,7 @@ extension GitStatusService {
         return (ahead: ahead, behind: behind)
     }
 
-    private func parseCommitLog(_ raw: String) -> [Commit] {
+    func parseCommitLog(_ raw: String) -> [Commit] {
         let dateFormatter = ISO8601DateFormatter()
         var commits: [Commit] = []
         for line in raw.split(separator: "\n") {

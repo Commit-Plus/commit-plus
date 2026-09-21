@@ -41,8 +41,8 @@ struct SidebarRemoteContextMenu: View {
 
             copyBranchNameButton
 
-            Button("Diff Against Current") {}
-                .disabled(true)
+            Button("Compare with…") { actions.compare(fullPath) }
+                .disabled(remoteBranch.branch == "HEAD")
 
             Divider()
 

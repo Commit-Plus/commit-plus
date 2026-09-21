@@ -48,13 +48,14 @@ nonisolated struct Commit: Identifiable, Equatable, Sendable {
 
 // MARK: - Commit File Change
 
-struct CommitFileChange: Identifiable, Hashable {
+nonisolated struct CommitFileChange: Identifiable, Hashable, Sendable {
     let id = UUID()
     let path: String
     let status: CommitFileStatus
+    var oldPath: String? = nil
 }
 
-enum CommitFileStatus: String {
+nonisolated enum CommitFileStatus: String, Sendable {
     case added = "A"
     case modified = "M"
     case deleted = "D"

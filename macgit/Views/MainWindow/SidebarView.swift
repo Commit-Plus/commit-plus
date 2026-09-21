@@ -55,6 +55,7 @@ struct SidebarView: View {
     let onRequestCreateTagFromBranch: (String) -> Void
     let onRequestTagDetails: (String) -> Void
     let onRequestDiffTagAgainstCurrent: (String) -> Void
+    let onRequestCompareBranches: (String, String) -> Void
     let onRequestPushTagToRemote: (String, String) -> Void
     let onRequestForcePushTagToRemote: (String, String) -> Void
     let onRequestDeleteTag: (String) -> Void
@@ -214,6 +215,7 @@ struct SidebarView: View {
         onRequestCreateTagFromBranch: @escaping (String) -> Void = { _ in },
         onRequestTagDetails: @escaping (String) -> Void = { _ in },
         onRequestDiffTagAgainstCurrent: @escaping (String) -> Void = { _ in },
+        onRequestCompareBranches: @escaping (String, String) -> Void = { _, _ in },
         onRequestPushTagToRemote: @escaping (String, String) -> Void = { _, _ in },
         onRequestForcePushTagToRemote: @escaping (String, String) -> Void = { _, _ in },
         onRequestDeleteTag: @escaping (String) -> Void = { _ in },
@@ -284,6 +286,7 @@ struct SidebarView: View {
         self.onRequestCreateTagFromBranch = onRequestCreateTagFromBranch
         self.onRequestTagDetails = onRequestTagDetails
         self.onRequestDiffTagAgainstCurrent = onRequestDiffTagAgainstCurrent
+        self.onRequestCompareBranches = onRequestCompareBranches
         self.onRequestPushTagToRemote = onRequestPushTagToRemote
         self.onRequestForcePushTagToRemote = onRequestForcePushTagToRemote
         self.onRequestDeleteTag = onRequestDeleteTag
@@ -383,7 +386,8 @@ struct SidebarView: View {
             currentDropLabel: currentBranchDropLabel,
             drop: dropActions,
             forcePushTracked: onRequestForcePushToTracked,
-            forcePushToRemote: onRequestForcePushBranchToRemote
+            forcePushToRemote: onRequestForcePushBranchToRemote,
+            compare: { onRequestCompareBranches("refs/heads/\($0)", currentBranch) }
         )
     }
 
@@ -453,7 +457,8 @@ struct SidebarView: View {
             makePayload: makeRemoteBranchPayload,
             finishDrag: finishRemoteBranchDrag,
             setHeaderDropTargeted: updateRemotesHeaderDropTarget,
-            drop: dropActions
+            drop: dropActions,
+            compare: { onRequestCompareBranches("refs/remotes/\($0)", currentBranch) }
         )
     }
 
