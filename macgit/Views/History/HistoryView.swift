@@ -201,7 +201,22 @@ struct HistoryView: View {
             paging = HistoryPagingState(pageSize: pageSize)
             historyCache.removeAll()
         }
+        .onAppear {
+            tableScrollCoordinator.startContextClickMonitoring { row in
+                guard commits.indices.contains(row) else { return }
+                let commit = commits[row]
+                guard !tableSelection.contains(commit.hash) else { return }
+                commitSelection = HistoryCommitSelection(
+                    selectedHashes: [commit.hash],
+                    primaryHash: commit.hash,
+                    anchorHash: commit.hash
+                )
+                selectedCommit = commit
+                tableSelection = [commit.hash]
+            }
+        }
         .onDisappear {
+            tableScrollCoordinator.stopContextClickMonitoring()
             historySearchDebounceTask?.cancel()
             dragClickSuppressionTask?.cancel()
             dragCompletionMonitorTask?.cancel()
@@ -2063,6 +2078,17 @@ struct HistoryView: View {
                 case .ended:
                     NSCursor.arrow.set()
                 }
+            }
+            .contextMenu {
+                // Cell gestures own pointer selection. Resolve the menu from
+                // that selection and the clicked row, rather than the native
+                // Table's contextual selection, which can include another row.
+                let contextCommits = Self.contextMenuCommits(
+                    startingAt: commit.hash,
+                    commits: commits,
+                    selection: commitSelection
+                )
+                commitContextMenu(for: Set(contextCommits.map(\.hash)))
             }
             .onDrag {
                 makeCommitItemProvider(startingAt: commit)
