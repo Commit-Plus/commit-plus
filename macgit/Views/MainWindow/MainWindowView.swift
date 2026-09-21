@@ -155,6 +155,7 @@ struct MainWindowView: View {
     @State private var referenceDiffTarget: String?
     @State private var referenceDiffTitle: String?
     @State private var isOpeningReferenceDiff = false
+    @State private var branchComparison: ReferenceComparisonController?
     @State private var pullPreselectedBranch: String? = nil
     @State var showingSearchModal = false
     @State var showingRepositorySettings = false
@@ -735,6 +736,8 @@ struct MainWindowView: View {
     }
 
     private func clearReferenceDiff() {
+        branchComparison?.cancel()
+        branchComparison = nil
         referenceDiffBase = nil
         referenceDiffTarget = nil
         referenceDiffTitle = nil
@@ -889,10 +892,21 @@ struct MainWindowView: View {
                 }
             },
             onRequestDiffTagAgainstCurrent: { tag in
+                clearReferenceDiff()
                 referenceDiffBase = tag
                 referenceDiffTarget = "HEAD"
                 referenceDiffTitle = "Diff: \(tag) against Current (HEAD)"
-                isOpeningReferenceDiff = true
+                isOpeningReferenceDiff = selectedItem != .item(.history)
+                selectedItem = .item(.history)
+            },
+            onRequestCompareBranches: { target, current in
+                clearReferenceDiff()
+                branchComparison = ReferenceComparisonController(
+                    repositoryURL: repositoryURL,
+                    baseRef: current.isEmpty || current == "HEAD" ? "" : "refs/heads/\(current)",
+                    targetRef: target
+                )
+                isOpeningReferenceDiff = selectedItem != .item(.history)
                 selectedItem = .item(.history)
             },
             onRequestPushTagToRemote: { tag, remote in
@@ -1184,7 +1198,13 @@ struct MainWindowView: View {
                     onRunRepositoryOperation: runRepositoryOperation
                 )
             case .item(.history):
-                if let referenceDiffBase, let referenceDiffTarget, let referenceDiffTitle {
+                if let branchComparison {
+                    ReferenceDiffView(controller: branchComparison, onClose: {
+                        isOpeningReferenceDiff = false
+                        clearReferenceDiff()
+                    })
+                    .id(ObjectIdentifier(branchComparison))
+                } else if let referenceDiffBase, let referenceDiffTarget, let referenceDiffTitle {
                     ReferenceDiffView(
                         repositoryURL: repositoryURL,
                         baseRef: referenceDiffBase,
@@ -1195,6 +1215,7 @@ struct MainWindowView: View {
                             clearReferenceDiff()
                         }
                     )
+                    .id("\(referenceDiffBase)→\(referenceDiffTarget)")
                 } else {
                     HistoryView(
                         repositoryURL: repositoryURL,

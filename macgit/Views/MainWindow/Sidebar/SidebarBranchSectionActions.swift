@@ -42,4 +42,5 @@ struct SidebarBranchSectionActions {
     let drop: SidebarDropActions
     var forcePushTracked: (String) -> Void = { _ in }
     var forcePushToRemote: (String, String) -> Void = { _, _ in }
+    var compare: (String) -> Void = { _ in }
 }

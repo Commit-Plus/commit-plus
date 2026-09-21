@@ -136,8 +136,7 @@ struct SidebarBranchContextMenu: View {
 
         Divider()
 
-        Button("Diff Against Current") {}
-            .disabled(true)
+        Button("Compare with…") { actions.compare(branch) }
 
         Divider()
 
