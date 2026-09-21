@@ -40,6 +40,7 @@ struct FileStatusView: View {
     var canUpdateCurrentBranch = false
     var onRequestUpdateCurrentBranch: (CurrentBranchIntegrationStatus) -> Void = { _ in }
     var onRequestApplyStash: (String) -> Void = { _ in }
+    var onAuthorizeCommit: () async -> Bool = { true }
     var onRequestPushAfterCommit: (String, String) async throws -> Void
     var onRunRepositoryOperation: RepositoryOperationRunner
 
@@ -1245,6 +1246,7 @@ struct FileStatusView: View {
     ) async {
         let message = commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty || allowEmptyMessage else { return }
+        guard await onAuthorizeCommit() else { return }
         do {
             if commitChangedFiles {
                 try await GitStatusService.shared.stageAllChanges(in: repositoryURL)
@@ -1581,6 +1583,7 @@ struct FileStatusView: View {
     }
 
     private func commit(message: String) async {
+        guard await onAuthorizeCommit() else { return }
         do {
             let oldHead = await GitStatusService.shared.tipHash(for: "HEAD", in: repositoryURL)
             try await GitStatusService.shared.commit(message: message, in: repositoryURL)

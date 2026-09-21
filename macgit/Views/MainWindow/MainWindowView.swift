@@ -160,6 +160,9 @@ struct MainWindowView: View {
     @State var showingRepositorySettings = false
     @State var initiallySelectGitFlowSettings = false
     @State var pendingSearchFileOpenRequest: SearchFileOpenRequest?
+    @StateObject var protectedBranchCommitController = ProtectedBranchCommitController()
+    @State var toolbarCommitMessage = ""
+    @State var pendingToolbarCommit: (message: String, commitAllChanges: Bool)?
     @State var repoSettings = RepoSettings.defaults(currentBranch: nil, remotes: [])
     @State var gitFlowConfiguration = GitFlowConfiguration()
     @State var gitFlowFinishCheckpoint: GitFlowFinishCheckpoint?
@@ -357,7 +360,15 @@ struct MainWindowView: View {
                     Text("Replace tag '\(confirmation.tag)' on '\(confirmation.remote)' with the local tag target? This rewrites the published tag and may retrigger release automation.")
                 }
             }
-            .sheet(isPresented: $showingCommitSheet) { commitSheet }
+            .sheet(isPresented: $showingCommitSheet, onDismiss: performPendingToolbarCommit) { commitSheet }
+            .sheet(item: $protectedBranchCommitController.warning, onDismiss: { protectedBranchCommitController.finish(.cancel) }) { warning in
+                ProtectedBranchCommitSheet(warning: warning, skipWarnings: $repoSettings.skipProtectedBranchCommitWarnings) { decision in
+                    protectedBranchCommitController.finish(decision)
+                }
+                .onChange(of: repoSettings.skipProtectedBranchCommitWarnings) { _, _ in
+                    repoSettingsStore.update(for: repositoryURL.path, settings: repoSettings)
+                }
+            }
             .sheet(isPresented: $showingPullSheet) { pullSheet }
             .sheet(isPresented: $showingPushSheet, onDismiss: forcePushSheetDismissed) { pushSheet }
             .sheet(item: $pendingBranchForcePush) { plan in
@@ -704,6 +715,7 @@ struct MainWindowView: View {
             OpenRepositoryRegistry.shared.register(repositoryURL)
         }
         .onDisappear {
+            protectedBranchCommitController.finish(.cancel)
             repositoryAIChatController.invalidatePendingMutation(
                 reason: "Repository window closed.",
                 appendTranscript: false
@@ -1162,6 +1174,7 @@ struct MainWindowView: View {
                     onRequestApplyStash: { ref in
                         requestStashAction(ref: ref, action: .apply)
                     },
+                    onAuthorizeCommit: authorizeProtectedBranchCommit,
                     onRequestPushAfterCommit: pushAfterCommit,
                     onRunRepositoryOperation: runRepositoryOperation
                 )
@@ -1667,12 +1680,17 @@ struct MainWindowView: View {
     }
 
     func commitFromToolbar(message: String, commitAllChanges: Bool) async {
+        guard await authorizeProtectedBranchCommit() else { return }
+        let previousHead = await GitStatusService.shared.tipHash(for: "HEAD", in: repositoryURL)
         await syncState.performCommit(
             message: message,
             repositoryURL: repositoryURL,
             undoManager: undoManager,
             commitAllChanges: commitAllChanges
         )
+        if await GitStatusService.shared.tipHash(for: "HEAD", in: repositoryURL) != previousHead {
+            toolbarCommitMessage = ""
+        }
     }
 
     func performCommitDropCherryPick(_ confirmation: PendingCommitDropConfirmation) async {

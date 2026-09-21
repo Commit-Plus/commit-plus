@@ -35,6 +35,7 @@ struct RepoSettings: Codable, Equatable {
     var refreshOnAppActiveOverride: Bool?
     var confirmDetachedHeadCheckout: Bool
     var confirmDestructiveStashActions: Bool
+    var skipProtectedBranchCommitWarnings: Bool
     var useGlobalUserSettings: Bool
     var userName: String
     var userEmail: String
@@ -47,6 +48,7 @@ struct RepoSettings: Codable, Equatable {
         refreshOnAppActiveOverride: Bool? = nil,
         confirmDetachedHeadCheckout: Bool = true,
         confirmDestructiveStashActions: Bool = true,
+        skipProtectedBranchCommitWarnings: Bool = false,
         useGlobalUserSettings: Bool = true,
         userName: String = "",
         userEmail: String = ""
@@ -58,6 +60,7 @@ struct RepoSettings: Codable, Equatable {
         self.refreshOnAppActiveOverride = refreshOnAppActiveOverride
         self.confirmDetachedHeadCheckout = confirmDetachedHeadCheckout
         self.confirmDestructiveStashActions = confirmDestructiveStashActions
+        self.skipProtectedBranchCommitWarnings = skipProtectedBranchCommitWarnings
         self.useGlobalUserSettings = useGlobalUserSettings
         self.userName = userName
         self.userEmail = userEmail
@@ -72,6 +75,7 @@ struct RepoSettings: Codable, Equatable {
         refreshOnAppActiveOverride = try container.decodeIfPresent(Bool.self, forKey: .refreshOnAppActiveOverride)
         confirmDetachedHeadCheckout = try container.decodeIfPresent(Bool.self, forKey: .confirmDetachedHeadCheckout) ?? true
         confirmDestructiveStashActions = try container.decodeIfPresent(Bool.self, forKey: .confirmDestructiveStashActions) ?? true
+        skipProtectedBranchCommitWarnings = try container.decodeIfPresent(Bool.self, forKey: .skipProtectedBranchCommitWarnings) ?? false
         useGlobalUserSettings = try container.decodeIfPresent(Bool.self, forKey: .useGlobalUserSettings) ?? true
         userName = try container.decodeIfPresent(String.self, forKey: .userName) ?? ""
         userEmail = try container.decodeIfPresent(String.self, forKey: .userEmail) ?? ""
@@ -100,6 +104,7 @@ struct RepoSettings: Codable, Equatable {
         case refreshOnAppActiveOverride = "refreshOnAppActive"
         case confirmDetachedHeadCheckout
         case confirmDestructiveStashActions
+        case skipProtectedBranchCommitWarnings
         case useGlobalUserSettings
         case userName
         case userEmail

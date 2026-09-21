@@ -26,7 +26,7 @@ struct CommitSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("commit.allChanges") private var commitAllChanges = false
     @ObservedObject var aiProviderController: AIProviderController
-    @State private var message: String = ""
+    @Binding var message: String
     @State private var messageSelection: TextSelection?
     @State private var errorMessage: String?
     @State private var showingError = false

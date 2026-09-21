@@ -472,6 +472,11 @@ struct RepositorySettingsSheetView: View {
                     .toggleStyle(.checkbox)
                     .font(.system(size: 13))
 
+                Toggle("Skip protected branch commit warnings", isOn: binding(\.skipProtectedBranchCommitWarnings))
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 13))
+                    .help("Skip local commit warnings for this repository. Remote branch protection still applies when pushing.")
+
                 Toggle("Confirm destructive stash actions", isOn: binding(\.confirmDestructiveStashActions))
                     .toggleStyle(.checkbox)
                     .font(.system(size: 13))

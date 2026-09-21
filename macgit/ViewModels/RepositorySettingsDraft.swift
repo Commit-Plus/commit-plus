@@ -37,6 +37,7 @@ struct RepositorySettingsDraft: Equatable {
     var refreshOnAppActiveOverride: Bool?
     var confirmDetachedHeadCheckout: Bool
     var confirmDestructiveStashActions: Bool
+    var skipProtectedBranchCommitWarnings: Bool
     var useGlobalUserSettings: Bool
     var userName: String
     var userEmail: String
@@ -75,6 +76,7 @@ struct RepositorySettingsDraft: Equatable {
         refreshOnAppActiveOverride = settings.refreshOnAppActiveOverride
         confirmDetachedHeadCheckout = settings.confirmDetachedHeadCheckout
         confirmDestructiveStashActions = settings.confirmDestructiveStashActions
+        skipProtectedBranchCommitWarnings = settings.skipProtectedBranchCommitWarnings
         useGlobalUserSettings = settings.useGlobalUserSettings
         userName = settings.userName
         userEmail = settings.userEmail
@@ -89,6 +91,7 @@ struct RepositorySettingsDraft: Equatable {
             refreshOnAppActiveOverride: refreshOnAppActiveOverride,
             confirmDetachedHeadCheckout: confirmDetachedHeadCheckout,
             confirmDestructiveStashActions: confirmDestructiveStashActions,
+            skipProtectedBranchCommitWarnings: skipProtectedBranchCommitWarnings,
             useGlobalUserSettings: useGlobalUserSettings,
             userName: userName,
             userEmail: userEmail

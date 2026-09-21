@@ -21,12 +21,11 @@ extension MainWindowView {
     var commitSheet: some View {
         CommitSheetView(
             aiProviderController: aiProviderController,
+            message: $toolbarCommitMessage,
             repositoryURL: repositoryURL,
             hasStagedChanges: syncState.stagedBadgeCount > 0
         ) { message, commitAllChanges in
-            runRepositoryOperation("Committing changes...") {
-                await commitFromToolbar(message: message, commitAllChanges: commitAllChanges)
-            }
+            pendingToolbarCommit = (message, commitAllChanges)
         }
     }
 

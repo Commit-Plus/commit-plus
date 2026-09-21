@@ -31,6 +31,7 @@ final class RepoSettingsStoreTests: XCTestCase {
         XCTAssertNil(decoded.refreshOnAppActiveOverride)
         XCTAssertTrue(decoded.confirmDetachedHeadCheckout)
         XCTAssertTrue(decoded.confirmDestructiveStashActions)
+        XCTAssertFalse(decoded.skipProtectedBranchCommitWarnings)
     }
 
     func testRepoSettingsStorePersistsSettingsPerRepositoryPath() {
@@ -44,6 +45,7 @@ final class RepoSettingsStoreTests: XCTestCase {
         let repoB = "/tmp/repo-b-\(UUID().uuidString)"
 
         var repoASettings = RepoSettings.defaults(currentBranch: "main", remotes: ["origin"])
+        repoASettings.skipProtectedBranchCommitWarnings = true
         repoASettings.pullStrategy = .rebase
         repoASettings.autoFetchOverride = true
         repoASettings.refreshOnAppActiveOverride = false
@@ -54,6 +56,8 @@ final class RepoSettingsStoreTests: XCTestCase {
         let loadedB = freshStore.settings(for: repoB, currentBranch: nil, remotes: ["upstream"])
 
         XCTAssertEqual(loadedA, repoASettings)
+        XCTAssertTrue(loadedA.skipProtectedBranchCommitWarnings)
+        XCTAssertFalse(loadedB.skipProtectedBranchCommitWarnings)
         XCTAssertEqual(loadedB.defaultRemoteName, "upstream")
         XCTAssertEqual(loadedB.defaultPullBranch, "")
         XCTAssertEqual(loadedB.pullStrategy, .merge)
