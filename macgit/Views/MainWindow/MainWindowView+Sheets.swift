@@ -326,8 +326,10 @@ extension MainWindowView {
             ),
             providerAccountPreferences: providerAccountPreferenceStore.preferences,
             onSave: { newSettings in
+                let commitRuleChanged = repoSettings.skipProtectedBranchCommitWarnings != newSettings.skipProtectedBranchCommitWarnings
                 repoSettings = newSettings
                 repoSettingsStore.update(for: repositoryURL.path, settings: newSettings)
+                if commitRuleChanged { commitRulePreferenceChanged() }
                 Task {
                     try? await GitStatusService.shared.updateGitUserConfiguration(
                         useGlobalSettings: newSettings.useGlobalUserSettings,

@@ -160,6 +160,7 @@ struct MainWindowView: View {
     @State var showingRepositorySettings = false
     @State var initiallySelectGitFlowSettings = false
     @State var pendingSearchFileOpenRequest: SearchFileOpenRequest?
+    @StateObject var commitRuleSyncController = RepositoryCommitRuleSyncController()
     @StateObject var protectedBranchCommitController = ProtectedBranchCommitController()
     @State var toolbarCommitMessage = ""
     @State var pendingToolbarCommit: (message: String, commitAllChanges: Bool)?
@@ -168,7 +169,7 @@ struct MainWindowView: View {
     @State var gitFlowFinishCheckpoint: GitFlowFinishCheckpoint?
     @State var gitFlowRecoveryIssue: GitFlowLocalStateIssue?
     @State var gitFlowConfigurationIssue: GitFlowLocalStateIssue?
-    @State private var didPerformInitialLoad = false
+    @State var didPerformInitialLoad = false
     @State var pendingGitFlowTopicKind: GitFlowTopicKind?
     @State var pendingGitFlowFinishPlan: GitFlowFinishPlan?
     @State var gitFlowCurrentBranch = ""
@@ -367,6 +368,7 @@ struct MainWindowView: View {
                 }
                 .onChange(of: repoSettings.skipProtectedBranchCommitWarnings) { _, _ in
                     repoSettingsStore.update(for: repositoryURL.path, settings: repoSettings)
+                    commitRulePreferenceChanged()
                 }
             }
             .sheet(isPresented: $showingPullSheet) { pullSheet }
@@ -506,6 +508,7 @@ struct MainWindowView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                Task { await reconcileCommitRulePreference() }
                 guard repoSettings.resolvedRefreshOnAppActive(
                     globalValue: appState.refreshOnAppActive
                 ) else { return }
@@ -649,6 +652,9 @@ struct MainWindowView: View {
             .task { await performInitialLoad() }
             .task {
                 releaseNotesPresentation = await ReleaseNotesPresentationStore.shared.claimPresentation()
+            }
+            .task(id: gitFlowConfigurationSyncTaskID) {
+                await reconcileCommitRulePreference()
             }
             .task(id: gitFlowConfigurationSyncTaskID) {
                 await reconcileGitFlowConfigurationWithCloud()
