@@ -254,6 +254,19 @@ final class HistoryTableScrollCoordinator {
         return ["graph", "message", "author", "date", "commit"].contains(key) ? key : nil
     }
 
+    func isContextClick(onRows selectedRows: IndexSet) -> Bool {
+        guard let tableView,
+              let event = NSApp.currentEvent,
+              event.window === tableView.window else { return false }
+        let isContextClick = event.type == .rightMouseDown
+            || event.type == .rightMouseUp
+            || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
+        guard isContextClick else { return false }
+        let point = tableView.convert(event.locationInWindow, from: nil)
+        let row = tableView.row(at: point)
+        return row >= 0 && selectedRows.contains(row)
+    }
+
     func scrollToRowWhenReady(_ row: Int) async {
         for _ in 0..<30 {
             if scrollToRow(row) {

@@ -541,30 +541,34 @@ struct HistoryView: View {
                 ZStack(alignment: .bottom) {
                     Table(
                         of: Commit.self,
-                        selection: $tableSelection,
+                        selection: commitTableSelection,
                         columnCustomization: $tableColumnCustomization
                     ) {
                         TableColumn("Graph") { commit in
-                            BranchGraphRowCanvas(
-                                model: graphModel,
-                                rowIndex: rowIndexByHash[commit.hash] ?? 0
-                            )
-                            .opacity(activeDragCommitHashes.contains(commit.hash) ? 0.4 : 1)
+                            commitDragCell(for: commit) {
+                                BranchGraphRowCanvas(
+                                    model: graphModel,
+                                    rowIndex: rowIndexByHash[commit.hash] ?? 0
+                                )
+                                .opacity(activeDragCommitHashes.contains(commit.hash) ? 0.4 : 1)
+                            }
                         }
                         .width(min: 60, ideal: 200, max: .infinity)
                         .customizationID("graph")
                         .disabledCustomizationBehavior([.reorder, .visibility])
 
                         TableColumn("Message") { commit in
-                            HistoryCommitMessageCell(
-                                commit: commit,
-                                graphModel: graphModel,
-                                isDragActive: activeDragCommitHashes.contains(commit.hash),
-                                scrollCoordinator: tableScrollCoordinator,
-                                onAppear: {
-                                    handleHistoryCommitCellAppearance(commit)
-                                }
-                            )
+                            commitDragCell(for: commit) {
+                                HistoryCommitMessageCell(
+                                    commit: commit,
+                                    graphModel: graphModel,
+                                    isDragActive: activeDragCommitHashes.contains(commit.hash),
+                                    scrollCoordinator: tableScrollCoordinator,
+                                    onAppear: {
+                                        handleHistoryCommitCellAppearance(commit)
+                                    }
+                                )
+                            }
                         }
                         .width(
                             min: 120,
@@ -575,11 +579,13 @@ struct HistoryView: View {
                         .disabledCustomizationBehavior([.reorder, .visibility])
 
                         TableColumn("Author") { commit in
-                            Text("\(commit.author) <\(commit.email)>")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .help("\(commit.author) <\(commit.email)>")
+                            commitDragCell(for: commit) {
+                                Text("\(commit.author) <\(commit.email)>")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .help("\(commit.author) <\(commit.email)>")
+                            }
                         }
                         .width(
                             min: 140,
@@ -589,19 +595,21 @@ struct HistoryView: View {
                         .customizationID("author")
 
                         TableColumn("Date") { commit in
-                            Text(
-                                commit.date,
-                                format: .dateTime
-                                    .hour()
-                                    .minute()
-                                    .day()
-                                    .month(.abbreviated)
-                                    .year()
-                            )
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                            .lineLimit(1)
+                            commitDragCell(for: commit) {
+                                Text(
+                                    commit.date,
+                                    format: .dateTime
+                                        .hour()
+                                        .minute()
+                                        .day()
+                                        .month(.abbreviated)
+                                        .year()
+                                )
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                                .lineLimit(1)
+                            }
                         }
                         .width(
                             min: 100,
@@ -612,11 +620,13 @@ struct HistoryView: View {
                         .customizationID("date")
 
                         TableColumn("Commit") { commit in
-                            Text(commit.shortHash)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
-                                .help(commit.hash)
+                            commitDragCell(for: commit) {
+                                Text(commit.shortHash)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                                    .help(commit.hash)
+                            }
                         }
                         .width(
                             min: 72,
@@ -628,9 +638,6 @@ struct HistoryView: View {
                     } rows: {
                         ForEach(commits) { commit in
                             TableRow(commit)
-                                .itemProvider {
-                                    makeCommitItemProvider(startingAt: commit)
-                                }
                         }
                     }
                     .tableStyle(.bordered)
@@ -1383,6 +1390,25 @@ struct HistoryView: View {
         }
     }
 
+    private var commitTableSelection: Binding<Set<String>> {
+        Binding(
+            get: { tableSelection },
+            set: { newSelection in
+                // A context click on an already selected row must not dismiss
+                // its detail, even if the native Table publishes an empty set.
+                // Intercept the write before onChange clears commitSelection.
+                if newSelection.isEmpty,
+                   !tableSelection.isEmpty,
+                   tableScrollCoordinator.isContextClick(onRows: IndexSet(
+                    commits.indices.filter { tableSelection.contains(commits[$0].hash) }
+                   )) {
+                    return
+                }
+                tableSelection = newSelection
+            }
+        )
+    }
+
     private func applyTableSelection(
         from oldSelection: Set<String>,
         to newSelection: Set<String>
@@ -1401,6 +1427,11 @@ struct HistoryView: View {
             selectedCommit = nil
             return
         }
+
+        // Cell clicks have already resolved the primary commit and range anchor.
+        // Keep that anchor for subsequent Shift-clicks; native keyboard selection
+        // still comes through the normal reconciliation below.
+        guard Set(commitSelection.selectedHashes) != newSelection else { return }
 
         let orderedHashes = visibleHashes.filter(newSelection.contains)
         let primaryHash = Self.primaryHashForTableSelection(
@@ -2009,7 +2040,55 @@ struct HistoryView: View {
             }
     }
 
-    private func makeCommitItemProvider(startingAt commit: Commit) -> NSItemProvider? {
+    private func commitDragCell<Content: View>(
+        for commit: Commit,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                selectCommitFromCell(commit)
+            }
+            .simultaneousGesture(
+                TapGesture(count: 2).onEnded {
+                    guard !consumeSuppressedCommitClick(commit.hash) else { return }
+                    handleCommitDoubleClick(commit)
+                }
+            )
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    NSCursor.pointingHand.set()
+                case .ended:
+                    NSCursor.arrow.set()
+                }
+            }
+            .onDrag {
+                makeCommitItemProvider(startingAt: commit)
+            } preview: {
+                CommitDragPreview(
+                    presentation: CommitDragPreviewPresentation(
+                        commit: commit,
+                        commitCount: tableSelection.contains(commit.hash) ? tableSelection.count : 1
+                    ),
+                    onDragStateChange: { _ in }
+                )
+            }
+    }
+
+    private func selectCommitFromCell(_ commit: Commit) {
+        guard !consumeSuppressedCommitClick(commit.hash) else { return }
+        selectedCommit = Self.selectCommitFromNativeTap(
+            commit.hash,
+            modifierFlags: NSEvent.modifierFlags,
+            commits: commits,
+            selection: &commitSelection
+        )
+        tableSelection = Set(commitSelection.selectedHashes)
+    }
+
+    private func makeCommitItemProvider(startingAt commit: Commit) -> NSItemProvider {
         let selectionHashes: [String]
         if tableSelection.contains(commit.hash) {
             selectionHashes = commits.map(\.hash).filter(tableSelection.contains)
