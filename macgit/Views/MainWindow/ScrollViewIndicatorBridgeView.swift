@@ -30,6 +30,7 @@ final class ScrollViewIndicatorBridgeView: NSView {
     private var resolutionTask: Task<Void, Never>?
     private var indicatorRefreshTask: Task<Void, Never>?
     private var lastContentOffset: CGPoint?
+    private var lastContentSize: CGSize?
 
     func configure(showsIndicators: Bool, controlSize: NSControl.ControlSize?, onScroll: @escaping () -> Void) {
         self.controlSize = controlSize
@@ -48,6 +49,7 @@ final class ScrollViewIndicatorBridgeView: NSView {
         scrollView = nil
         observedDocumentView = nil
         lastContentOffset = nil
+        lastContentSize = nil
         onScroll = nil
     }
 
@@ -99,6 +101,7 @@ final class ScrollViewIndicatorBridgeView: NSView {
         documentView?.postsFrameChangedNotifications = true
         observedDocumentView = documentView
         lastContentOffset = contentView.bounds.origin
+        lastContentSize = contentView.bounds.size
 
         observationTokens.append(
             NotificationCenter.default.addObserver(
@@ -163,7 +166,13 @@ final class ScrollViewIndicatorBridgeView: NSView {
     private func contentOffsetDidChange() {
         guard let scrollView else { return }
         let contentOffset = scrollView.contentView.bounds.origin
-        scheduleIndicatorRefresh()
+        // Scrolling (including elastic overscroll) changes the origin, not
+        // the viewport size. Only resize events need scroller configuration.
+        let contentSize = scrollView.contentView.bounds.size
+        if contentSize != lastContentSize {
+            lastContentSize = contentSize
+            scheduleIndicatorRefresh()
+        }
         guard contentOffset != lastContentOffset else { return }
         lastContentOffset = contentOffset
         onScroll?()

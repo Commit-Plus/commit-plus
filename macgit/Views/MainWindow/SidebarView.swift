@@ -722,6 +722,9 @@ struct SidebarView: View {
     }
 
     private func showSidebarScrollIndicatorsForScroll() {
+        // Hover already keeps the indicator visible; avoid rebuilding sidebar
+        // state and replacing a hide task on every scroll notification.
+        guard !isSidebarHovered else { return }
         isSidebarScrolling = true
         sidebarScrollHideTask?.cancel()
         sidebarScrollHideTask = Task { @MainActor in
