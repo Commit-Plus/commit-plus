@@ -367,7 +367,6 @@ struct MainWindowView: View {
                     protectedBranchCommitController.finish(decision)
                 }
                 .onChange(of: repoSettings.skipProtectedBranchCommitWarnings) { _, _ in
-                    repoSettingsStore.update(for: repositoryURL.path, settings: repoSettings)
                     commitRulePreferenceChanged()
                 }
             }

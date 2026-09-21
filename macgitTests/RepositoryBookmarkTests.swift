@@ -87,14 +87,13 @@ final class RepositoryBookmarkTests: XCTestCase {
     }
 
     @MainActor
-    func testControllerKeepsLocalFolderMappingOutOfBookmarkModel() throws {
-        let suiteName = "RepositoryBookmarkTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+    func testControllerKeepsLocalFolderMappingOutOfBookmarkModel() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
         let controller = RepositoryBookmarkController(
             cloudStore: nil,
-            userDefaults: defaults,
-            keyPrefix: suiteName
+            dataStore: fixture.store
         )
         let identity = try XCTUnwrap(
             RepositoryBookmarkIdentity.resolve(
@@ -104,7 +103,7 @@ final class RepositoryBookmarkTests: XCTestCase {
         let bookmark = RepositoryBookmark(identity: identity)
         let localURL = URL(fileURLWithPath: "/Users/test/Project/codex", isDirectory: true)
 
-        controller.link(bookmark, to: localURL)
+        try await controller.link(bookmark, to: localURL)
 
         XCTAssertEqual(controller.localURL(for: bookmark), localURL)
         XCTAssertFalse(bookmark.remoteURL.absoluteString.contains("/Users/test"))

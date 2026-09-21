@@ -29,32 +29,32 @@ final class GitProviderSSHKeyStoreTests: XCTestCase {
         )
     }
 
-    func testUserDefaultsStoreSavesReadsAndDeletesKey() throws {
-        let suiteName = "GitProviderSSHKeyStoreTests-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+    func testSQLiteStoreSavesReadsAndDeletesKey() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
 
-        let store = UserDefaultsGitProviderSSHKeyStore(defaults: defaults)
+        let store = SQLiteGitProviderSSHKeyStore(dataStore: fixture.store)
         let account = makeProviderAccount()
         let key = GitProviderSSHKey(path: "/Users/test/.ssh/id_ed25519")
 
-        try store.saveKey(key, for: account)
+        try await store.saveKey(key, for: account)
 
         XCTAssertEqual(try store.key(for: account), key)
 
-        try store.deleteKey(for: account)
+        try await store.deleteKey(for: account)
 
         XCTAssertNil(try store.key(for: account))
     }
 
-    func testDeletingMissingKeyIsIdempotent() throws {
-        let suiteName = "GitProviderSSHKeyStoreTests-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+    func testDeletingMissingKeyIsIdempotent() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
 
-        let store = UserDefaultsGitProviderSSHKeyStore(defaults: defaults)
+        let store = SQLiteGitProviderSSHKeyStore(dataStore: fixture.store)
 
-        XCTAssertNoThrow(try store.deleteKey(for: makeProviderAccount()))
+        try await store.deleteKey(for: makeProviderAccount())
     }
 
     private func makeProviderAccount() -> GitProviderAccount {

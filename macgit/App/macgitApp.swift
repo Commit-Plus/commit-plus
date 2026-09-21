@@ -127,7 +127,7 @@ struct macgitApp: App {
                     .gitlab: GitLabRepositoryVisibilityService(),
                 ],
                 tokenVault: providerTokenVault,
-                cache: UserDefaultsRepositoryVisibilityCache()
+                cache: SQLiteRepositoryVisibilityCache()
             )
         )
         _repositoryBookmarkController = StateObject(
@@ -210,35 +210,37 @@ struct macgitApp: App {
         request: RepositoryWindowRequest?,
         isWelcomeWindow: Bool = false
     ) -> some View {
-        ContentView(
-            request: request,
-            isWelcomeWindow: isWelcomeWindow,
-            accountController: accountController,
-            providerAccountController: providerAccountController,
-            aiProviderController: aiProviderController
-        )
-            .environmentObject(appState)
-            .environmentObject(appUpdateController)
-            .environmentObject(featureAccessController)
-            .environmentObject(repositoryVisibilityController)
-            .environmentObject(repositoryBookmarkController)
-            .environmentObject(gitFlowConfigurationSyncController)
-            .preferredColorScheme(appState.appearance.colorScheme)
-            .task {
-                appUpdateController.start()
-            }
-            .onChange(of: accountController.account?.uid, initial: true) { _, uid in
-                aiProviderController.managedUsageController?.setSession(uid: uid)
-                Task { await aiProviderController.refreshAvailability() }
-            }
-            .onChange(of: accountController.entitlement) { _, _ in
-                Task { await aiProviderController.refreshAvailability() }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                Task {
-                    await aiProviderController.managedUsageController?.refresh()
+        LocalDataLoadingView {
+            ContentView(
+                request: request,
+                isWelcomeWindow: isWelcomeWindow,
+                accountController: accountController,
+                providerAccountController: providerAccountController,
+                aiProviderController: aiProviderController
+            )
+                .environmentObject(appState)
+                .environmentObject(appUpdateController)
+                .environmentObject(featureAccessController)
+                .environmentObject(repositoryVisibilityController)
+                .environmentObject(repositoryBookmarkController)
+                .environmentObject(gitFlowConfigurationSyncController)
+                .preferredColorScheme(appState.appearance.colorScheme)
+                .task {
+                    appUpdateController.start()
                 }
-            }
+                .onChange(of: accountController.account?.uid, initial: true) { _, uid in
+                    aiProviderController.managedUsageController?.setSession(uid: uid)
+                    Task { await aiProviderController.refreshAvailability() }
+                }
+                .onChange(of: accountController.entitlement) { _, _ in
+                    Task { await aiProviderController.refreshAvailability() }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    Task {
+                        await aiProviderController.managedUsageController?.refresh()
+                    }
+                }
+        }
     }
 
     var body: some Scene {

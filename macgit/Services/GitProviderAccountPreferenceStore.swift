@@ -32,49 +32,42 @@ enum GitProviderAccountPreferenceKey {
     }
 }
 
+@MainActor
 final class GitProviderAccountPreferenceStore {
     static let shared = GitProviderAccountPreferenceStore()
-
-    private let userDefaults: UserDefaults
-    private let key: String
-    private var accountIDsByRemoteIdentity: [String: String]
-
-    init(
-        userDefaults: UserDefaults = .standard,
-        key: String = "dev.thanhtran.macgit.providerAccountPreferences"
-    ) {
-        self.userDefaults = userDefaults
-        self.key = key
-        accountIDsByRemoteIdentity = userDefaults.dictionary(forKey: key) as? [String: String] ?? [:]
-    }
+    private let dataStore: LocalDataStore
+    init(dataStore: LocalDataStore? = nil) { self.dataStore = dataStore ?? .shared }
 
     var preferences: [String: String] {
-        accountIDsByRemoteIdentity
+        (try? dataStore.values(String.self, in: "providerPreferences")) ?? [:]
     }
 
     func accountID(for identity: GitRemoteIdentity) -> String? {
-        accountIDsByRemoteIdentity[GitProviderAccountPreferenceKey.make(for: identity)]
+        preferences[GitProviderAccountPreferenceKey.make(for: identity)]
     }
 
-    func update(accountID: String?, for identity: GitRemoteIdentity) {
-        update(accountID: accountID, forPreferenceKey: GitProviderAccountPreferenceKey.make(for: identity))
+    func update(accountID: String?, for identity: GitRemoteIdentity) async throws {
+        try await update(accountID: accountID, forPreferenceKey: GitProviderAccountPreferenceKey.make(for: identity))
     }
 
-    func update(accountID: String?, forPreferenceKey preferenceKey: String) {
-        if let accountID, !accountID.isEmpty {
-            accountIDsByRemoteIdentity[preferenceKey] = accountID
-        } else {
-            accountIDsByRemoteIdentity.removeValue(forKey: preferenceKey)
+    func update(accountID: String?, forPreferenceKey preferenceKey: String) async throws {
+        try await dataStore.transaction { transaction in
+            if let accountID, !accountID.isEmpty {
+                try transaction.set(accountID, in: "providerPreferences", id: preferenceKey)
+            } else {
+                transaction.remove(in: "providerPreferences", id: preferenceKey)
+            }
         }
-        save()
     }
 
-    func replacePreferences(_ preferences: [String: String]) {
-        accountIDsByRemoteIdentity = preferences.filter { !$0.value.isEmpty }
-        save()
-    }
-
-    private func save() {
-        userDefaults.set(accountIDsByRemoteIdentity, forKey: key)
+    func replacePreferences(_ preferences: [String: String]) async throws {
+        try await dataStore.transaction { transaction in
+            for key in try transaction.values(String.self, in: "providerPreferences").keys {
+                transaction.remove(in: "providerPreferences", id: key)
+            }
+            for (key, value) in preferences where !value.isEmpty {
+                try transaction.set(value, in: "providerPreferences", id: key)
+            }
+        }
     }
 }

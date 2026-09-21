@@ -4,12 +4,14 @@ import FirebaseCore
 
 extension MainWindowView {
     func commitRulePreferenceChanged() {
-        commitRuleSyncController.markChanged(
-            repoSettings.skipProtectedBranchCommitWarnings,
-            uid: accountController.account?.uid,
-            repositoryURL: repositoryURL
-        )
-        Task { await reconcileCommitRulePreference() }
+        let settings = repoSettings
+        let uid = accountController.account?.uid
+        Task {
+            do {
+                try await repoSettingsStore.update(for: repositoryURL.path, settings: settings, pendingCommitRuleUID: uid)
+                await reconcileCommitRulePreference()
+            } catch { syncState.showError(error.localizedDescription) }
+        }
     }
 
     func reconcileCommitRulePreference() async {

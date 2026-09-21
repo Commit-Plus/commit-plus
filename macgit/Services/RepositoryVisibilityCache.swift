@@ -69,66 +69,36 @@ protocol RepositoryVisibilityCaching {
         _ visibility: RepositoryVisibility,
         for repository: GitRepositoryIdentity,
         resolvedAt: Date
-    )
+    ) async
 }
 
 @MainActor
-final class UserDefaultsRepositoryVisibilityCache: RepositoryVisibilityCaching {
-    private let userDefaults: UserDefaults
-    private let key: String
-    private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
+final class SQLiteRepositoryVisibilityCache: RepositoryVisibilityCaching {
+    private let dataStore: LocalDataStore
+    init(dataStore: LocalDataStore? = nil) { self.dataStore = dataStore ?? .shared }
 
-    init(
-        userDefaults: UserDefaults = .standard,
-        key: String = "dev.thanhtran.macgit.repositoryVisibility"
-    ) {
-        self.userDefaults = userDefaults
-        self.key = key
-    }
-
-    func cachedVisibility(
-        for repository: GitRepositoryIdentity,
-        maximumAge: TimeInterval,
-        now: Date
-    ) -> RepositoryVisibility? {
-        let record = loadAll()[CachedRepositoryVisibility.cacheKey(for: repository)]
-        guard let record,
+    func cachedVisibility(for repository: GitRepositoryIdentity, maximumAge: TimeInterval, now: Date) -> RepositoryVisibility? {
+        guard let record = try? dataStore.value(CachedRepositoryVisibility.self, in: "repositoryVisibility",
+                                              id: CachedRepositoryVisibility.cacheKey(for: repository)),
               record.visibility == .public || record.visibility == .private,
               now.timeIntervalSince(record.resolvedAt) >= 0,
-              now.timeIntervalSince(record.resolvedAt) <= maximumAge else {
-            return nil
-        }
+              now.timeIntervalSince(record.resolvedAt) <= maximumAge else { return nil }
         return record.visibility
     }
 
-    func save(
-        _ visibility: RepositoryVisibility,
-        for repository: GitRepositoryIdentity,
-        resolvedAt: Date
-    ) {
+    func save(_ visibility: RepositoryVisibility, for repository: GitRepositoryIdentity, resolvedAt: Date) async {
         guard visibility == .public || visibility == .private else { return }
-        let record = CachedRepositoryVisibility(
-            repository: repository,
-            visibility: visibility,
-            resolvedAt: resolvedAt
-        )
-        var values = loadAll()
-        values[record.cacheKey] = record
+        let record = CachedRepositoryVisibility(repository: repository, visibility: visibility, resolvedAt: resolvedAt)
         do {
-            userDefaults.set(try encoder.encode(values), forKey: key)
+            try await dataStore.transaction { transaction in
+                for (id, cached) in try transaction.values(CachedRepositoryVisibility.self, in: "repositoryVisibility")
+                    where resolvedAt.timeIntervalSince(cached.resolvedAt) > 30 * 24 * 60 * 60 {
+                    transaction.remove(in: "repositoryVisibility", id: id)
+                }
+                try transaction.set(record, in: "repositoryVisibility", id: record.cacheKey)
+            }
         } catch {
             NSLog("Commit+ repository visibility cache could not be saved: %@", error.localizedDescription)
-        }
-    }
-
-    private func loadAll() -> [String: CachedRepositoryVisibility] {
-        guard let data = userDefaults.data(forKey: key) else { return [:] }
-        do {
-            return try decoder.decode([String: CachedRepositoryVisibility].self, from: data)
-        } catch {
-            NSLog("Commit+ repository visibility cache could not be decoded: %@", error.localizedDescription)
-            return [:]
         }
     }
 }

@@ -22,37 +22,25 @@
 //
 import Foundation
 
+@MainActor
 final class RepoSettingsStore {
     static let shared = RepoSettingsStore()
+    let dataStore: LocalDataStore
 
-    private let userDefaults: UserDefaults
-    private let key: String
-    private var settings: [String: RepoSettings]
-
-    init(userDefaults: UserDefaults = .standard, key: String = "dev.thanhtran.macgit.repoSettings") {
-        self.userDefaults = userDefaults
-        self.key = key
-        if let data = userDefaults.data(forKey: key),
-           let decoded = try? JSONDecoder().decode([String: RepoSettings].self, from: data) {
-            settings = decoded
-        } else {
-            settings = [:]
-        }
-    }
+    init(dataStore: LocalDataStore? = nil) { self.dataStore = dataStore ?? .shared }
 
     func settings(for repositoryPath: String, currentBranch: String?, remotes: [String]) -> RepoSettings {
-        settings[repositoryPath] ?? RepoSettings.defaults(currentBranch: currentBranch, remotes: remotes)
+        (try? dataStore.value(RepoSettings.self, in: "repoSettings", id: repositoryPath))
+            ?? RepoSettings.defaults(currentBranch: currentBranch, remotes: remotes)
     }
 
-    func update(for repositoryPath: String, settings: RepoSettings) {
-        self.settings[repositoryPath] = settings
-        save()
-    }
-
-    private func save() {
-        guard let data = try? JSONEncoder().encode(settings) else {
-            return
+    func update(for repositoryPath: String, settings: RepoSettings, pendingCommitRuleUID: String? = nil) async throws {
+        try await dataStore.transaction { transaction in
+            try transaction.set(settings, in: "repoSettings", id: repositoryPath)
+            if let uid = pendingCommitRuleUID {
+                try transaction.set(settings.skipProtectedBranchCommitWarnings,
+                                    in: "commitRulePending", id: "\(uid)|\(repositoryPath)")
+            }
         }
-        userDefaults.set(data, forKey: key)
     }
 }

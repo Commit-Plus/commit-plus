@@ -4,18 +4,17 @@ import Combine
 
 @MainActor
 final class RepositoryCommitRuleSyncController: ObservableObject {
-    private let defaults: UserDefaults
+    private let dataStore: LocalDataStore
     private let localStore: RepoSettingsStore
     private let resolver: any RepositoryRemoteIdentityResolving
-    private let pendingKey = "dev.thanhtran.macgit.repositoryCommitRules.pending"
     private var sessionID = UUID()
     private var activeUID: String?
     private var activePath: String?
     private var runningSessions: Set<UUID> = []
 
-    init(defaults: UserDefaults = .standard, localStore: RepoSettingsStore = .shared,
+    init(localStore: RepoSettingsStore = .shared,
          resolver: any RepositoryRemoteIdentityResolving = RepositoryRemoteIdentityResolver()) {
-        self.defaults = defaults
+        self.dataStore = localStore.dataStore
         self.localStore = localStore
         self.resolver = resolver
     }
@@ -27,11 +26,12 @@ final class RepositoryCommitRuleSyncController: ObservableObject {
         sessionID = UUID()
     }
 
-    func markChanged(_ value: Bool, uid: String?, repositoryURL: URL) {
+    func markChanged(_ value: Bool, uid: String?, repositoryURL: URL) async throws {
         guard let uid else { return }
-        var pending = pendingValues
-        pending[key(uid: uid, path: repositoryURL.path)] = value
-        defaults.set(pending, forKey: pendingKey)
+        let id = key(uid: uid, path: repositoryURL.path)
+        try await dataStore.transaction { transaction in
+            try transaction.set(value, in: "commitRulePending", id: id)
+        }
     }
 
     func reconcile(repositoryURL: URL, uid: String?, cloud: any RepositoryCommitRuleCloudStore,
@@ -44,27 +44,36 @@ final class RepositoryCommitRuleSyncController: ObservableObject {
         let pendingID = key(uid: uid, path: repositoryURL.path)
         guard let identity = await resolver.identity(in: repositoryURL), session == sessionID else { return nil }
         do {
+            try await dataStore.prepare()
+            guard session == sessionID else { return nil }
             let initial = localValue(repositoryURL)
             let remote = try await cloud.load(identity: identity, uid: uid)
             guard session == sessionID else { return nil }
             // Edits made while offline or while loading always win over an older download.
             if pendingValues[pendingID] == nil, let remote {
-                if localValue(repositoryURL) == initial {
-                    var settings = localStore.settings(for: repositoryURL.path, currentBranch: nil, remotes: [])
+                let applied = try await dataStore.transaction { transaction in
+                    guard session == self.sessionID,
+                          try transaction.value(Bool.self, in: "commitRulePending", id: pendingID) == nil else { return false }
+                    var settings = try transaction.value(RepoSettings.self, in: "repoSettings", id: repositoryURL.path)
+                        ?? RepoSettings.defaults(currentBranch: nil, remotes: [])
+                    guard settings.skipProtectedBranchCommitWarnings == initial else { return false }
                     settings.skipProtectedBranchCommitWarnings = remote
-                    localStore.update(for: repositoryURL.path, settings: settings)
+                    try transaction.set(settings, in: "repoSettings", id: repositoryURL.path)
+                    return true
+                }
+                if applied, session == sessionID, pendingValues[pendingID] == nil, localValue(repositoryURL) == remote {
                     onApplied(remote)
                 }
             } else if pendingValues[pendingID] == nil {
-                markChanged(initial, uid: uid, repositoryURL: repositoryURL)
+                try await markChanged(initial, uid: uid, repositoryURL: repositoryURL)
             }
             while session == sessionID, let value = pendingValues[pendingID] {
                 try await cloud.save(value, identity: identity, uid: uid)
                 guard session == sessionID else { return nil }
-                var pending = pendingValues
-                if pending[pendingID] == value {
-                    pending.removeValue(forKey: pendingID)
-                    defaults.set(pending, forKey: pendingKey)
+                try await dataStore.transaction { transaction in
+                    guard session == self.sessionID,
+                          try transaction.value(Bool.self, in: "commitRulePending", id: pendingID) == value else { return }
+                    transaction.remove(in: "commitRulePending", id: pendingID)
                 }
             }
             return nil
@@ -75,7 +84,7 @@ final class RepositoryCommitRuleSyncController: ObservableObject {
     }
 
     private var pendingValues: [String: Bool] {
-        defaults.dictionary(forKey: pendingKey) as? [String: Bool] ?? [:]
+        (try? dataStore.values(Bool.self, in: "commitRulePending")) ?? [:]
     }
 
     private func key(uid: String, path: String) -> String { "\(uid)|\(path)" }

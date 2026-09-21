@@ -20,36 +20,34 @@ import XCTest
 @testable import macgit
 
 final class GitProviderAccountPreferenceStoreTests: XCTestCase {
-    func testPersistsAccountPreferenceForCanonicalRemoteIdentity() throws {
-        let defaultsKey = "test.provider-account-preferences.\(UUID().uuidString)"
-        let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: defaultsKey)
-        defer { defaults.removeObject(forKey: defaultsKey) }
+    func testPersistsAccountPreferenceForCanonicalRemoteIdentity() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
 
         let identity = try XCTUnwrap(GitRemoteIdentityResolver.identity(
             from: "git@github.com:octocat/Hello-World.git"
         ))
-        let store = GitProviderAccountPreferenceStore(userDefaults: defaults, key: defaultsKey)
+        let store = GitProviderAccountPreferenceStore(dataStore: fixture.store)
 
-        store.update(accountID: "connection-work", for: identity)
+        try await store.update(accountID: "connection-work", for: identity)
 
-        let reloadedStore = GitProviderAccountPreferenceStore(userDefaults: defaults, key: defaultsKey)
+        let reloadedStore = GitProviderAccountPreferenceStore(dataStore: try await fixture.reopen())
         XCTAssertEqual(reloadedStore.accountID(for: identity), "connection-work")
     }
 
-    func testRemovingPreferencePersistsAutomaticSelection() throws {
-        let defaultsKey = "test.provider-account-preferences.\(UUID().uuidString)"
-        let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: defaultsKey)
-        defer { defaults.removeObject(forKey: defaultsKey) }
+    func testRemovingPreferencePersistsAutomaticSelection() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
 
         let identity = try XCTUnwrap(GitRemoteIdentityResolver.identity(
             from: "https://gitlab.com/group/project.git"
         ))
-        let store = GitProviderAccountPreferenceStore(userDefaults: defaults, key: defaultsKey)
-        store.update(accountID: "connection-work", for: identity)
+        let store = GitProviderAccountPreferenceStore(dataStore: fixture.store)
+        try await store.update(accountID: "connection-work", for: identity)
 
-        store.update(accountID: nil, for: identity)
+        try await store.update(accountID: nil, for: identity)
 
         XCTAssertNil(store.accountID(for: identity))
         XCTAssertTrue(store.preferences.isEmpty)

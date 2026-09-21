@@ -44,7 +44,7 @@ final class GitProviderAccountController: ObservableObject {
     init(
         store: GitProviderAccountStore,
         tokenVault: GitProviderTokenVault,
-        sshKeyStore: GitProviderSSHKeyStore = UserDefaultsGitProviderSSHKeyStore(),
+        sshKeyStore: GitProviderSSHKeyStore? = nil,
         sshAuthService: GitProviderSSHAuthenticating = GitProviderSSHAuthService(),
         authService: GitProviderAuthenticating? = nil,
         configuration: GitHubProviderAuthConfiguration? = nil,
@@ -57,7 +57,7 @@ final class GitProviderAccountController: ObservableObject {
     ) {
         self.store = store
         self.tokenVault = tokenVault
-        self.sshKeyStore = sshKeyStore
+        self.sshKeyStore = sshKeyStore ?? SQLiteGitProviderSSHKeyStore()
         self.sshAuthService = sshAuthService
         self.authService = authService
         self.configuration = configuration
@@ -90,7 +90,7 @@ final class GitProviderAccountController: ObservableObject {
             hasSameProviderIdentity($0, previousAccount)
         }) {
             try? tokenVault.deleteToken(for: previousAccount)
-            try? sshKeyStore.deleteKey(for: previousAccount)
+            try? await sshKeyStore.deleteKey(for: previousAccount)
         }
     }
 
@@ -210,7 +210,7 @@ final class GitProviderAccountController: ObservableObject {
         errorMessage = nil
         do {
             try tokenVault.deleteToken(for: account)
-            try sshKeyStore.deleteKey(for: account)
+            try await sshKeyStore.deleteKey(for: account)
             try await store.delete(accountID: account.id)
             accounts.removeAll { $0.id == account.id }
         } catch {
@@ -290,9 +290,9 @@ final class GitProviderAccountController: ObservableObject {
 
         do {
             if transportProtocol == .ssh, let sshKey {
-                try sshKeyStore.saveKey(sshKey, for: updatedAccount)
+                try await sshKeyStore.saveKey(sshKey, for: updatedAccount)
             } else {
-                try sshKeyStore.deleteKey(for: updatedAccount)
+                try await sshKeyStore.deleteKey(for: updatedAccount)
             }
             try await store.save(updatedAccount)
             publish(updatedAccount)
@@ -348,11 +348,11 @@ final class GitProviderAccountController: ObservableObject {
             )
 
             try validateAccountCreation(for: account)
-            try sshKeyStore.saveKey(key, for: account)
+            try await sshKeyStore.saveKey(key, for: account)
             do {
                 try await store.save(account)
             } catch {
-                try? sshKeyStore.deleteKey(for: account)
+                try? await sshKeyStore.deleteKey(for: account)
                 throw error
             }
 
