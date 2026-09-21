@@ -150,7 +150,7 @@ final class RepositoryVisibilityController: ObservableObject {
         guard let service = services[repository.provider] else { return .unknown }
 
         if let anonymousResult = try? await service.visibility(for: repository, token: nil) {
-            save(anonymousResult, repository: repository)
+            await save(anonymousResult, repository: repository)
             return anonymousResult
         }
 
@@ -169,7 +169,7 @@ final class RepositoryVisibilityController: ObservableObject {
                 continue
             }
             if let authenticatedResult = try? await service.visibility(for: repository, token: token) {
-                save(authenticatedResult, repository: repository)
+                await save(authenticatedResult, repository: repository)
                 return authenticatedResult
             }
         }
@@ -179,8 +179,8 @@ final class RepositoryVisibilityController: ObservableObject {
     private func save(
         _ visibility: RepositoryVisibility,
         repository: GitRepositoryIdentity
-    ) {
-        cache.save(visibility, for: repository, resolvedAt: .now)
+    ) async {
+        await cache.save(visibility, for: repository, resolvedAt: .now)
     }
 
     private func matchingAccounts(

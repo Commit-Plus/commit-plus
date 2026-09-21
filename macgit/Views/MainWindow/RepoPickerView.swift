@@ -193,7 +193,7 @@ struct RepoPickerView: View {
             Button("Remove", role: .destructive) {
                 if let bookmarkID = bookmarkController.bookmarkID(linkedTo: repo.url),
                    let bookmark = bookmarkController.bookmark(forID: bookmarkID) {
-                    bookmarkController.unlinkLocalFolder(for: bookmark)
+                    Task { await bookmarkController.unlinkLocalFolder(for: bookmark) }
                 }
                 store.remove(repo)
                 missingRepository = nil
@@ -222,7 +222,7 @@ struct RepoPickerView: View {
                 initialRepositoryName: bookmark.name,
                 onClone: { url in
                     bookmarkToClone = nil
-                    bookmarkController.link(bookmark, to: url)
+                    linkBookmark(bookmark, to: url)
                     store.add(url)
                     onRepositoryOpened(url)
                 }
@@ -230,9 +230,19 @@ struct RepoPickerView: View {
         }
         .onChange(of: bookmarkController.errorMessage) { _, newValue in
             guard let newValue else { return }
-            errorMessage = "Repository bookmark Firebase sync failed. Local bookmarks remain available. \(newValue)"
+            errorMessage = "Could not save or sync the repository bookmark. \(newValue)"
             showingError = true
             bookmarkController.clearError()
+        }
+    }
+
+    private func linkBookmark(_ bookmark: RepositoryBookmark, to url: URL) {
+        Task {
+            do { try await bookmarkController.link(bookmark, to: url) }
+            catch {
+                errorMessage = error.localizedDescription
+                showingError = true
+            }
         }
     }
 
@@ -819,7 +829,7 @@ struct RepoPickerView: View {
                         repoIcons[repo.url] = remoteURL.isEmpty ? "code-branch" : determineRepoIconName(from: remoteURL)
                         loadingRepoIcons.remove(repo.url)
                         if let bookmark = bookmarkController.bookmark(remoteURLString: remoteURL) {
-                            bookmarkController.link(bookmark, to: repo.url)
+                            linkBookmark(bookmark, to: repo.url)
                         }
                     }
                 }

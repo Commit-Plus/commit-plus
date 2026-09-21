@@ -76,7 +76,12 @@ extension MainWindowView {
                 continue
             }
 
-            providerAccountPreferenceStore.update(accountID: selectedAccountID, for: identity)
+            do {
+                try await providerAccountPreferenceStore.update(accountID: selectedAccountID, for: identity)
+            } catch {
+                syncState.showError(error.localizedDescription)
+                return nil
+            }
             resolver = providerCredentialResolver
         }
 

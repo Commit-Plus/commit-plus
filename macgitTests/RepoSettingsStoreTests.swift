@@ -34,13 +34,12 @@ final class RepoSettingsStoreTests: XCTestCase {
         XCTAssertFalse(decoded.skipProtectedBranchCommitWarnings)
     }
 
-    func testRepoSettingsStorePersistsSettingsPerRepositoryPath() {
-        let defaultsKey = "test.repo-settings.\(UUID().uuidString)"
-        let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: defaultsKey)
-        defer { defaults.removeObject(forKey: defaultsKey) }
+    func testRepoSettingsStorePersistsSettingsPerRepositoryPath() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
 
-        let store = RepoSettingsStore(userDefaults: defaults, key: defaultsKey)
+        let store = RepoSettingsStore(dataStore: fixture.store)
         let repoA = "/tmp/repo-a-\(UUID().uuidString)"
         let repoB = "/tmp/repo-b-\(UUID().uuidString)"
 
@@ -49,9 +48,9 @@ final class RepoSettingsStoreTests: XCTestCase {
         repoASettings.pullStrategy = .rebase
         repoASettings.autoFetchOverride = true
         repoASettings.refreshOnAppActiveOverride = false
-        store.update(for: repoA, settings: repoASettings)
+        try await store.update(for: repoA, settings: repoASettings)
 
-        let freshStore = RepoSettingsStore(userDefaults: defaults, key: defaultsKey)
+        let freshStore = RepoSettingsStore(dataStore: try await fixture.reopen())
         let loadedA = freshStore.settings(for: repoA, currentBranch: "main", remotes: ["origin"])
         let loadedB = freshStore.settings(for: repoB, currentBranch: nil, remotes: ["upstream"])
 

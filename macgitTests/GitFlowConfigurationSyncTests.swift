@@ -105,6 +105,9 @@ final class GitFlowConfigurationSyncTests: XCTestCase {
     }
 
     func testNewCloneDownloadsCloudConfigurationIntoLocalCache() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
         let repositoryURL = try makeRepository()
         defer { try? FileManager.default.removeItem(at: repositoryURL) }
         let identity = try XCTUnwrap(
@@ -126,7 +129,8 @@ final class GitFlowConfigurationSyncTests: XCTestCase {
         )
         let controller = GitFlowConfigurationSyncController(
             cloudStore: cloudStore,
-            identityResolver: FakeRepositoryRemoteIdentityResolver(identity: identity)
+            identityResolver: FakeRepositoryRemoteIdentityResolver(identity: identity),
+            dataStore: fixture.store
         )
 
         let outcome = await controller.reconcile(
@@ -149,6 +153,9 @@ final class GitFlowConfigurationSyncTests: XCTestCase {
     }
 
     func testExistingLocalConfigurationSeedsMissingCloudDocument() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
         let repositoryURL = try makeRepository()
         defer { try? FileManager.default.removeItem(at: repositoryURL) }
         let identity = try XCTUnwrap(
@@ -166,7 +173,8 @@ final class GitFlowConfigurationSyncTests: XCTestCase {
         let cloudStore = FakeGitFlowConfigurationCloudStore(configuration: nil)
         let controller = GitFlowConfigurationSyncController(
             cloudStore: cloudStore,
-            identityResolver: FakeRepositoryRemoteIdentityResolver(identity: identity)
+            identityResolver: FakeRepositoryRemoteIdentityResolver(identity: identity),
+            dataStore: fixture.store
         )
 
         let outcome = await controller.reconcile(
@@ -183,11 +191,11 @@ final class GitFlowConfigurationSyncTests: XCTestCase {
     }
 
     func testFailedSignedInSaveRetriesLocalConfigurationBeforeReadingCloud() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
         let repositoryURL = try makeRepository()
         defer { try? FileManager.default.removeItem(at: repositoryURL) }
-        let suiteName = "GitFlowConfigurationSyncTests.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
         let identity = try XCTUnwrap(
             RepositoryBookmarkIdentity.resolve(
                 remoteURLString: "https://github.com/openai/codex.git"
@@ -207,8 +215,7 @@ final class GitFlowConfigurationSyncTests: XCTestCase {
         let controller = GitFlowConfigurationSyncController(
             cloudStore: cloudStore,
             identityResolver: FakeRepositoryRemoteIdentityResolver(identity: identity),
-            userDefaults: defaults,
-            pendingUploadsKey: suiteName
+            dataStore: fixture.store
         )
         let localConfiguration = GitFlowConfiguration(
             isEnabled: true,
@@ -235,7 +242,7 @@ final class GitFlowConfigurationSyncTests: XCTestCase {
         XCTAssertEqual(cloudStore.configurationRequestCount, 0)
         XCTAssertEqual(cloudStore.savedConfiguration?.mainBranch, "trunk")
         XCTAssertEqual(cloudStore.savedConfiguration?.developBranch, "next")
-        XCTAssertEqual(defaults.stringArray(forKey: suiteName) ?? [], [])
+        XCTAssertTrue(try fixture.store.values(String.self, in: "gitFlowPending").isEmpty)
     }
 
     private func makeRepository() throws -> URL {

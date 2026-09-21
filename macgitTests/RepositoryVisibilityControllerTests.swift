@@ -116,18 +116,18 @@ final class RepositoryVisibilityControllerTests: XCTestCase {
         XCTAssertEqual(cache.values.values.first?.visibility, .public)
     }
 
-    func testUserDefaultsCachePersistsOnlyConfirmedVisibility() {
-        let suiteName = "RepositoryVisibilityControllerTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let cache = UserDefaultsRepositoryVisibilityCache(userDefaults: defaults)
+    func testSQLiteCachePersistsOnlyConfirmedVisibility() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
+        let cache = SQLiteRepositoryVisibilityCache(dataStore: fixture.store)
         let repository = githubRepository(name: "Hello-World")
         let now = Date(timeIntervalSince1970: 1_800_000_000)
 
-        cache.save(.unknown, for: repository, resolvedAt: now)
+        await cache.save(.unknown, for: repository, resolvedAt: now)
         XCTAssertNil(cache.cachedVisibility(for: repository, maximumAge: 900, now: now))
 
-        cache.save(.private, for: repository, resolvedAt: now)
+        await cache.save(.private, for: repository, resolvedAt: now)
         XCTAssertEqual(
             cache.cachedVisibility(for: repository, maximumAge: 900, now: now),
             .private

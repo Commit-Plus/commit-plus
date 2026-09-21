@@ -24,8 +24,8 @@ struct GitProviderSSHKey: Equatable, Codable {
 
 protocol GitProviderSSHKeyStore {
     func key(for account: GitProviderAccount) throws -> GitProviderSSHKey?
-    func saveKey(_ key: GitProviderSSHKey, for account: GitProviderAccount) throws
-    func deleteKey(for account: GitProviderAccount) throws
+    func saveKey(_ key: GitProviderSSHKey, for account: GitProviderAccount) async throws
+    func deleteKey(for account: GitProviderAccount) async throws
 }
 
 enum GitProviderSSHKeyStoreKey {
@@ -40,28 +40,23 @@ enum GitProviderSSHKeyStoreKey {
     }
 }
 
-struct UserDefaultsGitProviderSSHKeyStore: GitProviderSSHKeyStore {
-    private let defaults: UserDefaults
-    private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
-
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-    }
+struct SQLiteGitProviderSSHKeyStore: GitProviderSSHKeyStore {
+    private let dataStore: LocalDataStore
+    init(dataStore: LocalDataStore? = nil) { self.dataStore = dataStore ?? .shared }
 
     func key(for account: GitProviderAccount) throws -> GitProviderSSHKey? {
-        guard let data = defaults.data(forKey: GitProviderSSHKeyStoreKey.storageKey(for: account)) else {
-            return nil
+        try dataStore.value(GitProviderSSHKey.self, in: "sshPaths", id: GitProviderSSHKeyStoreKey.storageKey(for: account))
+    }
+
+    func saveKey(_ key: GitProviderSSHKey, for account: GitProviderAccount) async throws {
+        try await dataStore.transaction { transaction in
+            try transaction.set(key, in: "sshPaths", id: GitProviderSSHKeyStoreKey.storageKey(for: account))
         }
-        return try decoder.decode(GitProviderSSHKey.self, from: data)
     }
 
-    func saveKey(_ key: GitProviderSSHKey, for account: GitProviderAccount) throws {
-        let data = try encoder.encode(key)
-        defaults.set(data, forKey: GitProviderSSHKeyStoreKey.storageKey(for: account))
-    }
-
-    func deleteKey(for account: GitProviderAccount) throws {
-        defaults.removeObject(forKey: GitProviderSSHKeyStoreKey.storageKey(for: account))
+    func deleteKey(for account: GitProviderAccount) async throws {
+        try await dataStore.transaction { transaction in
+            transaction.remove(in: "sshPaths", id: GitProviderSSHKeyStoreKey.storageKey(for: account))
+        }
     }
 }

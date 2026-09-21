@@ -34,24 +34,54 @@ final class GitFlowConfigurationSyncController: ObservableObject {
     private let cloudStore: GitFlowConfigurationCloudStore?
     private let localStore: GitFlowConfigurationStore
     private let identityResolver: any RepositoryRemoteIdentityResolving
-    private let userDefaults: UserDefaults
-    private let pendingUploadsKey: String
+    private let dataStore: LocalDataStore
+    private var operations: [URL: (UUID, Task<Void, Never>)] = [:]
 
     init(
         cloudStore: GitFlowConfigurationCloudStore?,
         localStore: GitFlowConfigurationStore = GitFlowConfigurationStore(),
         identityResolver: any RepositoryRemoteIdentityResolving = RepositoryRemoteIdentityResolver(),
-        userDefaults: UserDefaults = .standard,
-        pendingUploadsKey: String = "dev.thanhtran.macgit.gitFlowConfiguration.pendingUploads"
+        dataStore: LocalDataStore? = nil
     ) {
         self.cloudStore = cloudStore
         self.localStore = localStore
         self.identityResolver = identityResolver
-        self.userDefaults = userDefaults
-        self.pendingUploadsKey = pendingUploadsKey
+        self.dataStore = dataStore ?? .shared
     }
 
-    func reconcile(
+    // File-backed configuration and its SQLite outbox cannot share a transaction.
+    // Serialize their workflows per repository so a download cannot interleave a save.
+    private func serialized<T>(in repositoryURL: URL, operation: @escaping () async throws -> T) async throws -> T {
+        let previous = operations[repositoryURL]?.1
+        let id = UUID()
+        let task = Task {
+            await previous?.value
+            try await dataStore.prepare()
+            return try await operation()
+        }
+        operations[repositoryURL] = (id, Task { _ = try? await task.value })
+        defer { if operations[repositoryURL]?.0 == id { operations[repositoryURL] = nil } }
+        return try await task.value
+    }
+
+    func reconcile(repositoryURL: URL, fallbackConfiguration: GitFlowConfiguration, uid: String?) async -> GitFlowConfigurationSyncOutcome {
+        guard uid != nil, cloudStore != nil else { return .unchanged }
+        do {
+            return try await serialized(in: repositoryURL) {
+                await self.reconcileNow(repositoryURL: repositoryURL, fallbackConfiguration: fallbackConfiguration, uid: uid)
+            }
+        } catch {
+            return GitFlowConfigurationSyncOutcome(configuration: nil, warningMessage: error.localizedDescription)
+        }
+    }
+
+    func save(_ configuration: GitFlowConfiguration, repositoryURL: URL, uid: String?) async throws -> String? {
+        try await serialized(in: repositoryURL) {
+            try await self.saveNow(configuration, repositoryURL: repositoryURL, uid: uid)
+        }
+    }
+
+    private func reconcileNow(
         repositoryURL: URL,
         fallbackConfiguration: GitFlowConfiguration,
         uid: String?
@@ -68,7 +98,7 @@ final class GitFlowConfigurationSyncController: ObservableObject {
         let uploadID = pendingUploadID(uid: uid, repositoryID: identity.documentID)
 
         do {
-            if isPendingUpload(uploadID) {
+            if let pendingVersion = pendingVersion(uploadID) {
                 if case .value(let localConfiguration) = localResult {
                     try await upload(
                         localConfiguration,
@@ -76,10 +106,10 @@ final class GitFlowConfigurationSyncController: ObservableObject {
                         uid: uid,
                         cloudStore: cloudStore
                     )
-                    clearPendingUpload(uploadID)
+                    try await clearPendingUpload(uploadID, version: pendingVersion)
                     return .unchanged
                 }
-                clearPendingUpload(uploadID)
+                try await clearPendingUpload(uploadID, version: pendingVersion)
             }
 
             if let cloudConfiguration = try await cloudStore.configuration(
@@ -87,7 +117,8 @@ final class GitFlowConfigurationSyncController: ObservableObject {
                 uid: uid
             ) {
                 let latestLocalResult = await localStore.loadResult(in: repositoryURL)
-                if isPendingUpload(uploadID) || localConfigurationChanged(
+                let pendingVersion = pendingVersion(uploadID)
+                if pendingVersion != nil || localConfigurationChanged(
                     from: localResult,
                     to: latestLocalResult
                 ) {
@@ -98,7 +129,7 @@ final class GitFlowConfigurationSyncController: ObservableObject {
                             uid: uid,
                             cloudStore: cloudStore
                         )
-                        clearPendingUpload(uploadID)
+                        if let pendingVersion { try await clearPendingUpload(uploadID, version: pendingVersion) }
                     }
                     return .unchanged
                 }
@@ -140,7 +171,7 @@ final class GitFlowConfigurationSyncController: ObservableObject {
         }
     }
 
-    func save(
+    private func saveNow(
         _ configuration: GitFlowConfiguration,
         repositoryURL: URL,
         uid: String?
@@ -152,7 +183,7 @@ final class GitFlowConfigurationSyncController: ObservableObject {
             return nil
         }
         let uploadID = pendingUploadID(uid: uid, repositoryID: identity.documentID)
-        markPendingUpload(uploadID)
+        let pendingVersion = try await markPendingUpload(uploadID)
 
         do {
             try await upload(
@@ -161,7 +192,7 @@ final class GitFlowConfigurationSyncController: ObservableObject {
                 uid: uid,
                 cloudStore: cloudStore
             )
-            clearPendingUpload(uploadID)
+            try await clearPendingUpload(uploadID, version: pendingVersion)
             return nil
         } catch {
             return "Git Flow was saved locally, but its configuration could not sync: \(error.localizedDescription)"
@@ -202,23 +233,22 @@ final class GitFlowConfigurationSyncController: ObservableObject {
         "\(uid)|\(repositoryID)"
     }
 
-    private func isPendingUpload(_ id: String) -> Bool {
-        pendingUploadIDs.contains(id)
+    private func pendingVersion(_ id: String) -> String? {
+        try? dataStore.value(String.self, in: "gitFlowPending", id: id)
     }
 
-    private func markPendingUpload(_ id: String) {
-        var ids = pendingUploadIDs
-        ids.insert(id)
-        userDefaults.set(Array(ids), forKey: pendingUploadsKey)
+    private func markPendingUpload(_ id: String) async throws -> String {
+        let version = UUID().uuidString
+        try await dataStore.transaction { transaction in
+            try transaction.set(version, in: "gitFlowPending", id: id)
+        }
+        return version
     }
 
-    private func clearPendingUpload(_ id: String) {
-        var ids = pendingUploadIDs
-        ids.remove(id)
-        userDefaults.set(Array(ids), forKey: pendingUploadsKey)
-    }
-
-    private var pendingUploadIDs: Set<String> {
-        Set(userDefaults.stringArray(forKey: pendingUploadsKey) ?? [])
+    private func clearPendingUpload(_ id: String, version: String) async throws {
+        try await dataStore.transaction { transaction in
+            guard try transaction.value(String.self, in: "gitFlowPending", id: id) == version else { return }
+            transaction.remove(in: "gitFlowPending", id: id)
+        }
     }
 }

@@ -327,24 +327,25 @@ extension MainWindowView {
             providerAccountPreferences: providerAccountPreferenceStore.preferences,
             onSave: { newSettings in
                 let commitRuleChanged = repoSettings.skipProtectedBranchCommitWarnings != newSettings.skipProtectedBranchCommitWarnings
-                repoSettings = newSettings
-                repoSettingsStore.update(for: repositoryURL.path, settings: newSettings)
-                if commitRuleChanged { commitRulePreferenceChanged() }
+                let uid = commitRuleChanged ? accountController.account?.uid : nil
                 Task {
-                    try? await GitStatusService.shared.updateGitUserConfiguration(
-                        useGlobalSettings: newSettings.useGlobalUserSettings,
-                        name: newSettings.userName,
-                        email: newSettings.userEmail,
-                        in: repositoryURL
-                    )
-                }
-                syncState.startBackgroundSync(
-                    repositoryURL: repositoryURL,
-                    settings: newSettings,
-                    globalAutoFetchEnabled: appState.autoFetchEnabled
-                )
-                Task {
-                    await refreshRemotePresentation(for: newSettings.defaultRemoteName)
+                    do {
+                        try await repoSettingsStore.update(for: repositoryURL.path, settings: newSettings, pendingCommitRuleUID: uid)
+                        repoSettings = newSettings
+                        try? await GitStatusService.shared.updateGitUserConfiguration(
+                            useGlobalSettings: newSettings.useGlobalUserSettings,
+                            name: newSettings.userName,
+                            email: newSettings.userEmail,
+                            in: repositoryURL
+                        )
+                        syncState.startBackgroundSync(
+                            repositoryURL: repositoryURL,
+                            settings: newSettings,
+                            globalAutoFetchEnabled: appState.autoFetchEnabled
+                        )
+                        await refreshRemotePresentation(for: newSettings.defaultRemoteName)
+                        if commitRuleChanged { await reconcileCommitRulePreference() }
+                    } catch { syncState.showError(error.localizedDescription) }
                 }
             },
             onSaveGitFlowConfiguration: { configuration in
@@ -386,11 +387,12 @@ extension MainWindowView {
                 return branch
             },
             onSaveProviderAccountPreferences: { preferences in
-                for (preferenceKey, accountID) in preferences {
-                    providerAccountPreferenceStore.update(
-                        accountID: accountID,
-                        forPreferenceKey: preferenceKey
-                    )
+                Task {
+                    do {
+                        for (preferenceKey, accountID) in preferences {
+                            try await providerAccountPreferenceStore.update(accountID: accountID, forPreferenceKey: preferenceKey)
+                        }
+                    } catch { syncState.showError(error.localizedDescription) }
                 }
             },
             onOpenGitIgnore: openGitIgnoreFile,

@@ -5,15 +5,15 @@ import XCTest
 @MainActor
 final class RepositoryCommitRuleSyncControllerTests: XCTestCase {
     func testCloudPreferenceAppliesWithoutReplacingOtherRepoSettings() async throws {
-        let suite = "commit-rule-sync-\(UUID())"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let local = RepoSettingsStore(userDefaults: defaults)
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
+        let local = RepoSettingsStore(dataStore: fixture.store)
         let url = URL(fileURLWithPath: "/tmp/repo")
         var settings = RepoSettings.defaults(currentBranch: "main", remotes: ["origin"])
         settings.userName = "Local author"
-        local.update(for: url.path, settings: settings)
-        let controller = RepositoryCommitRuleSyncController(defaults: defaults, localStore: local, resolver: CommitRuleTestIdentity())
+        try await local.update(for: url.path, settings: settings)
+        let controller = RepositoryCommitRuleSyncController(localStore: local, resolver: CommitRuleTestIdentity())
         let cloud = CommitRuleTestCloud(value: true)
         var applied: Bool?
         let warning = await controller.reconcile(repositoryURL: url, uid: "user-a", cloud: cloud) { applied = $0 }
@@ -26,19 +26,19 @@ final class RepositoryCommitRuleSyncControllerTests: XCTestCase {
     }
 
     func testPendingOfflineChoiceSurvivesControllerRecreationAndWinsOverCloud() async throws {
-        let suite = "commit-rule-sync-\(UUID())"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let local = RepoSettingsStore(userDefaults: defaults)
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
+        let local = RepoSettingsStore(dataStore: fixture.store)
         let url = URL(fileURLWithPath: "/tmp/repo")
-        let first = RepositoryCommitRuleSyncController(defaults: defaults, localStore: local, resolver: CommitRuleTestIdentity())
-        first.markChanged(false, uid: "user-a", repositoryURL: url)
+        let first = RepositoryCommitRuleSyncController(localStore: local, resolver: CommitRuleTestIdentity())
+        try await first.markChanged(false, uid: "user-a", repositoryURL: url)
         let cloud = CommitRuleTestCloud(value: true)
         cloud.failSave = true
         let failure = await first.reconcile(repositoryURL: url, uid: "user-a", cloud: cloud) { _ in XCTFail("Must not overwrite local edit") }
         XCTAssertNotNil(failure)
         cloud.failSave = false
-        let second = RepositoryCommitRuleSyncController(defaults: defaults, localStore: local, resolver: CommitRuleTestIdentity())
+        let second = RepositoryCommitRuleSyncController(localStore: local, resolver: CommitRuleTestIdentity())
         let warning = await second.reconcile(repositoryURL: url, uid: "user-a", cloud: cloud) { _ in XCTFail("Must upload pending edit") }
         XCTAssertNil(warning)
         XCTAssertEqual(cloud.value, false)
@@ -50,6 +50,29 @@ final class RepositoryCommitRuleSyncControllerTests: XCTestCase {
         _ = await controller.reconcile(repositoryURL: URL(fileURLWithPath: "/tmp/repo"), uid: nil, cloud: cloud) { _ in XCTFail() }
         XCTAssertEqual(cloud.loads, 0)
         XCTAssertTrue(cloud.saves.isEmpty)
+    }
+
+    func testLocalEditWhileCloudLoadsWinsAndPreservesOtherSettings() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
+        let local = RepoSettingsStore(dataStore: fixture.store)
+        let url = URL(fileURLWithPath: "/tmp/repo")
+        let cloud = CommitRuleTestCloud(value: true)
+        cloud.onLoad = {
+            var settings = RepoSettings.defaults(currentBranch: "work", remotes: ["upstream"])
+            settings.userName = "Changed while loading"
+            settings.skipProtectedBranchCommitWarnings = false
+            try await local.update(for: url.path, settings: settings, pendingCommitRuleUID: "user-a")
+        }
+        let controller = RepositoryCommitRuleSyncController(localStore: local, resolver: CommitRuleTestIdentity())
+        let warning = await controller.reconcile(repositoryURL: url, uid: "user-a", cloud: cloud) { _ in
+            XCTFail("An old cloud value must not replace a local edit")
+        }
+        XCTAssertNil(warning)
+        XCTAssertEqual(cloud.saves, [false])
+        XCTAssertEqual(local.settings(for: url.path, currentBranch: nil, remotes: []).userName, "Changed while loading")
+        XCTAssertTrue(try fixture.store.values(Bool.self, in: "commitRulePending").isEmpty)
     }
 }
 
@@ -65,9 +88,11 @@ private final class CommitRuleTestCloud: RepositoryCommitRuleCloudStore {
     var saves: [Bool] = []
     var loads = 0
     var failSave = false
+    var onLoad: (() async throws -> Void)?
     init(value: Bool?) { self.value = value }
     func load(identity: RepositoryBookmarkIdentity, uid: String) async throws -> Bool? {
         loads += 1
+        try await onLoad?()
         return value
     }
     func save(_ skipWarnings: Bool, identity: RepositoryBookmarkIdentity, uid: String) async throws {

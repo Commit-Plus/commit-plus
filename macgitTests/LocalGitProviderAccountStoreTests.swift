@@ -121,6 +121,18 @@ final class LocalGitProviderAccountStoreTests: XCTestCase {
         XCTAssertTrue(accounts.isEmpty)
     }
 
+    func testSyncBookkeepingFailureDoesNotReportDurableAccountSaveAsFailed() async throws {
+        let local = FakeLocalProviderAccountStore(accounts: [])
+        let cloud = FakeCloudProviderAccountStore(accounts: [])
+        let store = LocalFirstGitProviderAccountStore(localStore: local, cloudStore: cloud)
+        try await store.updateCloudAccount(uid: "firebase-user")
+        local.syncedKeysError = TestCloudError.failed
+        let account = makeAccount(id: "local", ownerID: "local-owner", providerUserID: "1")
+        try await store.save(account)
+        let saved = try await store.accounts()
+        XCTAssertEqual(saved, [account])
+    }
+
     private func makeAccount(id: String, ownerID: String, providerUserID: String) -> GitProviderAccount {
         GitProviderAccount(
             id: id,
@@ -146,6 +158,7 @@ private final class FakeLocalProviderAccountStore: GitProviderAccountLocalStore 
     private var storedAccounts: [GitProviderAccount]
     private var deletions: [GitProviderAccount] = []
     private var syncedKeysByUID: [String: Set<String>] = [:]
+    var syncedKeysError: Error?
 
     init(accounts: [GitProviderAccount]) {
         storedAccounts = accounts
@@ -186,7 +199,8 @@ private final class FakeLocalProviderAccountStore: GitProviderAccountLocalStore 
         syncedKeysByUID[uid] ?? []
     }
 
-    func setSyncedIdentityKeys(_ keys: Set<String>, uid: String) {
+    func setSyncedIdentityKeys(_ keys: Set<String>, uid: String) throws {
+        if let syncedKeysError { throw syncedKeysError }
         syncedKeysByUID[uid] = keys
     }
 }

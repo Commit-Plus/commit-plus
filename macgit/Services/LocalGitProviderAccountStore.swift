@@ -23,113 +23,100 @@ protocol GitProviderAccountLocalStore {
     var accountOwnerID: String { get }
 
     func accounts() throws -> [GitProviderAccount]
-    func save(_ account: GitProviderAccount) throws
-    func delete(accountID: String) throws -> GitProviderAccount?
-    func remove(accountID: String) throws
+    func save(_ account: GitProviderAccount) async throws
+    func delete(accountID: String) async throws -> GitProviderAccount?
+    func remove(accountID: String) async throws
     func pendingDeletions() throws -> [GitProviderAccount]
-    func clearPendingDeletion(_ account: GitProviderAccount) throws
+    func clearPendingDeletion(_ account: GitProviderAccount) async throws
     func syncedIdentityKeys(uid: String) -> Set<String>
-    func setSyncedIdentityKeys(_ keys: Set<String>, uid: String)
+    func setSyncedIdentityKeys(_ keys: Set<String>, uid: String) async throws
 }
 
 @MainActor
-final class UserDefaultsGitProviderAccountLocalStore: GitProviderAccountLocalStore {
+final class SQLiteGitProviderAccountLocalStore: GitProviderAccountLocalStore {
     let accountOwnerID: String
+    private let dataStore: LocalDataStore
 
-    private let defaults: UserDefaults
-    private let accountsKey: String
-    private let pendingDeletionsKey: String
-    private let syncedIdentitiesKey: String
-    private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
-
-    init(
-        defaults: UserDefaults = .standard,
-        accountsKey: String = "dev.thanhtran.macgit.localGitProviderAccounts",
-        pendingDeletionsKey: String = "dev.thanhtran.macgit.localGitProviderAccountPendingDeletions",
-        syncedIdentitiesKey: String = "dev.thanhtran.macgit.localGitProviderAccountSyncedIdentities",
-        ownerIDKey: String = "dev.thanhtran.macgit.localGitProviderAccountOwnerID"
-    ) {
-        self.defaults = defaults
-        self.accountsKey = accountsKey
-        self.pendingDeletionsKey = pendingDeletionsKey
-        self.syncedIdentitiesKey = syncedIdentitiesKey
-
-        if let storedOwnerID = defaults.string(forKey: ownerIDKey), !storedOwnerID.isEmpty {
-            accountOwnerID = storedOwnerID
-        } else {
-            let newOwnerID = "local-\(UUID().uuidString)"
-            defaults.set(newOwnerID, forKey: ownerIDKey)
-            accountOwnerID = newOwnerID
+    init(dataStore: LocalDataStore? = nil, defaults: UserDefaults = .standard) {
+        self.dataStore = dataStore ?? .shared
+        // Keep this installation identity stable: it also participates in credential keys.
+        let key = "dev.thanhtran.macgit.localGitProviderAccountOwnerID"
+        if let owner = defaults.string(forKey: key), !owner.isEmpty { accountOwnerID = owner }
+        else {
+            accountOwnerID = "local-\(UUID().uuidString)"
+            defaults.set(accountOwnerID, forKey: key)
         }
     }
 
     func accounts() throws -> [GitProviderAccount] {
-        guard let data = defaults.data(forKey: accountsKey) else { return [] }
-        return try decoder.decode([GitProviderAccount].self, from: data)
+        try dataStore.values(GitProviderAccount.self, in: "providerAccounts").values.sorted { $0.connectedAt < $1.connectedAt }
     }
 
-    func save(_ account: GitProviderAccount) throws {
-        var storedAccounts = try accounts()
-        let identity = GitProviderAccountLocalIdentity(account)
-        storedAccounts.removeAll {
-            $0.id == account.id || GitProviderAccountLocalIdentity($0) == identity
+    func save(_ account: GitProviderAccount) async throws {
+        try await dataStore.transaction { transaction in
+            let identity = GitProviderAccountLocalIdentity(account)
+            for (id, stored) in try transaction.values(GitProviderAccount.self, in: "providerAccounts")
+                where id == account.id || GitProviderAccountLocalIdentity(stored) == identity {
+                transaction.remove(in: "providerAccounts", id: id)
+            }
+            try transaction.set(account, in: "providerAccounts", id: account.id)
+            for (id, deleted) in try transaction.values(GitProviderAccount.self, in: "providerDeletions")
+                where GitProviderAccountLocalIdentity(deleted) == identity {
+                transaction.remove(in: "providerDeletions", id: id)
+            }
         }
-        storedAccounts.append(account)
-        try persist(storedAccounts, key: accountsKey)
-
-        var deletions = try pendingDeletions()
-        deletions.removeAll { GitProviderAccountLocalIdentity($0) == identity }
-        try persist(deletions, key: pendingDeletionsKey)
     }
 
-    func delete(accountID: String) throws -> GitProviderAccount? {
-        var storedAccounts = try accounts()
-        let deletedAccount = storedAccounts.first { $0.id == accountID }
-        storedAccounts.removeAll { $0.id == accountID }
-        try persist(storedAccounts, key: accountsKey)
-
-        if let deletedAccount {
-            var deletions = try pendingDeletions()
-            let identity = GitProviderAccountLocalIdentity(deletedAccount)
-            deletions.removeAll { GitProviderAccountLocalIdentity($0) == identity }
-            deletions.append(deletedAccount)
-            try persist(deletions, key: pendingDeletionsKey)
+    func delete(accountID: String) async throws -> GitProviderAccount? {
+        try await dataStore.transaction { transaction in
+            guard let account = try transaction.value(GitProviderAccount.self, in: "providerAccounts", id: accountID) else { return nil }
+            try Self.remove(account, from: &transaction)
+            for (id, deleted) in try transaction.values(GitProviderAccount.self, in: "providerDeletions")
+                where GitProviderAccountLocalIdentity(deleted) == GitProviderAccountLocalIdentity(account) {
+                transaction.remove(in: "providerDeletions", id: id)
+            }
+            try transaction.set(account, in: "providerDeletions", id: account.id)
+            return account
         }
-        return deletedAccount
     }
 
-    func remove(accountID: String) throws {
-        var storedAccounts = try accounts()
-        storedAccounts.removeAll { $0.id == accountID }
-        try persist(storedAccounts, key: accountsKey)
+    func remove(accountID: String) async throws {
+        try await dataStore.transaction { transaction in
+            if let account = try transaction.value(GitProviderAccount.self, in: "providerAccounts", id: accountID) {
+                try Self.remove(account, from: &transaction)
+            }
+        }
+    }
+
+    private static func remove(_ account: GitProviderAccount, from transaction: inout LocalDataTransaction) throws {
+        transaction.remove(in: "providerAccounts", id: account.id)
+        transaction.remove(in: "sshPaths", id: GitProviderSSHKeyStoreKey.storageKey(for: account))
+        for (key, value) in try transaction.values(String.self, in: "providerPreferences") where value == account.id {
+            transaction.remove(in: "providerPreferences", id: key)
+        }
     }
 
     func pendingDeletions() throws -> [GitProviderAccount] {
-        guard let data = defaults.data(forKey: pendingDeletionsKey) else { return [] }
-        return try decoder.decode([GitProviderAccount].self, from: data)
+        Array(try dataStore.values(GitProviderAccount.self, in: "providerDeletions").values)
     }
 
-    func clearPendingDeletion(_ account: GitProviderAccount) throws {
-        var deletions = try pendingDeletions()
-        let identity = GitProviderAccountLocalIdentity(account)
-        deletions.removeAll { GitProviderAccountLocalIdentity($0) == identity }
-        try persist(deletions, key: pendingDeletionsKey)
+    func clearPendingDeletion(_ account: GitProviderAccount) async throws {
+        try await dataStore.transaction { transaction in
+            for (id, deleted) in try transaction.values(GitProviderAccount.self, in: "providerDeletions")
+                where GitProviderAccountLocalIdentity(deleted) == GitProviderAccountLocalIdentity(account) {
+                transaction.remove(in: "providerDeletions", id: id)
+            }
+        }
     }
 
     func syncedIdentityKeys(uid: String) -> Set<String> {
-        let values = defaults.dictionary(forKey: syncedIdentitiesKey) as? [String: [String]] ?? [:]
-        return Set(values[uid] ?? [])
+        Set((try? dataStore.value([String].self, in: "providerSyncedIdentities", id: uid)) ?? [])
     }
 
-    func setSyncedIdentityKeys(_ keys: Set<String>, uid: String) {
-        var values = defaults.dictionary(forKey: syncedIdentitiesKey) as? [String: [String]] ?? [:]
-        values[uid] = keys.sorted()
-        defaults.set(values, forKey: syncedIdentitiesKey)
-    }
-
-    private func persist(_ accounts: [GitProviderAccount], key: String) throws {
-        defaults.set(try encoder.encode(accounts), forKey: key)
+    func setSyncedIdentityKeys(_ keys: Set<String>, uid: String) async throws {
+        try await dataStore.transaction { transaction in
+            try transaction.set(keys.sorted(), in: "providerSyncedIdentities", id: uid)
+        }
     }
 }
 
@@ -146,7 +133,7 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
         localStore: GitProviderAccountLocalStore? = nil,
         cloudStore: GitProviderAccountCloudStore?
     ) {
-        self.localStore = localStore ?? UserDefaultsGitProviderAccountLocalStore()
+        self.localStore = localStore ?? SQLiteGitProviderAccountLocalStore()
         self.cloudStore = cloudStore
     }
 
@@ -174,12 +161,12 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
             if let cloudAccount = cloudAccounts.first(where: { GitProviderAccountLocalIdentity($0) == identity }) {
                 do {
                     try await cloudStore.delete(accountID: cloudAccount.id, macgitUID: uid)
-                    try localStore.clearPendingDeletion(deletedAccount)
+                    try await localStore.clearPendingDeletion(deletedAccount)
                 } catch {
                     // Keep the tombstone so a stale cloud snapshot cannot restore the local deletion.
                 }
             } else {
-                try localStore.clearPendingDeletion(deletedAccount)
+                try await localStore.clearPendingDeletion(deletedAccount)
             }
         }
 
@@ -195,7 +182,7 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
             if previouslySyncedIdentityKeys.contains(identityKey),
                !visibleCloudIdentityKeys.contains(identityKey),
                !pendingIdentities.contains(GitProviderAccountLocalIdentity(localAccount)) {
-                try localStore.remove(accountID: localAccount.id)
+                try await localStore.remove(accountID: localAccount.id)
             }
         }
 
@@ -207,7 +194,7 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
             }) {
                 cloudAccountIDsByLocalAccountID[localAccount.id] = cloudAccount.id
             } else {
-                try localStore.save(cloudAccount)
+                try await localStore.save(cloudAccount)
                 mergedAccounts.append(cloudAccount)
                 cloudAccountIDsByLocalAccountID[cloudAccount.id] = cloudAccount.id
             }
@@ -219,21 +206,23 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
                 syncedIdentityKeys.insert(GitProviderAccountLocalIdentity(account).storageKey)
             }
         }
-        localStore.setSyncedIdentityKeys(syncedIdentityKeys, uid: uid)
+        try await localStore.setSyncedIdentityKeys(syncedIdentityKeys, uid: uid)
     }
 
     func save(_ account: GitProviderAccount) async throws {
-        try localStore.save(account)
+        try await localStore.save(account)
         guard let cloudUID else { return }
         if await mirrorToCloud(account, uid: cloudUID) {
             var syncedKeys = localStore.syncedIdentityKeys(uid: cloudUID)
             syncedKeys.insert(GitProviderAccountLocalIdentity(account).storageKey)
-            localStore.setSyncedIdentityKeys(syncedKeys, uid: cloudUID)
+            // The account is already durable. A sync bookkeeping failure must not
+            // make the caller delete credentials as if the local save had failed.
+            try? await localStore.setSyncedIdentityKeys(syncedKeys, uid: cloudUID)
         }
     }
 
     func delete(accountID: String) async throws {
-        guard let deletedAccount = try localStore.delete(accountID: accountID) else { return }
+        guard let deletedAccount = try await localStore.delete(accountID: accountID) else { return }
         guard let cloudUID, let cloudStore else { return }
 
         let cloudAccountID = cloudAccountIDsByLocalAccountID.removeValue(forKey: accountID) ?? accountID
@@ -242,10 +231,10 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
             if cloudAccountID != accountID {
                 try? await cloudStore.delete(accountID: accountID, macgitUID: cloudUID)
             }
-            try localStore.clearPendingDeletion(deletedAccount)
+            try await localStore.clearPendingDeletion(deletedAccount)
             var syncedKeys = localStore.syncedIdentityKeys(uid: cloudUID)
             syncedKeys.remove(GitProviderAccountLocalIdentity(deletedAccount).storageKey)
-            localStore.setSyncedIdentityKeys(syncedKeys, uid: cloudUID)
+            try await localStore.setSyncedIdentityKeys(syncedKeys, uid: cloudUID)
         } catch {
             // The local deletion is complete; retry the cloud deletion on the next sync.
         }
