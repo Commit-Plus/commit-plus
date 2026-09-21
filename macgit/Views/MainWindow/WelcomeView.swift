@@ -58,6 +58,7 @@ struct WelcomeView: View {
         .task(id: refreshID) { await model.refreshAttention(repositories: store.repositories) }
         .onChange(of: store.repositories.map { "\($0.url.path)|\($0.lastOpened.timeIntervalSince1970)" }) { _, _ in refresh() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in refresh() }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange)) { _ in refresh() }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh)) { _ in refresh() }
     }

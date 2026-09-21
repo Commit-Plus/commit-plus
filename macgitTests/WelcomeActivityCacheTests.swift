@@ -19,15 +19,31 @@ import XCTest
 @testable import macgit
 
 final class WelcomeActivityCacheTests: XCTestCase {
-    func testCacheExpiresAfterSixHoursAndWhenCalendarDayChanges() {
-        let now = Date(timeIntervalSince1970: 1_789_210_800)
-        let days = WelcomeDashboardSnapshot.days(endingAt: now)
-        let entry = makeEntry(days: days, now: now)
-        XCTAssertTrue(entry.isValid(for: days, now: now.addingTimeInterval(3600)))
-        XCTAssertFalse(entry.isValid(for: days, now: now.addingTimeInterval(21600)))
-        XCTAssertFalse(entry.isValid(for: days, now: now.addingTimeInterval(-1)))
-        let nextDays = days.map { $0.addingTimeInterval(86400) }
-        XCTAssertFalse(entry.isValid(for: nextDays, now: now.addingTimeInterval(60)))
+    func testCacheRemainsValidUntilLocalMidnight() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Ho_Chi_Minh"))
+        let savedAt = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 21, hour: 1)))
+        let midnight = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: savedAt)))
+        let days = WelcomeDashboardSnapshot.days(endingAt: savedAt, calendar: calendar)
+        let entry = makeEntry(days: days, now: savedAt)
+        XCTAssertTrue(entry.isValid(for: days, now: midnight.addingTimeInterval(-1), calendar: calendar))
+        XCTAssertFalse(entry.isValid(for: days, now: midnight, calendar: calendar))
+        XCTAssertFalse(entry.isValid(for: days, now: savedAt.addingTimeInterval(-1), calendar: calendar))
+        let nextDays = WelcomeDashboardSnapshot.days(endingAt: midnight, calendar: calendar)
+        XCTAssertFalse(entry.isValid(for: nextDays, now: savedAt, calendar: calendar))
+        let lateEntry = makeEntry(days: days, now: midnight.addingTimeInterval(-60))
+        XCTAssertFalse(lateEntry.isValid(for: nextDays, now: midnight, calendar: calendar))
+    }
+
+    func testCacheUsesCalendarDayOnLongDaylightSavingDay() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        let savedAt = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 11, day: 1)))
+        let midnight = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: savedAt))
+        let days = WelcomeDashboardSnapshot.days(endingAt: savedAt, calendar: calendar)
+        let entry = makeEntry(days: days, now: savedAt)
+        XCTAssertTrue(entry.isValid(for: days, now: savedAt.addingTimeInterval(24 * 60 * 60), calendar: calendar))
+        XCTAssertFalse(entry.isValid(for: days, now: midnight, calendar: calendar))
     }
 
     func testSavedActivitySurvivesANewCacheInstance() async throws {

@@ -22,9 +22,8 @@ struct WelcomeActivityCacheEntry: Codable {
     let savedAt: Date
     let activity: WelcomeRepositoryActivity
 
-    func isValid(for days: [Date], now: Date) -> Bool {
-        let age = now.timeIntervalSince(savedAt)
-        return age >= 0 && age < 6 * 60 * 60
+    func isValid(for days: [Date], now: Date, calendar: Calendar = .current) -> Bool {
+        return now >= savedAt && calendar.isDate(savedAt, inSameDayAs: now)
             && self.days == days
             && activity.commitsByDay.count == days.count
     }
