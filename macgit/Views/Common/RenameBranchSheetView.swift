@@ -33,9 +33,26 @@ struct RenameBranchSheetView: View {
     }
     let onCompleted: () -> Void
 
-    @State private var newName: String = ""
+    @State private var newName: String
     @State private var isLoading = false
     @State private var errorMessage: String?
+
+    init(
+        repositoryURL: URL,
+        currentName: String,
+        undoManager: GitUndoManager?,
+        onRunRepositoryOperation: @escaping RepositoryOperationRunner = { _, operation in
+            Task { await operation() }
+        },
+        onCompleted: @escaping () -> Void
+    ) {
+        self.repositoryURL = repositoryURL
+        self.currentName = currentName
+        self.undoManager = undoManager
+        self.onRunRepositoryOperation = onRunRepositoryOperation
+        self.onCompleted = onCompleted
+        _newName = State(initialValue: currentName)
+    }
 
     private var trimmedNewName: String {
         newName.trimmingCharacters(in: .whitespaces)
@@ -108,9 +125,6 @@ struct RenameBranchSheetView: View {
         }
         .frame(minWidth: 420, idealWidth: 480, maxWidth: 520)
         .frame(minHeight: 200, idealHeight: 220)
-        .task {
-            newName = currentName
-        }
     }
 
     private func save() async {

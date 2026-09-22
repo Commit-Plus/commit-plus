@@ -212,6 +212,7 @@ extension MainWindowView {
                 }
             }
         )
+        .id(branchToRename)
     }
 
     @ViewBuilder
