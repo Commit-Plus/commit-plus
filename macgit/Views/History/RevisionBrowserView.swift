@@ -67,7 +67,7 @@ struct RevisionBrowserView: View {
                             if entry.isDirectory { controller.toggle(entry) }
                         } label: {
                             HStack {
-                                Image(systemName: entry.isDirectory ? "folder" : entry.isSubmodule ? "shippingbox" : entry.isSymlink ? "link" : "doc.text")
+                                RevisionTreeIcon(entry: entry, isExpanded: controller.expanded.contains(entry.path))
                                 Text(entry.name)
                                     .fontWeight(isChanged(entry) ? .semibold : .regular)
                                     .foregroundStyle(isChanged(entry) ? Color.accentColor : Color.primary)

@@ -1,0 +1,7 @@
+Material Icon Theme 5.38.1 by Material Extensions
+https://github.com/material-extensions/vscode-material-icon-theme
+Source: https://registry.npmjs.org/material-icon-theme/-/material-icon-theme-5.38.1.tgz
+SVG assets and file/folder mappings distributed under the accompanying MIT license.
+Assets renamed with revision-material- prefix; mappings retain upstream identifiers.
+Curated subset: 105 file type icons, one generic file, two light variants, and one folder style (closed/open).
+Folder-name mappings removed; only mappings targeting the retained file icons are included.
