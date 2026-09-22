@@ -118,7 +118,7 @@ final class ReferenceComparisonController {
                     guard isCurrent(id) else { return }
                     branches = available
                 }
-                if path != nil && revisions.isEmpty {
+                if path != nil && (revisions.isEmpty || !reuseSnapshot) {
                     let available = try await service.comparisonRevisions(in: repositoryURL)
                     guard isCurrent(id) else { return }
                     revisions = available
