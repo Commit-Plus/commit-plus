@@ -28,6 +28,8 @@ struct AuthenticationSheet: View {
     @State private var showingDeviceRecovery = false
     @State private var showingPassword = false
     @State private var emailValidationMessage: String?
+    @State private var isEmailValid = false
+    @FocusState private var emailFocused: Bool
     @FocusState private var passwordFocused: Bool
 
     init(controller: AccountSessionController, mode: AuthenticationMode) {
@@ -70,14 +72,24 @@ struct AuthenticationSheet: View {
                     .textContentType(.emailAddress)
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.large)
+                    .focused($emailFocused)
                     .disabled(controller.pendingLinkEmail != nil || controller.isLoading)
                     .onSubmit(submit)
+                    .onChange(of: emailFocused) { _, isFocused in
+                        if !isFocused, controller.pendingLinkEmail == nil {
+                            validateEmail()
+                        }
+                    }
                     .onChange(of: email) {
                         emailValidationMessage = nil
+                        isEmailValid = false
                         if controller.pendingLinkEmail == nil {
                             showingPassword = false
                             password = ""
-                            controller.errorMessage = nil
+                            // Avoid publishing a shared account update on every keystroke.
+                            if controller.errorMessage != nil {
+                                controller.errorMessage = nil
+                            }
                         }
                     }
 
@@ -256,12 +268,17 @@ struct AuthenticationSheet: View {
         }
     }
 
-    private var isEmailValid: Bool {
+    @discardableResult
+    private func validateEmail() -> Bool {
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedEmail.range(
+        isEmailValid = trimmedEmail.range(
             of: #"^[A-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?)+$"#,
             options: [.regularExpression, .caseInsensitive]
         ) != nil
+        emailValidationMessage = trimmedEmail.isEmpty || isEmailValid
+            ? nil
+            : "Enter a valid email address."
+        return isEmailValid
     }
 
     private var primaryActionDisabled: Bool {
@@ -282,10 +299,7 @@ struct AuthenticationSheet: View {
 
     private func submit() {
         guard !primaryActionDisabled else { return }
-        guard controller.pendingLinkEmail != nil || isEmailValid else {
-            emailValidationMessage = "Enter a valid email address."
-            return
-        }
+        guard controller.pendingLinkEmail != nil || validateEmail() else { return }
         if !showingPassword && controller.pendingLinkEmail == nil {
             showingPassword = true
             passwordFocused = true

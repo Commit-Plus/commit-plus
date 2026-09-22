@@ -23,6 +23,8 @@ enum RepositoryBookmarkError: LocalizedError {
     case noRemote
     case unsupportedRemote
     case folderDoesNotMatch
+    case bookmarkChanged
+    case remoteChanged
 
     var errorDescription: String? {
         switch self {
@@ -31,7 +33,11 @@ enum RepositoryBookmarkError: LocalizedError {
         case .unsupportedRemote:
             "The repository remote URL could not be recognized."
         case .folderDoesNotMatch:
-            "The selected folder belongs to a different repository."
+            "None of this folder's remotes match the bookmark. If the repository was renamed or moved, update the bookmark from this folder."
+        case .bookmarkChanged:
+            "This bookmark changed or was removed. Close this window and try again."
+        case .remoteChanged:
+            "The selected remote changed. Choose the folder again to review its current URL."
         }
     }
 }
@@ -42,10 +48,13 @@ final class RepositoryBookmarkController: ObservableObject {
     @Published private(set) var localPaths: [String: String] = [:]
     @Published private(set) var syncingBookmarkIDs: Set<String> = []
     @Published private(set) var errorMessage: String?
+    @Published private(set) var mismatchedBookmarkIDs: Set<String> = []
+    @Published private(set) var hasPendingChanges = false
+    @Published private(set) var isRetryingSync = false
 
     private let cloudStore: RepositoryBookmarkCloudStore?
     private let dataStore: LocalDataStore
-    private var activeUID: String?
+    @Published private var activeUID: String?
     private var observation: ObservationToken?
 
     init(cloudStore: RepositoryBookmarkCloudStore?, dataStore: LocalDataStore? = nil) {
@@ -60,6 +69,20 @@ final class RepositoryBookmarkController: ObservableObject {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
         localPaths = try dataStore.values(String.self, in: "bookmarkPaths")
+        mismatchedBookmarkIDs.formIntersection(Set(bookmarks.map(\.id)))
+        let uploads = try dataStore.values(String.self, in: "bookmarkUploads")
+        let deletes = try dataStore.values(String.self, in: "bookmarkDeletes")
+        hasPendingChanges = !uploads.isEmpty || !deletes.isEmpty
+    }
+
+    var canSyncPendingChanges: Bool { activeUID != nil && cloudStore != nil }
+
+    func retryPendingChanges() async {
+        guard hasPendingChanges, !isRetryingSync, let uid = activeUID, let cloudStore else { return }
+        isRetryingSync = true
+        defer { isRetryingSync = false }
+        await flushPendingChanges(uid: uid, cloudStore: cloudStore)
+        do { try load() } catch { errorMessage = error.localizedDescription }
     }
 
     func updateAccount(_ account: AccountSnapshot?) async {
@@ -101,6 +124,63 @@ final class RepositoryBookmarkController: ObservableObject {
     }
 
     func bookmarkID(linkedTo url: URL) -> String? { localPaths.first { $0.value == url.path }?.key }
+
+    func bookmarksNeedingAttention(at url: URL) -> [RepositoryBookmark] {
+        bookmarks.filter { localPaths[$0.id] == url.path && mismatchedBookmarkIDs.contains($0.id) }
+    }
+
+    /// Replace URL-derived identities in one local transaction, retaining upload and
+    /// deletion markers so an offline repair survives a restart and stale cloud data.
+    func updateBookmark(
+        _ bookmark: RepositoryBookmark,
+        from repositoryURL: URL,
+        remote: RepositoryBookmarkRemote
+    ) async throws -> RepositoryBookmark {
+        let currentRemotes = try await GitStatusService.shared.repositoryBookmarkRemotes(in: repositoryURL)
+        guard currentRemotes.contains(remote) else { throw RepositoryBookmarkError.remoteChanged }
+        let result = try await dataStore.transaction { transaction in
+            guard let current = try transaction.value(RepositoryBookmark.self, in: "bookmarks", id: bookmark.id),
+                  current.canonicalKey == bookmark.canonicalKey else { throw RepositoryBookmarkError.bookmarkChanged }
+            let identity = remote.identity
+            let existing = try transaction.values(RepositoryBookmark.self, in: "bookmarks").values.first {
+                $0.id != current.id && $0.canonicalKey == identity.canonicalKey
+            }
+            let updated = RepositoryBookmark(
+                id: existing?.id ?? identity.documentID,
+                canonicalKey: identity.canonicalKey,
+                name: identity.repositoryName,
+                provider: identity.provider,
+                host: identity.host,
+                ownerPath: identity.ownerPath,
+                remoteURL: identity.canonicalRemoteURL,
+                createdAt: existing?.createdAt ?? current.createdAt,
+                updatedAt: Date()
+            )
+            if updated.id != current.id {
+                transaction.remove(in: "bookmarks", id: current.id)
+                transaction.remove(in: "bookmarkPaths", id: current.id)
+                transaction.remove(in: "bookmarkUploads", id: current.id)
+                try transaction.set(UUID().uuidString, in: "bookmarkDeletes", id: current.id)
+            }
+            try transaction.set(updated, in: "bookmarks", id: updated.id)
+            try transaction.set(repositoryURL.path, in: "bookmarkPaths", id: updated.id)
+            transaction.remove(in: "bookmarkDeletes", id: updated.id)
+            try transaction.set(UUID().uuidString, in: "bookmarkUploads", id: updated.id)
+            return updated
+        }
+        mismatchedBookmarkIDs.remove(bookmark.id)
+        mismatchedBookmarkIDs.remove(result.id)
+        try load()
+        if let uid = activeUID, let cloudStore {
+            await upload(result, uid: uid, cloudStore: cloudStore)
+            // Keep the cloud's old bookmark until its replacement has been saved.
+            if result.id != bookmark.id,
+               try dataStore.value(String.self, in: "bookmarkUploads", id: result.id) == nil {
+                await deleteFromCloud(bookmark.id, uid: uid, cloudStore: cloudStore)
+            }
+        }
+        return result
+    }
 
     func addBookmark(for repositoryURL: URL) async throws -> RepositoryBookmark {
         let remoteURLString = try await bookmarkRemoteURL(in: repositoryURL)
@@ -144,10 +224,47 @@ final class RepositoryBookmarkController: ObservableObject {
     }
 
     func validateAndLink(_ bookmark: RepositoryBookmark, to repositoryURL: URL) async throws {
-        let remoteURLString = try await bookmarkRemoteURL(in: repositoryURL)
-        guard let identity = RepositoryBookmarkIdentity.resolve(remoteURLString: remoteURLString),
-              identity.canonicalKey == bookmark.canonicalKey else { throw RepositoryBookmarkError.folderDoesNotMatch }
+        let remoteURLs = await GitStatusService.shared.remoteURLs(in: repositoryURL)
+        guard !remoteURLs.isEmpty else { throw RepositoryBookmarkError.noRemote }
+        guard remoteURLs.contains(where: {
+            RepositoryBookmarkIdentity.resolve(remoteURLString: $0)?.canonicalKey == bookmark.canonicalKey
+        }) else { throw RepositoryBookmarkError.folderDoesNotMatch }
         try await link(bookmark, to: repositoryURL)
+    }
+
+    func linkMatchingBookmarks(to repositoryURLs: [URL]) async {
+        var visited: Set<URL> = []
+        for repositoryURL in repositoryURLs where visited.insert(repositoryURL).inserted {
+            guard !Task.isCancelled else { return }
+            guard FileManager.default.fileExists(atPath: repositoryURL.appendingPathComponent(".git").path) else {
+                continue
+            }
+            // A Git read failure is not evidence of a renamed repository.
+            guard let remotes = try? await GitStatusService.shared.repositoryBookmarkRemotes(in: repositoryURL) else { continue }
+            let keys = Set(remotes.map(\.identity.canonicalKey))
+            guard !Task.isCancelled else { return }
+            for bookmark in bookmarks where localPaths[bookmark.id] == repositoryURL.path {
+                if keys.contains(bookmark.canonicalKey) {
+                    mismatchedBookmarkIDs.remove(bookmark.id)
+                } else {
+                    mismatchedBookmarkIDs.insert(bookmark.id)
+                }
+            }
+            let matches = bookmarks.filter { localPaths[$0.id] == nil && keys.contains($0.canonicalKey) }
+            guard !matches.isEmpty else { continue }
+            do {
+                try await dataStore.transaction { transaction in
+                    for bookmark in matches {
+                        // Recheck persisted state: a cloud update or manual link may have won the race.
+                        guard let current = try transaction.value(RepositoryBookmark.self, in: "bookmarks", id: bookmark.id),
+                              keys.contains(current.canonicalKey),
+                              try transaction.value(String.self, in: "bookmarkPaths", id: bookmark.id) == nil else { continue }
+                        try transaction.set(repositoryURL.path, in: "bookmarkPaths", id: bookmark.id)
+                    }
+                }
+                try load()
+            } catch { errorMessage = error.localizedDescription }
+        }
     }
 
     func unlinkLocalFolder(for bookmark: RepositoryBookmark) async {
@@ -175,6 +292,7 @@ final class RepositoryBookmarkController: ObservableObject {
                   try transaction.value(String.self, in: collection, id: id) == version else { return }
             transaction.remove(in: collection, id: id)
         }
+        try load()
     }
 
     private func upload(_ bookmark: RepositoryBookmark, uid: String, cloudStore: RepositoryBookmarkCloudStore) async {
@@ -201,10 +319,18 @@ final class RepositoryBookmarkController: ObservableObject {
 
     private func flushPendingChanges(uid: String, cloudStore: RepositoryBookmarkCloudStore) async {
         do {
+            for bookmark in bookmarks {
+                guard activeUID == uid else { return }
+                if syncingBookmarkIDs.contains(bookmark.id) { continue }
+                await upload(bookmark, uid: uid, cloudStore: cloudStore)
+            }
+            // A replacement must reach the cloud before deleting its old identity.
+            guard try dataStore.values(String.self, in: "bookmarkUploads").isEmpty else { return }
             for id in try dataStore.values(String.self, in: "bookmarkDeletes").keys {
+                guard activeUID == uid else { return }
+                if syncingBookmarkIDs.contains(id) { continue }
                 await deleteFromCloud(id, uid: uid, cloudStore: cloudStore)
             }
-            for bookmark in bookmarks { await upload(bookmark, uid: uid, cloudStore: cloudStore) }
         } catch { errorMessage = error.localizedDescription }
     }
 

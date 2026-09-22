@@ -11,11 +11,9 @@ struct ProtectedBranchCommitSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label(warning.status == .protected ? "Commit to a protected branch?" : "Branch protection could not be checked", systemImage: "lock.trianglebadge.exclamationmark")
+            Label("Commit to a protected branch?", systemImage: "lock.trianglebadge.exclamationmark")
                 .font(.headline)
-            Text(warning.status == .protected
-                 ? "\(warning.remoteBranch) has branch protection rules. You can commit your changes on a new branch or continue on \(warning.branch)."
-                 : "Commit+ could not read the rules for \(warning.remoteBranch). Check your connection and provider account access, or choose how to continue.")
+            Text("\(warning.remoteBranch) has branch protection rules. You can commit your changes on a new branch or continue on \(warning.branch).")
                 .foregroundStyle(.secondary)
             if enteringBranchName {
                 TextField("New branch name", text: $branchName)

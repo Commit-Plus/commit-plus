@@ -8,7 +8,6 @@ final class ProtectedBranchCommitController: ObservableObject {
         let id = UUID()
         let branch: String
         let remoteBranch: String
-        let status: BranchProtectionService.Status
     }
 
     enum Decision {
@@ -57,10 +56,12 @@ final class ProtectedBranchCommitController: ObservableObject {
             syncState.showInfo("The current branch changed. Review your changes and commit again.")
             return false
         }
-        guard status == .protected || status == .unavailable else { return true }
+        // Only confirmed protection warrants a warning; a missing remote branch
+        // or an unavailable provider check must not interrupt a local commit.
+        guard status == .protected else { return true }
         let decision = await withCheckedContinuation { continuation in
             self.continuation = continuation
-            warning = Warning(branch: branch, remoteBranch: "\(target.remote)/\(target.branch)", status: status)
+            warning = Warning(branch: branch, remoteBranch: "\(target.remote)/\(target.branch)")
         }
         guard case .cancel = decision else {
             guard await git.currentBranch(in: repositoryURL) == branch,
