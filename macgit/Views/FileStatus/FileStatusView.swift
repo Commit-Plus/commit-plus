@@ -909,6 +909,14 @@ struct FileStatusView: View {
             )
             .shadow(color: .black.opacity(0.03), radius: 1, x: 0, y: 1)
             .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    NSCursor.pointingHand.set()
+                case .ended:
+                    NSCursor.arrow.set()
+                }
+            }
             .onTapGesture {
                 withAnimation(.easeInOut(duration: 0.18)) {
                     isCommitBarExpanded = true
@@ -956,12 +964,16 @@ struct FileStatusView: View {
                     }
                 }
                 .buttonStyle(GlassButtonStyle(tint: .secondary, fontSize: 10))
+                .onContinuousHover { updateCommitBarCursor($0) }
 
                 AIProviderMenu(
                     controller: aiProviderController,
                     restrictedProviderAccess: aiProviderAccessDecision,
                     showsConfigureAction: true
                 )
+                .onContinuousHover {
+                    updateCommitBarCursor($0, isEnabled: !aiProviderController.isGenerating)
+                }
             }
 
             // Message editor
@@ -1014,6 +1026,9 @@ struct FileStatusView: View {
                 .accessibilityLabel(aiProviderController.isGenerating
                     ? "Generating commit message"
                     : "Generate commit message")
+                .onContinuousHover {
+                    updateCommitBarCursor($0, isEnabled: canGenerateCommitMessage)
+                }
                 .padding(8)
             }
             .frame(minHeight: 48, maxHeight: 100)
@@ -1029,10 +1044,12 @@ struct FileStatusView: View {
                 Toggle("Amend last commit", isOn: $amendLastCommit)
                     .font(.system(size: 11, weight: .medium))
                     .toggleStyle(.checkbox)
+                    .onContinuousHover { updateCommitBarCursor($0) }
 
                 Toggle("Push changes immediately to \(currentBranch ?? "current branch")", isOn: $pushAfterCommit)
                     .font(.system(size: 11, weight: .medium))
                     .toggleStyle(.checkbox)
+                    .onContinuousHover { updateCommitBarCursor($0) }
 
                 Spacer()
 
@@ -1042,6 +1059,7 @@ struct FileStatusView: View {
                     }
                 }
                 .buttonStyle(GlassButtonStyle(tint: .secondary, fontSize: 12))
+                .onContinuousHover { updateCommitBarCursor($0) }
 
                 Button(action: requestCommit) {
                     HStack(spacing: 6) {
@@ -1054,6 +1072,7 @@ struct FileStatusView: View {
                     }
                 }
                     .buttonStyle(GlassProminentButtonStyle(tint: .accentColor, fontSize: 12))
+                    .onContinuousHover { updateCommitBarCursor($0) }
             }
         }
         .disabled(isCommitting)
@@ -1069,6 +1088,15 @@ struct FileStatusView: View {
             Task {
                 await generateCommitMessage()
             }
+        }
+    }
+
+    private func updateCommitBarCursor(_ phase: HoverPhase, isEnabled: Bool = true) {
+        switch phase {
+        case .active:
+            (isEnabled && !isCommitting ? NSCursor.pointingHand : NSCursor.arrow).set()
+        case .ended:
+            NSCursor.arrow.set()
         }
     }
 
