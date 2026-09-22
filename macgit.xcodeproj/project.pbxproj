@@ -365,9 +365,9 @@
 				AUTOMATION_APPLE_EVENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = macgit/macgit.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				COMMIT_PLUS_DOCS_BASE_URL = "https://2026commitplusinc.mintlify.site/";
+				COMMIT_PLUS_DOCS_BASE_URL = "https://docs.commitplus.app/";
 				COMMIT_PLUS_AI_BASE_URL = https://us-central1-macgit.cloudfunctions.net/commitPlusAI;
-				COMMIT_PLUS_WEB_BASE_URL = "http://localhost:3000";
+				COMMIT_PLUS_WEB_BASE_URL = "https://commitplus.app";
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = HNJ5KZ2LMD;
@@ -426,9 +426,9 @@
 				CODE_SIGN_ENTITLEMENTS = macgit/macgit.entitlements;
 				CODE_SIGN_IDENTITY = "Developer ID Application";
 				CODE_SIGN_STYLE = Manual;
-				COMMIT_PLUS_DOCS_BASE_URL = "https://2026commitplusinc.mintlify.site/";
+				COMMIT_PLUS_DOCS_BASE_URL = "https://docs.commitplus.app/";
 				COMMIT_PLUS_AI_BASE_URL = https://us-central1-macgit.cloudfunctions.net/commitPlusAI;
-				COMMIT_PLUS_WEB_BASE_URL = "https://macgit.vercel.app";
+				COMMIT_PLUS_WEB_BASE_URL = "https://commitplus.app";
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = HNJ5KZ2LMD;
