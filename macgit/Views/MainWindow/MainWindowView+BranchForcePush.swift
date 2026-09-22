@@ -21,7 +21,7 @@ extension MainWindowView {
     func requestTrackedBranchForcePush(_ branch: String) {
         Task {
             guard let upstream = await GitStatusService.shared.upstreamBranch(for: branch, in: repositoryURL) else {
-                syncState.showError("This branch has no upstream. Choose a remote from Force Push to.")
+                syncState.showError("This branch has no upstream. Choose a remote from Push to → Force Push to Other Remote.")
                 return
             }
             let parts = upstream.split(separator: "/", maxSplits: 1).map(String.init)

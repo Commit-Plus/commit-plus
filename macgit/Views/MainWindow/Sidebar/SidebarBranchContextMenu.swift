@@ -59,30 +59,36 @@ struct SidebarBranchContextMenu: View {
             actions.pullTracked(branch)
         }
         .disabled(!BranchUpstreamActionPolicy.shouldEnablePullFromUpstream(for: upstream))
-        let pushLabel = upstream.map { "Push to \($0) (tracked)" } ?? "Push to (tracked)"
-        Button(pushLabel) {
-            actions.pushTracked(branch)
-        }
-        .disabled(!BranchUpstreamActionPolicy.shouldEnablePushToUpstream(for: upstream))
-        if !pushRemotes.isEmpty {
-            Menu("Push to") {
-                ForEach(pushRemotes, id: \.self) { remote in
-                    Button(remote) {
-                        actions.pushToRemote(branch, remote)
+        Menu("Push to") {
+            let pushLabel = upstream.map { "\($0) (tracked)" } ?? "Push to (tracked)"
+            Button(pushLabel) {
+                actions.pushTracked(branch)
+            }
+            .disabled(!BranchUpstreamActionPolicy.shouldEnablePushToUpstream(for: upstream))
+            if !pushRemotes.isEmpty {
+                Menu("Other Remote") {
+                    ForEach(pushRemotes, id: \.self) { remote in
+                        Button(remote) {
+                            actions.pushToRemote(branch, remote)
+                        }
                     }
                 }
             }
-        }
-        if let upstream, !upstream.isEmpty {
-            Button("Force Push to \(upstream) (tracked)…", role: .destructive) {
-                actions.forcePushTracked(branch)
+
+            if upstream?.isEmpty == false || !pushRemotes.isEmpty {
+                Divider()
             }
-        }
-        if !pushRemotes.isEmpty {
-            Menu("Force Push to") {
-                ForEach(pushRemotes, id: \.self) { remote in
-                    Button("\(remote)/\(branch)…", role: .destructive) {
-                        actions.forcePushToRemote(branch, remote)
+            if let upstream, !upstream.isEmpty {
+                Button("Force Push to \(upstream) (tracked)…", role: .destructive) {
+                    actions.forcePushTracked(branch)
+                }
+            }
+            if !pushRemotes.isEmpty {
+                Menu("Force Push to Other Remote") {
+                    ForEach(pushRemotes, id: \.self) { remote in
+                        Button("\(remote)/\(branch)…", role: .destructive) {
+                            actions.forcePushToRemote(branch, remote)
+                        }
                     }
                 }
             }
