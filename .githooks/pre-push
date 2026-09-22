@@ -1,28 +1,40 @@
 #!/bin/zsh
 set -euo pipefail
 
-# Pre-push hook: validate that pushed tags match MARKETING_VERSION.
+# Validate release tags against the commit being pushed, not the working tree.
 # To install: git config core.hooksPath .githooks
 
-while read local_ref local_sha remote_ref remote_sha; do
-  case "$local_ref" in
-    refs/tags/v*)
-      tag_version="${local_ref#refs/tags/v}"
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Deleting a tag does not publish a release.
+  [[ "$local_sha" == 0000000000000000000000000000000000000000 ]] && continue
 
+  case "$remote_ref" in
+    refs/tags/v*)
+      tag_version="${remote_ref#refs/tags/v}"
       if [[ ! "$tag_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        echo "Invalid tag format: $local_ref. Expected vX.Y.Z" >&2
+        echo "Invalid release tag: $remote_ref. Expected vX.Y.Z" >&2
         exit 1
       fi
 
-      project_version=$(
-        grep -m1 'MARKETING_VERSION' macgit.xcodeproj/project.pbxproj \
-          | sed -E 's/.*= ([^;]+);.*/\1/' \
-          | tr -d ' '
-      )
-
-      if [[ "$tag_version" != "$project_version" ]]; then
-        echo "Tag version $tag_version does not match MARKETING_VERSION $project_version in macgit.xcodeproj/project.pbxproj" >&2
-        echo "Run: ./scripts/release/prepare-release.sh $tag_version" >&2
+      # ^{commit} supports both annotated and lightweight tags.
+      if ! project_contents=$(git show "${local_sha}^{commit}:macgit.xcodeproj/project.pbxproj"); then
+        echo "Cannot read project version from the commit for $remote_ref" >&2
+        exit 1
+      fi
+      # Parse individual values separately so every configuration must agree.
+      if ! printf '%s\n' "$project_contents" | awk -v expected="$tag_version" '
+        /^[[:space:]]*MARKETING_VERSION[[:space:]]*=/ {
+          value = $0
+          sub(/^[^=]*=[[:space:]]*/, "", value)
+          sub(/;.*/, "", value)
+          gsub(/[[:space:]"]/, "", value)
+          count++
+          if (value != expected) mismatch = 1
+        }
+        END { exit (count == 0 || mismatch) }
+      '; then
+        echo "Release tag $remote_ref must match every MARKETING_VERSION in its tagged commit ($local_sha)." >&2
+        echo "Update all marketing versions to $tag_version, build, commit, then tag that commit." >&2
         exit 1
       fi
       ;;

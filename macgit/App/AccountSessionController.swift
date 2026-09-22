@@ -24,6 +24,7 @@ import Foundation
 final class AccountSessionController: ObservableObject {
     @Published private(set) var state: AccountSessionState
     @Published var presentedSheet: AccountSheet?
+    private(set) weak var sheetPresentationWindow: NSWindow?
     @Published var errorMessage: String?
     @Published private(set) var passwordResetMessage: String?
     @Published private(set) var pendingLinkEmail: String?
@@ -170,15 +171,28 @@ final class AccountSessionController: ObservableObject {
     func presentAuthentication(_ mode: AuthenticationMode) {
         errorMessage = nil
         passwordResetMessage = nil
-        presentedSheet = .authentication(mode)
+        presentSheet(.authentication(mode), in: NSApp.keyWindow ?? NSApp.mainWindow)
     }
 
     func presentManageAccount() {
-        presentedSheet = .manageAccount
+        presentSheet(.manageAccount, in: NSApp.keyWindow ?? NSApp.mainWindow)
     }
 
     func presentConnections() {
-        presentedSheet = .connections
+        presentSheet(.connections, in: NSApp.keyWindow ?? NSApp.mainWindow)
+    }
+
+    private func presentSheet(_ sheet: AccountSheet, in sourceWindow: NSWindow? = nil) {
+        // Capture the owner once; focus can move to the sheet or another repository
+        // while authentication and settings synchronization are in flight.
+        var window = sourceWindow
+            ?? (presentedSheet == nil ? nil : sheetPresentationWindow)
+            ?? NSApp.keyWindow ?? NSApp.mainWindow
+        while let parent = window?.sheetParent {
+            window = parent
+        }
+        sheetPresentationWindow = window
+        presentedSheet = sheet
     }
 
     func signIn(email: String, password: String) async {
@@ -225,7 +239,8 @@ final class AccountSessionController: ObservableObject {
     func handleWebSignInCallback(_ url: URL) async -> Bool {
         guard url.scheme?.lowercased() == "macgit", url.host?.lowercased() == "session" else { return false }
         guard !isLoading, account == nil else { return true }
-        presentedSheet = .authentication(.signIn)
+        let signInWindow = NSApp.windows.first { $0.windowNumber == webSignInWindowNumber }
+        presentSheet(.authentication(.signIn), in: signInWindow)
         guard url.path.isEmpty, url.user == nil, url.password == nil, url.port == nil,
               let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
               items.filter({ $0.name == "state" }).count == 1,
@@ -486,7 +501,7 @@ final class AccountSessionController: ObservableObject {
             let message = Self.message(for: error)
             deviceAccessState = .failed(message: message, mayRetry: true)
             errorMessage = message
-            presentedSheet = .deviceLimit
+            presentSheet(.deviceLimit)
         }
     }
 
@@ -498,7 +513,7 @@ final class AccountSessionController: ObservableObject {
         case .limitReached(let limit):
             state = .guest
             deviceAccessState = .limitReached(limit: limit)
-            presentedSheet = .deviceLimit
+            presentSheet(.deviceLimit)
         case .active(let limit, let device):
             guard let metadata = currentDeviceMetadata else { return }
             deviceAccessState = .active(limit: limit, device: device, verification: .live)
@@ -729,15 +744,16 @@ final class AccountSessionController: ObservableObject {
     private func presentSettingsConflictSheet() {
         guard presentedSheet != .settingsConflict else { return }
         guard presentedSheet != nil else {
-            presentedSheet = .settingsConflict
+            presentSheet(.settingsConflict)
             return
         }
 
+        let sourceWindow = sheetPresentationWindow
         presentedSheet = nil
-        Task { @MainActor [weak self] in
+        Task { @MainActor [weak self, weak sourceWindow] in
             guard let self else { return }
             guard case .needsInitialChoice = settingsSyncStatus else { return }
-            presentedSheet = .settingsConflict
+            presentSheet(.settingsConflict, in: sourceWindow)
         }
     }
 

@@ -16,6 +16,7 @@
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 
+import AppKit
 import SwiftUI
 
 struct AuthenticationSheet: View {
@@ -25,6 +26,9 @@ struct AuthenticationSheet: View {
     @State private var email = ""
     @State private var password = ""
     @State private var showingDeviceRecovery = false
+    @State private var showingPassword = false
+    @State private var emailValidationMessage: String?
+    @FocusState private var passwordFocused: Bool
 
     init(controller: AccountSessionController, mode: AuthenticationMode) {
         self.controller = controller
@@ -32,45 +36,85 @@ struct AuthenticationSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .center, spacing: 18) {
+        VStack(spacing: 20) {
             Text(title)
-                .font(.title2)
-                .bold()
-                .frame(maxWidth: .infinity)
+                .font(.title2.bold())
                 .multilineTextAlignment(.center)
+                .padding(.top, 12)
 
             if controller.pendingLinkEmail == nil {
                 Picker("Account action", selection: $mode) {
-                    ForEach(AuthenticationMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
+                    Text("Login").tag(AuthenticationMode.signIn)
+                    Text("Sign Up").tag(AuthenticationMode.createAccount)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(maxWidth: 320)
+                .onContinuousHover { updateCursor($0, enabled: !controller.isLoading) }
+                .disabled(controller.isLoading)
                 .onChange(of: mode) {
                     controller.errorMessage = nil
+                    emailValidationMessage = nil
+                    showingPassword = false
+                    password = ""
                 }
             } else {
                 Text("Enter the password for your existing Commit+ account. Google will be linked to the same account.")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 360)
             }
 
-            VStack(spacing: 12) {
-                TextField("Email", text: $email)
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Email")
+                    .font(.headline)
+                TextField("Your email address", text: $email)
                     .textContentType(.emailAddress)
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.large)
-                    .disabled(controller.pendingLinkEmail != nil)
-                SecureField("Password", text: $password)
-                    .textContentType(.password)
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.large)
+                    .disabled(controller.pendingLinkEmail != nil || controller.isLoading)
                     .onSubmit(submit)
+                    .onChange(of: email) {
+                        emailValidationMessage = nil
+                        if controller.pendingLinkEmail == nil {
+                            showingPassword = false
+                            password = ""
+                            controller.errorMessage = nil
+                        }
+                    }
+
+                if let emailValidationMessage {
+                    Text(emailValidationMessage)
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .accessibilityLabel("Error: \(emailValidationMessage)")
+                }
+
+                if showingPassword || controller.pendingLinkEmail != nil {
+                    Text("Password")
+                        .font(.headline)
+                        .padding(.top, 6)
+                    SecureField("Your password", text: $password)
+                        .textContentType(mode == .createAccount && controller.pendingLinkEmail == nil ? .newPassword : .password)
+                        .textFieldStyle(.roundedBorder)
+                        .controlSize(.large)
+                        .focused($passwordFocused)
+                        .disabled(controller.isLoading)
+                        .onSubmit(submit)
+
+                    if mode == .signIn, controller.pendingLinkEmail == nil {
+                        Button("Forgot Password?", action: sendPasswordReset)
+                            .buttonStyle(.link)
+                            .onContinuousHover {
+                                updateCursor($0, enabled: isEmailValid && !controller.isLoading)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .disabled(!isEmailValid || controller.isLoading)
+                    } else if controller.pendingLinkEmail == nil {
+                        Text("Use at least 6 characters.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
-            .frame(maxWidth: 360)
 
             if let errorMessage = controller.errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
@@ -79,56 +123,98 @@ struct AuthenticationSheet: View {
                     .accessibilityLabel("Error: \(errorMessage)")
             }
 
-            if let passwordResetMessage = controller.passwordResetMessage {
+            if mode == .signIn, let passwordResetMessage = controller.passwordResetMessage {
                 Label(passwordResetMessage, systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
                     .multilineTextAlignment(.center)
             }
 
-            if mode == .signIn, controller.pendingLinkEmail == nil {
-                Button("Forgot Password?", action: sendPasswordReset)
-                    .buttonStyle(.link)
-                    .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || controller.isLoading)
-            }
-
-            HStack(spacing: 10) {
-                Button(action: signInWithGoogle) {
-                    Label("Continue with Google", systemImage: "person.crop.circle.badge.plus")
+            Button(action: submit) {
+                HStack(spacing: 8) {
+                    if controller.isLoading {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Text(primaryActionTitle)
                 }
-                Button(action: controller.signInOnWeb) {
-                    Label("Sign in on web", systemImage: "globe")
-                }
+                .frame(maxWidth: .infinity, minHeight: 28)
             }
-            .buttonStyle(.glass)
+            .buttonStyle(.glassProminent)
             .buttonBorderShape(.roundedRectangle(radius: 12))
             .controlSize(.large)
-            .disabled(controller.isLoading || controller.pendingLinkEmail != nil || !controller.cloudFeaturesAvailable)
+            .keyboardShortcut(.defaultAction)
+            .disabled(primaryActionDisabled)
+            .onContinuousHover { updateCursor($0, enabled: !primaryActionDisabled) }
+
+            if controller.pendingLinkEmail == nil {
+                HStack(spacing: 12) {
+                    Rectangle().frame(height: 1).foregroundStyle(.separator)
+                    Text("or").foregroundStyle(.secondary)
+                    Rectangle().frame(height: 1).foregroundStyle(.separator)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Or")
+
+                VStack(spacing: 12) {
+                    Button(action: signInWithGoogle) {
+                        Label {
+                            Text("Continue with Google")
+                        } icon: {
+                            Image("google")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 20, height: 20)
+                                .accessibilityHidden(true)
+                        }
+                            .frame(maxWidth: .infinity, minHeight: 28)
+                    }
+                    .onContinuousHover {
+                        updateCursor($0, enabled: !controller.isLoading && controller.cloudFeaturesAvailable)
+                    }
+                    Button(action: controller.signInOnWeb) {
+                        Label {
+                            Text("Continue on web")
+                        } icon: {
+                            Image("commitplus-logo")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 20, height: 20)
+                                .accessibilityHidden(true)
+                        }
+                            .frame(maxWidth: .infinity, minHeight: 28)
+                    }
+                    .onContinuousHover {
+                        updateCursor($0, enabled: !controller.isLoading && controller.cloudFeaturesAvailable)
+                    }
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.roundedRectangle(radius: 12))
+                .controlSize(.large)
+                .disabled(controller.isLoading || !controller.cloudFeaturesAvailable)
+            }
 
             Text("You can keep using Commit+ and all local Git features without an account.")
+                .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 360)
-
-            HStack(spacing: 12) {
-                Button("Cancel", role: .cancel, action: cancel)
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.roundedRectangle(radius: 12))
-
-                if controller.isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .accessibilityLabel("Signing in")
-                }
-                Button(primaryActionTitle, action: submit)
-                    .buttonStyle(.glassProminent)
-                    .buttonBorderShape(.roundedRectangle(radius: 12))
-                    .disabled(primaryActionDisabled)
-            }
-            .controlSize(.large)
-            .frame(maxWidth: .infinity, alignment: .center)
         }
-        .padding(28)
-        .frame(minWidth: 460)
+        .padding(32)
+        .frame(width: 440)
+        .overlay(alignment: .topTrailing) {
+            Button(action: cancel) {
+                Label("Close", systemImage: "xmark")
+                    .labelStyle(.iconOnly)
+                    .padding(8)
+                    .contentShape(Rectangle())
+            }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .onContinuousHover { updateCursor($0, enabled: !controller.isLoading) }
+                .keyboardShortcut(.cancelAction)
+                .help("Close")
+                .disabled(controller.isLoading)
+                .padding(8)
+        }
         .interactiveDismissDisabled(controller.isLoading)
         .onAppear(perform: populatePendingLinkEmail)
         .onChange(of: controller.pendingLinkEmail) {
@@ -156,26 +242,55 @@ struct AuthenticationSheet: View {
         if controller.pendingLinkEmail != nil {
             "Link Google Account"
         } else {
-            mode.rawValue
+            mode == .signIn ? "Login" : "Sign Up"
         }
     }
 
     private var primaryActionTitle: String {
         if controller.pendingLinkEmail != nil {
             "Link Account"
+        } else if !showingPassword {
+            "Continue"
         } else {
-            mode.rawValue
+            mode == .signIn ? "Login" : "Sign Up"
         }
+    }
+
+    private var isEmailValid: Bool {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedEmail.range(
+            of: #"^[A-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?)+$"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
     }
 
     private var primaryActionDisabled: Bool {
         email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || password.count < 6
+            || ((showingPassword || controller.pendingLinkEmail != nil) && password.count < 6)
             || controller.isLoading
             || !controller.cloudFeaturesAvailable
     }
 
+    private func updateCursor(_ phase: HoverPhase, enabled: Bool) {
+        switch phase {
+        case .active:
+            (enabled ? NSCursor.pointingHand : NSCursor.arrow).set()
+        case .ended:
+            NSCursor.arrow.set()
+        }
+    }
+
     private func submit() {
+        guard !primaryActionDisabled else { return }
+        guard controller.pendingLinkEmail != nil || isEmailValid else {
+            emailValidationMessage = "Enter a valid email address."
+            return
+        }
+        if !showingPassword && controller.pendingLinkEmail == nil {
+            showingPassword = true
+            passwordFocused = true
+            return
+        }
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             if controller.pendingLinkEmail != nil {

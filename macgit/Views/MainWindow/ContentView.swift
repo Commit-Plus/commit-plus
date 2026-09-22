@@ -132,10 +132,10 @@ struct ContentView: View {
         .sheet(isPresented: $showingCloneSheet) {
             CloneSheetView(onClone: { url in
                 showingCloneSheet = false
-                openRepository(url, inNewWindow: false)
+                openRepository(url, inNewWindow: repositoryURL != nil)
             })
         }
-        .sheet(item: $accountController.presentedSheet) { sheet in
+        .sheet(item: accountSheetPresentation) { sheet in
             Group {
                 switch sheet {
                 case .authentication(let mode):
@@ -250,6 +250,21 @@ struct ContentView: View {
         ))
     }
 
+    private var accountSheetPresentation: Binding<AccountSheet?> {
+        Binding(
+            get: {
+                guard let window = windowContext.window,
+                      accountController.sheetPresentationWindow === window else { return nil }
+                return accountController.presentedSheet
+            },
+            set: { sheet in
+                guard let window = windowContext.window,
+                      accountController.sheetPresentationWindow === window else { return }
+                accountController.presentedSheet = sheet
+            }
+        )
+    }
+
     private var preferredExternalEvents: Set<String> {
         var events: Set<String> = repositoryURL == nil ? ["macgit://open-repository"] : []
         if accountController.webSignInWindowNumber != nil,
@@ -297,14 +312,7 @@ struct ContentView: View {
     private func handleFileMenuAction(_ action: FileMenuAction) {
         switch action {
         case .cloneRepository:
-            if repositoryURL == nil {
-                showingCloneSheet = true
-            } else {
-                openWindow(
-                    id: "main",
-                    value: RepositoryWindowRequest.cloneRepository()
-                )
-            }
+            showingCloneSheet = true
         case .openRepository, .openRecent:
             if repositoryURL != nil {
                 pendingAction = action
