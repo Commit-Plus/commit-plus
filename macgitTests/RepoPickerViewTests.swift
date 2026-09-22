@@ -19,6 +19,22 @@ import XCTest
 @testable import macgit
 
 final class RepoPickerViewTests: XCTestCase {
+    func testMultipleBookmarksForOneLocalFolderProduceOneRow() {
+        let github = makeRepository(name: "client", path: "/tmp/client", lastOpened: .distantPast)
+        let gitlab = makeRepository(name: "client-mirror", path: "/tmp/client", lastOpened: .distantPast)
+        let otherClone = makeRepository(name: "client", path: "/tmp/other-clone", lastOpened: .distantPast)
+        let visible = RepoPickerView.visibleRepositories(
+            from: [github, gitlab, otherClone],
+            searchText: "",
+            sortOption: .name,
+            selectedFilterTypes: [],
+            repoIcons: [:],
+            rowStates: [:]
+        )
+        XCTAssertEqual(visible.count, 2)
+        XCTAssertEqual(Set(visible.map(\.url)), [github.url, otherClone.url])
+    }
+
     func testVisibleRepositoriesDefaultsToLastOpenedDescending() {
         let older = makeRepository(name: "Zeta", path: "/tmp/zeta", lastOpened: Date(timeIntervalSince1970: 100))
         let newer = makeRepository(name: "Alpha", path: "/tmp/alpha", lastOpened: Date(timeIntervalSince1970: 200))
