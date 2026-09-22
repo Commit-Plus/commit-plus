@@ -115,6 +115,106 @@ final class BranchComparisonServiceTests: XCTestCase {
         XCTAssertThrowsError(try GitStatusService.parseComparisonFiles(Data("R100\0old\0".utf8)))
     }
 
+    func testPathComparisonWorkingTreeIncludesStagedAndUnstagedWithoutMutation() async throws {
+        let repo = try makeRepository()
+        try "staged\n".write(to: repo.appendingPathComponent("tracked.txt"), atomically: true, encoding: .utf8)
+        try git(["add", "tracked.txt"], in: repo)
+        try "working\n".write(to: repo.appendingPathComponent("tracked.txt"), atomically: true, encoding: .utf8)
+        try "new staged\n".write(to: repo.appendingPathComponent("added.txt"), atomically: true, encoding: .utf8)
+        try git(["add", "added.txt"], in: repo)
+        try "ignored untracked\n".write(to: repo.appendingPathComponent("untracked.txt"), atomically: true, encoding: .utf8)
+        let indexBefore = try Data(contentsOf: repo.appendingPathComponent(".git/index"))
+        let headBefore = try git(["rev-parse", "HEAD"], in: repo)
+        let path = ComparisonPath(path: ".", isDirectory: true)
+        let snapshot = try await service.pathComparisonSnapshot(base: "HEAD", target: .workingTree, path: path, in: repo)
+        let files = try await service.comparisonFiles(snapshot: snapshot, mode: .tips, in: repo)
+        XCTAssertEqual(Set(files.map(\.path)), ["tracked.txt", "added.txt"])
+        let file = try XCTUnwrap(files.first { $0.path == "tracked.txt" })
+        let patch = try await service.comparisonPatch(file: file, snapshot: snapshot, mode: .tips, in: repo)
+        XCTAssertTrue(patch.hunks.flatMap(\.lines).contains { $0.type == .added && $0.text == "working" })
+        let staged = try await service.pathComparisonSnapshot(base: "HEAD", target: .index, path: path, in: repo)
+        let stagedPatch = try await service.comparisonPatch(file: file, snapshot: staged, mode: .tips, in: repo)
+        XCTAssertTrue(stagedPatch.hunks.flatMap(\.lines).contains { $0.type == .added && $0.text == "staged" })
+        XCTAssertEqual(try Data(contentsOf: repo.appendingPathComponent(".git/index")), indexBefore)
+        XCTAssertEqual(try git(["rev-parse", "HEAD"], in: repo), headBefore)
+        XCTAssertEqual(try String(contentsOf: repo.appendingPathComponent("tracked.txt"), encoding: .utf8), "working\n")
+    }
+
+    func testFolderComparisonIncludesCrossBoundaryRenamesAndExcludesSiblingPrefix() async throws {
+        let repo = try makeRepository()
+        for folder in ["src", "src-other"] {
+            try FileManager.default.createDirectory(at: repo.appendingPathComponent(folder), withIntermediateDirectories: true)
+        }
+        try "move out\n".write(to: repo.appendingPathComponent("src/out.txt"), atomically: true, encoding: .utf8)
+        try "sibling\n".write(to: repo.appendingPathComponent("src-other/file.txt"), atomically: true, encoding: .utf8)
+        try git(["add", "."], in: repo)
+        try git(["commit", "-m", "folders"], in: repo)
+        try git(["mv", "src/out.txt", "outside.txt"], in: repo)
+        try git(["mv", "tracked.txt", "src/in.txt"], in: repo)
+        try "changed\n".write(to: repo.appendingPathComponent("src-other/file.txt"), atomically: true, encoding: .utf8)
+        let snapshot = try await service.pathComparisonSnapshot(base: "HEAD", target: .workingTree,
+            path: ComparisonPath(path: "src", isDirectory: true), in: repo)
+        let files = try await service.comparisonFiles(snapshot: snapshot, mode: .tips, in: repo)
+        XCTAssertEqual(files.count, 2)
+        XCTAssertTrue(files.allSatisfy { $0.status == .renamed })
+        XCTAssertTrue(files.contains { $0.oldPath == "src/out.txt" && $0.path == "outside.txt" })
+        XCTAssertTrue(files.contains { $0.oldPath == "tracked.txt" && $0.path == "src/in.txt" })
+    }
+
+    func testPathComparisonSupportsTagsRemoteRefsAndBinaryRevisionChanges() async throws {
+        let repo = try makeRepository()
+        try git(["tag", "-a", "release", "-m", "release", "feature"], in: repo)
+        try git(["update-ref", "refs/remotes/origin/feature", "feature"], in: repo)
+        let revisions = try await service.comparisonRevisions(in: repo)
+        XCTAssertTrue(revisions.contains("refs/tags/release"))
+        XCTAssertTrue(revisions.contains("refs/remotes/origin/feature"))
+        let snapshot = try await service.pathComparisonSnapshot(base: "HEAD", target: .revision("refs/tags/release"),
+            path: ComparisonPath(path: "binary.dat", isDirectory: false), in: repo)
+        let files = try await service.comparisonFiles(snapshot: snapshot, mode: .tips, in: repo)
+        XCTAssertEqual(files.map(\.path), ["binary.dat"])
+        XCTAssertEqual(files.first?.status, .added)
+        let patch = try await service.comparisonPatch(file: XCTUnwrap(files.first), snapshot: snapshot, mode: .tips, in: repo)
+        XCTAssertTrue(patch.isBinary)
+    }
+
+    func testLiteralPathComparisonAndMissingSide() async throws {
+        let repo = try makeRepository()
+        let paths = ["-option.txt", ":(glob)*", "space 日本語.txt", "tab\tline\n.txt"]
+        for path in paths {
+            try "before\n".write(to: repo.appendingPathComponent(path), atomically: true, encoding: .utf8)
+        }
+        try git(["add", "."], in: repo)
+        try git(["commit", "-m", "unusual paths"], in: repo)
+        for path in paths {
+            try "after\n".write(to: repo.appendingPathComponent(path), atomically: true, encoding: .utf8)
+            let snapshot = try await service.pathComparisonSnapshot(base: "HEAD", target: .workingTree,
+                path: ComparisonPath(path: path, isDirectory: false), in: repo)
+            let files = try await service.comparisonFiles(snapshot: snapshot, mode: .tips, in: repo)
+            XCTAssertEqual(files.map(\.path), [path])
+            let patch = try await service.comparisonPatch(file: XCTUnwrap(files.first), snapshot: snapshot, mode: .tips, in: repo)
+            XCTAssertEqual(patch.hunks.flatMap(\.lines).filter { $0.type == .added }.map(\.text), ["after"])
+        }
+        try FileManager.default.removeItem(at: repo.appendingPathComponent("deleted.txt"))
+        let snapshot = try await service.pathComparisonSnapshot(base: "HEAD", target: .workingTree,
+            path: ComparisonPath(path: "deleted.txt", isDirectory: false), in: repo)
+        let files = try await service.comparisonFiles(snapshot: snapshot, mode: .tips, in: repo)
+        XCTAssertEqual(files.first?.status, .deleted)
+        let empty = try await service.pathComparisonSnapshot(base: "HEAD", target: .revision("HEAD"),
+            path: ComparisonPath(path: "missing", isDirectory: true), in: repo)
+        let emptyFiles = try await service.comparisonFiles(snapshot: empty, mode: .tips, in: repo)
+        XCTAssertTrue(emptyFiles.isEmpty)
+        for ref in ["--all", "missing-revision", "HEAD:tracked.txt"] {
+            do {
+                _ = try await service.pathComparisonSnapshot(base: ref, target: .workingTree,
+                    path: ComparisonPath(path: ".", isDirectory: true), in: repo)
+                XCTFail("Accepted invalid revision")
+            } catch { XCTAssertFalse(error is CancellationError) }
+        }
+        for path in ["../escape", "/absolute", "a/../b", "a\0b"] {
+            XCTAssertThrowsError(try ComparisonPath(path: path, isDirectory: false).validate())
+        }
+    }
+
     private func compare(in repo: URL) async throws -> ReferenceComparisonSnapshot {
         try await service.comparisonSnapshot(base: "refs/heads/main", target: "refs/heads/feature", branchesOnly: true, in: repo)
     }

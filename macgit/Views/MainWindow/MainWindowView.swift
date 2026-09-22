@@ -151,6 +151,7 @@ struct MainWindowView: View {
     @State private var repoIconName: String = "code-branch"
     @State private var remoteURLString: String = ""
     @State var selectedBranchName: String? = nil
+    @State private var pathComparisonWindow = PathComparisonWindowController()
     @State private var referenceDiffBase: String?
     @State private var referenceDiffTarget: String?
     @State private var referenceDiffTitle: String?
@@ -1193,6 +1194,7 @@ struct MainWindowView: View {
                     onRequestApplyStash: { ref in
                         requestStashAction(ref: ref, action: .apply)
                     },
+                    onRequestComparePath: { pathComparisonWindow.show(path: $0, in: repositoryURL) },
                     onAuthorizeCommit: authorizeProtectedBranchCommit,
                     onRequestPushAfterCommit: pushAfterCommit,
                     onRunRepositoryOperation: runRepositoryOperation

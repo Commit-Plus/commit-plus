@@ -8,9 +8,12 @@ struct ReferenceComparisonFilesView: View {
     var body: some View {
         if controller.files.isEmpty {
             EmptyStateView(icon: "checkmark.circle", message: "No file changes",
-                detail: controller.mode == .mergeBase
+                detail: controller.path != nil ? "No changes for this path between the selected sides." : controller.mode == .mergeBase
                     ? "Target has no file changes since the merge base. Commit histories may still differ."
                     : "These references point to the same tree. Commit histories may still differ.")
+        } else if controller.path?.isDirectory == false {
+            fileDetail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             GeometryReader { geometry in
                 let availableWidth = max(0, geometry.size.width - 6)

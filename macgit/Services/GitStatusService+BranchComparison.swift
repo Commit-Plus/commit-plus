@@ -34,7 +34,7 @@ extension GitStatusService: ReferenceComparisonServing {
             baseOnlyCount: numbers[0], targetOnlyCount: numbers[1])
     }
 
-    private func resolveComparisonRef(_ ref: String, branchesOnly: Bool, in repositoryURL: URL) async throws -> String {
+    func resolveComparisonRef(_ ref: String, branchesOnly: Bool, in repositoryURL: URL) async throws -> String {
         try Task.checkCancellation()
         if branchesOnly {
             guard ref.hasPrefix("refs/heads/") || ref.hasPrefix("refs/remotes/") else {
@@ -56,9 +56,12 @@ extension GitStatusService: ReferenceComparisonServing {
         try Task.checkCancellation()
         let base = try snapshot.diffBase(for: mode)
         let output = try await runGitRaw(arguments: [
-            "diff", "--name-status", "-z", "--find-renames", "--no-ext-diff", "--no-textconv", base, snapshot.target, "--"
-        ], in: repositoryURL)
-        return try Self.parseComparisonFiles(output)
+            "--no-optional-locks", "diff", "--name-status", "-z", "--find-renames", "--no-ext-diff", "--no-textconv"
+        ] + (snapshot.path == nil ? [base, snapshot.target] : snapshot.diffArguments) + ["--"], in: repositoryURL)
+        let files = try Self.parseComparisonFiles(output)
+        guard let path = snapshot.path else { return files }
+        // Detect renames before filtering so moves across the folder boundary retain both paths.
+        return files.filter { path.contains($0.path) || ($0.oldPath.map(path.contains) ?? false) }
     }
 
     nonisolated static func parseComparisonFiles(_ data: Data) throws -> [CommitFileChange] {
@@ -100,9 +103,8 @@ extension GitStatusService: ReferenceComparisonServing {
         var environment = ProcessInfo.processInfo.environment
         environment["LC_ALL"] = "C"
         let output = try await runGitBounded(arguments: [
-            "--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--find-renames", "-U3",
-            base, snapshot.target, "--"
-        ] + paths, in: repositoryURL, environment: environment, outputByteLimit: 2_000_000)
+            "--no-optional-locks", "--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--find-renames", "-U3",
+        ] + (snapshot.path == nil ? [base, snapshot.target] : snapshot.diffArguments) + ["--"] + paths, in: repositoryURL, environment: environment, outputByteLimit: 2_000_000)
         try Task.checkCancellation()
         return ReferenceComparisonPatch(hunks: DiffParser.parse(output.text),
             isBinary: output.text.split(separator: "\n").contains { $0.hasPrefix("Binary files ") || $0 == "GIT binary patch" },

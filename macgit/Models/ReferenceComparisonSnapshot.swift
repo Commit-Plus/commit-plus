@@ -8,6 +8,17 @@ nonisolated struct ReferenceComparisonSnapshot: Sendable {
     let baseOnlyCount: Int
     let targetOnlyCount: Int
 
+    var path: ComparisonPath? = nil
+    var targetEndpoint: ComparisonEndpoint? = nil
+
+    var diffArguments: [String] {
+        switch targetEndpoint ?? .revision(target) {
+        case .revision(let sha): [base, sha]
+        case .workingTree: [base]
+        case .index: ["--cached", base]
+        }
+    }
+
     func diffBase(for mode: ReferenceComparisonMode) throws -> String {
         if mode == .tips { return base }
         guard mergeBases.count == 1, let mergeBase = mergeBases.first else {

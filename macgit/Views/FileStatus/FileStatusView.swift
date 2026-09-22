@@ -40,6 +40,7 @@ struct FileStatusView: View {
     var canUpdateCurrentBranch = false
     var onRequestUpdateCurrentBranch: (CurrentBranchIntegrationStatus) -> Void = { _ in }
     var onRequestApplyStash: (String) -> Void = { _ in }
+    var onRequestComparePath: (ComparisonPath) -> Void = { _ in }
     var onAuthorizeCommit: () async -> Bool = { true }
     var onRequestPushAfterCommit: (String, String) async throws -> Void
     var onRunRepositoryOperation: RepositoryOperationRunner
@@ -600,6 +601,7 @@ struct FileStatusView: View {
         let selection = actionSelection
 
         return Menu {
+            comparisonMenu(file: file)
             Button("Open") { openFile(file: file) }
                 .disabled(selection.isSingleFileActionDisabled)
             Button("Show in Finder") { showInFinder(file: file) }
@@ -695,9 +697,25 @@ struct FileStatusView: View {
     }
 
     @ViewBuilder
+    private func comparisonMenu(file: StatusFile) -> some View {
+        Button("Compare with Revision…") {
+            onRequestComparePath(ComparisonPath(path: file.path, isDirectory: false))
+        }
+        .disabled(file.status == .untracked || actionSelection.isSingleFileActionDisabled)
+        Button("Compare Parent Folder with Revision…") {
+            let components = file.path.split(separator: "/", omittingEmptySubsequences: false).dropLast()
+            onRequestComparePath(ComparisonPath(path: components.isEmpty ? "." : components.joined(separator: "/"),
+                                               isDirectory: true))
+        }
+        .disabled(actionSelection.isSingleFileActionDisabled)
+        Divider()
+    }
+
+    @ViewBuilder
     private func fileContextMenu(file: StatusFile, isStaged: Bool) -> some View {
         let selection = actionSelection
 
+        comparisonMenu(file: file)
         Button("Open") { openFile(file: file) }
             .disabled(selection.isSingleFileActionDisabled)
         Button("Show in Finder") { showInFinder(file: file) }

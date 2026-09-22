@@ -7,6 +7,9 @@ final class ReferenceComparisonController {
     let repositoryURL: URL
     let isBranchComparison: Bool
     let title: String
+    let path: ComparisonPath?
+    let pathTarget: ComparisonEndpoint?
+    private(set) var revisions: [String] = []
     private(set) var baseRef: String
     private(set) var targetRef: String
     private(set) var mode: ReferenceComparisonMode
@@ -35,14 +38,17 @@ final class ReferenceComparisonController {
     @ObservationIgnored private(set) var targetCommitsTask: Task<Void, Never>?
 
     init(repositoryURL: URL, baseRef: String, targetRef: String, isBranchComparison: Bool = true,
-         title: String = "Compare Branches", service: any ReferenceComparisonServing = GitStatusService.shared) {
+         title: String = "Compare Branches", path: ComparisonPath? = nil,
+         pathTarget: ComparisonEndpoint? = nil, service: any ReferenceComparisonServing = GitStatusService.shared) {
         self.repositoryURL = repositoryURL
         self.baseRef = baseRef
         self.targetRef = targetRef
-        self.isBranchComparison = isBranchComparison
+        self.path = path
+        self.pathTarget = path.map { _ in pathTarget ?? .workingTree }
+        self.isBranchComparison = path == nil && isBranchComparison
         self.title = title
         self.service = service
-        self.mode = isBranchComparison ? .mergeBase : .tips
+        self.mode = self.isBranchComparison ? .mergeBase : .tips
     }
 
     func setBase(_ ref: String) {
@@ -83,6 +89,7 @@ final class ReferenceComparisonController {
     }
 
     func reload(reuseSnapshot: Bool = false) {
+        let previousSelection = selectedFile
         let previousSnapshot = reuseSnapshot ? snapshot : nil
         cancel()
         let id = requestID
@@ -111,13 +118,21 @@ final class ReferenceComparisonController {
                     guard isCurrent(id) else { return }
                     branches = available
                 }
-                guard !base.isEmpty, !target.isEmpty else {
+                if path != nil && revisions.isEmpty {
+                    let available = try await service.comparisonRevisions(in: repositoryURL)
+                    guard isCurrent(id) else { return }
+                    revisions = available
+                }
+                guard !base.isEmpty, path != nil || !target.isEmpty else {
                     isLoading = false
                     return
                 }
                 let resolved: ReferenceComparisonSnapshot
                 if let previousSnapshot {
                     resolved = previousSnapshot
+                } else if let path, let pathTarget {
+                    resolved = try await service.pathComparisonSnapshot(base: base, target: pathTarget,
+                        path: path, in: repositoryURL)
                 } else {
                     resolved = try await service.comparisonSnapshot(base: base, target: target,
                         branchesOnly: isBranchComparison, in: repositoryURL)
@@ -132,6 +147,10 @@ final class ReferenceComparisonController {
                 guard isCurrent(id) else { return }
                 files = changes
                 isLoading = false
+                if let path {
+                    let selected = changes.first { $0.path == previousSelection?.path }
+                    selectFile(selected ?? (path.isDirectory ? nil : changes.first))
+                }
             } catch {
                 guard isCurrent(id) else { return }
                 self.error = error.localizedDescription

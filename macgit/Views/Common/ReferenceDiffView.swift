@@ -35,7 +35,7 @@ struct ReferenceDiffView: View {
                 EmptyStateView(icon: "pause.circle", message: "Comparison stopped", detail: "Select Refresh to load this comparison again.")
             } else if let error = controller.error, controller.snapshot == nil {
                 EmptyStateView(icon: "exclamationmark.triangle", message: "Could not compare references", detail: error)
-            } else if controller.baseRef.isEmpty || controller.targetRef.isEmpty {
+            } else if controller.baseRef.isEmpty || (controller.path == nil && controller.targetRef.isEmpty) {
                 EmptyStateView(icon: "arrow.triangle.branch", message: "Select two branches", detail: "Choose a base and a target to compare their commits and files.")
             } else if showsCommits && controller.snapshot != nil {
                 HSplitView {
@@ -72,6 +72,9 @@ struct ReferenceDiffView: View {
                 Button("Refresh", systemImage: "arrow.clockwise") { controller.reload() }
                     .help("Reload from local references without fetching")
                 Button("Close", systemImage: "xmark", action: onClose)
+            }
+            if controller.path != nil {
+                PathComparisonHeaderView(controller: controller)
             }
             if controller.isBranchComparison {
                 ViewThatFits(in: .horizontal) {

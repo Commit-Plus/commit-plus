@@ -122,6 +122,43 @@ final class ReferenceComparisonControllerTests: XCTestCase {
         XCTAssertEqual(second.files.first?.path, "refs/heads/feature.txt")
     }
 
+    func testPathComparisonRejectsLateRevisionAndAutomaticallyLoadsFile() async throws {
+        let gate = ComparisonTestGate()
+        let controller = ReferenceComparisonController(repositoryURL: URL(fileURLWithPath: "/tmp/comparison"),
+            baseRef: "refs/heads/main", targetRef: "", path: ComparisonPath(path: "tips.txt", isDirectory: false),
+            pathTarget: .workingTree, service: ComparisonTestService(filesGate: gate))
+        controller.reload()
+        let oldTask = controller.loadTask
+        await gate.waitForArrival()
+        controller.setBase("refs/heads/feature")
+        await controller.loadTask?.value
+        await controller.patchTask?.value
+        XCTAssertEqual(controller.snapshot?.base, "refs/heads/feature")
+        XCTAssertEqual(controller.selectedFile?.path, "tips.txt")
+        XCTAssertNotNil(controller.patch)
+        await gate.open()
+        await oldTask?.value
+        XCTAssertEqual(controller.snapshot?.base, "refs/heads/feature")
+        XCTAssertFalse(controller.isBranchComparison)
+        XCTAssertTrue(controller.baseCommits.isEmpty)
+    }
+
+    func testPathRefreshPreservesFolderSelectionAndReloadsPatch() async {
+        let controller = ReferenceComparisonController(repositoryURL: URL(fileURLWithPath: "/tmp/comparison"),
+            baseRef: "refs/heads/feature", targetRef: "", path: ComparisonPath(path: ".", isDirectory: true),
+            pathTarget: .workingTree, service: ComparisonTestService())
+        controller.reload()
+        await controller.loadTask?.value
+        controller.selectFile(controller.files.last)
+        await controller.patchTask?.value
+        XCTAssertEqual(controller.selectedFile?.path, "binary.dat")
+        controller.reload()
+        await controller.loadTask?.value
+        await controller.patchTask?.value
+        XCTAssertEqual(controller.selectedFile?.path, "binary.dat")
+        XCTAssertEqual(controller.patch?.isBinary, true)
+    }
+
     private func makeController(_ service: ComparisonTestService) -> ReferenceComparisonController {
         ReferenceComparisonController(repositoryURL: URL(fileURLWithPath: "/tmp/comparison"),
             baseRef: "refs/heads/main", targetRef: "refs/heads/feature", service: service)
@@ -167,6 +204,14 @@ private actor ComparisonTestService: ReferenceComparisonServing {
         self.failFiles = failFiles
     }
 
+    func comparisonRevisions(in repositoryURL: URL) async throws -> [String] { ["refs/heads/main"] }
+
+    func pathComparisonSnapshot(base: String, target: ComparisonEndpoint, path: ComparisonPath,
+                                in repositoryURL: URL) async throws -> ReferenceComparisonSnapshot {
+        ReferenceComparisonSnapshot(base: base, target: "", mergeBases: [], baseOnlyCount: 0,
+            targetOnlyCount: 0, path: path, targetEndpoint: target)
+    }
+
     func comparisonBranches(in repositoryURL: URL) async throws -> [ComparisonBranch] {
         [ComparisonBranch(ref: "refs/heads/main"), ComparisonBranch(ref: "refs/heads/feature")]
     }
@@ -178,7 +223,7 @@ private actor ComparisonTestService: ReferenceComparisonServing {
 
     func comparisonFiles(snapshot: ReferenceComparisonSnapshot, mode: ReferenceComparisonMode, in repositoryURL: URL) async throws -> [CommitFileChange] {
         if failFiles { throw GitError.commandFailed("Unable to read files") }
-        if snapshot.base == "refs/heads/main" && mode == .mergeBase { await filesGate?.wait() }
+        if snapshot.base == "refs/heads/main" && (mode == .mergeBase || snapshot.path != nil) { await filesGate?.wait() }
         return [CommitFileChange(path: mode == .tips ? "tips.txt" : "\(snapshot.base).txt", status: .modified),
                 CommitFileChange(path: "binary.dat", status: .added)]
     }
