@@ -39,6 +39,7 @@ struct HistoryView: View {
     let onRunRepositoryOperation: RepositoryOperationRunner
     let onRequestCheckout: (String, Bool) -> Void
     let onRequestExplainCommit: (Commit) -> Void
+    let onRequestBrowseRevision: (Commit) -> Void
     @EnvironmentObject private var appState: AppState
     
     @State private var commits: [Commit] = []
@@ -112,7 +113,8 @@ struct HistoryView: View {
             Task { await operation() }
         },
         onRequestCheckout: @escaping (String, Bool) -> Void = { _, _ in },
-        onRequestExplainCommit: @escaping (Commit) -> Void = { _ in }
+        onRequestExplainCommit: @escaping (Commit) -> Void = { _ in },
+        onRequestBrowseRevision: @escaping (Commit) -> Void = { _ in }
     ) {
         self.repositoryURL = repositoryURL
         self.selectedBranch = selectedBranch
@@ -121,6 +123,7 @@ struct HistoryView: View {
         self.onRunRepositoryOperation = onRunRepositoryOperation
         self.onRequestCheckout = onRequestCheckout
         self.onRequestExplainCommit = onRequestExplainCommit
+        self.onRequestBrowseRevision = onRequestBrowseRevision
         let storedPageSize = UserDefaults.standard.integer(forKey: "advanced.historyLoadSize")
         self._paging = State(
             initialValue: HistoryPagingState(
@@ -574,15 +577,19 @@ struct HistoryView: View {
 
                         TableColumn("Message") { commit in
                             commitDragCell(for: commit) {
-                                HistoryCommitMessageCell(
-                                    commit: commit,
-                                    graphModel: graphModel,
-                                    isDragActive: activeDragCommitHashes.contains(commit.hash),
-                                    scrollCoordinator: tableScrollCoordinator,
-                                    onAppear: {
-                                        handleHistoryCommitCellAppearance(commit)
-                                    }
-                                )
+                                GeometryReader { geometry in
+                                    HistoryCommitMessageCell(
+                                        commit: commit,
+                                        graphModel: graphModel,
+                                        isDragActive: activeDragCommitHashes.contains(commit.hash),
+                                        scrollCoordinator: tableScrollCoordinator,
+                                        onAppear: {
+                                            handleHistoryCommitCellAppearance(commit)
+                                        }
+                                    )
+                                    .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
+                                }
+                                .clipped()
                             }
                         }
                         .width(
@@ -920,6 +927,12 @@ struct HistoryView: View {
         )
 
         return Group {
+            Button("Show Repository at Revision", systemImage: "folder") {
+                guard let singleCommit else { return }
+                onRequestBrowseRevision(singleCommit)
+            }
+            .disabled(singleCommit == nil)
+
             Button("Checkout Commit", systemImage: "arrow.right.to.line") {
                 guard let singleCommit else { return }
                 pendingCommit = singleCommit

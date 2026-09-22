@@ -3,8 +3,9 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class PathComparisonWindowController: NSWindowController, NSWindowDelegate {
-    private var comparison: ReferenceComparisonController?
+final class RevisionBrowserWindowController: NSWindowController, NSWindowDelegate {
+    private var browser: RevisionBrowserController?
+    private let comparisonWindow = PathComparisonWindowController()
 
     init() {
         super.init(window: nil)
@@ -14,29 +15,28 @@ final class PathComparisonWindowController: NSWindowController, NSWindowDelegate
         fatalError("init(coder:) has not been implemented")
     }
 
-    func show(path: ComparisonPath, in repositoryURL: URL, target: ComparisonEndpoint = .workingTree) {
+    func show(revision: String, in repositoryURL: URL) {
         close()
-        let comparison = ReferenceComparisonController(
-            repositoryURL: repositoryURL, baseRef: "HEAD", targetRef: "",
-            isBranchComparison: false, title: "Compare with Revision", path: path,
-            pathTarget: target)
-        self.comparison = comparison
+        let browser = RevisionBrowserController(repositoryURL: repositoryURL, revision: revision)
+        self.browser = browser
         let screen = NSApp.keyWindow?.screen ?? NSScreen.main
         let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)
         let size = NSSize(width: min(1100, visibleFrame.width - 40),
                           height: min(760, visibleFrame.height - 80))
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "Compare — \(path.path) — \(repositoryURL.lastPathComponent)"
+        window.title = "Repository at \(revision.prefix(8)) — \(repositoryURL.lastPathComponent)"
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         window.contentMinSize = NSSize(width: min(760, size.width), height: min(420, size.height))
         window.delegate = self
         let hostingView = NSHostingView(rootView: GeometryReader { geometry in
-            ReferenceDiffView(controller: comparison, onClose: { [weak self] in self?.close() })
+            RevisionBrowserView(controller: browser, onCompare: { [weak self] path, sha in
+                self?.comparisonWindow.show(path: path, in: repositoryURL, target: .revision(sha))
+            })
                 .frame(width: geometry.size.width, height: geometry.size.height)
         })
-        // Window geometry owns the viewport; diff content must never expand the window.
+        // Window geometry owns the viewport; file content must never expand the window.
         hostingView.sizingOptions = []
         window.contentView = hostingView
         window.setContentSize(size)
@@ -48,7 +48,7 @@ final class PathComparisonWindowController: NSWindowController, NSWindowDelegate
     }
 
     func windowWillClose(_ notification: Notification) {
-        comparison?.cancel()
-        comparison = nil
+        browser?.cancel()
+        browser = nil
     }
 }

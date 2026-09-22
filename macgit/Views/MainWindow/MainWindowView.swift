@@ -152,6 +152,7 @@ struct MainWindowView: View {
     @State private var remoteURLString: String = ""
     @State var selectedBranchName: String? = nil
     @State private var pathComparisonWindow = PathComparisonWindowController()
+    @State private var revisionBrowserWindow = RevisionBrowserWindowController()
     @State private var referenceDiffBase: String?
     @State private var referenceDiffTarget: String?
     @State private var referenceDiffTitle: String?
@@ -1226,7 +1227,8 @@ struct MainWindowView: View {
                         syncState: syncState,
                         onRunRepositoryOperation: runRepositoryOperation,
                         onRequestCheckout: checkoutRequest,
-                        onRequestExplainCommit: explainCommitWithRepositoryAI
+                        onRequestExplainCommit: explainCommitWithRepositoryAI,
+                        onRequestBrowseRevision: { revisionBrowserWindow.show(revision: $0.hash, in: repositoryURL) }
                     )
                 }
             case .branch, .worktree, .tag, .remoteBranch, .head:
@@ -1237,7 +1239,8 @@ struct MainWindowView: View {
                     syncState: syncState,
                     onRunRepositoryOperation: runRepositoryOperation,
                     onRequestCheckout: checkoutRequest,
-                    onRequestExplainCommit: explainCommitWithRepositoryAI
+                    onRequestExplainCommit: explainCommitWithRepositoryAI,
+                    onRequestBrowseRevision: { revisionBrowserWindow.show(revision: $0.hash, in: repositoryURL) }
                 )
             case .item(.reflog):
                 ReflogView(

@@ -375,7 +375,7 @@ actor GitStatusService {
         )
     }
 
-    func runGitRaw(arguments: [String], in directory: URL, environment: [String: String]) async throws -> Data {
+    func runGitRaw(arguments: [String], in directory: URL, environment: [String: String], outputByteLimit: Int? = nil) async throws -> Data {
         let startedAt = Date()
         do {
             let context = try await gitExecutionContext(environment: environment)
@@ -383,8 +383,12 @@ actor GitStatusService {
                 executable: context.executable,
                 arguments: arguments,
                 directory: directory,
-                environment: context.environment
+                environment: context.environment,
+                outputByteLimit: outputByteLimit
             ).run()
+            guard !result.isTruncated else {
+                throw GitError.commandFailed("Git object exceeds the preview limit.")
+            }
             await GitCommandLogStore.shared.record(
                 arguments: arguments,
                 directory: directory,
