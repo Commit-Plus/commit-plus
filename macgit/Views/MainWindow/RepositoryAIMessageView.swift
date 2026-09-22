@@ -89,6 +89,7 @@ struct RepositoryAIMessageView: View {
                             .font(.caption)
                     }
                     .menuStyle(.borderlessButton)
+                    .pointingHandCursor()
                     .accessibilityLabel("Citation: \(citation.label)")
                     .help("Citation actions")
                 }
@@ -115,7 +116,7 @@ struct RepositoryAIMessageView: View {
     }
 
     private func toolActivity(_ toolResult: RepositoryAIAgentToolResult) -> some View {
-        DisclosureGroup(activityTitle(for: toolResult)) {
+        DisclosureGroup {
             Text(toolResult.commandResult.displayCommand)
                 .font(.caption.monospaced())
                 .textSelection(.enabled)
@@ -124,6 +125,9 @@ struct RepositoryAIMessageView: View {
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
                 .padding(.top, 4)
+        } label: {
+            Text(activityTitle(for: toolResult))
+                .pointingHandCursor()
         }
         .font(.callout)
         .accessibilityLabel("Repository activity: \(activityTitle(for: toolResult))")

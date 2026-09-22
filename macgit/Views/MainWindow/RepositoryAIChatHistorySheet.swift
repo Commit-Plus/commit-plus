@@ -38,7 +38,9 @@ struct RepositoryAIChatHistorySheet: View {
                     Text("Saved chats for this repository").foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Done") { dismiss() }
+                    .pointingHandCursor()
+                    .keyboardShortcut(.cancelAction)
             }
             TextField("Search titles and messages", text: $search)
                 .textFieldStyle(.roundedBorder)
@@ -76,6 +78,7 @@ struct RepositoryAIChatHistorySheet: View {
                                         .contentShape(.rect)
                                     }
                                     .buttonStyle(.plain)
+                                    .pointingHandCursor()
                                     .disabled(isOpening || isDeleting || controller.isInteractionDisabled)
 
                                     Button("Delete conversation", systemImage: "trash") {
@@ -83,6 +86,7 @@ struct RepositoryAIChatHistorySheet: View {
                                     }
                                     .labelStyle(.iconOnly)
                                     .buttonStyle(.borderless)
+                                    .pointingHandCursor()
                                     .foregroundStyle(.red)
                                     .help("Delete conversation")
                                     .disabled(isOpening || isDeleting || controller.isInteractionDisabled)

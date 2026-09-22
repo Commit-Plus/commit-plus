@@ -29,6 +29,7 @@ struct RepositoryAICommitPickerView: View {
                 Button("Back", systemImage: "chevron.left", action: controller.cancelCommitSelection)
                     .labelStyle(.iconOnly)
                     .buttonStyle(.plain)
+                    .pointingHandCursor()
                     .foregroundStyle(.secondary)
                     .disabled(controller.isLoadingCommits)
 
@@ -49,6 +50,7 @@ struct RepositoryAICommitPickerView: View {
                 Button("Explain commit", systemImage: "arrow.right", action: onSubmitReference)
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderedProminent)
+                    .pointingHandCursor()
                     .disabled(!controller.canExplainCommitReference)
             }
 
@@ -89,6 +91,7 @@ struct RepositoryAICommitPickerView: View {
                                 .contentShape(.rect)
                             }
                             .buttonStyle(.plain)
+                            .pointingHandCursor()
                             .disabled(controller.isRunning)
                             .help("Explain commit \(commit.hash): \(commit.subject)")
                         }

@@ -62,12 +62,14 @@ struct RepositoryAIMutationConfirmationSheet: View {
 
             HStack {
                 Button("Cancel", role: .cancel, action: onCancel)
+                    .pointingHandCursor()
                     .keyboardShortcut(.cancelAction)
 
                 Spacer()
 
                 Button(pending.preview.confirmationLabel, action: onConfirm)
                     .buttonStyle(.borderedProminent)
+                    .pointingHandCursor()
                     .disabled(isExecuting)
             }
         }

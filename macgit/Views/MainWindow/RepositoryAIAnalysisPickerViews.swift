@@ -31,6 +31,7 @@ struct RepositoryAIRefComparisonPickerView: View {
             TextField("Head ref (for example, feature or origin/main)", text: $controller.comparisonHeadDraft)
             Button("Compare refs", systemImage: "arrow.left.arrow.right", action: onSubmit)
                 .buttonStyle(.borderedProminent)
+                .pointingHandCursor()
                 .disabled(controller.comparisonBaseDraft.isEmpty || controller.comparisonHeadDraft.isEmpty || controller.isRunning)
         }
     }
@@ -48,6 +49,7 @@ struct RepositoryAIPullRequestPickerView: View {
             TextField("Pull request number", text: $controller.pullRequestNumberDraft)
             Button("Analyze pull request", systemImage: "arrow.triangle.branch", action: onSubmit)
                 .buttonStyle(.borderedProminent)
+                .pointingHandCursor()
                 .disabled(controller.isRunning)
         }
     }
@@ -63,7 +65,9 @@ private struct RepositoryAIAnalysisForm<Content: View>: View {
             HStack {
                 Text(title).font(.headline)
                 Spacer()
-                Button("Cancel", action: onCancel).controlSize(.small)
+                Button("Cancel", action: onCancel)
+                    .pointingHandCursor()
+                    .controlSize(.small)
             }
             content
             Spacer(minLength: 0)

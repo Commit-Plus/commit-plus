@@ -53,6 +53,7 @@ struct RepositoryAIChatView: View {
                 Button("Conversation history", systemImage: "clock.arrow.circlepath") { isShowingHistory = true }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.plain)
+                    .pointingHandCursor()
                     .foregroundStyle(.secondary)
                     .disabled(controller.isInteractionDisabled)
                     .help("Conversation History")
@@ -60,6 +61,7 @@ struct RepositoryAIChatView: View {
                 Button("New conversation", systemImage: "plus", action: controller.startNewConversation)
                     .labelStyle(.iconOnly)
                     .buttonStyle(.plain)
+                    .pointingHandCursor()
                     .foregroundStyle(.secondary)
                     .disabled(controller.isInteractionDisabled)
                     .help("New Conversation")
@@ -152,6 +154,7 @@ struct RepositoryAIChatView: View {
                 )
             }
             .buttonStyle(.plain)
+            .pointingHandCursor()
             .disabled(controller.isInteractionDisabled)
 
             Button(action: runExplainCommit) {
@@ -162,6 +165,7 @@ struct RepositoryAIChatView: View {
                 )
             }
             .buttonStyle(.plain)
+            .pointingHandCursor()
             .disabled(controller.isInteractionDisabled)
 
             Button(action: runReviewFile) {
@@ -172,6 +176,7 @@ struct RepositoryAIChatView: View {
                 )
             }
             .buttonStyle(.plain)
+            .pointingHandCursor()
             .disabled(controller.isInteractionDisabled)
 
             Button(action: runCompareRefs) {
@@ -182,6 +187,7 @@ struct RepositoryAIChatView: View {
                 )
             }
             .buttonStyle(.plain)
+            .pointingHandCursor()
             .disabled(controller.isInteractionDisabled)
 
             Button(action: runAnalyzePullRequest) {
@@ -192,11 +198,13 @@ struct RepositoryAIChatView: View {
                 )
             }
             .buttonStyle(.plain)
+            .pointingHandCursor()
             .disabled(controller.isInteractionDisabled)
 
             if !accessDecision.isAllowed {
                 Button(accessButtonTitle, systemImage: "lock.open", action: onRequestAccess)
                     .buttonStyle(.borderedProminent)
+                    .pointingHandCursor()
                     .controlSize(.small)
             }
 
@@ -226,6 +234,7 @@ struct RepositoryAIChatView: View {
                 }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.bordered)
+                .pointingHandCursor()
                 .buttonBorderShape(.circle)
                 .controlSize(.small)
                 .disabled(controller.isInteractionDisabled)
@@ -242,6 +251,7 @@ struct RepositoryAIChatView: View {
                     showsConfigureAction: true,
                     labelMode: .model
                 )
+                .pointingHandCursor()
 
                 if controller.isRunning || controller.isStopping {
                     Button(action: controller.cancelActiveRequest) {
@@ -255,27 +265,17 @@ struct RepositoryAIChatView: View {
                             }
                     }
                     .buttonStyle(.borderedProminent)
+                    .pointingHandCursor()
                     .buttonBorderShape(.circle)
                     .controlSize(.large)
                     .disabled(controller.isStopping)
                     .accessibilityLabel(controller.isStopping ? "Stopping generation" : "Stop generating")
                     .help(controller.isStopping ? "Stopping generation…" : "Stop generating")
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active:
-                            (controller.isStopping ? NSCursor.arrow : NSCursor.pointingHand).set()
-                        case .ended:
-                            NSCursor.arrow.set()
-                        }
-                    }
-                    .onChange(of: controller.isStopping) { _, stopping in
-                        if stopping { NSCursor.arrow.set() }
-                    }
-                    .onDisappear { NSCursor.arrow.set() }
                 } else {
                     Button("Send question", systemImage: "arrow.up", action: submitDraft)
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderedProminent)
+                        .pointingHandCursor()
                         .buttonBorderShape(.circle)
                         .controlSize(.large)
                         .disabled(!controller.canSubmit || !providerController.selectedProviderAvailability.isAvailable)
@@ -366,6 +366,7 @@ struct RepositoryAIChatView: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .pointingHandCursor()
     }
 
     private var accessButtonTitle: String {

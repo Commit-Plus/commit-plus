@@ -160,24 +160,28 @@ struct FileStatusView: View {
                             Task { await skipInProgressOperation(operation) }
                         }
                         .buttonStyle(.borderedProminent)
+                        .pointingHandCursor()
                         .controlSize(.small)
 
                         Button("Abort") {
                             Task { await abortInProgressOperation(operation) }
                         }
                         .buttonStyle(.borderless)
+                        .pointingHandCursor()
                         .controlSize(.small)
                     } else {
                         Button("Abort") {
                             Task { await abortInProgressOperation(operation) }
                         }
                         .buttonStyle(.borderless)
+                        .pointingHandCursor()
                         .controlSize(.small)
 
                         Button("Continue") {
                             Task { await continueInProgressOperation(operation) }
                         }
                         .buttonStyle(.borderedProminent)
+                        .pointingHandCursor()
                         .controlSize(.small)
                     }
                 }
@@ -321,6 +325,7 @@ struct FileStatusView: View {
                     TriStateCheckbox(state: sectionCheckState(isStaged: true), accessibilityLabel: "Select all staged") { selectAll in
                         toggleSelectAll(isStaged: true, selectAll: selectAll)
                     }
+                    .pointingHandCursor()
                     .disabled(gitStatus.staged.isEmpty)
                     Text("Staged")
                         .font(.system(size: 11, weight: .semibold))
@@ -337,6 +342,7 @@ struct FileStatusView: View {
                         }
                     }
                     .buttonStyle(GlassButtonStyle(tint: .yellow, fontSize: 10))
+                    .pointingHandCursor()
                     .disabled(gitStatus.staged.isEmpty)
                 }
                 .frame(height: 22)
@@ -380,6 +386,7 @@ struct FileStatusView: View {
                     TriStateCheckbox(state: sectionCheckState(isStaged: false), accessibilityLabel: "Select all changed") { selectAll in
                         toggleSelectAll(isStaged: false, selectAll: selectAll)
                     }
+                    .pointingHandCursor()
                     .disabled(changedFiles.isEmpty)
                     Text("Changed")
                         .font(.system(size: 11, weight: .semibold))
@@ -396,6 +403,7 @@ struct FileStatusView: View {
                         }
                     }
                     .buttonStyle(GlassButtonStyle(tint: .accentColor, fontSize: 10))
+                    .pointingHandCursor()
                     .disabled(changedFiles.isEmpty)
                 }
                 .frame(height: 22)
@@ -461,6 +469,7 @@ struct FileStatusView: View {
                 ))
                 .toggleStyle(.checkbox)
                 .labelsHidden()
+                .pointingHandCursor()
 
                 if isPotentialConflict {
                     PotentialConflictFileIndicator(
@@ -521,6 +530,7 @@ struct FileStatusView: View {
                 .fill(isSelected ? Color.accentColor : Color.clear)
                 .frame(width: 3)
         }
+        .pointingHandCursor()
         .onTapGesture {
             guard selectedFileKey != selectionKey else { return }
             selectedFile = file
@@ -580,6 +590,7 @@ struct FileStatusView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
+        .pointingHandCursor()
         .help(quickAction.accessibilityLabel)
         .accessibilityLabel(quickAction.accessibilityLabel)
         .frame(width: 24)
@@ -678,6 +689,7 @@ struct FileStatusView: View {
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
+        .pointingHandCursor()
         .menuIndicator(.hidden)
         .frame(width: 24)
     }
@@ -1122,6 +1134,7 @@ struct FileStatusView: View {
             if isCommitMessageEmpty {
                 Toggle("Commit with empty message", isOn: $allowEmptyMessage)
                     .toggleStyle(.checkbox)
+                    .pointingHandCursor()
             }
 
             HStack {
@@ -1132,6 +1145,7 @@ struct FileStatusView: View {
                     emptyCommitAction = nil
                     allowEmptyMessage = false
                 }
+                .pointingHandCursor()
 
                 Button("Commit") {
                     showingCommitConfirmation = false
@@ -1148,6 +1162,7 @@ struct FileStatusView: View {
                         allowEmptyMessage: shouldAllowEmptyMessage
                     )
                 }
+                .pointingHandCursor()
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canConfirmCommit)
             }

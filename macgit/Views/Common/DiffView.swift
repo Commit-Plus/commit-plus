@@ -249,17 +249,20 @@ struct HunkView: View {
                             unstageHunk()
                         }
                         .buttonStyle(GlassButtonStyle(tint: .yellow, fontSize: 10))
+                        .pointingHandCursor()
                     } else {
                         Button("Stage") {
                             stageHunk()
                         }
                         .buttonStyle(GlassButtonStyle(tint: .accentColor, fontSize: 10))
+                        .pointingHandCursor()
 
                         Button("Discard") {
                             let patch = DiffPatchBuilder.patchString(for: hunk, filePath: file!.path)
                             performPatchAction(label: "Discard hunk in \(file!.displayName)", patch: patch, cached: false, reverse: true)
                         }
                         .buttonStyle(GlassButtonStyle(tint: .red, fontSize: 10))
+                        .pointingHandCursor()
                     }
                 }
             }

@@ -29,6 +29,7 @@ struct RepositoryAIFilePickerView: View {
                     .font(.headline)
                 Spacer()
                 Button("Cancel", action: controller.cancelFileSelection)
+                    .pointingHandCursor()
                     .controlSize(.small)
             }
             Text("Choose a bounded, read-only file context. Staged and working-tree versions remain separate.")
@@ -55,6 +56,7 @@ struct RepositoryAIFilePickerView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .pointingHandCursor()
                     .accessibilityLabel("Review \(file.source.displayName) file \(file.path)")
                 }
                 .listStyle(.plain)

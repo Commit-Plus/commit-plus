@@ -659,7 +659,7 @@ struct HistoryView: View {
                     .alternatingRowBackgrounds(.enabled)
                     .controlSize(.small)
                     .contextMenu(forSelectionType: String.self) { selectedHashes in
-                        if !selectedHashes.isEmpty {
+                        if !selectedHashes.isEmpty, tableScrollCoordinator.allowsContextMenu {
                             commitContextMenu(for: selectedHashes)
                         }
                     } primaryAction: { selectedHashes in
@@ -2088,7 +2088,9 @@ struct HistoryView: View {
                     commits: commits,
                     selection: commitSelection
                 )
-                commitContextMenu(for: Set(contextCommits.map(\.hash)))
+                if tableScrollCoordinator.allowsContextMenu {
+                    commitContextMenu(for: Set(contextCommits.map(\.hash)))
+                }
             }
             .onDrag {
                 makeCommitItemProvider(startingAt: commit)

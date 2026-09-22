@@ -258,6 +258,30 @@ final class HistoryTableScrollCoordinator {
         return ["graph", "message", "author", "date", "commit"].contains(key) ? key : nil
     }
 
+    // Rows outside the scroll viewport still have frames. A contextual click
+    // must belong to the visible table, not merely map to one of those rows.
+    private func containsContextClick(_ event: NSEvent) -> Bool {
+        guard let tableView,
+              let window = tableView.window,
+              event.window === window,
+              tableView.visibleRect.contains(tableView.convert(event.locationInWindow, from: nil)),
+              let contentView = window.contentView,
+              let hitView = contentView.hitTest(
+                contentView.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
+              ) else { return false }
+        return hitView === tableView || hitView.isDescendant(of: tableView)
+    }
+
+    var allowsContextMenu: Bool {
+        guard let event = NSApp.currentEvent else { return true }
+        switch event.type {
+        case .rightMouseDown, .rightMouseUp, .leftMouseDown, .leftMouseUp:
+            return containsContextClick(event)
+        default:
+            return true
+        }
+    }
+
     func startContextClickMonitoring(onRow: @escaping (Int) -> Void) {
         stopContextClickMonitoring()
         contextClickMonitor = NSEvent.addLocalMonitorForEvents(
@@ -266,13 +290,7 @@ final class HistoryTableScrollCoordinator {
             MainActor.assumeIsolated {
                 guard event.type == .rightMouseDown || event.modifierFlags.contains(.control),
                       let tableView = self?.tableView,
-                      let window = tableView.window,
-                      event.window === window,
-                      let contentView = window.contentView,
-                      let hitView = contentView.hitTest(
-                        contentView.convert(event.locationInWindow, from: nil)
-                      ),
-                      hitView === tableView || hitView.isDescendant(of: tableView) else {
+                      self?.containsContextClick(event) == true else {
                     return event
                 }
                 let row = tableView.row(at: tableView.convert(event.locationInWindow, from: nil))
@@ -298,7 +316,7 @@ final class HistoryTableScrollCoordinator {
         let isContextClick = event.type == .rightMouseDown
             || event.type == .rightMouseUp
             || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
-        guard isContextClick else { return false }
+        guard isContextClick, containsContextClick(event) else { return false }
         let point = tableView.convert(event.locationInWindow, from: nil)
         let row = tableView.row(at: point)
         return row >= 0 && selectedRows.contains(row)

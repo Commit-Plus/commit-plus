@@ -61,6 +61,9 @@ struct RepositoryToolbarShortcutPanel: View {
         }
         .frame(maxWidth: .infinity)
         .frame(maxHeight: .infinity, alignment: .top)
+        .background {
+            PanelMouseEventBarrier()
+        }
         .glassEffect(
             .regular.tint(Color(nsColor: .controlBackgroundColor).opacity(0.24)),
             in: panelShape
@@ -83,6 +86,7 @@ struct RepositoryToolbarShortcutPanel: View {
             Button("Close AI Chat", systemImage: "xmark", action: onDismiss)
                 .labelStyle(.iconOnly)
                 .buttonStyle(.glass)
+                .pointingHandCursor()
                 .controlSize(.small)
                 .frame(width: 44, height: 32)
                 .background(controlBackground(cornerRadius: 11))

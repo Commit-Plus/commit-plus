@@ -49,6 +49,7 @@ struct RepositoryAIChatTranscriptView: View {
                             firstMessageIndex = max(0, firstMessageIndex - Self.pageSize)
                         }
                         .buttonStyle(.bordered)
+                        .pointingHandCursor()
                         .frame(maxWidth: .infinity)
                     }
 
