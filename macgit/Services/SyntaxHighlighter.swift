@@ -65,7 +65,7 @@ struct SyntaxHighlighter {
     private let fileExtension: String
 
     init(fileExtension: String) {
-        self.fileExtension = fileExtension.lowercased()
+        self.fileExtension = Self.syntaxIdentifier(forLanguage: fileExtension)
         self.rules = SyntaxHighlighter.rules(for: self.fileExtension)
     }
 
@@ -150,6 +150,28 @@ struct SyntaxHighlighter {
             return nil
         }
         return start..<end
+    }
+
+    /// Code fences use language names while file views usually pass extensions.
+    static func syntaxIdentifier(forLanguage language: String) -> String {
+        let identifier = language.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return switch identifier {
+        case "javascript", "node", "nodejs": "js"
+        case "typescript": "ts"
+        case "python": "py"
+        case "shell", "console", "shellscript": "sh"
+        case "objective-c", "objc": "m"
+        case "objective-c++", "objc++": "mm"
+        case "c++": "cpp"
+        case "c#", "csharp": "cs"
+        case "kotlin": "kt"
+        case "rust": "rs"
+        case "ruby": "rb"
+        case "golang": "go"
+        case "docker", "containerfile": "dockerfile"
+        case "dotenv": "env"
+        default: identifier
+        }
     }
 
     /// Resolve filenames before passing the syntax identifier through diff rows.

@@ -329,7 +329,7 @@ struct ConflictMergeToolView: View {
             ConflictResultEditorView(
                 text: resultTextBuffer.text,
                 onTextChange: handleResultTextChange,
-                fileExtension: selectedFile.fileExtension,
+                fileExtension: SyntaxHighlighter.syntaxIdentifier(forFilePath: selectedFile.path),
                 baselineText: document.currentContent,
                 isDisabled: isSaving || isPerformingMergeAction || isAIResolutionInProgress,
                 undoResetGeneration: resultEditorUndoResetGeneration,
@@ -371,7 +371,7 @@ struct ConflictMergeToolView: View {
             SyncedScrollView(id: scrollID, controller: scrollController, virtualizedRowCount: data.rows.count) {
                 ConflictCodeView(
                     rows: data.rows,
-                    fileExtension: selectedFile.fileExtension,
+                    fileExtension: SyntaxHighlighter.syntaxIdentifier(forFilePath: selectedFile.path),
                     highlightColor: highlightColor,
                     minimumCodeWidth: CGFloat(data.columnCount) * NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).maximumAdvancement.width + 16,
                     selectionSide: selectionSide,

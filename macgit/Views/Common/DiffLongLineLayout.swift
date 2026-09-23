@@ -68,9 +68,9 @@ nonisolated struct DiffLongLineLayout: Sendable {
         return first..<max(first, last)
     }
 
-    static func load(text: String, fontName: String) async -> Self? {
+    static func load(text: String, fontName: String, fontSize: CGFloat = 12) async -> Self? {
         let worker = Task.detached(priority: .userInitiated) {
-            prepare(text: text, fontName: fontName)
+            prepare(text: text, fontName: fontName, fontSize: fontSize)
         }
         return await withTaskCancellationHandler {
             await worker.value

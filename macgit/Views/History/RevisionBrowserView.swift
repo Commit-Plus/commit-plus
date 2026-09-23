@@ -135,7 +135,7 @@ struct RevisionBrowserView: View {
                 } else if let message = controller.preview?.message {
                     ScrollView { Text(message).textSelection(.enabled).padding().frame(maxWidth: .infinity, alignment: .leading) }
                 } else if let preview = controller.preview {
-                    CommitFilePreviewContent(lines: preview.lines, fileExtension: (entry.path as NSString).pathExtension.lowercased())
+                    CommitFilePreviewContent(lines: preview.lines, fileExtension: SyntaxHighlighter.syntaxIdentifier(forFilePath: entry.path))
                         .id(entry.id)
                 } else {
                     EmptyStateView(icon: "folder", message: "Expand this folder to browse its files")

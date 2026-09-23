@@ -126,7 +126,12 @@ struct ConflictResultTextView: NSViewRepresentable {
         private var lineStarts = [0]
         private var longestLineLength = 0
         private var highlightedRows: Range<Int>?
-        private var usesWindowedHighlighting: Bool { lineStarts.count > 2_000 }
+        private var documentLength = 0
+        private var usesWindowedHighlighting: Bool {
+            CodeRenderWindow.usesWindowedHighlighting(
+                lineCount: lineStarts.count, longestLineLength: longestLineLength, documentLength: documentLength
+            )
+        }
 
         init(parent: ConflictResultTextView) {
             self.parent = parent
@@ -246,6 +251,7 @@ struct ConflictResultTextView: NSViewRepresentable {
             baselineText: String
         ) {
             lineStarts = [0]
+            documentLength = text.utf16.count
             longestLineLength = 0
             var columns = 0
             for (index, unit) in text.utf16.enumerated() {
@@ -397,17 +403,28 @@ struct ConflictResultTextView: NSViewRepresentable {
             let end = rows.upperBound < lineStarts.count ? lineStarts[rows.upperBound] : storage.length
             guard start <= end, end <= storage.length else { return }
             let range = NSRange(location: start, length: end - start)
-            let source = (storage.string as NSString).substring(with: range)
-            let highlighted = SyntaxHighlighter(fileExtension: parent.fileExtension)
-                .nsAttributedString(for: source, fontSize: ConflictCodeView.defaultFontSize)
+            let source = storage.string as NSString
+            let ranges = CodeRenderWindow.highlightRanges(
+                lineStarts: lineStarts, length: storage.length, rows: rows
+            )
+            let highlighter = SyntaxHighlighter(fileExtension: parent.fileExtension)
             isApplyingPresentation = true
             let undo = textView.undoManager
             let restoreUndo = undo?.isUndoRegistrationEnabled == true
             if restoreUndo { undo?.disableUndoRegistration() }
             storage.beginEditing()
             storage.addAttribute(.foregroundColor, value: NSColor.textColor, range: range)
-            highlighted.enumerateAttributes(in: NSRange(location: 0, length: highlighted.length)) { attributes, localRange, _ in
-                storage.addAttributes(attributes, range: NSRange(location: start + localRange.location, length: localRange.length))
+            // Skip oversized logical lines, even in a file with only one line.
+            // Native TextKit still owns selection, editing, find and undo.
+            for fragmentRange in ranges {
+                let highlighted = highlighter.nsAttributedString(
+                    for: source.substring(with: fragmentRange), fontSize: ConflictCodeView.defaultFontSize
+                )
+                highlighted.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: highlighted.length)) { color, localRange, _ in
+                    guard let color else { return }
+                    storage.addAttribute(.foregroundColor, value: color,
+                                         range: NSRange(location: fragmentRange.location + localRange.location, length: localRange.length))
+                }
             }
             storage.endEditing()
             if restoreUndo { undo?.enableUndoRegistration() }

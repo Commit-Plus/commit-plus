@@ -44,7 +44,9 @@ struct RepositoryAIMessageView: View {
                     toolActivity(toolResult)
                 } else if message.role == .assistant {
                     Markdown(message.text)
-                        .markdownCodeSyntaxHighlighter(RepositoryAICodeSyntaxHighlighter())
+                        .markdownBlockStyle(\.codeBlock) { configuration in
+                            CodeBlockView(text: configuration.content, fileExtension: configuration.language ?? "")
+                        }
                         .markdownTextStyle {
                             FontSize(.em(0.94))
                         }

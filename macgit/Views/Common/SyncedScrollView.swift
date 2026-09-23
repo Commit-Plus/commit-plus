@@ -21,7 +21,16 @@ private struct ConflictRenderedRowsKey: EnvironmentKey {
     static let defaultValue: Range<Int>? = nil
 }
 
+private struct ConflictHorizontalViewportKey: EnvironmentKey {
+    static let defaultValue = CGRect(x: 0, y: 0, width: 1_024, height: 0)
+}
+
 extension EnvironmentValues {
+    var conflictHorizontalViewport: CGRect {
+        get { self[ConflictHorizontalViewportKey.self] }
+        set { self[ConflictHorizontalViewportKey.self] = newValue }
+    }
+
     var conflictRenderedRows: Range<Int>? {
         get { self[ConflictRenderedRowsKey.self] }
         set { self[ConflictRenderedRowsKey.self] = newValue }
@@ -34,7 +43,8 @@ struct SyncedScrollView<Content: View>: View {
     let axes: Axis.Set
     let showsIndicators: Bool
     let virtualizedRowCount: Int?
-    @State private var renderedRows = 0..<500
+    @State private var renderedRows = 0..<80
+    @State private var horizontalViewport = CGRect(x: 0, y: 0, width: 1_024, height: 0)
     @ViewBuilder let content: Content
 
     init(
@@ -56,10 +66,17 @@ struct SyncedScrollView<Content: View>: View {
     var body: some View {
         ScrollView(axes, showsIndicators: showsIndicators) {
             content
+                .environment(\.conflictHorizontalViewport, horizontalViewport)
                 .environment(\.conflictRenderedRows, virtualizedRowCount == nil ? nil : renderedRows)
                 .background(
                     SyncedScrollConnector(id: id, controller: controller)
                 )
+        }
+        .onScrollGeometryChange(for: CGRect.self) { geometry in
+            CGRect(x: floor(max(0, geometry.visibleRect.minX) / 256) * 256,
+                   y: 0, width: ceil(geometry.visibleRect.width / 256) * 256, height: 0)
+        } action: { _, viewport in
+            horizontalViewport = viewport
         }
         .onScrollGeometryChange(for: Range<Int>.self) { geometry in
             ConflictRenderWindow.rows(

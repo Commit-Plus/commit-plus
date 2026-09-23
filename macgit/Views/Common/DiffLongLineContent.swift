@@ -3,10 +3,12 @@
 import SwiftUI
 
 /// Long generated/minified lines stay scrollable without a giant SwiftUI Text.
-struct DiffLongLineContent: View {
-    let lineID: UUID
+struct DiffLongLineContent<ID: Hashable>: View {
+    let lineID: ID
     let text: String
     let viewport: CGRect
+    var fontSize: CGFloat = 12
+    @State private var contentVersion = 0
     @State private var layout: DiffLongLineLayout?
 
     var body: some View {
@@ -20,7 +22,7 @@ struct DiffLongLineContent: View {
                     ForEach(range, id: \.self) { index in
                         let chunk = layout.chunks[index]
                         Text(verbatim: String(layout.text[chunk.range]))
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(.system(size: fontSize, design: .monospaced))
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
                             .frame(width: chunk.width, alignment: .leading)
@@ -30,14 +32,18 @@ struct DiffLongLineContent: View {
                 .frame(width: layout.width, alignment: .leading)
             } else {
                 Text("Preparing long line…")
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.system(size: fontSize, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
         }
-        .task(id: lineID) {
+        .onChange(of: text) { contentVersion += 1 }
+        .onChange(of: lineID) { contentVersion += 1 }
+        .onChange(of: fontSize) { contentVersion += 1 }
+        .task(id: contentVersion) {
             layout = nil
             let prepared = await DiffLongLineLayout.load(
-                text: text, fontName: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).fontName
+                text: text, fontName: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular).fontName,
+                fontSize: fontSize
             )
             guard !Task.isCancelled else { return }
             layout = prepared

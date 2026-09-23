@@ -109,12 +109,12 @@ struct PotentialConflictFileDetailSheet: View {
                     .bold()
                     .foregroundStyle(.orange)
 
-                ScrollView([.horizontal, .vertical]) {
+                ScrollView(.vertical) {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         ForEach(Array(analysis.conflictBlocks.prefix(visibleConflictBlockCount))) { block in
                             PotentialConflictCodeBlockView(
                                 block: block,
-                                fileExtension: presentation.file.fileExtension
+                                fileExtension: SyntaxHighlighter.syntaxIdentifier(forFilePath: presentation.file.path)
                             )
                         }
 

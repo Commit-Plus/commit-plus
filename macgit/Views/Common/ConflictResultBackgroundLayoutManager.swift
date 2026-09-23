@@ -30,7 +30,8 @@ final class ConflictResultBackgroundLayoutManager: NSLayoutManager {
         }
 
         let text = textStorage.string as NSString
-        let backgroundWidth = max(viewportWidth, usedRect(for: textContainer).width)
+        let visibleRect = textContainer.textView?.visibleRect ?? .zero
+        let backgroundWidth = max(viewportWidth, visibleRect.maxX)
         var visibleLineIndex: Int?
         enumerateLineFragments(forGlyphRange: glyphsToShow) { [self] rect, _, _, glyphRange, _ in
             let lineIndex: Int
@@ -59,11 +60,14 @@ final class ConflictResultBackgroundLayoutManager: NSLayoutManager {
                 height: rect.height
             )
 
-            if blankLineIndices.contains(lineIndex) {
-                drawPlaceholderBackground(in: backgroundRect)
-            } else if changedLineIndices.contains(lineIndex) {
-                NSColor.systemGreen.withAlphaComponent(0.13).setFill()
-                backgroundRect.fill()
+            let clippedRect = backgroundRect.intersection(visibleRect)
+            if !clippedRect.isEmpty {
+                if blankLineIndices.contains(lineIndex) {
+                    drawPlaceholderBackground(in: clippedRect)
+                } else if changedLineIndices.contains(lineIndex) {
+                    NSColor.systemGreen.withAlphaComponent(0.13).setFill()
+                    clippedRect.fill()
+                }
             }
         }
 

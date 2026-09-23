@@ -22,37 +22,9 @@ import SwiftUI
 struct RepositoryAICodeSyntaxHighlighter: CodeSyntaxHighlighter {
     func highlightCode(_ content: String, language: String?) -> Text {
         let highlighter = SyntaxHighlighter(
-            fileExtension: Self.normalizedLanguage(language)
+            fileExtension: language ?? ""
         )
         return Text(highlighter.attributedString(for: content, fontSize: 12))
     }
 
-    private static func normalizedLanguage(_ language: String?) -> String {
-        let identifier = language?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() ?? ""
-
-        return switch identifier {
-        case "javascript", "node", "nodejs":
-            "js"
-        case "typescript":
-            "ts"
-        case "python":
-            "py"
-        case "shell", "console":
-            "sh"
-        case "objective-c", "objc":
-            "m"
-        case "objective-c++", "objc++":
-            "mm"
-        case "c++":
-            "cpp"
-        case "kotlin":
-            "kt"
-        case "rust":
-            "rs"
-        default:
-            identifier
-        }
-    }
 }

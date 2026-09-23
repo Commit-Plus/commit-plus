@@ -25,6 +25,7 @@ import SwiftUI
 /// A read-only code view that shows line numbers and can highlight specific lines.
 struct ConflictCodeView: View {
     @Environment(\.conflictRenderedRows) private var renderedRows
+    @Environment(\.conflictHorizontalViewport) private var horizontalViewport
     var minimumCodeWidth: CGFloat = 0
 
     private var visibleRows: Range<Int> {
@@ -175,10 +176,20 @@ struct ConflictCodeView: View {
             ForEach(visibleRows, id: \.self) { index in
                 let row = rows[index]
                 rowWithContextMenu(for: row) {
-                    Text(attributedText(for: row, using: highlighter))
-                        .font(.system(size: fontSize, design: .monospaced))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
+                    Group {
+                        if DiffLongLineLayout.isLong(row.text) {
+                            DiffLongLineContent(
+                                lineID: index, text: row.text,
+                                viewport: horizontalViewport.offsetBy(dx: selectionSide == nil ? -56 : -84, dy: 0),
+                                fontSize: fontSize
+                            )
+                        } else {
+                            Text(attributedText(for: row, using: highlighter))
+                                .font(.system(size: fontSize, design: .monospaced))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                    }
                         .padding(.horizontal, 8)
                         .frame(maxWidth: .infinity, minHeight: rowHeight, alignment: .leading)
                         .background(rowBackground(for: row))
@@ -210,6 +221,13 @@ struct ConflictCodeView: View {
 
     @ViewBuilder
     private func contextMenuItems(for row: ConflictCodeLine) -> some View {
+        if !row.isPlaceholder {
+            Button("Copy line") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(row.text, forType: .string)
+            }
+            Divider()
+        }
         if row.isConflict, let sectionIndex = row.conflictSectionIndex {
             Button("Take Incoming") {
                 onResolveConflict(sectionIndex, .incoming)

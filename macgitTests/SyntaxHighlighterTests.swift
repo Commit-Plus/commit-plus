@@ -20,6 +20,32 @@ final class SyntaxHighlighterTests: XCTestCase {
     }
 
     @MainActor
+    func testCodeFenceAliasesShareFileHighlighting() {
+        let cases = [
+            ("javascript", "js", "const value = true"),
+            ("typescript", "ts", "interface Item {}"),
+            ("python", "py", "def hello():"),
+            ("shell", "sh", "fi"),
+            ("objective-c", "m", "#include <stdio.h>"),
+            ("c++", "cpp", "template<typename T>"),
+            ("csharp", "cs", "using System;"),
+            ("c#", "cs", "using System;"),
+            ("kotlin", "kt", "fun hello() {}"),
+            ("rust", "rs", "impl Item {}"),
+            ("ruby", "rb", "require 'json'"),
+            ("golang", "go", "chan int"),
+            ("docker", "dockerfile", "FROM alpine"),
+            ("dotenv", "env", "PORT=3000"),
+            ("  Ruby\n", "rb", "require 'json'"),
+        ]
+        for (language, ext, source) in cases {
+            let actual = SyntaxHighlighter(fileExtension: language).nsAttributedString(for: source)
+            let expected = SyntaxHighlighter(fileExtension: ext).nsAttributedString(for: source)
+            XCTAssertTrue(actual.isEqual(to: expected), language)
+        }
+    }
+
+    @MainActor
     func testPopularLanguageKeywordsAndFileFormats() {
         let cases: [(String, String, String)] = [
             ("swift", "guard ready else { return }", "guard"),

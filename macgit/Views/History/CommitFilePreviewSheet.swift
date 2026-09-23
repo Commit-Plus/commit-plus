@@ -81,7 +81,7 @@ struct CommitFilePreviewSheet: View {
         } else {
             CommitFilePreviewContent(
                 lines: lines,
-                fileExtension: (request.file.path as NSString).pathExtension.lowercased()
+                fileExtension: SyntaxHighlighter.syntaxIdentifier(forFilePath: request.file.path)
             )
         }
     }
