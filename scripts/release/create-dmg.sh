@@ -37,8 +37,7 @@ ln -s /Applications "$DMG_SOURCE_DIR/Applications"
 hdiutil create \
   -volname "Commit+" \
   -srcfolder "$DMG_SOURCE_DIR" \
-  -format UDZO \
-  -imagekey zlib-level=9 \
+  -format ULMO \
   -ov \
   "$DMG_PATH"
 
