@@ -141,6 +141,7 @@ struct MainWindowView: View {
     @State var pendingStashPaths: [String] = []
     @State var pendingProviderAccountSelection: PendingGitProviderAccountSelection?
     @State var providerAccountSelectionContinuation: CheckedContinuation<String?, Never>?
+    @State private var lfsTrackingPath: String?
     @StateObject var syncState = SyncState()
     @StateObject var undoManager = GitUndoManager()
     @StateObject var pullRequestController: PullRequestController
@@ -1196,6 +1197,10 @@ struct MainWindowView: View {
                         requestStashAction(ref: ref, action: .apply)
                     },
                     onRequestComparePath: { pathComparisonWindow.show(path: $0, in: repositoryURL) },
+                    onRequestTrackLFS: { path in
+                        lfsTrackingPath = path
+                        selectedItem = .item(.gitLFS)
+                    },
                     onAuthorizeCommit: authorizeProtectedBranchCommit,
                     onRequestPushAfterCommit: pushAfterCommit,
                     onRunRepositoryOperation: runRepositoryOperation
@@ -1228,7 +1233,7 @@ struct MainWindowView: View {
                         onRunRepositoryOperation: runRepositoryOperation,
                         onRequestCheckout: checkoutRequest,
                         onRequestExplainCommit: explainCommitWithRepositoryAI,
-                        onRequestBrowseRevision: { revisionBrowserWindow.show(revision: $0.hash, in: repositoryURL) }
+                        onRequestBrowseRevision: { revisionBrowserWindow.show(revision: $0.hash, in: repositoryURL, credentialResolver: providerCredentialResolver) }
                     )
                 }
             case .branch, .worktree, .tag, .remoteBranch, .head:
@@ -1240,7 +1245,7 @@ struct MainWindowView: View {
                     onRunRepositoryOperation: runRepositoryOperation,
                     onRequestCheckout: checkoutRequest,
                     onRequestExplainCommit: explainCommitWithRepositoryAI,
-                    onRequestBrowseRevision: { revisionBrowserWindow.show(revision: $0.hash, in: repositoryURL) }
+                    onRequestBrowseRevision: { revisionBrowserWindow.show(revision: $0.hash, in: repositoryURL, credentialResolver: providerCredentialResolver) }
                 )
             case .item(.reflog):
                 ReflogView(
@@ -1310,6 +1315,13 @@ struct MainWindowView: View {
                 EmptyStateView(message: "Select a subtree action from the sidebar")
             case .item(.search):
                 SearchView(repositoryURL: repositoryURL)
+            case .item(.gitLFS):
+                GitLFSView(repositoryURL: repositoryURL, initialPath: lfsTrackingPath, credentialResolver: { remote in
+                    await credentialResolverForRemoteOperation(remotes: [remote])
+                }, refreshRepository: {
+                    await syncState.refresh(repositoryURL: repositoryURL, force: true)
+                })
+                .id(repositoryURL)
             case .item(.gitFlow):
                 GitFlowDashboardView(
                     configuration: gitFlowConfiguration,

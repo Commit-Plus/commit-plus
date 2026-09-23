@@ -1081,6 +1081,7 @@ private struct RepoPickerCountBadge: View {
 }
 
 struct CloneSheetView: View {
+    @Environment(\.gitLFSCredentialResolver) private var lfsCredentialResolver
     @Environment(\.dismiss) private var dismiss
     @State private var remoteURL: String
     @State private var destinationPath = ""
@@ -1091,6 +1092,9 @@ struct CloneSheetView: View {
     @State private var isLoadingRemoteBranches = false
     @State private var remoteBranchLoadError: String?
     @State private var recurseSubmodules = false
+    @State private var downloadLFSContent = true
+    @State private var clonedRepository: URL?
+    @State private var lfsRuntime = GitLFSRuntimeController.shared
     @State private var advancedOptionsExpanded = false
     @State private var showingDestinationPicker = false
     @State private var isCloning = false
@@ -1211,6 +1215,8 @@ struct CloneSheetView: View {
                                 .frame(width: Self.trailingControlWidth, height: Self.controlHeight)
                         }
 
+                        Toggle("Download LFS content", isOn: $downloadLFSContent)
+                            .padding(.leading, Self.labelWidth + 12)
                         Toggle("Recurse submodules", isOn: $recurseSubmodules)
                             .padding(.leading, Self.labelWidth + 12)
                     }
@@ -1219,8 +1225,13 @@ struct CloneSheetView: View {
             }
 
             HStack {
-                Label(repositoryStatusText, systemImage: "chevron.left.forwardslash.chevron.right")
-                    .foregroundStyle(.secondary)
+                if lfsRuntime.isInstalling {
+                    ProgressView("Downloading Git LFS…").controlSize(.small)
+                    Button("Cancel Download", role: .cancel) { lfsRuntime.cancel() }
+                } else {
+                    Label(repositoryStatusText, systemImage: "chevron.left.forwardslash.chevron.right")
+                        .foregroundStyle(.secondary)
+                }
 
                 Spacer()
 
@@ -1248,9 +1259,17 @@ struct CloneSheetView: View {
             await loadRemoteBranches(for: trimmedRemoteURL)
         }
         .alert("Error", isPresented: $showingError, actions: {
+            if let clonedRepository {
+                if lfsRuntime.status?.activeRuntime == nil {
+                    Button("Download Git LFS & Continue") { finishLFSClone(downloadRuntime: true) }
+                } else {
+                    Button("Retry LFS Download") { finishLFSClone(downloadRuntime: false) }
+                }
+                Button("Open Cloned Repository") { onClone(clonedRepository); dismiss() }
+            }
             Button("OK", role: .cancel) {}
         }, message: {
-            Text(errorMessage ?? "An unknown error occurred")
+            Text((errorMessage ?? "An unknown error occurred") + (clonedRepository != nil && lfsRuntime.status?.activeRuntime == nil ? "\n\nDownload a private copy: " + lfsRuntime.downloadDescription : ""))
         })
         .onChange(of: showingDestinationPicker) { _, newValue in
             if newValue {
@@ -1394,7 +1413,9 @@ struct CloneSheetView: View {
                     remoteURL: trimmedRemoteURL,
                     to: finalURL,
                     checkoutBranch: checkoutBranch,
-                    recurseSubmodules: recurseSubmodules
+                    recurseSubmodules: recurseSubmodules,
+                    downloadLFSContent: downloadLFSContent,
+                    credentialResolver: lfsCredentialResolver
                 )
 
                 await MainActor.run {
@@ -1402,11 +1423,35 @@ struct CloneSheetView: View {
                     dismiss()
                 }
             } catch {
+                await lfsRuntime.refresh()
                 await MainActor.run {
+                    clonedRepository = (error as? GitLFSCloneRecoveryError)?.repository
                     errorMessage = error.localizedDescription
                     showingError = true
                     isCloning = false
                 }
+            }
+        }
+    }
+
+    private func finishLFSClone(downloadRuntime: Bool) {
+        guard let repository = clonedRepository else { return }
+        isCloning = true
+        Task {
+            let installed = downloadRuntime ? await lfsRuntime.install() : true
+            do {
+                guard installed else { throw GitError.commandFailed(lfsRuntime.error ?? "Git LFS installation was cancelled.") }
+                guard lfsRuntime.status?.activeRuntime != nil else {
+                    throw GitError.commandFailed(lfsRuntime.error ?? "Git LFS installation was cancelled.")
+                }
+                try await GitStatusService.shared.setupLFS(in: repository)
+                try await GitStatusService.shared.downloadLFS(remote: "origin", in: repository, credentialResolver: lfsCredentialResolver)
+                onClone(repository)
+                dismiss()
+            } catch {
+                errorMessage = GitLFSErrorMessage.sanitized(error.localizedDescription)
+                showingError = true
+                isCloning = false
             }
         }
     }

@@ -1,6 +1,8 @@
 # Git Large File Storage Implementation Plan for Commit+
 
-Date: 2026-09-23. Status: implementation proposal; no app changes yet.
+Date: 2026-09-23. Status: first-release implementation added; manual UI and live-provider verification remain outstanding.
+
+Implementation reference: [Git LFS user guide](../git-lfs.md). The delivered UI keeps Git LFS visible in Workspace so new users can discover setup directly. Setup, tracking, and review are presented in that workspace rather than a separate three-page wizard. Explicit LFS downloads show file and byte progress through the CLI progress interface, with an indeterminate fallback. Tracking rules have a source-aware table and preserve raw output for inspection. Existing custom hooks require manual integration. History migration, locking, and pruning remain outside this release.
 
 ## 1. What is Git LFS?
 
@@ -225,4 +227,4 @@ rtk proxy xcodebuild -project macgit.xcodeproj -scheme macgit -destination 'plat
 rtk git diff --check
 ```
 
-The test class name is proposed and will be created during implementation. The current task only adds this plan; no app build is required.
+The test class name is proposed and will be created during implementation. The initial planning task required no build. Implementation validation is recorded in the implementation handoff and Git LFS user guide.

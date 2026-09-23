@@ -60,11 +60,16 @@ extension GitStatusService {
         ) else {
             return nil
         }
-        return try injection(
+        var result = try injection(
             for: credential,
             credentialInjector: credentialInjector,
             sshCredentialInjector: sshCredentialInjector
         )
+        if case .https = credential, let url = URLComponents(string: remoteURLString), let host = url.host {
+            result.environment["MACGIT_GIT_CREDENTIAL_HOST"] = host + (url.port.map { ":\($0)" } ?? "")
+            result.environment["MACGIT_GIT_CREDENTIAL_SCHEME"] = url.scheme ?? "https"
+        }
+        return result
     }
 
     func remoteCredential(

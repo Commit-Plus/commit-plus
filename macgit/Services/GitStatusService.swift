@@ -49,6 +49,7 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
     private var stderrData = Data()
     private var continuation: CheckedContinuation<GitProcessResult, Error>?
     private var didResume = false
+    private var wasCancelled = false
     private var isOutputTruncated = false
 
     init(
@@ -92,7 +93,9 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
         self.stdout = stdout
         self.stderr = stderr
         self.continuation = continuation
+        let cancelledBeforeStart = wasCancelled
         lock.unlock()
+        if cancelledBeforeStart { resume(throwing: CancellationError()); return }
 
         outputGroup.enter()
         outputGroup.enter()
@@ -106,6 +109,10 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
             try task.run()
             drain(stdout.fileHandleForReading, intoStandardError: false)
             drain(stderr.fileHandleForReading, intoStandardError: true)
+            lock.lock()
+            let cancelled = wasCancelled
+            lock.unlock()
+            if cancelled { cancel() }
         } catch {
             stdout.fileHandleForWriting.closeFile()
             stderr.fileHandleForWriting.closeFile()
@@ -162,7 +169,12 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
         outputLock.unlock()
         let errorOutput = String(decoding: errData, as: UTF8.self)
 
-        if process.terminationStatus != 0 {
+        lock.lock()
+        let cancelled = wasCancelled
+        lock.unlock()
+        if cancelled {
+            resume(throwing: CancellationError())
+        } else if process.terminationStatus != 0 {
             let output = String(decoding: outData, as: UTF8.self)
             let message = errorOutput.isEmpty ? output : errorOutput
             resume(throwing: GitError.commandFailed(message.trimmingCharacters(in: .whitespacesAndNewlines)))
@@ -173,14 +185,24 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
 
     private func cancel() {
         lock.lock()
-        let task = task
-        let shouldTerminate = task?.isRunning == true
+        wasCancelled = true
+        let process = task
         lock.unlock()
+        guard let process, process.isRunning else { return }
+        Self.terminateChildren(of: process.processIdentifier)
+        process.terminate()
+        // Completion waits for process exit and pipe draining before callers release credentials.
+    }
 
-        if shouldTerminate {
-            task?.terminate()
+    private static func terminateChildren(of pid: Int32) {
+        var children = [Int32](repeating: 0, count: 4096)
+        let capacity = Int32(children.count * MemoryLayout<Int32>.size)
+        let byteCount = children.withUnsafeMutableBytes { proc_listchildpids(pid, $0.baseAddress, capacity) }
+        guard byteCount > 0 else { return }
+        for child in children.prefix(Int(byteCount) / MemoryLayout<Int32>.size) where child > 0 && child != pid {
+            terminateChildren(of: child)
+            kill(child, SIGTERM)
         }
-        resume(throwing: CancellationError())
     }
 
     private func resume(returning result: GitProcessResult) {
@@ -217,14 +239,19 @@ actor GitStatusService {
 
     private let runner: (any GitCommandRunning)?
     let runtimeManager: GitRuntimeManager
+    let lfsRuntime: GitLFSRuntime
     let branchListCache = BranchListCache()
+    var lfsMutations = Set<String>()
+    private var gitCorePaths: [String: String] = [:]
 
     init(
         runner: (any GitCommandRunning)? = nil,
-        runtimeManager: GitRuntimeManager = .shared
+        runtimeManager: GitRuntimeManager = .shared,
+        lfsRuntime: GitLFSRuntime = .shared
     ) {
         self.runner = runner
         self.runtimeManager = runtimeManager
+        self.lfsRuntime = lfsRuntime
     }
 
     func gitExecutable() async throws -> String {
@@ -235,11 +262,23 @@ actor GitStatusService {
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) async throws -> (executable: String, environment: [String: String]) {
         let executableURL = try await runtimeManager.executableURL()
-        let resolvedEnvironment = await runtimeManager.environment(
+        var resolvedEnvironment = await runtimeManager.environment(
             for: executableURL,
             inheriting: environment
         )
-        return (executableURL.path, resolvedEnvironment)
+        resolvedEnvironment["PATH"] = executableURL.deletingLastPathComponent().path + ":" + (resolvedEnvironment["PATH"] ?? "/usr/bin:/bin")
+        if resolvedEnvironment["GIT_EXEC_PATH"] == nil {
+            if let cached = gitCorePaths[executableURL.path] {
+                resolvedEnvironment["GIT_EXEC_PATH"] = cached
+            } else {
+                let result = try await GitProcessExecution(executable: executableURL.path, arguments: ["--exec-path"],
+                    directory: FileManager.default.temporaryDirectory, environment: resolvedEnvironment, outputByteLimit: 16_384).run()
+                let path = String(decoding: result.data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                gitCorePaths[executableURL.path] = path
+                resolvedEnvironment["GIT_EXEC_PATH"] = path
+            }
+        }
+        return (executableURL.path, try await lfsRuntime.environment(inheriting: resolvedEnvironment))
     }
 
     func runGit(arguments: [String], in directory: URL) async throws -> String {
@@ -424,14 +463,17 @@ actor GitStatusService {
         executableURL: URL,
         arguments: [String],
         in directory: URL,
-        environment: [String: String]
+        environment: [String: String],
+        outputByteLimit: Int? = nil
     ) async throws -> Data {
         let result = try await GitProcessExecution(
             executable: executableURL.path,
             arguments: arguments,
             directory: directory,
-            environment: environment
+            environment: environment,
+            outputByteLimit: outputByteLimit
         ).run()
+        guard !result.isTruncated else { throw GitError.commandFailed("Command output exceeded the safety limit.") }
         return result.data
     }
 

@@ -36,6 +36,9 @@ struct GitRuntimeConfiguration: Sendable {
     let manifest: GitRuntimeManifest
     let preferenceDefaults: UserDefaults
     let preferenceKey: String
+    var managedDirectoryName: String = "Git"
+    var executableRelativePath: String = "bin/git"
+    var versionPrefix: String = "git version"
 
     static func live() -> GitRuntimeConfiguration {
         let supportDirectory = FileManager.default.urls(
@@ -210,6 +213,7 @@ actor GitRuntimeManager {
         }
         defer { try? fileManager.removeItem(at: archiveURL) }
 
+        try Task.checkCancellation()
         let archiveSize = (try? archiveURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         guard archiveSize == configuration.manifest.archiveSize else {
             throw GitRuntimeError.invalidArchiveSize(
@@ -232,6 +236,7 @@ actor GitRuntimeManager {
             throw GitRuntimeError.validationFailed(stagedGitURL.path)
         }
 
+        try Task.checkCancellation()
         try promote(stagingURL: stagingURL, finalURL: managedRootURL())
         cachedActiveRuntime = nil
     }
@@ -261,7 +266,7 @@ actor GitRuntimeManager {
     private func validatedRuntime(at url: URL) async -> GitRuntimeInstallation? {
         guard fileManager.isExecutableFile(atPath: url.path),
               let version = try? await processRunner.version(at: url),
-              version.lowercased().contains("git version") else {
+              version.lowercased().hasPrefix(configuration.versionPrefix) else {
             return nil
         }
         return GitRuntimeInstallation(
@@ -288,7 +293,7 @@ actor GitRuntimeManager {
     private func managedParentURL() -> URL {
         configuration.applicationSupportDirectory
             .appendingPathComponent("Commit+", isDirectory: true)
-            .appendingPathComponent("Git", isDirectory: true)
+            .appendingPathComponent(configuration.managedDirectoryName, isDirectory: true)
     }
 
     private func managedRootURL() -> URL {
@@ -304,7 +309,7 @@ actor GitRuntimeManager {
     }
 
     private func gitURL(in rootURL: URL) -> URL {
-        rootURL.appendingPathComponent("bin/git")
+        rootURL.appendingPathComponent(configuration.executableRelativePath)
     }
 
     private func promote(stagingURL: URL, finalURL: URL) throws {

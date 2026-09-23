@@ -22,7 +22,9 @@ extension GitStatusService {
         remoteURL: String,
         to destinationURL: URL,
         checkoutBranch: String,
-        recurseSubmodules: Bool
+        recurseSubmodules: Bool,
+        downloadLFSContent: Bool = true,
+        credentialResolver: GitProviderCredentialResolver? = nil
     ) async throws {
         let parentURL = destinationURL.deletingLastPathComponent()
         var arguments = ["clone"]
@@ -36,8 +38,26 @@ extension GitStatusService {
             arguments.append("--recurse-submodules")
         }
 
-        arguments += [remoteURL, destinationURL.path]
-        _ = try await runGit(arguments: arguments, in: parentURL)
+        arguments += ["--", remoteURL, destinationURL.path]
+        let injection = try await credentialInjection(for: remoteURL, in: parentURL,
+            credentialResolver: credentialResolver, credentialInjector: TemporaryGitCredentialInjector(),
+            sshCredentialInjector: TemporaryGitSSHCredentialInjector())
+        defer { injection?.cleanup() }
+        var environment = injection?.environment ?? ProcessInfo.processInfo.environment
+        environment["GIT_LFS_SKIP_SMUDGE"] = "1"
+        // Clone Git data first so a failed LFS download never requires cloning again.
+        _ = try await runGit(arguments: ["-c", "filter.lfs.process=", "-c", "filter.lfs.smudge=", "-c", "filter.lfs.required=false"] + arguments,
+            in: parentURL, environment: environment)
+        let files = try await runGit(arguments: ["ls-files", "-z"], in: destinationURL)
+        let paths = files.split(separator: "\0").map(String.init)
+        guard try await !lfsPaths(paths, in: destinationURL).isEmpty else { return }
+        guard downloadLFSContent else { return }
+        do {
+            try await setupLFS(in: destinationURL)
+            try await downloadLFS(remote: "origin", in: destinationURL, credentialResolver: credentialResolver)
+        } catch {
+            throw GitLFSCloneRecoveryError(repository: destinationURL, reason: error.localizedDescription)
+        }
     }
 
     func remoteBranches(remoteURL: String) async throws -> [String] {

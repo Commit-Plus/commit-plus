@@ -62,7 +62,8 @@ final class RevisionBrowserServiceTests: XCTestCase {
         XCTAssertTrue(results["large"]?.message?.contains("2 MB") == true)
         XCTAssertNil(results["large"]?.text)
         XCTAssertEqual(results["empty"]?.text, "")
-        XCTAssertTrue(results["lfs"]?.message?.contains("LFS pointer") == true)
+        XCTAssertNil(results["lfs"]?.lfsPointer)
+        XCTAssertNil(results["lfs"]?.message)
         XCTAssertTrue(results["submodule"]?.message?.contains(sha) == true)
         // An incorrect caller-provided size must not bypass the process output bound.
         let large = try XCTUnwrap(entries.first { $0.path == "large" })

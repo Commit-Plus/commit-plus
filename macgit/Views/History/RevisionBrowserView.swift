@@ -3,6 +3,8 @@ import SwiftUI
 
 struct RevisionBrowserView: View {
     let controller: RevisionBrowserController
+    @State private var lfsRemotes: [String] = []
+    @State private var lfsRemote = ""
     let onCompare: (ComparisonPath, String) -> Void
 
     var body: some View {
@@ -38,7 +40,11 @@ struct RevisionBrowserView: View {
                 )
             }
         }
-        .task { controller.load() }
+        .task {
+            controller.load()
+            lfsRemotes = await GitStatusService.shared.remotes(in: controller.repositoryURL)
+            if lfsRemotes.count == 1 { lfsRemote = lfsRemotes[0] }
+        }
     }
 
     private var tree: some View {
@@ -124,6 +130,16 @@ struct RevisionBrowserView: View {
                             .pointingHandCursor()
                     }
                 }.padding(12)
+                if controller.preview?.lfsPointer != nil {
+                    HStack {
+                        Picker("Download remote", selection: $lfsRemote) {
+                            Text("Choose remote").tag("")
+                            ForEach(lfsRemotes, id: \.self) { Text($0).tag($0) }
+                        }
+                        GitLFSPreviewDownloadButton(controller: controller, remote: lfsRemote)
+                            .id(entry.id)
+                    }.padding(12)
+                }
                 Divider()
                 if controller.isLoadingPreview {
                     ProgressView("Loading file…").frame(maxWidth: .infinity, maxHeight: .infinity)

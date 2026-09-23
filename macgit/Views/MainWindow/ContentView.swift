@@ -236,6 +236,7 @@ struct ContentView: View {
         )
         // Prefer the scene that opened browser sign-in. If it was closed (or the
         // app relaunched), allow another existing scene to receive the callback.
+        .environment(\.gitLFSCredentialResolver, providerAccountController.credentialResolver())
         .handlesExternalEvents(
             preferring: preferredExternalEvents,
             allowing: ["macgit://session", "macgit://open-repository"]

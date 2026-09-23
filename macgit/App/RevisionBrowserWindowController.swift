@@ -15,9 +15,10 @@ final class RevisionBrowserWindowController: NSWindowController, NSWindowDelegat
         fatalError("init(coder:) has not been implemented")
     }
 
-    func show(revision: String, in repositoryURL: URL) {
+    func show(revision: String, in repositoryURL: URL, credentialResolver: GitProviderCredentialResolver? = nil) {
         close()
         let browser = RevisionBrowserController(repositoryURL: repositoryURL, revision: revision)
+        browser.lfsCredentialResolver = credentialResolver
         self.browser = browser
         let screen = NSApp.keyWindow?.screen ?? NSScreen.main
         let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)

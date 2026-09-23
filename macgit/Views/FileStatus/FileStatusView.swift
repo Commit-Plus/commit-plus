@@ -41,12 +41,14 @@ struct FileStatusView: View {
     var onRequestUpdateCurrentBranch: (CurrentBranchIntegrationStatus) -> Void = { _ in }
     var onRequestApplyStash: (String) -> Void = { _ in }
     var onRequestComparePath: (ComparisonPath) -> Void = { _ in }
+    var onRequestTrackLFS: (String) -> Void = { _ in }
     var onAuthorizeCommit: () async -> Bool = { true }
     var onRequestPushAfterCommit: (String, String) async throws -> Void
     var onRunRepositoryOperation: RepositoryOperationRunner
 
     @ObservedObject private var integrationSettings = IntegrationSettingsStore.shared
     @State private var gitStatus: GitStatus = GitStatus(staged: [], unstaged: [], untracked: [])
+    @State private var lfsPaths = Set<String>()
     @State private var changedFiles: [StatusFile] = []
     @State private var visibleStagedFileCount = 100
     @State private var visibleChangedFileCount = 100
@@ -486,6 +488,9 @@ struct FileStatusView: View {
 
                 HStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 1) {
+                        if lfsPaths.contains(file.path) {
+                            Text("LFS").font(.caption).foregroundStyle(.secondary).accessibilityLabel("Git LFS file")
+                        }
                         Text(file.displayName)
                             .font(.system(size: 13, weight: .medium))
                             .lineLimit(1)
@@ -713,6 +718,8 @@ struct FileStatusView: View {
 
     @ViewBuilder
     private func fileContextMenu(file: StatusFile, isStaged: Bool) -> some View {
+        Button("Track with Git LFS…", systemImage: "externaldrive") { onRequestTrackLFS(file.path) }
+        Divider()
         let selection = actionSelection
 
         comparisonMenu(file: file)
@@ -1460,6 +1467,8 @@ struct FileStatusView: View {
                 loadedIntegrationStatus = nil
             }
 
+            let paths = Set((loadedStatus.staged + loadedStatus.unstaged + loadedStatus.untracked).map(\.path))
+            lfsPaths = (try? await GitStatusService.shared.lfsPaths(Array(paths), in: repositoryURL)) ?? []
             gitStatus = loadedStatus
             changedFiles = loadedStatus.unstaged + loadedStatus.untracked
             currentBranch = loadedCurrentBranch

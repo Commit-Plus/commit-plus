@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import AppKit
 import Foundation
+import CryptoKit
 
 extension GitStatusService: RevisionBrowserServing {
     nonisolated static let revisionPreviewByteLimit = 2_000_000
@@ -70,7 +71,30 @@ extension GitStatusService: RevisionBrowserServing {
         let data = try await runGitRaw(arguments: ["cat-file", "blob", entry.objectID], in: repositoryURL,
             environment: ProcessInfo.processInfo.environment, outputByteLimit: Self.revisionPreviewByteLimit)
         try Task.checkCancellation()
+        if !entry.isSymlink, let text = String(data: data, encoding: .utf8), let pointer = GitLFSPointer(text) {
+            if pointer.size > Self.revisionPreviewByteLimit {
+                return .notice("Git LFS content: \(pointer.size) bytes\nSHA-256: \(pointer.oid)\nContent exceeds the 2 MB preview limit. Use Git LFS to download the current checkout.")
+            }
+            if let cached = try await cachedLFSData(pointer, in: repositoryURL) {
+                return try Self.decodeBrowserPreview(cached, isSymlink: false)
+            }
+            return RevisionFilePreview(text: text, lines: [], message: "Git LFS content is not available in the local cache.\nSize: \(pointer.size) bytes\nSHA-256: \(pointer.oid)", lfsPointer: pointer)
+        }
         return try Self.decodeBrowserPreview(data, isSymlink: entry.isSymlink)
+    }
+
+    private func cachedLFSData(_ pointer: GitLFSPointer, in repository: URL) async throws -> Data? {
+        guard let environment = try? await runLFS(["env"], in: repository),
+              let line = environment.split(separator: "\n").first(where: { $0.hasPrefix("LocalMediaDir=") }) else { return nil }
+        let root = URL(fileURLWithPath: String(line.dropFirst("LocalMediaDir=".count)))
+        let url = root.appendingPathComponent(String(pointer.oid.prefix(2)))
+            .appendingPathComponent(String(pointer.oid.dropFirst(2).prefix(2))).appendingPathComponent(pointer.oid)
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: Self.revisionPreviewByteLimit + 1) ?? Data()
+        guard data.count == pointer.size else { return nil }
+        let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return hash == pointer.oid ? data : nil
     }
 
     nonisolated static func decodeBrowserPreview(_ data: Data, isSymlink: Bool) throws -> RevisionFilePreview {
@@ -81,8 +105,8 @@ extension GitStatusService: RevisionBrowserServing {
             return .notice("Binary file or unsupported text encoding. UTF-8 preview is unavailable.")
         }
         if isSymlink { return RevisionFilePreview(text: text, lines: [], message: "Symbolic link target: \(text)") }
-        if text.hasPrefix("version https://git-lfs.github.com/spec/v1\n") || text.hasPrefix("version https://git-lfs.github.com/spec/v1\r\n") {
-            return RevisionFilePreview(text: text, lines: [], message: "Git LFS pointer (content is not downloaded):\n\(text)")
+        if let pointer = GitLFSPointer(text) {
+            return RevisionFilePreview(text: text, lines: [], message: "Git LFS pointer · \(pointer.size) bytes\nSHA-256: \(pointer.oid)", lfsPointer: pointer)
         }
         let rawLines = text.components(separatedBy: "\n")
         guard rawLines.count <= 50_000, rawLines.allSatisfy({ $0.utf8.count <= 16_000 }) else {

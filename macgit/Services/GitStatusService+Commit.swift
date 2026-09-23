@@ -91,6 +91,7 @@ extension GitStatusService {
         signOff: Bool = false,
         allowEmpty: Bool = false
     ) async throws {
+        try await validateLFSCommitAttributes(in: repositoryURL)
         var arguments = ["commit"]
         if allowEmpty { arguments.append("--allow-empty") }
         if message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
