@@ -563,6 +563,7 @@ struct DiffLineView: View {
     let fileExtension: String
     let isSelected: Bool
     var cachedHighlightedText: AttributedString? = nil
+    var showsDiffGutter = true
     var horizontalViewport = CGRect(x: 0, y: 0, width: 1_024, height: 0)
 
     var backgroundColor: Color {
@@ -610,12 +611,13 @@ struct DiffLineView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Old line number
-            Text(line.oldLineNumber.map(String.init) ?? "")
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.tertiary)
-                .frame(width: 36, alignment: .trailing)
-                .padding(.trailing, 6)
+            if showsDiffGutter {
+                Text(line.oldLineNumber.map(String.init) ?? "")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 36, alignment: .trailing)
+                    .padding(.trailing, 6)
+            }
 
             // New line number
             Text(line.newLineNumber.map(String.init) ?? "")
@@ -625,7 +627,7 @@ struct DiffLineView: View {
                 .padding(.trailing, 6)
 
             // Prefix
-            if !prefix.isEmpty {
+            if showsDiffGutter && !prefix.isEmpty {
                 Text(prefix)
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(textColor.opacity(0.7))
@@ -637,7 +639,7 @@ struct DiffLineView: View {
                 DiffLongLineContent(
                     lineID: line.id,
                     text: line.text,
-                    viewport: horizontalViewport.offsetBy(dx: prefix.isEmpty ? -92 : -106, dy: 0)
+                    viewport: horizontalViewport.offsetBy(dx: -contentLeadingInset, dy: 0)
                 )
             } else {
                 Text(highlightedText)
@@ -650,6 +652,10 @@ struct DiffLineView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 2)
         .background(backgroundColor)
+    }
+
+    private var contentLeadingInset: CGFloat {
+        8 + (showsDiffGutter ? 84 : 42) + (showsDiffGutter && !prefix.isEmpty ? 14 : 0)
     }
 
     private var highlightedText: AttributedString {

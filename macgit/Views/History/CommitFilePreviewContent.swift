@@ -43,6 +43,7 @@ struct CommitFilePreviewContent: View {
                             fileExtension: fileExtension,
                             isSelected: false,
                             cachedHighlightedText: highlightCache.text(for: line, fileExtension: fileExtension),
+                            showsDiffGutter: false,
                             horizontalViewport: horizontalViewport
                         )
                         .frame(height: rowHeight)
@@ -101,7 +102,7 @@ struct CommitFilePreviewContent: View {
                 }
                 if index.isMultiple(of: 128) { await Task.yield() }
             }
-            contentWidth = ceil(width) + 130
+            contentWidth = ceil(width) + 74
         }
     }
 }
