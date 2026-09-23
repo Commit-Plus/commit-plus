@@ -144,7 +144,7 @@ struct DiffView: View {
     private func diskImagePreview(fileURL: URL, filePath: String) -> some View {
         Group {
             if let nsImage = NSImage(contentsOf: fileURL) {
-                imageDisplayView(nsImage)
+                FileImagePreview(image: nsImage)
             } else {
                 EmptyStateView(icon: "photo", message: "Unable to preview image", detail: filePath)
             }
@@ -154,7 +154,7 @@ struct DiffView: View {
     private func gitImagePreview(ref: String, url: URL, path: String) -> some View {
         Group {
             if let image = loadedImage {
-                imageDisplayView(image)
+                FileImagePreview(image: image)
             } else {
                 ProgressView("Loading image…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -176,18 +176,7 @@ struct DiffView: View {
         }
     }
 
-    private func imageDisplayView(_ nsImage: NSImage) -> some View {
-        GeometryReader { geo in
-            ScrollView(.vertical) {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: geo.size.width, alignment: .top)
-                    .clipped()
-            }
-        }
-        .padding(12)
-    }
+
 }
 
 

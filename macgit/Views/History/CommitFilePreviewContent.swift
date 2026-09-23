@@ -48,8 +48,9 @@ struct CommitFilePreviewContent: View {
                     }
                     Color.clear.frame(height: CGFloat(lines.count - range.upperBound) * rowHeight)
                 }
-                .frame(width: max(geometry.size.width, contentWidth), alignment: .leading)
+                .frame(width: max(geometry.size.width, contentWidth), alignment: .topLeading)
             }
+            .defaultScrollAnchor(.topLeading)
             .onScrollGeometryChange(for: Range<Int>.self) { scroll in
                 CommitFilePreviewViewport.rows(
                     offset: scroll.contentOffset.y,
@@ -60,6 +61,13 @@ struct CommitFilePreviewContent: View {
                 visibleRange = range
             }
         }
+        .background(.secondary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(.separator.opacity(0.5), lineWidth: 0.5)
+        }
+        .padding(12)
         .task {
             // Measure plain text only; regex highlighting is reserved for visible rows.
             // Yield between batches so opening a large file does not block the sheet.

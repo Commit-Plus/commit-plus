@@ -129,6 +129,9 @@ struct RevisionBrowserView: View {
                     ProgressView("Loading file…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let error = controller.previewError {
                     EmptyStateView(icon: "exclamationmark.triangle", message: "Unable to read object", detail: error)
+                } else if let data = controller.preview?.imageData, let image = NSImage(data: data) {
+                    FileImagePreview(image: image)
+                        .id(entry.id)
                 } else if let message = controller.preview?.message {
                     ScrollView { Text(message).textSelection(.enabled).padding().frame(maxWidth: .infinity, alignment: .leading) }
                 } else if let preview = controller.preview {

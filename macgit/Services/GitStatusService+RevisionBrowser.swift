@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import AppKit
 import Foundation
 
 extension GitStatusService: RevisionBrowserServing {
@@ -73,6 +74,9 @@ extension GitStatusService: RevisionBrowserServing {
     }
 
     nonisolated static func decodeBrowserPreview(_ data: Data, isSymlink: Bool) throws -> RevisionFilePreview {
+        if !isSymlink, NSImage(data: data) != nil {
+            return RevisionFilePreview(text: nil, lines: [], message: nil, imageData: data)
+        }
         guard !data.contains(0), let text = String(data: data, encoding: .utf8) else {
             return .notice("Binary file or unsupported text encoding. UTF-8 preview is unavailable.")
         }
