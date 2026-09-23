@@ -2,29 +2,27 @@
 
 Changes in the latest Commit+ release compared with the previous release.
 
-## v1.1.4
+## v1.1.5
 
-Changes since `v1.1.3`.
+Changes since `v1.1.4`.
 
 ### Added
 
-- Visual branch comparison workflow: compare any two branches, tags, or commits with a dedicated comparison view showing commits, file changes, and diffs.
-- Protected branch commit warnings: when attempting to commit to a protected branch, a confirmation sheet explains the protection and offers to create a new branch instead.
-- SQLite-backed LocalDataStore with async operations: migrated repository bookmarks, provider accounts, commit rules, GitFlow configuration, and visibility cache to a local SQLite database for better performance and reliability.
+- Browse repository files and folders at a revision without checking it out, with changed-file indicators, code and image previews, and actions to copy paths, contents, and object IDs.
+- Compare a file or folder with a branch, tag, or commit in a separate window, including comparisons against staged changes or the working tree.
+- Repair repository bookmarks after a remote is renamed or moved, with remote selection and retry support for pending bookmark sync changes.
 
 ### Improved
 
-- Conflict resolution UI: refined the merge tool layout, line highlights, and synchronized scrolling for a clearer side-by-side comparison.
-- Lazy loading for large files and batched diff rendering: improved responsiveness when viewing large files or many changes in History and File Status.
-- Sidebar scroll behavior: scroll indicators now appear only when needed, and keyboard-driven scrolling is smoother.
-- Welcome page activity cache: cache entries are now keyed by date for more accurate daily activity tracking.
-- GitFlow sync and related controllers refactored to use the new async LocalDataStore, simplifying synchronization logic.
+- Expanded syntax highlighting for source files, configuration formats, diffs, and Repository AI code blocks.
+- Improved horizontal scrolling and rendering of very long lines in code and diff views, with clearer line-number gutters in file previews.
+- Added file-type and folder icons to the revision browser.
+- Refined sign-in and sign-up screens and pointer feedback on interactive controls.
+- Updated website and documentation links to commitplus.app and docs.commitplus.app.
 
 ### Fixed
 
-- Branch rename sheet now initializes with the current branch name.
-- Right-click context menus on commit rows in History now appear correctly.
-- Drag-and-drop commit reordering with preview no longer misplaces commits during the drag.
-- Sync data setting persistence and migration from legacy storage.
+- Prevent competing sheets from opening over one another in the same window, and keep account dialogs attached to their originating window.
+- Match repository bookmarks against all remotes when linking a local folder.
 
-[Compare v1.1.3 to v1.1.4](https://github.com/Commit-Plus/commit-plus/compare/v1.1.3...v1.1.4)
+[Compare v1.1.4 to v1.1.5](https://github.com/Commit-Plus/commit-plus/compare/v1.1.4...v1.1.5)
