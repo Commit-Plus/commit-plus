@@ -23,6 +23,7 @@ struct CommitFilePreviewContent: View {
     let fileExtension: String
     @State private var visibleRange = 0..<0
     @State private var contentWidth: CGFloat = 0
+    @State private var horizontalViewport = CGRect(x: 0, y: 0, width: 1_024, height: 0)
     @State private var highlightCache = CommitFilePreviewHighlightCache()
 
     private let rowHeight = CommitFilePreviewViewport.rowHeight
@@ -41,7 +42,8 @@ struct CommitFilePreviewContent: View {
                             line: line,
                             fileExtension: fileExtension,
                             isSelected: false,
-                            cachedHighlightedText: highlightCache.text(for: line, fileExtension: fileExtension)
+                            cachedHighlightedText: highlightCache.text(for: line, fileExtension: fileExtension),
+                            horizontalViewport: horizontalViewport
                         )
                         .frame(height: rowHeight)
                         .textSelection(.enabled)
@@ -51,6 +53,16 @@ struct CommitFilePreviewContent: View {
                 .frame(width: max(geometry.size.width, contentWidth), alignment: .topLeading)
             }
             .defaultScrollAnchor(.topLeading)
+            .onScrollGeometryChange(for: CGRect.self) { scroll in
+                CGRect(
+                    x: floor(max(0, scroll.contentOffset.x) / 256) * 256,
+                    y: 0,
+                    width: ceil(scroll.containerSize.width / 256) * 256,
+                    height: 0
+                )
+            } action: { _, viewport in
+                horizontalViewport = viewport
+            }
             .onScrollGeometryChange(for: Range<Int>.self) { scroll in
                 CommitFilePreviewViewport.rows(
                     offset: scroll.contentOffset.y,
@@ -77,7 +89,16 @@ struct CommitFilePreviewContent: View {
             var width: CGFloat = 0
             for (index, line) in lines.enumerated() {
                 guard !Task.isCancelled else { return }
-                width = max(width, (line.text as NSString).size(withAttributes: attributes).width)
+                if DiffLongLineLayout.isLong(line.text) {
+                    let layout = await DiffLongLineLayout.load(
+                        text: line.text,
+                        fontName: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).fontName
+                    )
+                    guard !Task.isCancelled else { return }
+                    width = max(width, layout?.width ?? 0)
+                } else {
+                    width = max(width, (line.text as NSString).size(withAttributes: attributes).width)
+                }
                 if index.isMultiple(of: 128) { await Task.yield() }
             }
             contentWidth = ceil(width) + 130

@@ -23,6 +23,7 @@ struct WelcomeDashboardContent: View {
     let accountDisplayName: String?
     let repositoryCount: Int
     let onRefresh: () -> Void
+    let onOpenAccount: () -> Void
     let onReviewAttention: (WelcomeRepositoryAttention) -> Void
     let onRepositoryOpened: (URL) -> Void
 
@@ -42,6 +43,9 @@ struct WelcomeDashboardContent: View {
                             .labelStyle(.iconOnly)
                             .disabled(model.isLoading)
                             .help("Refresh local dashboard data")
+                        Button("Account", systemImage: "person.crop.circle", action: onOpenAccount)
+                            .labelStyle(.iconOnly)
+                            .help("Commit+ Account")
                     }
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: geometry.size.width >= 780 ? 4 : 2), spacing: 12) {
                         WelcomeOverviewCard(title: "Repositories", value: "\(repositoryCount)", detail: "In your recent list", icon: "folder", tint: .blue)

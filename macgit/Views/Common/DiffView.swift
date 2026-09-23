@@ -122,11 +122,7 @@ struct DiffView: View {
     }
 
     private var syntaxFileExtension: String {
-        if let file {
-            return file.fileExtension
-        }
-        guard let filePath else { return "" }
-        return URL(fileURLWithPath: filePath).pathExtension.lowercased()
+        SyntaxHighlighter.syntaxIdentifier(forFilePath: file?.path ?? filePath ?? "")
     }
 
     @ViewBuilder
@@ -192,6 +188,7 @@ struct HunkView: View {
     let onRefresh: () -> Void
     let onError: (String) -> Void
     @State private var availableWidth: CGFloat = 0
+    @State private var horizontalViewport = CGRect(x: 0, y: 0, width: 1_024, height: 0)
 
     private var isStaged: Bool {
         guard let file = file else { return false }
@@ -275,7 +272,8 @@ struct HunkView: View {
                         DiffLineView(
                             line: line,
                             fileExtension: fileExtension,
-                            isSelected: selectedLineIDs.contains(line.id)
+                            isSelected: selectedLineIDs.contains(line.id),
+                            horizontalViewport: horizontalViewport
                         )
                         .frame(height: DiffRenderBlock.rowHeight)
                         .frame(minWidth: availableWidth, alignment: .leading)
@@ -287,6 +285,17 @@ struct HunkView: View {
                         }
                     }
                 }
+            }
+            .onScrollGeometryChange(for: CGRect.self) { geometry in
+                // Quantize updates; the long-line view keeps ample overscan.
+                CGRect(
+                    x: floor(max(0, geometry.contentOffset.x) / 256) * 256,
+                    y: 0,
+                    width: ceil(geometry.containerSize.width / 256) * 256,
+                    height: 0
+                )
+            } action: { _, viewport in
+                horizontalViewport = viewport
             }
             .frame(height: CGFloat(lineRange.count) * DiffRenderBlock.rowHeight + DiffRenderBlock.scrollerHeight)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -554,6 +563,7 @@ struct DiffLineView: View {
     let fileExtension: String
     let isSelected: Bool
     var cachedHighlightedText: AttributedString? = nil
+    var horizontalViewport = CGRect(x: 0, y: 0, width: 1_024, height: 0)
 
     var backgroundColor: Color {
         if isSelected {
@@ -623,9 +633,17 @@ struct DiffLineView: View {
             }
 
             // Content
-            Text(highlightedText)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+            if DiffLongLineLayout.isLong(line.text) {
+                DiffLongLineContent(
+                    lineID: line.id,
+                    text: line.text,
+                    viewport: horizontalViewport.offsetBy(dx: prefix.isEmpty ? -92 : -106, dy: 0)
+                )
+            } else {
+                Text(highlightedText)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
 
             Spacer(minLength: 0)
         }

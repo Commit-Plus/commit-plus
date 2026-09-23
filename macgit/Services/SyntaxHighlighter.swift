@@ -35,9 +35,9 @@ struct SyntaxHighlighter {
         case normal
     }
 
-    struct TokenRule {
+    struct TokenRules {
         let regex: NSRegularExpression
-        let type: TokenType
+        let groups: [(name: String, type: TokenType)]
     }
 
     private static let keywordPattern: String = {
@@ -59,9 +59,9 @@ struct SyntaxHighlighter {
         return commonKeywords.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|")
     }()
 
-    private static var rulesCache: [String: [TokenRule]] = [:]
+    private static var rulesCache: [String: TokenRules] = [:]
 
-    private let rules: [TokenRule]
+    private let rules: TokenRules?
     private let fileExtension: String
 
     init(fileExtension: String) {
@@ -110,31 +110,19 @@ struct SyntaxHighlighter {
     }
 
     private func mergedTokenRanges(in text: String) -> [(NSRange, TokenType)] {
-        let fullRange = NSRange(location: 0, length: (text as NSString).length)
-        var tokenRanges: [(NSRange, TokenType)] = []
-
-        for rule in rules {
-            for match in rule.regex.matches(in: text, range: fullRange) {
-                let range = match.range
-                if range.location != NSNotFound {
-                    tokenRanges.append((range, rule.type))
-                }
+        guard let rules else { return [] }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        var tokens: [(NSRange, TokenType)] = []
+        // One combined expression consumes strings/comments atomically, without
+        // rescanning the entire remaining line once for every individual token.
+        rules.regex.enumerateMatches(in: text, range: range) { match, _, _ in
+            guard let match else { return }
+            for group in rules.groups where match.range(withName: group.name).location != NSNotFound {
+                tokens.append((match.range, group.type))
+                break
             }
         }
-
-        tokenRanges.sort { $0.0.location < $1.0.location }
-
-        var mergedRanges: [(NSRange, TokenType)] = []
-        for (range, type) in tokenRanges {
-            if let last = mergedRanges.last, NSIntersectionRange(last.0, range).length > 0 {
-                if range.length > last.0.length {
-                    mergedRanges[mergedRanges.count - 1] = (range, type)
-                }
-            } else {
-                mergedRanges.append((range, type))
-            }
-        }
-        return mergedRanges
+        return tokens
     }
 
     private func tokenColor(for type: TokenType) -> NSColor? {
@@ -164,128 +152,131 @@ struct SyntaxHighlighter {
         return start..<end
     }
 
-    private static func rules(for ext: String) -> [TokenRule] {
-        if let cached = rulesCache[ext] {
-            return cached
+    /// Resolve filenames before passing the syntax identifier through diff rows.
+    static func syntaxIdentifier(forFilePath path: String) -> String {
+        let name = URL(fileURLWithPath: path).lastPathComponent.lowercased()
+        if name == "dockerfile" || name.hasPrefix("dockerfile.") ||
+            name == "containerfile" || name.hasPrefix("containerfile.") {
+            return "dockerfile"
         }
+        if name == ".env" || name.hasPrefix(".env.") { return "env" }
+        if ["makefile", "gnumakefile"].contains(name) { return "makefile" }
+        if ["gemfile", "rakefile"].contains(name) { return "rb" }
+        if [".bashrc", ".zshrc", ".bash_profile", ".profile"].contains(name) { return "sh" }
+        return URL(fileURLWithPath: name).pathExtension
+    }
 
-        let patterns: [(String, TokenType)]
+    private static func rules(for ext: String) -> TokenRules? {
+        if let cached = rulesCache[ext] { return cached }
+
+        let strings: [(String, TokenType)] = [
+            (#""(?:[^"\\]|\\.)*""#, .string),
+            (#"'(?:[^'\\]|\\.)*'"#, .string),
+        ]
+        let cComments: [(String, TokenType)] = [
+            (#"//[^\n]*"#, .comment), (#"/\*[\s\S]*?\*/"#, .comment),
+        ]
+        let hashComments: [(String, TokenType)] = [(#"#[^\n]*"#, .comment)]
+        let numbers: [(String, TokenType)] = [
+            (#"\b(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?)\b"#, .number),
+        ]
+        let types: [(String, TokenType)] = [(#"\b[A-Z][A-Za-z0-9_]*\b"#, .type)]
+        let attributes: [(String, TokenType)] = [(#"@\w+"#, .attribute)]
+        func keywords(_ words: String) -> [(String, TokenType)] {
+            [(#"\b(?:"# + words.split(separator: " ").joined(separator: "|") + #")\b"#, .keyword)]
+        }
+        let common = [("\\b(?:\(keywordPattern)|true|false|null|nil)\\b", TokenType.keyword)]
+        var patterns: [(String, TokenType)]
 
         switch ext {
         case "swift":
-            patterns = [
-                ("//[^\n]*", .comment),
-                ("/\\*[\\s\\S]*?\\*/", .comment),
-                ("\"([^\"\\\\\\\\]|\\\\\\\\.)*\"", .string),
-                ("'([^'\\\\\\\\]|\\\\\\\\.)*'", .string),
-                ("@\\w+", .attribute),
-                ("\\b(?:\(SyntaxHighlighter.keywordPattern))\\b", .keyword),
-                ("\\b[A-Z][A-Za-z0-9_]*\\b", .type),
-                ("\\b\\d+(\\.\\d+)?\\b", .number),
-            ]
-        case "js", "ts", "jsx", "tsx", "json":
-            patterns = [
-                ("//[^\n]*", .comment),
-                ("/\\*[\\s\\S]*?\\*/", .comment),
-                ("\"([^\"\\\\\\\\]|\\\\\\\\.)*\"", .string),
-                ("'([^'\\\\\\\\]|\\\\\\\\.)*'", .string),
-                ("`([^`\\\\\\\\]|\\\\\\\\.)*`", .string),
-                ("\\b(?:\(SyntaxHighlighter.keywordPattern))\\b", .keyword),
-                ("\\b[A-Z][A-Za-z0-9_]*\\b", .type),
-                ("\\b\\d+(\\.\\d+)?\\b", .number),
-            ]
-        case "py":
-            patterns = [
-                ("#[^\n]*", .comment),
-                ("\"\"\"[\\s\\S]*?\"\"\"", .string),
-                ("'''[\\s\\S]*?'''", .string),
-                ("\"([^\"\\\\\\\\]|\\\\\\\\.)*\"", .string),
-                ("'([^'\\\\\\\\]|\\\\\\\\.)*'", .string),
-                ("\\b(?:\(SyntaxHighlighter.keywordPattern))\\b", .keyword),
-                ("\\b\\d+(\\.\\d+)?\\b", .number),
-            ]
-        case "c", "cpp", "h", "hpp", "m", "mm":
-            patterns = [
-                ("//[^\n]*", .comment),
-                ("/\\*[\\s\\S]*?\\*/", .comment),
-                ("\"([^\"\\\\\\\\]|\\\\\\\\.)*\"", .string),
-                ("'([^'\\\\\\\\]|\\\\\\\\.)*'", .string),
-                ("\\b(?:\(SyntaxHighlighter.keywordPattern))\\b", .keyword),
-                ("\\b[A-Z][A-Za-z0-9_]*\\b", .type),
-                ("\\b\\d+(\\.\\d+)?\\b", .number),
-                ("#\\w+", .attribute),
-            ]
+            patterns = cComments + strings + attributes + common + types + numbers
+        case "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx":
+            patterns = cComments + strings + [(#"`(?:[^`\\]|\\.)*`"#, .string)]
+                + common + keywords("boolean number string undefined null keyof infer readonly declare satisfies")
+                + types + numbers
+        case "py", "pyw", "pyi":
+            patterns = hashComments + [
+                (#"\"\"\"[\s\S]*?\"\"\""#, .string), (#"'''[\s\S]*?'''"#, .string),
+            ] + strings + attributes + common + numbers
+        case "c", "cpp", "cc", "cxx", "h", "hpp", "hh", "hxx", "m", "mm":
+            patterns = cComments + strings + [(#"#\s*\w+"#, .attribute)] + common
+                + keywords("int char float double bool short long signed unsigned template typename constexpr nullptr virtual friend")
+                + types + numbers
         case "go":
-            patterns = [
-                ("//[^\n]*", .comment),
-                ("/\\*[\\s\\S]*?\\*/", .comment),
-                ("\"([^\"\\\\\\\\]|\\\\\\\\.)*\"", .string),
-                ("`([^`\\\\\\\\]|\\\\\\\\.)*`", .string),
-                ("\\b(?:\(SyntaxHighlighter.keywordPattern))\\b", .keyword),
-                ("\\b\\d+(\\.\\d+)?\\b", .number),
-            ]
+            patterns = cComments + strings + [(#"`[^`]*`"#, .string)] + common
+                + keywords("chan defer fallthrough go map range select type int string bool") + types + numbers
         case "rs":
-            patterns = [
-                ("//[^\n]*", .comment),
-                ("/\\*[\\s\\S]*?\\*/", .comment),
-                ("\"([^\"\\\\\\\\]|\\\\\\\\.)*\"", .string),
-                ("'([^'\\\\\\\\]|\\\\\\\\.)*'", .string),
-                ("\\b(?:\(SyntaxHighlighter.keywordPattern))\\b", .keyword),
-                ("\\b\\d+(\\.\\d+)?\\b", .number),
-                ("#\\w+", .attribute),
-            ]
-        case "java", "kt":
-            patterns = [
-                ("//[^\n]*", .comment),
-                ("/\\*[\\s\\S]*?\\*/", .comment),
-                ("\"([^\"\\\\\\\\]|\\\\\\\\.)*\"", .string),
-                ("'([^'\\\\\\\\]|\\\\\\\\.)*'", .string),
-                ("\\b(?:\(SyntaxHighlighter.keywordPattern))\\b", .keyword),
-                ("\\b[A-Z][A-Za-z0-9_]*\\b", .type),
-                ("\\b\\d+(\\.\\d+)?\\b", .number),
-                ("@\\w+", .attribute),
-            ]
+            patterns = cComments + strings + [(#"#\!?\[[^\]]*\]"#, .attribute)] + common
+                + keywords("dyn ref enum unsafe async where bool str usize i32 u32") + types + numbers
+        case "java", "kt", "kts", "cs", "dart":
+            patterns = cComments + strings + attributes + common
+                + keywords("val fun object when data sealed suspend companion constructor boolean int double bool string using get set record event delegate lock params out ref is as dynamic required late factory mixin")
+                + types + numbers
+        case "rb", "rake", "gemspec":
+            patterns = hashComments + strings + common
+                + keywords("end unless until then elsif begin rescue ensure require include attr_reader attr_accessor puts yield") + types + numbers
+        case "php", "phtml":
+            patterns = cComments + hashComments + strings + [(#"\$[A-Za-z_]\w*"#, .attribute)]
+                + common + keywords("echo require require_once include include_once foreach endif endfor endforeach null") + types + numbers
         case "sh", "bash", "zsh":
-            patterns = [
-                ("#[^\n]*", .comment),
-                ("\"([^\"\\\\\\\\]|\\\\\\\\.)*\"", .string),
-                ("'([^'\\\\\\\\]|\\\\\\\\.)*'", .string),
-                ("\\b(?:\(SyntaxHighlighter.keywordPattern))\\b", .keyword),
-                ("\\b\\d+(\\.\\d+)?\\b", .number),
-            ]
+            patterns = hashComments + strings + [(#"\$\{[^}]*\}|\$[A-Za-z_]\w*"#, .attribute)]
+                + common + keywords("then fi done esac elif until echo local export source function") + numbers
+        case "json", "jsonc", "json5":
+            patterns = (ext == "json" ? [] : cComments)
+                + [(#""(?:[^"\\]|\\.)*"(?=\s*:)"#, .attribute)]
+                + strings + keywords("true false null") + numbers
         case "yaml", "yml":
-            patterns = [
-                ("#[^\n]*", .comment),
-                ("\"([^\"\\\\\\\\]|\\\\\\\\.)*\"", .string),
-                ("'([^'\\\\\\\\]|\\\\\\\\.)*'", .string),
-                ("\\b(?:\(SyntaxHighlighter.keywordPattern))\\b", .keyword),
-                ("\\b\\d+(\\.\\d+)?\\b", .number),
-            ]
+            patterns = hashComments + [(#"[\w.-]+(?=\s*:(?:\s|$))"#, .attribute)]
+                + strings + [(#"[&*][\w.-]+|![!\w!:/.-]+"#, .type)]
+                + keywords("true false null yes no on off") + numbers
         case "sql":
+            patterns = [(#"--[^\n]*|/\*[\s\S]*?\*/"#, .comment)]
+                + [(#"'(?:[^']|'')*'"#, .string)] + strings
+                + [(#"(?i)\b(?:select|insert|update|delete|from|where|join|left|right|inner|outer|on|group|by|order|having|limit|offset|union|all|distinct|create|table|index|drop|alter|add|column|values|set|and|or|not|null|is|in|between|like|exists|case|when|then|else|end|as|with|recursive|returning|into|using|natural|cross|full|fetch|for|of|nowait|skip|locked|share|key|primary|foreign|references|constraint|check|default|unique|view|trigger|procedure|function|database|schema|transaction|commit|rollback|savepoint|release|grant|revoke|privileges|to|identified|password|account|lock|unlock|if|cascade|restrict|true|false)\b"#, .keyword)] + numbers
+        case "md", "markdown", "mdx":
             patterns = [
-                ("--[^\n]*", .comment),
-                ("\"([^\"\\\\\\\\]|\\\\\\\\.)*\"", .string),
-                ("'([^'\\\\\\\\]|\\\\\\\\.)*'", .string),
-                ("\\b(?:SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|ON|GROUP|BY|ORDER|HAVING|LIMIT|OFFSET|UNION|ALL|DISTINCT|CREATE|TABLE|INDEX|DROP|ALTER|ADD|COLUMN|VALUES|SET|AND|OR|NOT|NULL|IS|IN|BETWEEN|LIKE|EXISTS|CASE|WHEN|THEN|ELSE|END|AS|WITH|RECURSIVE|RETURNING|INTO|USING|NATURAL|CROSS|FULL|FETCH|FOR|OF|NOWAIT|SKIP|LOCKED|SHARE|KEY|PRIMARY|FOREIGN|REFERENCES|CONSTRAINT|CHECK|DEFAULT|UNIQUE|VIEW|TRIGGER|PROCEDURE|FUNCTION|DATABASE|SCHEMA|TRANSACTION|COMMIT|ROLLBACK|SAVEPOINT|RELEASE|GRANT|REVOKE|PRIVILEGES|TO|IDENTIFIED|PASSWORD|ACCOUNT|LOCK|UNLOCK|IF|CASCADE|RESTRICT)\\b", .keyword),
-                ("\\b\\d+(\\.\\d+)?\\b", .number),
+                (#"<!--[\s\S]*?-->"#, .comment),
+                (#"(?m)^\s{0,3}#{1,6}\s+.*$"#, .keyword),
+                (#"`+[^`]*`+|(?m)^\s*`{3,}.*$|^\s*~{3,}.*$"#, .string),
+                (#"!?\[[^\]]*\]\([^)]*\)"#, .attribute),
+                (#"\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_"#, .type),
+                (#"(?m)^\s*(?:[-+*>]|\d+\.)\s"#, .keyword),
             ]
+        case "dockerfile", "docker":
+            patterns = [(#"(?m)^\s*#[^\n]*"#, .comment)] + strings
+                + [(#"(?im)^\s*(?:FROM|RUN|CMD|LABEL|MAINTAINER|EXPOSE|ENV|ADD|COPY|ENTRYPOINT|VOLUME|USER|WORKDIR|ARG|ONBUILD|STOPSIGNAL|HEALTHCHECK|SHELL)\b"#, .keyword)]
+                + [(#"\$\{[^}]*\}|\$[A-Za-z_]\w*|--[\w-]+"#, .attribute)] + numbers
+        case "html", "htm", "xml", "xhtml", "plist":
+            patterns = [(#"<!--[\s\S]*?-->"#, .comment)] + strings
+                + [(#"</?[\w:.-]+|/?>"#, .keyword), (#"[\w:.-]+(?=\s*=)"#, .attribute)]
+        case "css", "scss", "sass", "less":
+            patterns = (ext == "css" ? Array(cComments.dropFirst()) : cComments) + strings
+                + [(#"#[0-9a-fA-F]{3,8}\b"#, .number),
+                   (#"--[\w-]+|[\w-]+(?=\s*:)"#, .attribute),
+                   (#"[@$.#][A-Za-z_][\w-]*"#, .type),
+                   (#"!important\b"#, .keyword)] + numbers
+        case "toml", "ini", "cfg", "conf", "env", "properties":
+            patterns = [(#"(?m)^\s*[#;][^\n]*"#, .comment)] + strings
+                + [(#"(?m)^\s*\[.*?\]"#, .type), (#"[\w.-]+(?=\s*=)"#, .attribute)]
+                + hashComments + keywords("true false") + numbers
+        case "makefile", "mk":
+            patterns = hashComments + strings
+                + [(#"\$\([^)]+\)|\$[@<^?*]"#, .attribute), (#"^[\w./% -]+(?=:)"#, .type)]
+                + keywords("include ifdef ifndef ifeq ifneq else endif export override define endef") + numbers
         default:
-            patterns = [
-                ("//[^\n]*", .comment),
-                ("/\\*[\\s\\S]*?\\*/", .comment),
-                ("#[^\n]*", .comment),
-                ("\"([^\"\\\\\\\\]|\\\\\\\\.)*\"", .string),
-                ("'([^'\\\\\\\\]|\\\\\\\\.)*'", .string),
-                ("\\b(?:\(SyntaxHighlighter.keywordPattern))\\b", .keyword),
-                ("\\b[A-Z][A-Za-z0-9_]*\\b", .type),
-                ("\\b\\d+(\\.\\d+)?\\b", .number),
-            ]
+            patterns = cComments + hashComments + strings + common + types + numbers
         }
 
-        let result: [TokenRule] = patterns.compactMap { pattern, type in
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }
-            return TokenRule(regex: regex, type: type)
+        let groups = patterns.enumerated().map { (name: "token\($0.offset)", type: $0.element.1) }
+        let pattern = zip(patterns, groups).map { entry, group in
+            "(?<\(group.name)>\(entry.0))"
+        }.joined(separator: "|")
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            assertionFailure("Invalid syntax highlighting pattern for \(ext)")
+            return nil
         }
+        let result = TokenRules(regex: regex, groups: groups)
         rulesCache[ext] = result
         return result
     }

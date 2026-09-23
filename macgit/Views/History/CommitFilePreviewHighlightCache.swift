@@ -23,7 +23,8 @@ final class CommitFilePreviewHighlightCache {
     private var insertionOrder: [UUID] = []
     private let capacity = 512
 
-    func text(for line: DiffLine, fileExtension: String) -> AttributedString {
+    func text(for line: DiffLine, fileExtension: String) -> AttributedString? {
+        guard !DiffLongLineLayout.isLong(line.text) else { return nil }
         if let cached = entries[line.id] { return cached }
         let highlighted = SyntaxHighlighter(fileExtension: fileExtension)
             .attributedString(for: line.text, fontSize: 12)

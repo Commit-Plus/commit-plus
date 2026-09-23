@@ -71,7 +71,7 @@ struct ContentView: View {
     var body: some View {
         Group {
             if isWelcomeWindow {
-                WelcomeView(accountDisplayName: accountController.account?.displayLabel, onRepositoryOpened: { url in
+                WelcomeView(accountDisplayName: accountController.account?.displayLabel, onOpenAccount: openWelcomeAccount, onRepositoryOpened: { url in
                     openRepository(url, inNewWindow: true)
                 })
             } else if let url = repositoryURL {
@@ -249,6 +249,14 @@ struct ContentView: View {
                 || operationProgress.activeOperation != nil
         ))
         .sheetPresentationScope()
+    }
+
+    private func openWelcomeAccount() {
+        if accountController.account != nil {
+            accountController.presentManageAccount()
+        } else {
+            accountController.presentAuthentication(.signIn)
+        }
     }
 
     private var accountSheetPresentation: Binding<AccountSheet?> {

@@ -27,6 +27,7 @@ struct WelcomeView: View {
     @State private var forceRefresh = false
     @State private var refreshID = UUID()
     let accountDisplayName: String?
+    let onOpenAccount: () -> Void
     let onRepositoryOpened: (URL) -> Void
 
     var body: some View {
@@ -39,7 +40,8 @@ struct WelcomeView: View {
             right: {
                 WelcomeDashboardContent(
                     model: model, accountDisplayName: accountDisplayName, repositoryCount: store.repositories.count,
-                    onRefresh: refreshImmediately, onReviewAttention: reviewAttention, onRepositoryOpened: openRepository
+                    onRefresh: refreshImmediately, onOpenAccount: onOpenAccount,
+                    onReviewAttention: reviewAttention, onRepositoryOpened: openRepository
                 )
                 .frame(minWidth: 560)
             }
