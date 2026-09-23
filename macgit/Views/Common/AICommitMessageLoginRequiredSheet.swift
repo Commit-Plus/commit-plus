@@ -87,7 +87,7 @@ struct AICommitMessageLoginRequiredSheet: View {
             .padding(30)
         }
         .frame(minWidth: 540, idealWidth: 580)
-        .sheet(isPresented: $showingAuthentication) {
+        .replacingSheet(isPresented: $showingAuthentication) {
             AuthenticationSheet(controller: controller, mode: .signIn)
         }
         .onChange(of: controller.account?.uid) { _, accountUID in

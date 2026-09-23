@@ -256,10 +256,10 @@ struct HistoryView: View {
         } action: { size in
             previewAvailableSize = size
         }
-        .sheet(item: $fullFilePreview) { request in
+        .replacingSheet(item: $fullFilePreview) { request in
             CommitFilePreviewSheet(request: request, availableSize: previewAvailableSize)
         }
-        .sheet(isPresented: $showingResetConfirmation) {
+        .replacingSheet(isPresented: $showingResetConfirmation) {
             resetSheet
         }
         .alert("Reverse this commit?", isPresented: $showingRevertConfirmation, actions: {
@@ -272,19 +272,19 @@ struct HistoryView: View {
         }, message: {
             Text("This will create a new commit that undoes the changes in \(pendingCommit?.shortHash ?? "").")
         })
-        .sheet(isPresented: $showingTagSheet) {
+        .replacingSheet(isPresented: $showingTagSheet) {
             tagSheet
         }
-        .sheet(isPresented: $showingBranchSheet) {
+        .replacingSheet(isPresented: $showingBranchSheet) {
             branchSheet
         }
-        .sheet(isPresented: $showingMergeConfirmation) {
+        .replacingSheet(isPresented: $showingMergeConfirmation) {
             mergeConfirmationSheet
         }
-        .sheet(isPresented: $showingRebaseConfirmation) {
+        .replacingSheet(isPresented: $showingRebaseConfirmation) {
             rebaseConfirmationSheet
         }
-        .sheet(item: $squashSheetPresentation) { presentation in
+        .replacingSheet(item: $squashSheetPresentation) { presentation in
             SquashCommitsSheet(
                 commits: presentation.commits,
                 initialMessage: presentation.message,
@@ -299,7 +299,7 @@ struct HistoryView: View {
                 }
             )
         }
-        .sheet(isPresented: $showingCheckoutConfirmation) {
+        .replacingSheet(isPresented: $showingCheckoutConfirmation) {
             checkoutConfirmationSheet
         }
     }

@@ -27,7 +27,7 @@ struct SidebarSubtreePresentationModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(item: $subtreeToEdit) { entry in
+            .replacingSheet(item: $subtreeToEdit) { entry in
                 EditSubtreeSheet(
                     entry: entry,
                     onSave: updateSubtree,

@@ -71,7 +71,7 @@ struct AIProvidersSettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("AI Providers")
-        .sheet(item: $authenticationMode) { mode in
+        .replacingSheet(item: $authenticationMode) { mode in
             AuthenticationSheet(controller: accountController, mode: mode)
         }
         .onChange(of: accountController.account?.uid) { _, accountUID in

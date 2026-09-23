@@ -25,7 +25,7 @@ struct CommandLineSetupTipModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $showingTip) {
+            .replacingSheet(isPresented: $showingTip) {
                 CommandLineSetupTip()
             }
             .task {

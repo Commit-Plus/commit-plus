@@ -271,10 +271,10 @@ struct FileStatusView: View {
         }, message: {
             Text(errorMessage ?? "An unknown error occurred")
         })
-        .sheet(isPresented: $showingCommitConfirmation) {
+        .replacingSheet(isPresented: $showingCommitConfirmation) {
             commitConfirmation
         }
-        .sheet(item: $ignoreTargetFile) { file in
+        .replacingSheet(item: $ignoreTargetFile) { file in
             IgnoreOptionsView(
                 file: file,
                 repositoryURL: repositoryURL,
@@ -289,7 +289,7 @@ struct FileStatusView: View {
                 }
             )
         }
-        .sheet(item: $potentialConflictPresentation) { presentation in
+        .replacingSheet(item: $potentialConflictPresentation) { presentation in
             PotentialConflictFileDetailSheet(
                 presentation: presentation,
                 repositoryURL: repositoryURL,

@@ -142,7 +142,7 @@ struct RepositorySettingsSheetView: View {
             guard newTab == .gitFlow else { return }
             authorizeGitFlowTab(fallback: oldTab)
         }
-        .sheet(isPresented: $showingRemoteEditSheet) {
+        .replacingSheet(isPresented: $showingRemoteEditSheet) {
             RemoteEditSheetView(
                 repositoryURL: repositoryURL,
                 mode: remoteEditMode
@@ -152,7 +152,7 @@ struct RepositorySettingsSheetView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingCreateDevelopBranchSheet) {
+        .replacingSheet(isPresented: $showingCreateDevelopBranchSheet) {
             CreateGitFlowDevelopBranchSheet(
                 suggestedName: suggestedDevelopBranchName,
                 startingPoint: gitFlowConfiguration.mainBranch,

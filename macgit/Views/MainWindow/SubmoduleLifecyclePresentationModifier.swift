@@ -60,7 +60,7 @@ struct SubmoduleLifecyclePresentationModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(item: $submoduleToEdit) { entry in
+            .replacingSheet(item: $submoduleToEdit) { entry in
                 EditSubmoduleSheet(
                     entry: entry,
                     onSave: { url, branch in

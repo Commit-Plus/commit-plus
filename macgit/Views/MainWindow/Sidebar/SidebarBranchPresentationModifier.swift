@@ -34,7 +34,7 @@ struct SidebarBranchPresentationModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(item: $deleteConfirmationTarget, content: deleteConfirmationSheet)
+            .replacingSheet(item: $deleteConfirmationTarget, content: deleteConfirmationSheet)
             .alert("Delete Remote Branch", isPresented: remoteBranchDeletePresented) {
                 Button("Cancel", role: .cancel) {}
                 Button("Delete", role: .destructive, action: confirmDeleteRemoteBranch)

@@ -121,7 +121,7 @@ struct ConflictMergeToolView: View {
         } message: {
             Text("This restores the repository to its state before the merge started.")
         }
-        .sheet(isPresented: $aiResolutionController.isShowingQuestions) {
+        .replacingSheet(isPresented: $aiResolutionController.isShowingQuestions) {
             ConflictAIQuestionsView(controller: aiResolutionController) {
                 synchronizeAIResolvedFiles()
                 presentAIFailuresIfNeeded()

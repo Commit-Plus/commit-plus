@@ -270,7 +270,7 @@ struct MainWindowView: View {
             .alert(item: $featureAccessNotice) { notice in
                 featureAccessAlert(for: notice)
             }
-            .sheet(item: $proUpgradePresentation) { presentation in
+            .replacingSheet(item: $proUpgradePresentation) { presentation in
                 ProUpgradeSheet(
                     feature: presentation.feature,
                     isSignedIn: accountController.account != nil,
@@ -280,7 +280,7 @@ struct MainWindowView: View {
                     onPrimaryAction: performProUpgradePrimaryAction
                 )
             }
-            .sheet(item: $releaseNotesPresentation) { presentation in
+            .replacingSheet(item: $releaseNotesPresentation) { presentation in
                 ReleaseNotesSheet(presentation: presentation)
             }
             .confirmationDialog(
@@ -364,8 +364,8 @@ struct MainWindowView: View {
                     Text("Replace tag '\(confirmation.tag)' on '\(confirmation.remote)' with the local tag target? This rewrites the published tag and may retrigger release automation.")
                 }
             }
-            .sheet(isPresented: $showingCommitSheet, onDismiss: performPendingToolbarCommit) { commitSheet }
-            .sheet(item: $protectedBranchCommitController.warning, onDismiss: { protectedBranchCommitController.finish(.cancel) }) { warning in
+            .replacingSheet(isPresented: $showingCommitSheet, onDismiss: performPendingToolbarCommit) { commitSheet }
+            .replacingSheet(item: $protectedBranchCommitController.warning, onDismiss: { protectedBranchCommitController.finish(.cancel) }) { warning in
                 ProtectedBranchCommitSheet(warning: warning, skipWarnings: $repoSettings.skipProtectedBranchCommitWarnings) { decision in
                     protectedBranchCommitController.finish(decision)
                 }
@@ -373,41 +373,41 @@ struct MainWindowView: View {
                     commitRulePreferenceChanged()
                 }
             }
-            .sheet(isPresented: $showingPullSheet) { pullSheet }
-            .sheet(isPresented: $showingPushSheet, onDismiss: forcePushSheetDismissed) { pushSheet }
-            .sheet(item: $pendingBranchForcePush) { plan in
+            .replacingSheet(isPresented: $showingPullSheet) { pullSheet }
+            .replacingSheet(isPresented: $showingPushSheet, onDismiss: forcePushSheetDismissed) { pushSheet }
+            .replacingSheet(item: $pendingBranchForcePush) { plan in
                 BranchForcePushConfirmationSheet(plan: plan) {
                     confirmBranchForcePush(plan)
                 }
             }
-            .sheet(isPresented: $showingFetchSheet) { fetchSheet }
-            .sheet(isPresented: $showingAddSubmoduleSheet) { addSubmoduleSheet }
-            .sheet(isPresented: $showingAddLinkSubtreeSheet) { addLinkSubtreeSheet }
-            .sheet(item: $branchSheetPresentation) { presentation in
+            .replacingSheet(isPresented: $showingFetchSheet) { fetchSheet }
+            .replacingSheet(isPresented: $showingAddSubmoduleSheet) { addSubmoduleSheet }
+            .replacingSheet(isPresented: $showingAddLinkSubtreeSheet) { addLinkSubtreeSheet }
+            .replacingSheet(item: $branchSheetPresentation) { presentation in
                 branchSheet(startPoint: presentation.startPoint)
             }
-            .sheet(isPresented: $showingTagSheet, onDismiss: resetTagSheet) { tagSheet }
-            .sheet(isPresented: $showingNewTagSheet) { newTagSheet }
-            .sheet(isPresented: tagDetailsSheetPresented) {
+            .replacingSheet(isPresented: $showingTagSheet, onDismiss: resetTagSheet) { tagSheet }
+            .replacingSheet(isPresented: $showingNewTagSheet) { newTagSheet }
+            .replacingSheet(isPresented: tagDetailsSheetPresented) {
                 if let details = displayedTagDetails {
                     TagDetailsSheet(details: details) {
                         displayedTagDetails = nil
                     }
                 }
             }
-            .sheet(isPresented: $showingMergeSheet) { mergeSheet }
-            .sheet(isPresented: $showingStashSheet) { stashSheet }
-            .sheet(
+            .replacingSheet(isPresented: $showingMergeSheet) { mergeSheet }
+            .replacingSheet(isPresented: $showingStashSheet) { stashSheet }
+            .replacingSheet(
                 isPresented: $showingRepositorySettings,
                 onDismiss: { initiallySelectGitFlowSettings = false }
             ) { repositorySettingsSheet }
-            .sheet(item: $pendingGitFlowTopicKind) { kind in
+            .replacingSheet(item: $pendingGitFlowTopicKind) { kind in
                 startGitFlowSheet(for: kind)
             }
-            .sheet(item: $pendingGitFlowFinishPlan) { plan in
+            .replacingSheet(item: $pendingGitFlowFinishPlan) { plan in
                 finishGitFlowSheet(for: plan)
             }
-            .sheet(item: $pendingProviderAccountSelection) { selection in
+            .replacingSheet(item: $pendingProviderAccountSelection) { selection in
                 GitProviderAccountSelectionSheet(
                     selection: selection,
                     onSelect: { accountID in
@@ -418,7 +418,7 @@ struct MainWindowView: View {
                     }
                 )
             }
-            .sheet(item: $pendingSearchFileOpenRequest) { request in
+            .replacingSheet(item: $pendingSearchFileOpenRequest) { request in
                 SearchFileOpenSheet(request: request) { application, rememberChoice in
                     pendingSearchFileOpenRequest = nil
                     if rememberChoice {
@@ -427,17 +427,17 @@ struct MainWindowView: View {
                     openSearchFile(request.relativePath, using: application)
                 }
             }
-            .sheet(isPresented: stashActionSheetBinding) { stashActionSheet }
-            .sheet(item: $pendingCommitDropConfirmation) { confirmation in
+            .replacingSheet(isPresented: stashActionSheetBinding) { stashActionSheet }
+            .replacingSheet(item: $pendingCommitDropConfirmation) { confirmation in
                 commitDropConfirmationSheet(for: confirmation)
             }
-            .sheet(item: $pendingBranchDropConfirmation) { confirmation in
+            .replacingSheet(item: $pendingBranchDropConfirmation) { confirmation in
                 branchDropConfirmationSheet(for: confirmation)
             }
-            .sheet(item: $pendingTagMoveConfirmation) { confirmation in
+            .replacingSheet(item: $pendingTagMoveConfirmation) { confirmation in
                 tagMoveConfirmationSheet(for: confirmation)
             }
-            .sheet(item: $pendingSubtreeOperation) { pending in
+            .replacingSheet(item: $pendingSubtreeOperation) { pending in
                 SubtreeOperationConfirmationSheet(
                     operation: pending.operation,
                     entry: pending.entry,
@@ -475,15 +475,15 @@ struct MainWindowView: View {
                     Text("Push \"\(confirmation.branch)\" to remote branch \"\(confirmation.remoteBranch)\"?")
                 }
             }
-            .sheet(isPresented: $showingRenameBranchSheet) { renameSheet }
-            .sheet(isPresented: $showingCheckoutConfirmation) {
+            .replacingSheet(isPresented: $showingRenameBranchSheet) { renameSheet }
+            .replacingSheet(isPresented: $showingCheckoutConfirmation) {
                 CheckoutConfirmationSheet(branchName: branchToCheckout) { stash in
                     runRepositoryOperation("Checking out \(branchToCheckout)...") {
                         await performCheckout(ref: branchToCheckout, stash: stash)
                     }
                 }
             }
-            .sheet(item: $pendingRemoteBranchCheckout) { target in
+            .replacingSheet(item: $pendingRemoteBranchCheckout) { target in
                 RemoteBranchCheckoutSheet(target: target) { localBranch, trackRemote in
                     runRepositoryOperation("Checking out \(localBranch)...") {
                         await performRemoteBranchCheckout(
@@ -504,7 +504,7 @@ struct MainWindowView: View {
             } message: {
                 Text("Are you sure you want to checkout '\(tagToCheckout)'?\n\nDoing so will make your working copy a 'detached HEAD', which means you won't be on a branch anymore. If you want to commit after this you'll probably want to either checkout a branch again, or create a new branch. Is this ok?")
             }
-            .sheet(isPresented: tagDeletionConfirmationPresented) {
+            .replacingSheet(isPresented: tagDeletionConfirmationPresented) {
                 if let confirmation = pendingTagDeletion {
                     deleteTagConfirmationSheet(for: confirmation)
                 }

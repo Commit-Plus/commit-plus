@@ -38,10 +38,10 @@ struct AICommitMessageAccessGateModifier: ViewModifier {
                 isRequested = false
                 authorizeRequest()
             }
-            .sheet(isPresented: $showingLoginRequired) {
+            .replacingSheet(isPresented: $showingLoginRequired) {
                 AICommitMessageLoginRequiredSheet(controller: accountController, feature: feature)
             }
-            .sheet(item: $proUpgradePresentation) { presentation in
+            .replacingSheet(item: $proUpgradePresentation) { presentation in
                 ProUpgradeSheet(
                     feature: presentation.feature,
                     isSignedIn: accountController.account != nil,

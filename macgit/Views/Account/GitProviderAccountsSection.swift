@@ -122,13 +122,13 @@ struct GitProviderAccountsSection: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onDisappear(perform: cancelConnection)
-        .sheet(isPresented: $showingAddAccountSheet) {
+        .replacingSheet(isPresented: $showingAddAccountSheet) {
             GitProviderAddAccountSheet(
                 controller: controller,
                 accountCreationDecision: accountCreationDecision
             )
         }
-        .sheet(item: $editingAccount) { account in
+        .replacingSheet(item: $editingAccount) { account in
             GitProviderAddAccountSheet(
                 controller: controller,
                 editingAccount: account,

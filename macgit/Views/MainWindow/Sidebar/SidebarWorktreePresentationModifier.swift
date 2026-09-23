@@ -124,7 +124,7 @@ struct SidebarWorktreePresentationModifier: ViewModifier {
             } message: {
                 Text("Remove stale worktree metadata and orphaned labels for paths that no longer exist?")
             }
-            .sheet(item: $worktreeToLabel) { entry in
+            .replacingSheet(item: $worktreeToLabel) { entry in
                 WorktreeLabelSheet(
                     entry: entry,
                     label: $worktreeLabelInput,
@@ -139,7 +139,7 @@ struct SidebarWorktreePresentationModifier: ViewModifier {
                     }
                 )
             }
-            .sheet(item: $worktreeToLock) { entry in
+            .replacingSheet(item: $worktreeToLock) { entry in
                 WorktreeLockSheet(
                     entry: entry,
                     reason: $worktreeLockReasonInput,
@@ -155,7 +155,7 @@ struct SidebarWorktreePresentationModifier: ViewModifier {
                     }
                 )
             }
-            .sheet(item: $worktreeToMove) { entry in
+            .replacingSheet(item: $worktreeToMove) { entry in
                 WorktreeMoveSheet(
                     entry: entry,
                     path: $worktreeMovePathInput,
@@ -174,7 +174,7 @@ struct SidebarWorktreePresentationModifier: ViewModifier {
                     }
                 )
             }
-            .sheet(item: $worktreeToCheckout) { entry in
+            .replacingSheet(item: $worktreeToCheckout) { entry in
                 WorktreeCheckoutSheet(
                     entry: entry,
                     branches: availableWorktreeCheckoutBranches,
@@ -200,7 +200,7 @@ struct SidebarWorktreePresentationModifier: ViewModifier {
                     }
                 )
             }
-            .sheet(isPresented: $showingCreateWorktreeSheet) {
+            .replacingSheet(isPresented: $showingCreateWorktreeSheet) {
                 CreateWorktreeSheet(
                     mode: $createWorktreeMode,
                     availableBranches: availableWorktreeBranches,

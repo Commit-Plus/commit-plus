@@ -97,10 +97,10 @@ struct RepositoryAIChatView: View {
         .task {
             await providerController.refreshAvailability()
         }
-        .sheet(isPresented: $isShowingHistory) {
+        .replacingSheet(isPresented: $isShowingHistory) {
             RepositoryAIChatHistorySheet(controller: controller)
         }
-        .sheet(item: $controller.pendingMutation, onDismiss: controller.cancelPendingMutation) { pending in
+        .replacingSheet(item: $controller.pendingMutation, onDismiss: controller.cancelPendingMutation) { pending in
             RepositoryAIMutationConfirmationSheet(
                 pending: pending,
                 isExecuting: controller.isExecutingMutation,
@@ -108,7 +108,7 @@ struct RepositoryAIChatView: View {
                 onConfirm: { confirmPendingMutation(pending.id) }
             )
         }
-        .sheet(
+        .replacingSheet(
             item: $controller.pendingRemoteOperation,
             onDismiss: controller.cancelPendingRemoteOperation
         ) { pending in

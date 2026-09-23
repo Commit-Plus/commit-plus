@@ -171,7 +171,7 @@ struct AccountSettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Account")
-        .sheet(item: $authenticationMode) { mode in
+        .replacingSheet(item: $authenticationMode) { mode in
             AuthenticationSheet(controller: accountController, mode: mode)
         }
         .confirmationDialog(

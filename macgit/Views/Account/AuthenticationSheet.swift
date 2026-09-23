@@ -245,7 +245,7 @@ struct AuthenticationSheet: View {
                 showingDeviceRecovery = false
             }
         }
-        .sheet(isPresented: $showingDeviceRecovery) {
+        .replacingSheet(isPresented: $showingDeviceRecovery) {
             DeviceLimitSheet(controller: controller)
         }
     }

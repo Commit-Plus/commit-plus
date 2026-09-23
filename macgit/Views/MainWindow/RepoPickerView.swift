@@ -236,14 +236,14 @@ struct RepoPickerView: View {
         }, message: { repo in
             Text("\"\(repo.name)\" is no longer available at \(repo.url.path).")
         })
-        .sheet(isPresented: $showingCloneSheet) {
+        .replacingSheet(isPresented: $showingCloneSheet) {
             CloneSheetView(onClone: { url in
                 showingCloneSheet = false
                 store.add(url)
                 onRepositoryOpened(url)
             })
         }
-        .sheet(item: $bookmarkToClone) { bookmark in
+        .replacingSheet(item: $bookmarkToClone) { bookmark in
             CloneSheetView(
                 initialRemoteURL: bookmark.remoteURL.absoluteString,
                 initialRepositoryName: bookmark.name,
@@ -255,7 +255,7 @@ struct RepoPickerView: View {
                 }
             )
         }
-        .sheet(item: $bookmarkToRepair) { bookmark in
+        .replacingSheet(item: $bookmarkToRepair) { bookmark in
             RepositoryBookmarkRepairSheet(bookmark: bookmark, initialRepositoryURL: bookmarkRepairFolder) { url in
                 store.add(url)
                 bookmarkRefreshGeneration += 1

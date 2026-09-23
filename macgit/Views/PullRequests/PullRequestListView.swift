@@ -132,7 +132,7 @@ struct PullRequestListView: View {
                 }
             }
         }
-        .sheet(item: $pendingCommentPullRequest) { pullRequest in
+        .replacingSheet(item: $pendingCommentPullRequest) { pullRequest in
             PullRequestCommentSheet(
                 pullRequest: pullRequest,
                 isSubmitting: controller.isPerformingAction,

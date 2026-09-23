@@ -120,7 +120,7 @@ struct ContentView: View {
                 webOpeningProgressID = nil
             }
         }
-        .sheet(isPresented: $showingRepoPickerSheet) {
+        .replacingSheet(isPresented: $showingRepoPickerSheet) {
             RepoPickerView(
                 showCloneSheetInitially: false,
                 onRepositoryOpened: { url in
@@ -129,13 +129,13 @@ struct ContentView: View {
             )
             .frame(minWidth: 560, minHeight: 480)
         }
-        .sheet(isPresented: $showingCloneSheet) {
+        .replacingSheet(isPresented: $showingCloneSheet) {
             CloneSheetView(onClone: { url in
                 showingCloneSheet = false
                 openRepository(url, inNewWindow: repositoryURL != nil)
             })
         }
-        .sheet(item: accountSheetPresentation) { sheet in
+        .replacingSheet(item: accountSheetPresentation) { sheet in
             Group {
                 switch sheet {
                 case .authentication(let mode):
@@ -163,7 +163,7 @@ struct ContentView: View {
             }
             .interactiveDismissDisabled(accountController.isOpeningAccountOnWeb)
         }
-        .sheet(isPresented: $showingAppSettings) {
+        .replacingSheet(isPresented: $showingAppSettings) {
             AppSettingsView(
                 appState: appState,
                 accountController: accountController,
@@ -248,6 +248,7 @@ struct ContentView: View {
                 || showingKeepCurrentAlert || accountController.presentedSheet != nil
                 || operationProgress.activeOperation != nil
         ))
+        .sheetPresentationScope()
     }
 
     private var accountSheetPresentation: Binding<AccountSheet?> {
