@@ -4,7 +4,7 @@ import SwiftUI
 
 struct GitLFSView: View {
     let repositoryURL: URL
-    let credentialResolver: (String) async -> GitProviderCredentialResolver?
+    let credentialResolver: @MainActor (String) async -> GitProviderCredentialResolver?
     let refreshRepository: @MainActor @Sendable () async -> Void
     @State private var controller: RepositoryLFSController
     @State private var runtime = GitLFSRuntimeController.shared
@@ -18,7 +18,7 @@ struct GitLFSView: View {
     @State private var minimumMiB = 50
     @State private var showingSetup = false
 
-    init(repositoryURL: URL, initialPath: String? = nil, credentialResolver: @escaping (String) async -> GitProviderCredentialResolver?,
+    init(repositoryURL: URL, initialPath: String? = nil, credentialResolver: @escaping @MainActor (String) async -> GitProviderCredentialResolver?,
          refreshRepository: @escaping @MainActor @Sendable () async -> Void) {
         self.repositoryURL = repositoryURL
         self.credentialResolver = credentialResolver
@@ -176,6 +176,7 @@ struct GitLFSView: View {
                     Text("Choose remote").tag("")
                     ForEach(controller.snapshot?.remotes ?? [], id: \.self) { Text($0).tag($0) }
                 }.frame(maxWidth: 240)
+                Spacer(minLength: 12)
                 Button("Download Missing", systemImage: "arrow.down.circle") { download() }
                     .disabled(controller.remote.isEmpty || controller.operationLabel != nil)
                 Menu("More", systemImage: "ellipsis.circle") {
@@ -219,6 +220,8 @@ struct GitLFSView: View {
                 .disabled(controller.operationLabel != nil || controller.snapshot?.setupIssue != nil)
             HStack {
                 Toggle("Exact filename", isOn: $literal)
+                    .fixedSize()
+                Spacer(minLength: 12)
                 Button("Add…") { Task { await controller.prepareRule(pattern: pattern, literal: literal, removing: false) } }
                 Button("Remove…") { Task { await controller.prepareRule(pattern: pattern, literal: literal, removing: true) } }
             }.disabled(controller.operationLabel != nil || controller.snapshot?.setupIssue != nil)
@@ -238,11 +241,17 @@ struct GitLFSView: View {
                 ScrollView { Text(rules).font(.system(.caption, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
                     .frame(maxHeight: 120)
             }
-            HStack {
-                Stepper("Suggest files ≥ \(minimumMiB) MiB", value: $minimumMiB, in: 1...1024, step: 10)
-                Button("Find Large Files") { Task { await controller.scanLargeFiles(minimumMiB: minimumMiB) } }
-                    .disabled(controller.isScanning)
-                if controller.isScanning { ProgressView().controlSize(.small) }
+            Divider()
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    largeFileSearchControls
+                    Spacer(minLength: 16)
+                    trackingFileActions
+                }
+                VStack(alignment: .leading, spacing: 12) {
+                    largeFileSearchControls
+                    trackingFileActions.frame(maxWidth: .infinity, alignment: .trailing)
+                }
             }
             if !controller.candidates.isEmpty {
                 ScrollView {
@@ -262,6 +271,23 @@ struct GitLFSView: View {
                     }
                 }.frame(maxHeight: 150)
             }
+            Text("Changes here apply to root rules. Edit nested or inherited rules in their source attributes file. Removing a rule does not convert existing pointers or rewrite history.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var largeFileSearchControls: some View {
+        HStack {
+            Stepper("Suggest files ≥ \(minimumMiB) MiB", value: $minimumMiB, in: 1...1024, step: 10)
+            Button("Find Large Files") { Task { await controller.scanLargeFiles(minimumMiB: minimumMiB) } }
+                .disabled(controller.isScanning)
+            if controller.isScanning { ProgressView().controlSize(.small) }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var trackingFileActions: some View {
+        HStack(spacing: 8) {
             Button("Convert Existing File…") {
                 let panel = NSOpenPanel()
                 panel.directoryURL = repositoryURL
@@ -279,9 +305,8 @@ struct GitLFSView: View {
                 }
             }.disabled(controller.operationLabel != nil || controller.snapshot?.setupIssue != nil)
             Button("Open Attributes File") { NSWorkspace.shared.open(repositoryURL.appendingPathComponent(".gitattributes")) }
-            Text("Changes here apply to root rules. Edit nested or inherited rules in their source attributes file. Removing a rule does not convert existing pointers or rewrite history.")
-                .font(.caption).foregroundStyle(.secondary)
         }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private func download(paths: [String]? = nil) {

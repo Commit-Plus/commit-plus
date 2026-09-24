@@ -3,6 +3,22 @@ import XCTest
 @testable import macgit
 
 final class GitLFSTests: XCTestCase {
+    @MainActor
+    func testDownloadCredentialCallbackPreservesMainActorAcrossSuspension() async {
+        var requestedRemote: String?
+        let view = GitLFSView(repositoryURL: URL(fileURLWithPath: "/tmp/lfs-callback-test"),
+            credentialResolver: { @MainActor remote in
+                MainActor.assertIsolated()
+                await Task.yield()
+                MainActor.assertIsolated()
+                requestedRemote = remote
+                return nil
+            }, refreshRepository: {})
+        let result = await view.credentialResolver("origin")
+        XCTAssertNil(result)
+        XCTAssertEqual(requestedRemote, "origin")
+    }
+
     func testProgressParsesByteCountsAndNamesWithSpaces() {
         let progress = GitLFSTransferProgress("download 2/3 512/1024 Assets/large file.dat")
         XCTAssertEqual(progress?.fileIndex, 2)

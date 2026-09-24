@@ -488,12 +488,14 @@ struct FileStatusView: View {
 
                 HStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 1) {
-                        if lfsPaths.contains(file.path) {
-                            Text("LFS").font(.caption).foregroundStyle(.secondary).accessibilityLabel("Git LFS file")
+                        HStack(spacing: 6) {
+                            Text(file.displayName)
+                                .font(.system(size: 13, weight: .medium))
+                                .lineLimit(1)
+                            if lfsPaths.contains(file.path) {
+                                GitLFSChip()
+                            }
                         }
-                        Text(file.displayName)
-                            .font(.system(size: 13, weight: .medium))
-                            .lineLimit(1)
                         if let original = file.originalPath {
                             Text("\(original) → \(file.path)")
                                 .font(.system(size: 10))

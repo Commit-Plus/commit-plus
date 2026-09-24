@@ -1316,7 +1316,7 @@ struct MainWindowView: View {
             case .item(.search):
                 SearchView(repositoryURL: repositoryURL)
             case .item(.gitLFS):
-                GitLFSView(repositoryURL: repositoryURL, initialPath: lfsTrackingPath, credentialResolver: { remote in
+                GitLFSView(repositoryURL: repositoryURL, initialPath: lfsTrackingPath, credentialResolver: { @MainActor remote in
                     await credentialResolverForRemoteOperation(remotes: [remote])
                 }, refreshRepository: {
                     await syncState.refresh(repositoryURL: repositoryURL, force: true)

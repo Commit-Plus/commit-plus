@@ -100,8 +100,8 @@ extension GitStatusService {
         let contents = (try? String(contentsOf: hook, encoding: .utf8)) ?? ""
         let filter = (try? await runGit(arguments: ["config", "--get", "filter.lfs.process"], in: repository)) ?? ""
         guard filter.contains("git-lfs filter-process") else { return "Git LFS filters need setup in this repository." }
-        guard contents.contains("git lfs pre-push") || contents.contains("git-lfs pre-push") else {
-            return contents.isEmpty ? "The Git LFS pre-push hook is missing." : "An existing pre-push hook needs manual LFS integration. It will not be overwritten."
+        guard contents.contains("# Commit+ LFS hook dispatcher v1") || contents.contains("git lfs pre-push") || contents.contains("git-lfs pre-push") else {
+            return contents.isEmpty ? "The Git LFS pre-push hook is missing." : "Git LFS needs to be connected to the existing pre-push hook."
         }
         guard FileManager.default.isExecutableFile(atPath: hook.path) else { return "The pre-push hook is not executable." }
         return nil
@@ -110,16 +110,80 @@ extension GitStatusService {
     func setupLFS(in repository: URL) async throws {
         let key = try await acquireLFSMutation(in: repository)
         defer { lfsMutations.remove(key) }
-        let configuredPath = (try? await runGit(arguments: ["config", "--get", "core.hooksPath"], in: repository)) ?? ""
+        let scope = (try? await runGit(arguments: ["config", "--bool", "extensions.worktreeConfig"], in: repository))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) == "true" ? "--worktree" : "--local"
         let hook = try await lfsHookURL(in: repository)
-        if !configuredPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            throw GitError.commandFailed("This repository uses core.hooksPath. Integrate Git LFS with that hook manually (git lfs install --local --manual), then Refresh. Commit+ will not modify shared or custom hooks.")
-        }
         let contents = (try? String(contentsOf: hook, encoding: .utf8)) ?? ""
-        if !contents.isEmpty && !contents.contains("git lfs pre-push") && !contents.contains("git-lfs pre-push") {
-            throw GitError.commandFailed("An existing pre-push hook needs manual integration. Run git lfs install --local --manual to see the required hook changes, then Refresh.")
+        // Repeated setup must not wrap our own dispatcher again.
+        if contents.contains("# Commit+ LFS hook dispatcher v1") {
+            _ = try await runLFS(["install", scope, "--skip-repo"], in: repository)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
+            return
         }
-        _ = try await runLFS(["install", "--local"], in: repository)
+        let configuredPath = (try? await runGit(arguments: ["config", "--path", "--get", "core.hooksPath"], in: repository))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // Keep relative hooks paths relative to Git's working directory, including other worktrees.
+        let originalDirectory = configuredPath.isEmpty ? hook.deletingLastPathComponent().path : configuredPath
+        let commonPath = try await runGit(arguments: ["rev-parse", "--path-format=absolute", "--git-common-dir"], in: repository)
+        let directory = URL(fileURLWithPath: commonPath.trimmingCharacters(in: .whitespacesAndNewlines))
+            .appendingPathComponent("commitplus-lfs-hooks/\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        do {
+            // Dispatch standard hooks even if absent today, so adding a hook to the original directory still works.
+            let names = Set([
+                "applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commit", "pre-merge-commit",
+                "prepare-commit-msg", "commit-msg", "post-commit", "pre-rebase", "post-checkout", "post-merge",
+                "pre-push", "pre-receive", "update", "proc-receive", "post-receive", "post-update",
+                "reference-transaction", "push-to-checkout", "pre-auto-gc", "post-rewrite",
+                "sendemail-validate", "fsmonitor-watchman", "p4-changelist", "p4-prepare-changelist",
+                "p4-post-changelist", "p4-pre-submit", "post-index-change"
+            ])
+            for name in names {
+                let original = originalDirectory + "/" + name
+                let existingURL = URL(fileURLWithPath: original, relativeTo: repository)
+                let existing = (try? String(contentsOf: existingURL, encoding: .utf8)) ?? ""
+                let alreadyRunsLFS = FileManager.default.isExecutableFile(atPath: existingURL.path)
+                    && (existing.contains("git lfs " + name) || existing.contains("git-lfs " + name))
+                let lfsHook = ["pre-push", "post-checkout", "post-merge", "post-commit"].contains(name) && !alreadyRunsLFS
+                let script = Self.lfsHookDispatcher(original: original, name: name, includeLFS: lfsHook)
+                let destination = directory.appendingPathComponent(name)
+                try script.write(to: destination, atomically: true, encoding: .utf8)
+                try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destination.path)
+            }
+            _ = try await runLFS(["install", scope, "--skip-repo"], in: repository)
+            // Publish only after the complete hook directory and filters are ready.
+            _ = try await runGit(arguments: ["config", scope, "core.hooksPath", directory.path], in: repository)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+    }
+
+    private static func lfsHookDispatcher(original: String, name: String, includeLFS: Bool) -> String {
+        let quoted = "'" + original.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let header = "#!/bin/sh\n# Commit+ LFS hook dispatcher v1\noriginal=" + quoted + "\n"
+        guard includeLFS else {
+            return header + "if [ -x \"$original\" ]; then exec \"$original\" \"$@\"; fi\nexit 0\n"
+        }
+        if name == "pre-push" {
+            // Both consumers require the complete ref-update stream. Preserve hook arguments and failure status.
+            return header + """
+            input=$(mktemp "${TMPDIR:-/tmp}/commitplus-lfs.XXXXXXXX") || exit 1
+            trap 'rm -f "$input"' EXIT
+            trap 'exit 1' HUP INT TERM
+            cat > "$input" || exit 1
+            if [ -x "$original" ]; then
+                "$original" "$@" < "$input" || exit $?
+            fi
+            git lfs pre-push "$@" < "$input"
+            """ + "\n"
+        }
+        return header + """
+        if [ -x "$original" ]; then
+            "$original" "$@" || exit $?
+        fi
+        git lfs \(name) "$@"
+        """ + "\n"
     }
 
     func reviewLFSTracking(pattern: String, literal: Bool, removing: Bool, in repository: URL) async throws -> GitLFSTrackingReview {

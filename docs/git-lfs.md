@@ -10,7 +10,7 @@ Git LFS stores large file content separately from the small pointer committed to
 4. Open **Tracking Rules**, enter a pattern such as `*.psd`, review it, and apply. For an individual filename, enable **Exact filename**. You can also start from a file's **Track with Git LFS…** context menu in File Status.
 5. Review and stage `.gitattributes` and the affected files in File Status, then commit and push normally.
 
-The setup action preserves custom hooks. Repositories with a custom `core.hooksPath` require manual integration using `git lfs install --local --manual`. Refresh after integrating the hook. Commit+ does not overwrite shared hooks.
+The setup action automatically integrates existing hooks, including a custom `core.hooksPath`. Commit+ installs a repository-local hook directory that forwards to the original hooks and runs Git LFS. Original hook files remain unchanged. Pre-push hooks receive the same arguments and input as LFS; a failing original hook stops the push. With worktree-specific configuration enabled, setup applies to the selected worktree.
 
 ## Choose the runtime
 
