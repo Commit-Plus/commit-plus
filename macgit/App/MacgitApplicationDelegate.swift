@@ -24,6 +24,21 @@ extension Notification.Name {
 
 @MainActor
 final class MacgitApplicationDelegate: NSObject, NSApplicationDelegate {
+    private var activityTelemetry: AppActivityTelemetryController?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        activityTelemetry = AppTelemetry.makeActivityController()
+        activityTelemetry?.start()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        activityTelemetry?.recordActivity(isActive: true)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        activityTelemetry?.stop()
+    }
+
     @IBAction func newWindowForTab(_ sender: Any?) {
         WindowScopedNotification.post(name: .newRepositoryTab)
     }

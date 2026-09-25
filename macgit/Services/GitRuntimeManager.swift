@@ -145,12 +145,22 @@ actor GitRuntimeManager {
         for executableURL: URL,
         inheriting baseEnvironment: [String: String]
     ) -> [String: String] {
+        var environment = baseEnvironment
+        // Finder-launched apps may not inherit package-manager paths. Git hooks
+        // and filters need these to find external tools such as git-lfs.
+        var paths = (environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")
+            .components(separatedBy: ":")
+        for path in ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"]
+        where !paths.contains(path) {
+            paths.append(path)
+        }
+        environment["PATH"] = paths.joined(separator: ":")
+
         guard executableURL == managedGitURL() else {
-            return baseEnvironment
+            return environment
         }
 
         let rootURL = managedRootURL()
-        var environment = baseEnvironment
         environment["GIT_EXEC_PATH"] = rootURL
             .appendingPathComponent("libexec/git-core", isDirectory: true)
             .path

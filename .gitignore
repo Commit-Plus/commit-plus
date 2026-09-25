@@ -4,6 +4,7 @@
 .superpowers/
 .env.local
 macgit/GoogleService-Info.plist
+macgit/TelemetryDeck-Info.plist
 node_modules/
 
 */node_modules/*

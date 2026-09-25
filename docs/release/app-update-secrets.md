@@ -12,8 +12,12 @@
 
 ## GitHub Actions variables
 
+- `TELEMETRYDECK_APP_ID`: TelemetryDeck application UUID. The release workflow validates this value and generates `macgit/TelemetryDeck-Info.plist` before building. Missing or invalid values fail the release.
+
 - `SPARKLE_PUBLIC_ED_KEY`: public Sparkle Ed25519 key embedded in the app bundle
 - `SPARKLE_FEED_URL`: `https://commit-plus.github.io/commit-plus/appcast.xml`
+
+For local builds, create the telemetry configuration with `TELEMETRYDECK_APP_ID='<your-app-id>' python3 scripts/release/write-telemetry-config.py`. The generated plist is gitignored and bundled as an app resource. The actual App ID must not be hardcoded in tracked files. Both Debug and Release builds collect production activity using this ID. See [Telemetry](../telemetry.md) for behavior and dashboard setup.
 
 ## One-time setup notes
 

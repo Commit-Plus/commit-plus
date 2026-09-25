@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C02300012FE0000100A1B2C3 /* TelemetryDeck in Frameworks */ = {isa = PBXBuildFile; productRef = C02300022FE0000100A1B2C3 /* TelemetryDeck */; };
 		8A19F0F127AA100100A1B2C3 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 8A19F0F027AA100100A1B2C3 /* Sparkle */; };
 		8AFB000627B0000100A1B2C3 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 8AFB000327B0000100A1B2C3 /* FirebaseAuth */; };
 		8AFB000727B0000100A1B2C3 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 8AFB000427B0000100A1B2C3 /* FirebaseFirestore */; };
@@ -54,6 +55,7 @@
 				8AFB000827B0000100A1B2C3 /* GoogleSignIn in Frameworks */,
 				8A19F0F127AA100100A1B2C3 /* Sparkle in Frameworks */,
 				8AFB000B27B0000100A1B2C3 /* MarkdownUI in Frameworks */,
+				C02300012FE0000100A1B2C3 /* TelemetryDeck in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +114,7 @@
 				8AFB000527B0000100A1B2C3 /* GoogleSignIn */,
 				8A19F0F027AA100100A1B2C3 /* Sparkle */,
 				8AFB000C27B0000100A1B2C3 /* MarkdownUI */,
+				C02300022FE0000100A1B2C3 /* TelemetryDeck */,
 			);
 			productName = macgit;
 			productReference = 6A843CA52FC5342F0031F230 /* Commit+.app */;
@@ -172,6 +175,7 @@
 				8AFB000227B0000100A1B2C3 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 				8A19F0EF27AA100100A1B2C3 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				8AFB000D27B0000100A1B2C3 /* XCRemoteSwiftPackageReference "MarkdownUI" */,
+				C02300032FE0000100A1B2C3 /* XCRemoteSwiftPackageReference "TelemetryDeck" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 6A843CA62FC5342F0031F230 /* Products */;
@@ -389,7 +393,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.5;
+				MARKETING_VERSION = 1.1.6;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
@@ -450,7 +454,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.5;
+				MARKETING_VERSION = 1.1.6;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
@@ -494,7 +498,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 1.1.5;
+				MARKETING_VERSION = 1.1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.thanhtran.macgitTests;
 				PRODUCT_NAME = macgitTests;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -519,7 +523,7 @@
 					"@loader_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 1.1.5;
+				MARKETING_VERSION = 1.1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.thanhtran.macgitTests;
 				PRODUCT_NAME = macgitTests;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -562,6 +566,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		C02300032FE0000100A1B2C3 /* XCRemoteSwiftPackageReference "TelemetryDeck" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/TelemetryDeck/SwiftSDK.git";
+			requirement = {
+				kind = exactVersion;
+				version = 2.14.2;
+			};
+		};
 		8A19F0EF27AA100100A1B2C3 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
@@ -597,6 +609,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		C02300022FE0000100A1B2C3 /* TelemetryDeck */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C02300032FE0000100A1B2C3 /* XCRemoteSwiftPackageReference "TelemetryDeck" */;
+			productName = TelemetryDeck;
+		};
 		8A19F0F027AA100100A1B2C3 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 8A19F0EF27AA100100A1B2C3 /* XCRemoteSwiftPackageReference "Sparkle" */;

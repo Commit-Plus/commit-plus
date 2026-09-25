@@ -33,7 +33,7 @@ struct FileStatusView: View {
     @ObservedObject var aiProviderController: AIProviderController
     @EnvironmentObject private var accountController: AccountSessionController
     @EnvironmentObject private var featureAccessController: FeatureAccessController
-    var syncState: SyncState? = nil
+    @ObservedObject var syncState: SyncState
     var undoManager: GitUndoManager? = nil
     var preferredRemote: String? = nil
     var gitFlowConfiguration: GitFlowConfiguration = GitFlowConfiguration()
@@ -145,7 +145,7 @@ struct FileStatusView: View {
 
     @ViewBuilder
     private var inProgressBanner: some View {
-        if let operation = syncState?.inProgressOperation {
+        if let operation = syncState.inProgressOperation {
             let isEmpty = !hasChanges
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -158,7 +158,7 @@ struct FileStatusView: View {
                 Spacer()
 
                 HStack(spacing: 8) {
-                    if isEmpty {
+                    if isEmpty && operation.canSkip {
                         Button("Skip") {
                             Task { await skipInProgressOperation(operation) }
                         }
@@ -202,7 +202,7 @@ struct FileStatusView: View {
     }
 
     private var hasInProgressOperation: Bool {
-        syncState?.inProgressOperation != nil
+        syncState.inProgressOperation != nil
     }
 
     var body: some View {
@@ -1295,11 +1295,11 @@ struct FileStatusView: View {
     ) {
         guard !isCommitting else { return }
         isCommitting = true
-        syncState?.isCommitting = true
+        syncState.isCommitting = true
         onRunRepositoryOperation("Committing changes...") {
             defer {
                 isCommitting = false
-                syncState?.isCommitting = false
+                syncState.isCommitting = false
             }
             await performCommit(
                 allowEmpty: allowEmpty,
@@ -1498,7 +1498,7 @@ struct FileStatusView: View {
 
     private func reloadRepositoryState() async {
         await loadStatus()
-        await syncState?.refresh(repositoryURL: repositoryURL)
+        await syncState.refresh(repositoryURL: repositoryURL)
     }
 
     private func restoreSelectedFileAfterStatusRefresh() {
@@ -1541,8 +1541,13 @@ struct FileStatusView: View {
     }
 
     private func continueInProgressOperation(_ operation: GitInProgressOperation) async {
+        if case .merge = operation {
+            guard await onAuthorizeCommit() else { return }
+        }
         do {
             switch operation {
+            case .merge:
+                try await GitStatusService.shared.continueMerge(in: repositoryURL)
             case .cherryPick:
                 try await GitStatusService.shared.continueCherryPick(in: repositoryURL)
             case .revert:
@@ -1565,6 +1570,8 @@ struct FileStatusView: View {
     private func skipInProgressOperation(_ operation: GitInProgressOperation) async {
         do {
             switch operation {
+            case .merge:
+                return
             case .cherryPick:
                 try await GitStatusService.shared.skipCherryPick(in: repositoryURL)
             case .revert:
@@ -1587,6 +1594,8 @@ struct FileStatusView: View {
     private func abortInProgressOperation(_ operation: GitInProgressOperation) async {
         do {
             switch operation {
+            case .merge:
+                try await GitStatusService.shared.abortMerge(in: repositoryURL)
             case .cherryPick:
                 try await GitStatusService.shared.abortCherryPick(in: repositoryURL)
             case .revert:

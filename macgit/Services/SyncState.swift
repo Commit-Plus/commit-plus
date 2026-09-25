@@ -376,7 +376,11 @@ class SyncState: ObservableObject {
         credentialResolver: GitProviderCredentialResolver? = nil
     ) async {
         if await checkConflicts(repositoryURL: repositoryURL) { return }
-        await MainActor.run { isPulling = true }
+        let localBranch = await GitStatusService.shared.currentBranch(in: repositoryURL)
+        await MainActor.run {
+            activeSyncBranch = localBranch
+            isPulling = true
+        }
         defer {
             Task { @MainActor in
                 isPulling = false
@@ -385,7 +389,6 @@ class SyncState: ObservableObject {
         }
         let oldHead = await GitStatusService.shared.tipHash(for: "HEAD", in: repositoryURL)
         do {
-            await MainActor.run { activeSyncBranch = branch }
             _ = try await GitStatusService.shared.pull(
                 remote: remote,
                 branch: branch,
@@ -411,6 +414,9 @@ class SyncState: ObservableObject {
                 }
             }
         } catch {
+            // A failed pull can still change the index and working tree, including conflicts.
+            await refresh(repositoryURL: repositoryURL)
+            notifyRepositoryChanged(repositoryURL)
             let message = error.localizedDescription
             if message.uppercased().contains("CONFLICT") {
                 showConflict("Merge conflicts occurred during Pull. Please resolve them in the File status view.")
@@ -460,6 +466,9 @@ class SyncState: ObservableObject {
                 }
             }
         } catch {
+            // A failed pull can still change the index and working tree, including conflicts.
+            await refresh(repositoryURL: repositoryURL)
+            notifyRepositoryChanged(repositoryURL)
             let message = error.localizedDescription
             if message.uppercased().contains("CONFLICT") {
                 showConflict("Merge conflicts occurred during Pull. Please resolve them in the File status view.")

@@ -1,5 +1,5 @@
 {
-  "originHash" : "699a074e89986dfce223733739e2635a85760e7cb2d6e78ad2a1bce150c3d921",
+  "originHash" : "ab3b9df7b28ef857c57b7f5595ecb55dc5b701a0bf4ccfb3e794476142adabde",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -179,6 +179,15 @@
       "state" : {
         "revision" : "924936d0427cb25a61169739a7660230bffa6ea6",
         "version" : "0.8.0"
+      }
+    },
+    {
+      "identity" : "swiftsdk",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/TelemetryDeck/SwiftSDK.git",
+      "state" : {
+        "revision" : "58f436299d3f6710bcedc18aff26480aaf1879fc",
+        "version" : "2.14.2"
       }
     }
   ],

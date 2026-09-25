@@ -38,6 +38,8 @@ struct PullSheetView: View {
     @State private var selectedBranch: String = ""
 
     @State private var localBranch: String = ""
+    @State private var upstreamRemote: String?
+    @State private var upstreamBranch: String?
 
     @State private var commitMerged = true
     @State private var includeMessages = true
@@ -70,8 +72,11 @@ struct PullSheetView: View {
                         }
                         .pickerStyle(.menu)
                         .onChange(of: selectedRemote) { _, newValue in
-                            Task { await loadRemoteURL(remote: newValue) }
-                            Task { await loadRemoteBranches(remote: newValue) }
+                            guard !isLoading else { return }
+                            Task {
+                                await loadRemoteURL(remote: newValue)
+                                await loadRemoteBranches(remote: newValue)
+                            }
                         }
 
                         if !remoteURL.isEmpty {
@@ -152,7 +157,7 @@ struct PullSheetView: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(GlassProminentButtonStyle(tint: .accentColor, fontSize: 13))
-                .disabled(selectedRemote.isEmpty || selectedBranch.isEmpty)
+                .disabled(isLoading || selectedRemote.isEmpty || selectedBranch.isEmpty)
             }
             .padding([.horizontal, .bottom], 24)
         }
@@ -170,9 +175,18 @@ struct PullSheetView: View {
         let currentRemotes = await GitStatusService.shared.remotes(in: repositoryURL)
         let currentLocal = await GitStatusService.shared.currentBranch(in: repositoryURL) ?? ""
 
+        let upstream = await GitStatusService.shared.upstreamBranch(for: currentLocal, in: repositoryURL)
+        let trackedRemote = currentRemotes.sorted { $0.count > $1.count }.first { remote in
+            upstream?.hasPrefix(remote + "/") == true
+        }
+
         await MainActor.run {
+            upstreamRemote = trackedRemote
+            upstreamBranch = trackedRemote.flatMap { remote in
+                upstream.map { String($0.dropFirst(remote.count + 1)) }
+            }
             remotes = currentRemotes
-            selectedRemote = preselectedRemote.flatMap { currentRemotes.contains($0) ? $0 : nil } ?? currentRemotes.first ?? ""
+            selectedRemote = trackedRemote ?? preselectedRemote.flatMap { currentRemotes.contains($0) ? $0 : nil } ?? currentRemotes.first ?? ""
             localBranch = currentLocal
             rebaseInstead = defaultPullStrategy == .rebase
         }
@@ -186,6 +200,7 @@ struct PullSheetView: View {
     private func loadRemoteURL(remote: String) async {
         let url = await GitStatusService.shared.remoteURL(remote: remote, in: repositoryURL)
         await MainActor.run {
+            guard selectedRemote == remote else { return }
             remoteURL = url
         }
     }
@@ -193,9 +208,12 @@ struct PullSheetView: View {
     private func loadRemoteBranches(remote: String) async {
         let branches = await GitStatusService.shared.cachedRemoteBranches(remote: remote, in: repositoryURL)
         await MainActor.run {
+            guard selectedRemote == remote else { return }
             remoteBranches = branches
-            // Auto-select preselected branch, then fall back to matching local branch
-            if let preselected = preselectedBranch, branches.contains(preselected) {
+            // Prefer the current branch upstream over repository-wide defaults.
+            if remote == upstreamRemote, let upstreamBranch, branches.contains(upstreamBranch) {
+                selectedBranch = upstreamBranch
+            } else if let preselected = preselectedBranch, branches.contains(preselected) {
                 selectedBranch = preselected
             } else if let match = branches.first(where: { $0 == localBranch }) {
                 selectedBranch = match
