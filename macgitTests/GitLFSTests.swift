@@ -3,6 +3,29 @@ import XCTest
 @testable import macgit
 
 final class GitLFSTests: XCTestCase {
+    func testMetadataCommandsDoNotRequireLFSRuntime() {
+        for arguments in [
+            ["branch", "--show-current"], ["remote", "get-url", "origin"],
+            ["config", "user.email"], ["rev-parse", "--git-dir"],
+            ["rev-list", "--count", "--left-right", "HEAD...@{upstream}"],
+            ["log", "--all", "--format=%H%x09%ae%x09%ct", "--no-patch"]
+        ] {
+            XCTAssertFalse(GitStatusService.requiresLFSRuntime(arguments: arguments), "\(arguments)")
+        }
+    }
+
+    func testFiltersHooksAndUnknownCommandsRetainLFSRuntime() {
+        for arguments in [
+            ["status", "--porcelain"], ["add", "file.dat"], ["checkout", "main"],
+            ["push", "origin"], ["commit", "-m", "message"], ["lfs", "env"],
+            ["diff"], ["show", "HEAD:file.dat"], ["log", "-p"],
+            ["log", "--no-patch", "-p"], ["log", "-p", "--", "--no-patch"],
+            ["-c", "alias.custom=status", "custom"], ["branch", "-D", "topic"], []
+        ] {
+            XCTAssertTrue(GitStatusService.requiresLFSRuntime(arguments: arguments), "\(arguments)")
+        }
+    }
+
     @MainActor
     func testDownloadCredentialCallbackPreservesMainActorAcrossSuspension() async {
         var requestedRemote: String?

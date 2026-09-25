@@ -246,7 +246,7 @@ actor GitStatusService {
     let lfsRuntime: GitLFSRuntime
     let branchListCache = BranchListCache()
     var lfsMutations = Set<String>()
-    private var gitCorePaths: [String: String] = [:]
+    private var gitCorePaths: [String: Task<String, Error>] = [:]
 
     init(
         runner: (any GitCommandRunning)? = nil,
@@ -262,7 +262,28 @@ actor GitStatusService {
         try await runtimeManager.executableURL().path
     }
 
+    /// Unknown commands retain LFS setup because they may invoke filters or hooks.
+    nonisolated static func requiresLFSRuntime(arguments: [String]) -> Bool {
+        switch arguments.first {
+        case "rev-parse", "rev-list", "merge-base", "for-each-ref", "show-ref", "check-ref-format":
+            return false
+        case "config":
+            return arguments.contains("--edit") || arguments.contains("-e")
+        case "branch":
+            return arguments != ["branch", "--show-current"]
+        case "remote":
+            return arguments.count != 1 && arguments.dropFirst().first != "get-url"
+        case "log":
+            // Require the final option to suppress diffs, so textconv/external diff
+            // drivers cannot invoke LFS. Do not mistake a path for this option.
+            return arguments.last != "--no-patch" || arguments.contains("--")
+        default:
+            return true
+        }
+    }
+
     func gitExecutionContext(
+        requiresLFS: Bool = true,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) async throws -> (executable: String, environment: [String: String]) {
         let executableURL = try await runtimeManager.executableURL()
@@ -271,16 +292,28 @@ actor GitStatusService {
             inheriting: environment
         )
         resolvedEnvironment["PATH"] = executableURL.deletingLastPathComponent().path + ":" + (resolvedEnvironment["PATH"] ?? "/usr/bin:/bin")
+        guard requiresLFS else { return (executableURL.path, resolvedEnvironment) }
         if resolvedEnvironment["GIT_EXEC_PATH"] == nil {
+            let pathTask: Task<String, Error>
             if let cached = gitCorePaths[executableURL.path] {
-                resolvedEnvironment["GIT_EXEC_PATH"] = cached
+                pathTask = cached
             } else {
-                let result = try await GitProcessExecution(executable: executableURL.path, arguments: ["--exec-path"],
-                    directory: FileManager.default.temporaryDirectory, environment: resolvedEnvironment, outputByteLimit: 16_384).run()
-                let path = String(decoding: result.data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-                gitCorePaths[executableURL.path] = path
-                resolvedEnvironment["GIT_EXEC_PATH"] = path
+                // Share the in-flight lookup across the Welcome screen's concurrent
+                // repository reads, as well as caching its completed result.
+                let processEnvironment = resolvedEnvironment
+                pathTask = Task {
+                    do {
+                        let result = try await GitProcessExecution(executable: executableURL.path, arguments: ["--exec-path"],
+                            directory: FileManager.default.temporaryDirectory, environment: processEnvironment, outputByteLimit: 16_384).run()
+                        return String(decoding: result.data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                    } catch {
+                        gitCorePaths[executableURL.path] = nil
+                        throw error
+                    }
+                }
+                gitCorePaths[executableURL.path] = pathTask
             }
+            resolvedEnvironment["GIT_EXEC_PATH"] = try await pathTask.value
         }
         return (executableURL.path, try await lfsRuntime.environment(inheriting: resolvedEnvironment))
     }
@@ -380,7 +413,9 @@ actor GitStatusService {
 
         let startedAt = Date.now
         do {
-            let context = try await gitExecutionContext(environment: environment)
+            let context = try await gitExecutionContext(
+                requiresLFS: Self.requiresLFSRuntime(arguments: arguments), environment: environment
+            )
             let execution = GitProcessExecution(
                 executable: context.executable,
                 arguments: arguments,
@@ -421,7 +456,9 @@ actor GitStatusService {
     func runGitRaw(arguments: [String], in directory: URL, environment: [String: String], outputByteLimit: Int? = nil) async throws -> Data {
         let startedAt = Date()
         do {
-            let context = try await gitExecutionContext(environment: environment)
+            let context = try await gitExecutionContext(
+                requiresLFS: Self.requiresLFSRuntime(arguments: arguments), environment: environment
+            )
             let result = try await GitProcessExecution(
                 executable: context.executable,
                 arguments: arguments,

@@ -4,6 +4,78 @@ import XCTest
 
 @MainActor
 final class GitLFSRuntimeTests: XCTestCase {
+    func testMetadataExecutionDoesNotProbeLFS() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lfs-metadata-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "lfs-metadata-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let gitManager = GitRuntimeManager(configuration: GitRuntimeConfiguration(
+            applicationSupportDirectory: root, candidateSystemGitURLs: [URL(fileURLWithPath: "/usr/bin/git")],
+            manifest: .current, preferenceDefaults: defaults, preferenceKey: "gitPreference"))
+        let runner = CountingLFSVersionRunner()
+        let lfsManager = GitRuntimeManager(configuration: GitRuntimeConfiguration(
+            applicationSupportDirectory: root, candidateSystemGitURLs: [URL(fileURLWithPath: "/bin/sh")],
+            manifest: GitLFSRuntime.manifest, preferenceDefaults: defaults, preferenceKey: "lfsPreference",
+            managedDirectoryName: "GitLFS", executableRelativePath: "git-lfs-3.8.0/git-lfs", versionPrefix: "git-lfs/"),
+            processRunner: runner)
+        let commands = root.appendingPathComponent("commands")
+        let runtime = GitLFSRuntime(manager: lfsManager, commandDirectory: commands)
+        let service = GitStatusService(runtimeManager: gitManager, lfsRuntime: runtime)
+        // Exercise both production process paths, without a mock Git command runner.
+        let arguments = ["check-ref-format", "refs/heads/topic"]
+        let output = try await service.runGit(arguments: arguments, in: root)
+        XCTAssertEqual(output, "")
+        let bounded = try await service.runGitBounded(arguments: arguments, in: root,
+            environment: ProcessInfo.processInfo.environment, outputByteLimit: 1024)
+        XCTAssertEqual(bounded.text, "")
+        let count = await runner.count
+        XCTAssertEqual(count, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: commands.path))
+
+        _ = try await runtime.executable()
+        let resolvedCount = await runner.count
+        XCTAssertEqual(resolvedCount, 1, "LFS must still resolve when explicitly requested")
+    }
+
+    func testConcurrentStartupReadsShareOneRuntimeProbe() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lfs-startup-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "lfs-startup-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let runner = CountingLFSVersionRunner()
+        let executable = URL(fileURLWithPath: "/bin/sh")
+        let configuration = GitRuntimeConfiguration(applicationSupportDirectory: root, candidateSystemGitURLs: [executable],
+            manifest: GitLFSRuntime.manifest, preferenceDefaults: defaults, preferenceKey: "lfsPreference",
+            managedDirectoryName: "GitLFS", executableRelativePath: "git-lfs-3.8.0/git-lfs", versionPrefix: "git-lfs/")
+        let manager = GitRuntimeManager(configuration: configuration, processRunner: runner)
+        let runtime = GitLFSRuntime(manager: manager, commandDirectory: root.appendingPathComponent("commands"))
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for index in 0..<32 {
+                group.addTask {
+                    if index.isMultiple(of: 2) {
+                        _ = try await runtime.environment(inheriting: ["PATH": "/usr/bin:/bin"])
+                    } else {
+                        _ = try await runtime.executable()
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+        let startupCount = await runner.count
+        XCTAssertEqual(startupCount, 1, "Concurrent Welcome reads should share the first LFS probe")
+        _ = try await runtime.executable()
+        let cachedCount = await runner.count
+        XCTAssertEqual(cachedCount, 1)
+
+        _ = await runtime.status()
+        let refreshedCount = await runner.count
+        XCTAssertEqual(refreshedCount, 2, "Explicit Settings refresh must still probe again")
+    }
+
     func testEmbeddedInstallVerifiesAndSelectsPrivateRuntime() async throws {
         guard let source = ProcessInfo.processInfo.environment["COMMITPLUS_TEST_LFS_ARCHIVE"] else {
             throw XCTSkip("Set COMMITPLUS_TEST_LFS_ARCHIVE to the official archive for this architecture.")
@@ -38,5 +110,16 @@ private struct LFSFixtureDownloader: GitRuntimeDownloading {
         let copy = FileManager.default.temporaryDirectory.appendingPathComponent("lfs-archive-\(UUID()).zip")
         try FileManager.default.copyItem(at: source, to: copy)
         return copy
+    }
+}
+
+private actor CountingLFSVersionRunner: GitRuntimeProcessRunning {
+    private(set) var count = 0
+
+    func version(at executableURL: URL) async throws -> String {
+        count += 1
+        // Keep discovery suspended while the other startup callers enter the actor.
+        try await Task.sleep(for: .milliseconds(50))
+        return "git-lfs/3.8.0"
     }
 }

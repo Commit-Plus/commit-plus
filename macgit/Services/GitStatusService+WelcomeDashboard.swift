@@ -49,7 +49,7 @@ extension GitStatusService {
         do {
             let log = try await runGitBounded(
                 arguments: ["log", "--all", "--ignore-missing", "HEAD", "--since-as-filter=@\(Int(firstDay.timeIntervalSince1970))",
-                            "--no-show-signature", "--format=%H%x09%ae%x09%ct"],
+                            "--no-show-signature", "--format=%H%x09%ae%x09%ct", "--no-patch"],
                 in: repository.url, environment: environment,
                 outputByteLimit: 2 * 1024 * 1024
             )

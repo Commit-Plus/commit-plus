@@ -8,6 +8,7 @@ actor GitLFSRuntime {
     private let commandDirectory: URL
     private var cachedURL: URL?
     private var didResolve = false
+    private var statusTask: Task<GitRuntimeStatus, Never>?
     private var commandPaths: [String: URL] = [:]
 
     init(manager: GitRuntimeManager? = nil, commandDirectory: URL? = nil) {
@@ -46,10 +47,18 @@ actor GitLFSRuntime {
     }
 
     func status() async -> GitRuntimeStatus {
-        let status = await manager.status()
-        cachedURL = status.activeRuntime?.executableURL
-        didResolve = true
-        return status
+        // Actors are reentrant across await: all startup Git commands must share
+        // the same probe instead of launching one version process per caller.
+        if let statusTask { return await statusTask.value }
+        let task = Task {
+            let status = await manager.status()
+            cachedURL = status.activeRuntime?.executableURL
+            didResolve = true
+            statusTask = nil
+            return status
+        }
+        statusTask = task
+        return await task.value
     }
 
     func executable() async throws -> URL {
@@ -73,6 +82,12 @@ actor GitLFSRuntime {
                 let digest = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
                 let root = commandDirectory
                 commands = root.appendingPathComponent(digest)
+                if FileManager.default.fileExists(atPath: commands.path) {
+                    commandPaths[key] = commands
+                    result["GIT_EXEC_PATH"] = commands.path
+                    result["PATH"] = commands.path + ":" + (environment["PATH"] ?? "/usr/bin:/bin")
+                    return result
+                }
                 let staging = root.appendingPathComponent(UUID().uuidString)
                 try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
                 defer { try? FileManager.default.removeItem(at: staging) }
@@ -101,6 +116,8 @@ actor GitLFSRuntime {
     }
 
     func select(_ preference: GitRuntimePreference) async throws {
+        // Finish any startup probe before refreshing for the new preference.
+        if let statusTask { _ = await statusTask.value }
         try await manager.setPreference(preference)
         _ = await status()
     }
