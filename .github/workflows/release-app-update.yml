@@ -21,6 +21,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Generate TelemetryDeck configuration
+        run: python3 scripts/release/write-telemetry-config.py
+        env:
+          TELEMETRYDECK_APP_ID: ${{ vars.TELEMETRYDECK_APP_ID }}
+
       - name: Resolve package dependencies into a stable checkout path
         run: |
           xcodebuild -resolvePackageDependencies \
