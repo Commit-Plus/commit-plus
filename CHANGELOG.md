@@ -6,6 +6,7 @@ Changes in the latest Commit+ release compared with the previous release.
 
 Changes since `v1.1.5`.
 
+Read more about Revision file and commit feature at our blog: https://commitplus.app/blog/browse-and-compare-git-revisions
 ### Fixed
 
 - Allow Git hooks and filters to find Git LFS installed in common package-manager locations when Commit+ is opened from Finder.
