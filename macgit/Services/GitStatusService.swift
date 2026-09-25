@@ -164,8 +164,12 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
 
         if process.terminationStatus != 0 {
             let output = String(decoding: outData, as: UTF8.self)
-            let message = errorOutput.isEmpty ? output : errorOutput
-            resume(throwing: GitError.commandFailed(message.trimmingCharacters(in: .whitespacesAndNewlines)))
+            // Git can write progress to stderr and the actual failure (such as merge conflicts) to stdout.
+            let message = [errorOutput, output]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+            resume(throwing: GitError.commandFailed(message))
         } else {
             resume(returning: GitProcessResult(data: outData, isTruncated: isTruncated))
         }

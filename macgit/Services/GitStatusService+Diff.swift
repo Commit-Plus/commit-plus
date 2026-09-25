@@ -516,7 +516,18 @@ extension GitStatusService {
            !head.isEmpty {
             return .revert(head: head.trimmingCharacters(in: .whitespacesAndNewlines))
         }
+        if let head = try? await runGit(arguments: ["rev-parse", "--verify", "MERGE_HEAD"], in: repositoryURL),
+           !head.isEmpty {
+            return .merge(head: head.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
         return nil
+    }
+
+    func continueMerge(in repositoryURL: URL) async throws {
+        guard await isMergeInProgress(in: repositoryURL) else {
+            throw GitError.commandFailed("No merge is in progress.")
+        }
+        _ = try await runGit(arguments: ["commit", "--no-edit"], in: repositoryURL)
     }
 
     func continueCherryPick(in repositoryURL: URL) async throws {

@@ -23,11 +23,13 @@
 import Foundation
 
 nonisolated enum GitInProgressOperation: Equatable, Sendable {
+    case merge(head: String)
     case cherryPick(head: String)
     case revert(head: String)
 
     var displayName: String {
         switch self {
+        case .merge: return "Merge"
         case .cherryPick: return "Cherry-pick"
         case .revert: return "Revert"
         }
@@ -35,7 +37,7 @@ nonisolated enum GitInProgressOperation: Equatable, Sendable {
 
     var shortHead: String {
         switch self {
-        case .cherryPick(let head), .revert(let head):
+        case .merge(let head), .cherryPick(let head), .revert(let head):
             return String(head.prefix(7))
         }
     }
@@ -44,7 +46,15 @@ nonisolated enum GitInProgressOperation: Equatable, Sendable {
         "\(displayName) in progress (\(shortHead)). Resolve conflicts, then continue or abort."
     }
 
+    var canSkip: Bool {
+        if case .merge = self { return false }
+        return true
+    }
+
     var emptyMessage: String {
-        "\(displayName) (\(shortHead)) produced an empty commit. Skip the commit or abort."
+        if case .merge = self {
+            return "Merge in progress (\(shortHead)). No file changes remain. Continue to complete the merge or abort."
+        }
+        return "\(displayName) (\(shortHead)) produced an empty commit. Skip the commit or abort."
     }
 }

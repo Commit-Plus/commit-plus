@@ -1652,7 +1652,10 @@ struct MainWindowView: View {
         await refreshRemotePresentation(for: loadedSettings.defaultRemoteName)
 
         await MainActor.run {
-            if initialShowsHistory == nil, syncState.commitBadgeCount == 0, selectedItem == .item(.fileStatus) {
+            if initialShowsHistory == nil,
+               syncState.commitBadgeCount == 0,
+               syncState.inProgressOperation == nil,
+               selectedItem == .item(.fileStatus) {
                 selectedItem = .item(.history)
             }
         }
