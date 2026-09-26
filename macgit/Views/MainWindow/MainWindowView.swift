@@ -191,6 +191,9 @@ struct MainWindowView: View {
     @AppStorage("repositoryAIChat.panelWidth") private var storedRepositoryAIChatPanelWidth = 340.0
     @State private var showingToolbarShortcutPopover = false
     @State private var releaseNotesPresentation: ReleaseNotesPresentation?
+    @State private var promotionPresentation: ProPromotion?
+    @State private var isPromotionHostVisible = false
+    @Environment(\.sheetPresentationCoordinator) private var promotionSheetCoordinator
     @StateObject private var repositoryAIChatController: RepositoryAIChatController
     @ObservedObject var operationProgress: RepositoryOperationProgress
 
@@ -279,6 +282,13 @@ struct MainWindowView: View {
                     onCancel: dismissProUpgradeSheet,
                     onPrimaryAction: performProUpgradePrimaryAction
                 )
+            }
+            .replacingSheet(item: $promotionPresentation) { promotion in
+                ProPromotionSheet(promotion: promotion) {
+                    Task { await accountController.openPricingOnWeb() }
+                }
+                .onAppear { ProPromotionPresentationStore.shared.didPresent(promotion) }
+                .onDisappear { ProPromotionPresentationStore.shared.releasePresentation() }
             }
             .replacingSheet(item: $releaseNotesPresentation) { presentation in
                 ReleaseNotesSheet(presentation: presentation)
@@ -654,6 +664,9 @@ struct MainWindowView: View {
             .task { await performInitialLoad() }
             .task {
                 releaseNotesPresentation = await ReleaseNotesPresentationStore.shared.claimPresentation()
+                if releaseNotesPresentation == nil {
+                    await presentPromotionIfAvailable()
+                }
             }
             .task(id: gitFlowConfigurationSyncTaskID) {
                 await reconcileCommitRulePreference()
@@ -666,6 +679,11 @@ struct MainWindowView: View {
                 pullRequestAccessDecision = nil
                 _ = await authorizePullRequestAccess(presentNotice: false)
             }
+        .onChange(of: releaseNotesPresentation == nil) { _, dismissed in
+            if dismissed {
+                Task { await presentPromotionIfAvailable() }
+            }
+        }
         .onChange(of: appState.autoFetchEnabled) { _, globalAutoFetchEnabled in
             syncState.startBackgroundSync(
                 repositoryURL: repositoryURL,
@@ -714,6 +732,7 @@ struct MainWindowView: View {
             repositoryAIChatController.workflowAccessNotice = nil
         }
         .onAppear {
+            isPromotionHostVisible = true
             repositoryAIChatController.workflowAccessDecision = { [featureAccessController, accountController] in
                 featureAccessController.decision(
                     for: .repositoryAIActions,
@@ -723,6 +742,10 @@ struct MainWindowView: View {
             OpenRepositoryRegistry.shared.register(repositoryURL)
         }
         .onDisappear {
+            isPromotionHostVisible = false
+            if promotionPresentation != nil {
+                ProPromotionPresentationStore.shared.releasePresentation()
+            }
             protectedBranchCommitController.finish(.cancel)
             repositoryAIChatController.invalidatePendingMutation(
                 reason: "Repository window closed.",
@@ -731,6 +754,19 @@ struct MainWindowView: View {
             OpenRepositoryRegistry.shared.unregister(repositoryURL)
             syncState.stopBackgroundSync()
         }
+    }
+
+    private func presentPromotionIfAvailable() async {
+        guard let promotion = await ProPromotionPresentationStore.shared.claimPresentation() else { return }
+        guard !Task.isCancelled, isPromotionHostVisible, promotionSheetCoordinator?.isPresenting != true,
+              accountController.presentedSheet == nil,
+              !accountController.isLoading,
+              (accountController.account == nil || accountController.entitlementLastUpdatedAt != nil),
+              promotion.audience.contains(accountController.account == nil ? .free : accountController.entitlement.effectivePlan) else {
+            ProPromotionPresentationStore.shared.releasePresentation()
+            return
+        }
+        promotionPresentation = promotion
     }
 
     func runRepositoryOperation(_ message: String, _ operation: @escaping () async -> Void) {

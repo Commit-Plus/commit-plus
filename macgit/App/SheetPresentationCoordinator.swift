@@ -5,6 +5,8 @@ import Foundation
 /// One coordinator per presentation level, scoped to a single window.
 @MainActor
 final class SheetPresentationCoordinator {
+    var isPresenting: Bool { activeID != nil }
+
     private var activeID: UUID?
     private var dismissActive: (() -> Void)?
 
