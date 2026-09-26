@@ -9,6 +9,14 @@ nonisolated struct PreparedCommitPatch: Identifiable, Sendable {
     let targetBranch: String
     let targetHead: String
     let paths: [String]
-    let patch: String
+    var patch: String
     let fingerprint: String
+    var reviewFiles: [CommitPatchReviewFile] = []
+
+    var hasConflicts: Bool { reviewFiles.contains { $0.state == .conflict } }
+    var hasChanges: Bool { !patch.isEmpty }
+
+    mutating func rebuildPatch() {
+        patch = reviewFiles.filter(\.appliesChanges).map(\.patch).joined()
+    }
 }

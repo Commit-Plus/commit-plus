@@ -62,7 +62,7 @@ extension GitStatusService {
         let fingerprint = try await commitPatchFingerprint(paths: paths, in: repositoryURL)
         let targetHead = try await runGit(arguments: ["rev-parse", "HEAD"], in: repositoryURL)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        var patch = ""
+        var reviewFiles: [CommitPatchReviewFile] = []
         for file in files {
             let refs = request.direction == .apply ? [parent, commit] : [commit, parent]
             let data = try await runGitRaw(arguments: [
@@ -72,21 +72,28 @@ extension GitStatusService {
             guard let raw = String(data: data, encoding: .utf8), data.count <= 5_000_000 else {
                 throw GitError.commandFailed("This patch is too large or is not UTF-8 text.")
             }
-            patch += try CommitPatchBuilder.build(raw: raw, selectedLines: request.lines, reversed: request.direction == .revert)
+            let patch = try CommitPatchBuilder.build(raw: raw, selectedLines: request.lines, reversed: request.direction == .revert)
+            reviewFiles.append(try await prepareCommitPatchReviewFile(file: file, patch: patch,
+                base: refs[0], in: repositoryURL))
         }
-        guard !patch.isEmpty else { throw GitError.commandFailed("There are no selected changes to apply.") }
-        try await runCommitPatch(patch, checkOnly: true, reverse: false, in: repositoryURL)
         guard try await commitPatchFingerprint(paths: paths, in: repositoryURL) == fingerprint else {
             throw GitError.commandFailed("The working copy changed while preparing the patch. Try again.")
         }
         let branch = (try? await runGit(arguments: ["symbolic-ref", "--quiet", "--short", "HEAD"], in: repositoryURL))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? "Detached HEAD"
         let resolved = CommitPatchRequest(commit: commit, files: files, direction: request.direction, lines: request.lines, scope: request.scope)
-        return PreparedCommitPatch(request: resolved, repositoryURL: repositoryURL, parent: parent,
-            targetBranch: branch, targetHead: targetHead, paths: paths, patch: patch, fingerprint: fingerprint)
+        var prepared = PreparedCommitPatch(request: resolved, repositoryURL: repositoryURL, parent: parent,
+            targetBranch: branch, targetHead: targetHead, paths: paths, patch: "", fingerprint: fingerprint,
+            reviewFiles: reviewFiles)
+        prepared.rebuildPatch()
+        return prepared
     }
 
     func applyCommitPatch(_ prepared: PreparedCommitPatch) async throws {
+        guard !prepared.hasConflicts else {
+            throw GitError.commandFailed("Resolve or skip the highlighted files before applying. No files have been changed.")
+        }
+        guard prepared.hasChanges else { return }
         try await executeCommitPatch(prepared.patch, reverse: false, in: prepared.repositoryURL, expected: prepared)
     }
 
@@ -112,7 +119,7 @@ extension GitStatusService {
         try await Task { try await self.runCommitPatch(patch, checkOnly: false, reverse: reverse, in: repositoryURL) }.value
     }
 
-    private func runCommitPatch(_ patch: String, checkOnly: Bool, reverse: Bool, in repositoryURL: URL) async throws {
+    func runCommitPatch(_ patch: String, checkOnly: Bool, reverse: Bool, in repositoryURL: URL) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("commit-patch-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -131,7 +138,7 @@ extension GitStatusService {
         }
     }
 
-    private func validateCommitPatchState(in repositoryURL: URL) async throws {
+    func validateCommitPatchState(in repositoryURL: URL) async throws {
         for name in ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply", "sequencer", "index.lock"] {
             let path = try await runGit(arguments: ["rev-parse", "--path-format=absolute", "--git-path", name], in: repositoryURL)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -143,7 +150,7 @@ extension GitStatusService {
         guard unmerged.isEmpty else { throw GitError.commandFailed("Resolve existing conflicts before applying selected changes.") }
     }
 
-    private func commitPatchFingerprint(paths: [String], in repositoryURL: URL) async throws -> String {
+    func commitPatchFingerprint(paths: [String], in repositoryURL: URL) async throws -> String {
         var hash = SHA256()
         func append(_ data: Data) {
             hash.update(data: Data("\(data.count):".utf8))

@@ -6,6 +6,9 @@ import Observation
 final class CommitPatchController {
     var prepared: PreparedCommitPatch?
     private(set) var isBusy = false
+    private(set) var isPreparing = false
+    @ObservationIgnored private var preparationTask: Task<Void, Never>?
+    @ObservationIgnored private var preparationID = UUID()
     var errorMessage = ""
     var showingError = false
     private(set) var reviewError: String?
@@ -14,19 +17,45 @@ final class CommitPatchController {
         guard !isBusy, prepared == nil else { return }
         reviewError = nil
         isBusy = true
-        Task {
-            defer { isBusy = false }
+        isPreparing = true
+        let id = UUID()
+        preparationID = id
+        preparationTask = Task {
+            defer {
+                if preparationID == id {
+                    isBusy = false
+                    isPreparing = false
+                    preparationTask = nil
+                }
+            }
             do {
-                prepared = try await GitStatusService.shared.prepareCommitPatch(request, in: repositoryURL)
+                let result = try await GitStatusService.shared.prepareCommitPatch(request, in: repositoryURL)
+                guard preparationID == id, !Task.isCancelled else { return }
+                prepared = result
             } catch {
+                guard preparationID == id, !Task.isCancelled else { return }
                 errorMessage = error.localizedDescription
                 showingError = true
             }
         }
     }
 
+    func cancelPreparation() {
+        guard isPreparing else { return }
+        preparationID = UUID()
+        preparationTask?.cancel()
+        preparationTask = nil
+        isPreparing = false
+        isBusy = false
+    }
+
     func apply(undoManager: GitUndoManager?, syncState: SyncState?, run: RepositoryOperationRunner) {
         guard let prepared, !isBusy else { return }
+        guard !prepared.hasConflicts else { return }
+        guard prepared.hasChanges else {
+            self.prepared = nil
+            return
+        }
         reviewError = nil
         isBusy = true
         run("\(prepared.request.direction.rawValue) selected changes…") { [self] in
@@ -46,6 +75,20 @@ final class CommitPatchController {
             } catch {
                 reviewError = error.localizedDescription
             }
+        }
+    }
+
+    func resolve(fileID: UUID, result: String?) async -> Bool {
+        guard let prepared, !isBusy else { return false }
+        isBusy = true
+        reviewError = nil
+        defer { isBusy = false }
+        do {
+            self.prepared = try await GitStatusService.shared.resolveCommitPatch(prepared, fileID: fileID, result: result)
+            return true
+        } catch {
+            reviewError = error.localizedDescription
+            return false
         }
     }
 }

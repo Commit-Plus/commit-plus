@@ -1,0 +1,115 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import SwiftUI
+
+/// Edits an in-memory merge result. The existing code panes/editor never receive a repository mutation callback.
+struct CommitPatchConflictSheet: View {
+    let file: CommitPatchReviewFile
+    let isBusy: Bool
+    let errorMessage: String?
+    let onCancel: () -> Void
+    let onResolve: (String?) async -> Bool
+    @State private var result: String
+    @State private var scrollController = SyncedScrollController()
+    @State private var undoResetGeneration = 0
+    @State private var commandContext = ConflictUndoCommandContext.makeIdentifier()
+    @State private var undoResults: [String] = []
+    @State private var redoResults: [String] = []
+
+    init(file: CommitPatchReviewFile, isBusy: Bool, errorMessage: String?, onCancel: @escaping () -> Void,
+         onResolve: @escaping (String?) async -> Bool) {
+        self.file = file
+        self.isBusy = isBusy
+        self.errorMessage = errorMessage
+        self.onCancel = onCancel
+        self.onResolve = onResolve
+        self._result = State(initialValue: file.conflict?.markedResult ?? "")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Resolve Selected Changes").font(.title2.bold())
+            Text(file.file.path).font(.callout.monospaced()).textSelection(.enabled)
+            if let conflict = file.conflict {
+                Text(conflict.message).foregroundStyle(.secondary)
+                if conflict.markedResult != nil {
+                    HStack(spacing: 12) {
+                        codePane("Your working copy", text: conflict.current, color: .blue)
+                        codePane("Selected changes applied to their original version", text: conflict.selected, color: .green)
+                    }
+                    .frame(maxHeight: .infinity)
+                    HStack {
+                        Button("Keep current conflicts") { choose(.current) }
+                        Button("Use selected conflicts") { choose(.incoming) }
+                        Spacer()
+                    }
+                    Text("Choose a side for the conflicting sections or edit the result below. Non-conflicting changes are kept. Remove all conflict markers before continuing.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ConflictResultEditorView(text: result, onTextChange: { result = $0 },
+                        fileExtension: SyntaxHighlighter.syntaxIdentifier(forFilePath: file.file.path),
+                        baselineText: conflict.current, isDisabled: isBusy, undoResetGeneration: undoResetGeneration,
+                        scrollController: scrollController)
+                        .frame(maxHeight: .infinity)
+                } else { Spacer() }
+            }
+            if let errorMessage { Text(errorMessage).foregroundStyle(.red).font(.callout) }
+            HStack {
+                Text("Only a preview. Your files and staging area are unchanged.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Cancel", action: onCancel).keyboardShortcut(.cancelAction)
+                Button("Skip this file") { finish(nil) }
+                if file.conflict?.markedResult != nil {
+                    Button("Review Result") { finish(result) }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(CommitPatchReviewFile.containsConflictMarkers(result))
+                }
+            }
+        }
+        .padding(20)
+        .frame(width: 1000, height: 700)
+        .disabled(isBusy)
+        .interactiveDismissDisabled(isBusy)
+        .background(CommitPatchConflictWindowContext(identifier: commandContext))
+        .onReceive(NotificationCenter.default.publisher(for: .conflictUndoAction)) { notification in
+            guard !isBusy, notification.userInfo?["commandContext"] as? String == commandContext.rawValue,
+                  let action = notification.userInfo?["action"] as? GitUndoMenuAction else { return }
+            switch action {
+            case .undo:
+                guard let previous = undoResults.popLast() else { return }
+                redoResults.append(result)
+                result = previous
+            case .redo:
+                guard let next = redoResults.popLast() else { return }
+                undoResults.append(result)
+                result = next
+            }
+            undoResetGeneration += 1
+        }
+    }
+
+    private func codePane(_ title: String, text: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.caption.bold())
+            SyncedScrollView(id: title, controller: scrollController,
+                virtualizedRowCount: text.components(separatedBy: "\n").count) {
+                ConflictCodeView(text: text, fileExtension: SyntaxHighlighter.syntaxIdentifier(forFilePath: file.file.path),
+                    highlightedLines: [], highlightColor: color)
+            }
+            .background(.quaternary.opacity(0.3))
+        }
+    }
+
+    private func choose(_ side: ConflictSectionResolution) {
+        guard let marked = file.conflict?.markedResult,
+              var document = try? ConflictResolutionDocument.parse(marked) else { return }
+        document.selectAllConflicts(side)
+        undoResults.append(result)
+        redoResults.removeAll()
+        result = document.resolvedText
+        undoResetGeneration += 1
+    }
+
+    private func finish(_ text: String?) {
+        Task { if await onResolve(text) { onCancel() } }
+    }
+}

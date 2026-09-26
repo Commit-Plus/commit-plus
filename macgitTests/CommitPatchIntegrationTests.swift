@@ -163,9 +163,10 @@ final class CommitPatchIntegrationTests: XCTestCase {
         try git(["checkout", "--detach", base], repo)
         try write("local\n", "b.txt", repo)
         let files = await service.changedFiles(in: source, in: repo)
-        await reject {
-            _ = try await self.service.prepareCommitPatch(.init(commit: source, files: files, direction: .apply, lines: nil, scope: "Files"), in: repo)
-        }
+        let review = try await service.prepareCommitPatch(.init(commit: source, files: files, direction: .apply, lines: nil, scope: "Files"), in: repo)
+        XCTAssertTrue(review.hasConflicts)
+        XCTAssertEqual(review.reviewFiles.first { $0.file.path == "a.txt" }?.state, .ready)
+        await reject { try await self.service.applyCommitPatch(review) }
         XCTAssertEqual(try read("a.txt", repo), "old\n")
         XCTAssertEqual(try read("b.txt", repo), "local\n")
         XCTAssertFalse(FileManager.default.fileExists(atPath: repo.appendingPathComponent("a.txt.rej").path))
@@ -370,7 +371,10 @@ final class CommitPatchIntegrationTests: XCTestCase {
         let source = try commit(repo)
         try git(["checkout", "--detach", base], repo)
         try write("local untracked\n", "new.txt", repo)
-        await reject { _ = try await self.prepare(source, "new.txt", repo) }
+        let review = try await prepare(source, "new.txt", repo)
+        XCTAssertTrue(review.hasConflicts)
+        XCTAssertNil(review.reviewFiles.first?.conflict?.markedResult)
+        await reject { try await self.service.applyCommitPatch(review) }
         XCTAssertEqual(try read("new.txt", repo), "local untracked\n")
         try FileManager.default.removeItem(at: repo.appendingPathComponent("new.txt"))
         let state = repo.appendingPathComponent(".git/sequencer")
@@ -386,6 +390,171 @@ final class CommitPatchIntegrationTests: XCTestCase {
         let file = try XCTUnwrap(files.first { $0.path == path })
         return try await service.prepareCommitPatch(.init(commit: commit, files: [file], direction: direction,
             lines: lines, scope: lines == nil ? "File" : "Lines"), in: repo)
+    }
+
+    func testAlreadyPresentBatchIsANoopAndMixedBatchAppliesOnlyMissingChanges() async throws {
+        let repo = try repository()
+        try write("old a\n", "a.txt", repo); try write("old b\n", "b.txt", repo)
+        let base = try commit(repo)
+        try write("new a\n", "a.txt", repo); try write("new b\n", "b.txt", repo)
+        let source = try commit(repo)
+        let files = await service.changedFiles(in: source, in: repo)
+        let request = CommitPatchRequest(commit: source, files: files, direction: .apply, lines: nil, scope: "Files")
+        let index = try git(["ls-files", "--stage"], repo)
+        let already = try await service.prepareCommitPatch(request, in: repo)
+        XCTAssertFalse(already.hasConflicts)
+        XCTAssertFalse(already.hasChanges)
+        XCTAssertTrue(already.reviewFiles.allSatisfy { $0.state == .alreadyApplied })
+        try await service.applyCommitPatch(already)
+        XCTAssertEqual(try git(["ls-files", "--stage"], repo), index)
+        try git(["checkout", "--detach", base], repo)
+        try write("new a\n", "a.txt", repo)
+        let mixed = try await service.prepareCommitPatch(request, in: repo)
+        XCTAssertEqual(mixed.reviewFiles.first { $0.file.path == "a.txt" }?.state, .alreadyApplied)
+        XCTAssertEqual(mixed.reviewFiles.first { $0.file.path == "b.txt" }?.state, .ready)
+        try await service.applyCommitPatch(mixed)
+        XCTAssertEqual(try read("a.txt", repo), "new a\n")
+        XCTAssertEqual(try read("b.txt", repo), "new b\n")
+        try await service.applyCheckedWorkingTreePatch(mixed.patch, reverse: true, in: repo)
+        XCTAssertEqual(try read("a.txt", repo), "new a\n")
+        XCTAssertEqual(try read("b.txt", repo), "old b\n")
+    }
+
+    func testThreeWayMergePreservesDirtyContextAndOnlySelectedLines() async throws {
+        let repo = try repository()
+        let original = (1...20).map { "line\($0)" }.joined(separator: "\n") + "\n"
+        try write(original, "a.txt", repo)
+        let base = try commit(repo)
+        try write(original.replacingOccurrences(of: "line5\n", with: "selected5\n")
+            .replacingOccurrences(of: "line15\n", with: "unselected15\n"), "a.txt", repo)
+        let source = try commit(repo)
+        try git(["checkout", "--detach", base], repo)
+        let local = original.replacingOccurrences(of: "line2\n", with: "local2\n")
+        try write(local, "a.txt", repo)
+        try git(["add", "a.txt"], repo)
+        let staged = try git(["ls-files", "--stage"], repo)
+        let review = try await prepare(source, "a.txt", repo, lines: [.init(old: 5, new: nil), .init(old: nil, new: 5)])
+        XCTAssertEqual(review.reviewFiles.first?.state, .merged)
+        XCTAssertEqual(try read("a.txt", repo), local, "Preparation/Cancel must not change files")
+        XCTAssertEqual(try git(["ls-files", "--stage"], repo), staged)
+        try await service.applyCommitPatch(review)
+        XCTAssertEqual(try read("a.txt", repo), local.replacingOccurrences(of: "line5\n", with: "selected5\n"))
+        XCTAssertEqual(try git(["ls-files", "--stage"], repo), staged)
+        try await service.applyCheckedWorkingTreePatch(review.patch, reverse: true, in: repo)
+        XCTAssertEqual(try read("a.txt", repo), local)
+    }
+
+    func testReverseThreeWayMergePreservesDirtyContext() async throws {
+        let repo = try repository()
+        let original = (1...20).map { "line\($0)" }.joined(separator: "\n") + "\n"
+        try write(original, "a.txt", repo); _ = try commit(repo)
+        let changed = original.replacingOccurrences(of: "line5\n", with: "selected5\n")
+        try write(changed, "a.txt", repo)
+        let source = try commit(repo)
+        try write(changed.replacingOccurrences(of: "line2\n", with: "local2\n"), "a.txt", repo)
+        let review = try await prepare(source, "a.txt", repo, direction: .revert)
+        XCTAssertEqual(review.reviewFiles.first?.state, .merged)
+        try await service.applyCommitPatch(review)
+        XCTAssertEqual(try read("a.txt", repo), original.replacingOccurrences(of: "line2\n", with: "local2\n"))
+    }
+
+    func testConflictResolutionStaysInPreviewUntilFinalApplyAndUndoRestoresLocalEdits() async throws {
+        let repo = try repository()
+        let original = (1...20).map { "line\($0)" }.joined(separator: "\n") + "\n"
+        try write(original, "a.txt", repo)
+        let base = try commit(repo)
+        try write(original.replacingOccurrences(of: "line5\n", with: "selected5\n")
+            .replacingOccurrences(of: "line15\n", with: "selected15\n"), "a.txt", repo)
+        let source = try commit(repo)
+        try git(["checkout", "--detach", base], repo)
+        let local = original.replacingOccurrences(of: "line5\n", with: "local5\n")
+        try write(local, "a.txt", repo)
+        let index = try git(["ls-files", "--stage"], repo)
+        let review = try await prepare(source, "a.txt", repo)
+        let conflictFile = try XCTUnwrap(review.reviewFiles.first)
+        let marked = try XCTUnwrap(conflictFile.conflict?.markedResult)
+        XCTAssertTrue(review.hasConflicts)
+        await reject { try await self.service.applyCommitPatch(review) }
+        await reject { _ = try await self.service.resolveCommitPatch(review, fileID: conflictFile.id, result: marked) }
+        var document = try ConflictResolutionDocument.parse(marked)
+        document.selectAllConflicts(.current)
+        let resolved = try await service.resolveCommitPatch(review, fileID: conflictFile.id, result: document.resolvedText)
+        XCTAssertFalse(resolved.hasConflicts)
+        XCTAssertEqual(try read("a.txt", repo), local)
+        XCTAssertEqual(try git(["ls-files", "--stage"], repo), index)
+        try await service.applyCommitPatch(resolved)
+        XCTAssertEqual(try read("a.txt", repo), local.replacingOccurrences(of: "line15\n", with: "selected15\n"))
+        XCTAssertEqual(try git(["ls-files", "--stage"], repo), index)
+        try await service.applyCheckedWorkingTreePatch(resolved.patch, reverse: true, in: repo)
+        XCTAssertEqual(try read("a.txt", repo), local)
+    }
+
+    func testSkippingConflictAppliesOtherFilesWithoutTouchingSkippedFile() async throws {
+        let repo = try repository()
+        try write("old\n", "a.txt", repo); try write("old\n", "b.txt", repo)
+        let base = try commit(repo)
+        try write("new\n", "a.txt", repo); try write("new\n", "b.txt", repo)
+        let source = try commit(repo)
+        try git(["checkout", "--detach", base], repo)
+        try write("local\n", "b.txt", repo)
+        let files = await service.changedFiles(in: source, in: repo)
+        let review = try await service.prepareCommitPatch(.init(commit: source, files: files, direction: .apply, lines: nil, scope: "Files"), in: repo)
+        let conflict = try XCTUnwrap(review.reviewFiles.first { $0.file.path == "b.txt" })
+        let skipped = try await service.resolveCommitPatch(review, fileID: conflict.id, result: nil)
+        XCTAssertFalse(skipped.hasConflicts)
+        try await service.applyCommitPatch(skipped)
+        XCTAssertEqual(try read("a.txt", repo), "new\n")
+        XCTAssertEqual(try read("b.txt", repo), "local\n")
+    }
+
+    func testChangedWorkingCopyRejectsResolutionAndFinalMergedApply() async throws {
+        let repo = try repository()
+        try write("old\n", "a.txt", repo)
+        let base = try commit(repo)
+        try write("new\n", "a.txt", repo)
+        let source = try commit(repo)
+        try git(["checkout", "--detach", base], repo)
+        try write("local\n", "a.txt", repo)
+        let review = try await prepare(source, "a.txt", repo)
+        let file = try XCTUnwrap(review.reviewFiles.first)
+        let resolved = try await service.resolveCommitPatch(review, fileID: file.id, result: "resolved\n")
+        try write("newer edit\n", "a.txt", repo)
+        await reject { _ = try await self.service.resolveCommitPatch(review, fileID: file.id, result: "resolved\n") }
+        await reject { try await self.service.applyCommitPatch(resolved) }
+        XCTAssertEqual(try read("a.txt", repo), "newer edit\n")
+    }
+
+    func testAlreadyPresentPartialChangeWithDifferentContextIsRecognizedByMerge() async throws {
+        let repo = try repository()
+        let original = (1...20).map { "line\($0)" }.joined(separator: "\n") + "\n"
+        try write(original, "a.txt", repo); _ = try commit(repo)
+        let selected = original.replacingOccurrences(of: "line5\n", with: "selected5\n")
+        try write(selected, "a.txt", repo)
+        let source = try commit(repo)
+        let local = selected.replacingOccurrences(of: "line2\n", with: "local2\n")
+        try write(local, "a.txt", repo)
+        let review = try await prepare(source, "a.txt", repo, lines: [.init(old: 5, new: nil), .init(old: nil, new: 5)])
+        XCTAssertEqual(review.reviewFiles.first?.state, .alreadyApplied)
+        XCTAssertFalse(review.hasChanges)
+        XCTAssertEqual(try read("a.txt", repo), local)
+    }
+
+    func testCRLFConflictUsesExistingResolutionDocumentWithoutLosingLines() async throws {
+        let repo = try repository()
+        try git(["config", "core.autocrlf", "false"], repo)
+        try write("before\r\nold\r\nafter\r\n", "a.txt", repo)
+        let base = try commit(repo)
+        try write("before\r\nnew\r\nafter\r\n", "a.txt", repo)
+        let source = try commit(repo)
+        try git(["checkout", "--detach", base], repo)
+        try write("before\r\nlocal\r\nafter\r\n", "a.txt", repo)
+        let review = try await prepare(source, "a.txt", repo)
+        let file = try XCTUnwrap(review.reviewFiles.first)
+        var document = try ConflictResolutionDocument.parse(try XCTUnwrap(file.conflict?.markedResult))
+        document.selectAllConflicts(.incoming)
+        let resolved = try await service.resolveCommitPatch(review, fileID: file.id, result: document.resolvedText)
+        try await service.applyCommitPatch(resolved)
+        XCTAssertEqual(try read("a.txt", repo), "before\r\nnew\r\nafter\r\n")
     }
 
     private func reject(_ action: () async throws -> Void, file: StaticString = #filePath, line: UInt = #line) async {

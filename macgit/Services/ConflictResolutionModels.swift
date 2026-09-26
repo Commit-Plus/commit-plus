@@ -282,7 +282,7 @@ struct ConflictResolutionDocument: Equatable, Sendable {
         var index = text.startIndex
 
         while index < text.endIndex {
-            if text[index] == "\n" {
+            if text[index] == "\n" || text[index] == "\r\n" {
                 let nextIndex = text.index(after: index)
                 fragments.append(String(text[lineStart..<nextIndex]))
                 lineStart = nextIndex

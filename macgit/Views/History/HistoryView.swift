@@ -290,13 +290,17 @@ struct HistoryView: View {
         .replacingSheet(isPresented: $showingRebaseConfirmation) {
             rebaseConfirmationSheet
         }
-        .replacingSheet(item: $commitPatchController.prepared) { prepared in
-            CommitPatchReviewSheet(prepared: prepared, isBusy: commitPatchController.isBusy,
-                errorMessage: commitPatchController.reviewError,
-                onCancel: { commitPatchController.prepared = nil },
-                onApply: {
-                    commitPatchController.apply(undoManager: undoManager, syncState: syncState, run: onRunRepositoryOperation)
-                })
+        .replacingSheet(item: $commitPatchController.prepared) { _ in
+            // Read the live review after each resolution, not the sheet's initial item snapshot.
+            if let prepared = commitPatchController.prepared {
+                CommitPatchReviewSheet(prepared: prepared, isBusy: commitPatchController.isBusy,
+                    errorMessage: commitPatchController.reviewError,
+                    onCancel: { commitPatchController.prepared = nil },
+                    onApply: {
+                        commitPatchController.apply(undoManager: undoManager, syncState: syncState, run: onRunRepositoryOperation)
+                    },
+                    onResolve: { id, result in await commitPatchController.resolve(fileID: id, result: result) })
+            }
         }
         .alert("Selected changes", isPresented: $commitPatchController.showingError) {
             Button("OK", role: .cancel) {}
@@ -725,6 +729,15 @@ struct HistoryView: View {
                 VStack(spacing: 0) {
                     // Commit info header
                     commitInfoHeader(for: commit)
+                    if commitPatchController.isPreparing {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("Checking and merging selected changes…").font(.callout)
+                            Spacer()
+                            Button("Cancel") { commitPatchController.cancelPreparation() }
+                        }
+                        .padding(10)
+                    }
                     
                     PersistentHSplit(
                         autosaveName: "HistoryDetailSplit",
