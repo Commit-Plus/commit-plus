@@ -112,7 +112,7 @@ extension GitStatusService {
         defer { lfsMutations.remove(key) }
         let scope = (try? await runGit(arguments: ["config", "--bool", "extensions.worktreeConfig"], in: repository))?
             .trimmingCharacters(in: .whitespacesAndNewlines) == "true" ? "--worktree" : "--local"
-        let configKeys = ["filter.lfs.clean", "filter.lfs.smudge", "filter.lfs.process", "filter.lfs.required", "core.hooksPath"]
+        let configKeys = ["filter.lfs.clean", "filter.lfs.smudge", "filter.lfs.process", "filter.lfs.required", "core.hookspath"]
         let configOutput = try await runGit(arguments: ["config", scope, "--null", "--list"], in: repository)
         var previousConfig: [String: [String]] = [:]
         for record in configOutput.split(separator: "\0") {
