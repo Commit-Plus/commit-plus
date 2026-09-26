@@ -31,6 +31,8 @@ struct DiffView: View {
     let onError: (String) -> Void
     let filePath: String?
     let gitRef: String?
+    let onCommitPatch: (([DiffLine], CommitPatchRequest.Direction, String) -> Void)?
+    let commitPatchDisabledReason: String?
 
     init(
         hunks: [DiffHunk],
@@ -40,7 +42,9 @@ struct DiffView: View {
         onRefresh: @escaping () -> Void = {},
         onError: @escaping (String) -> Void = { _ in },
         filePath: String? = nil,
-        gitRef: String? = nil
+        gitRef: String? = nil,
+        onCommitPatch: (([DiffLine], CommitPatchRequest.Direction, String) -> Void)? = nil,
+        commitPatchDisabledReason: String? = nil
     ) {
         self.hunks = hunks
         self.file = file
@@ -50,6 +54,8 @@ struct DiffView: View {
         self.onError = onError
         self.filePath = filePath
         self.gitRef = gitRef
+        self.onCommitPatch = onCommitPatch
+        self.commitPatchDisabledReason = commitPatchDisabledReason
     }
 
     @State private var selectedLineIDs: Set<UUID> = []
@@ -94,7 +100,20 @@ struct DiffView: View {
                                 selectedLineIDs: $selectedLineIDs,
                                 lastSelectedLineID: $lastSelectedLineID,
                                 onRefresh: onRefresh,
-                                onError: onError
+                                onError: onError,
+                                onCommitHunk: onCommitPatch.map { action in
+                                    { hunk, direction in
+                                        action(hunk.lines.filter { $0.type == .added || $0.type == .removed }, direction, "Selected hunk")
+                                    }
+                                },
+                                onCommitLines: onCommitPatch.map { action in
+                                    { ids, direction in
+                                        action(hunks.flatMap(\.lines).filter {
+                                            ids.contains($0.id) && ($0.type == .added || $0.type == .removed)
+                                        }, direction, "Selected lines")
+                                    }
+                                },
+                                commitPatchDisabledReason: commitPatchDisabledReason
                             )
                             .frame(height: block.height)
                             .padding(.bottom, DiffRenderBlock.spacing)
@@ -115,6 +134,8 @@ struct DiffView: View {
                 renderedBlockRange = range
             }
             .onChange(of: hunks.first?.id) {
+                selectedLineIDs.removeAll()
+                lastSelectedLineID = nil
                 renderedBlockRange = 0..<min(5, blocks.count)
             }
             .id(hunks.first?.id)
@@ -187,6 +208,9 @@ struct HunkView: View {
     @Binding var lastSelectedLineID: UUID?
     let onRefresh: () -> Void
     let onError: (String) -> Void
+    var onCommitHunk: ((DiffHunk, CommitPatchRequest.Direction) -> Void)? = nil
+    var onCommitLines: ((Set<UUID>, CommitPatchRequest.Direction) -> Void)? = nil
+    var commitPatchDisabledReason: String? = nil
     @State private var availableWidth: CGFloat = 0
     @State private var horizontalViewport = CGRect(x: 0, y: 0, width: 1_024, height: 0)
 
@@ -229,6 +253,12 @@ struct HunkView: View {
 
                 Spacer()
 
+                if onCommitHunk != nil {
+                    Menu("Changes") { commitPatchMenu(line: nil) }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .help(commitPatchDisabledReason ?? "Apply or revert this hunk")
+                }
                 if canInteract {
                     if isStaged {
                         Button("Unstage") {
@@ -322,6 +352,7 @@ struct HunkView: View {
 
     private var hunkContextMenu: some View {
         Group {
+            commitPatchMenu(line: nil)
             if canInteract {
                 if isStaged {
                     Button("Unstage Hunk") {
@@ -360,6 +391,7 @@ struct HunkView: View {
 
     private func lineContextMenu(for line: DiffLine) -> some View {
         Group {
+            commitPatchMenu(line: line)
             if canInteract {
                 if isStaged {
                     Button("Unstage Hunk") {
@@ -399,6 +431,31 @@ struct HunkView: View {
                 NSPasteboard.general.setString(line.text, forType: .string)
             }
         }
+    }
+
+    @ViewBuilder
+    private func commitPatchMenu(line: DiffLine?) -> some View {
+        if let onCommitHunk {
+            Button("Apply Hunk") { onCommitHunk(hunk, .apply) }
+                .disabled(commitPatchDisabledReason != nil)
+            Button("Revert Hunk") { onCommitHunk(hunk, .revert) }
+                .disabled(commitPatchDisabledReason != nil)
+            if let onCommitLines, hasSelectedLines || line?.type == .added || line?.type == .removed {
+                Divider()
+                Button("Apply Selected Changes") { onCommitLines(commitLineIDs(line), .apply) }
+                    .disabled(commitPatchDisabledReason != nil)
+                Button("Revert Selected Changes") { onCommitLines(commitLineIDs(line), .revert) }
+                    .disabled(commitPatchDisabledReason != nil)
+            }
+            if let commitPatchDisabledReason { Text(commitPatchDisabledReason) }
+        }
+    }
+
+    private func commitLineIDs(_ line: DiffLine?) -> Set<UUID> {
+        if let line, !selectedLineIDs.contains(line.id), line.type == .added || line.type == .removed {
+            return [line.id]
+        }
+        return selectedLineIDs
     }
 
     private func handleLineTap(at index: Int) {

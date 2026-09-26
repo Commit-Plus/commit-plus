@@ -52,6 +52,10 @@ struct HistoryView: View {
     @State private var dragCompletionMonitorTask: Task<Void, Never>?
     @State private var selectedCommit: Commit? = nil
     @State private var showingCommitInfo = false
+    @State private var commitPatchController = CommitPatchController()
+    @State private var commitPatchReasons: [String: String] = [:]
+    @State private var commitPatchEligibilityLoaded = false
+    @State private var commitPatchEligibilityError: String?
     @State private var fullFilePreview: CommitFilePreviewRequest?
     @State private var previewAvailableSize = CGSize(width: 1000, height: 700)
     @State private var fullCommitMessage: String?
@@ -60,6 +64,8 @@ struct HistoryView: View {
     @State private var fileChanges: [CommitFileChange] = []
     @State private var selectedFile: CommitFileChange? = nil
     @State private var diffHunks: [DiffHunk] = []
+    @State private var diffCommitHash: String?
+    @State private var diffFilePath: String?
     @State private var commitFilesLoadID = UUID()
     @State private var diffLoadID = UUID()
     @AppStorage("history.tableColumns") private var tableColumnCustomization = TableColumnCustomization<Commit>()
@@ -284,6 +290,17 @@ struct HistoryView: View {
         .replacingSheet(isPresented: $showingRebaseConfirmation) {
             rebaseConfirmationSheet
         }
+        .replacingSheet(item: $commitPatchController.prepared) { prepared in
+            CommitPatchReviewSheet(prepared: prepared, isBusy: commitPatchController.isBusy,
+                errorMessage: commitPatchController.reviewError,
+                onCancel: { commitPatchController.prepared = nil },
+                onApply: {
+                    commitPatchController.apply(undoManager: undoManager, syncState: syncState, run: onRunRepositoryOperation)
+                })
+        }
+        .alert("Selected changes", isPresented: $commitPatchController.showingError) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(commitPatchController.errorMessage) }
         .replacingSheet(item: $squashSheetPresentation) { presentation in
             SquashCommitsSheet(
                 commits: presentation.commits,
@@ -712,13 +729,17 @@ struct HistoryView: View {
                     PersistentHSplit(
                         autosaveName: "HistoryDetailSplit",
                         left: {
-                            CommitFileListView(changes: fileChanges, selectedFile: $selectedFile) { file in
-                                fullFilePreview = CommitFilePreviewRequest(
-                                    repositoryURL: repositoryURL,
-                                    commitHash: commit.hash,
-                                    file: file
-                                )
-                            }
+                            CommitFileListView(changes: fileChanges, selectedFile: $selectedFile,
+                                onPreview: { file in
+                                    fullFilePreview = CommitFilePreviewRequest(
+                                        repositoryURL: repositoryURL, commitHash: commit.hash, file: file)
+                                },
+                                onPatch: { files, direction in
+                                    commitPatchController.prepare(CommitPatchRequest(commit: commit.hash,
+                                        files: files, direction: direction, lines: nil,
+                                        scope: "\(files.count) selected file(s)"), in: repositoryURL)
+                                },
+                                patchDisabledReason: { files in commitPatchDisabledReason(for: files) })
                                 .frame(minWidth: 220)
                         },
                         right: {
@@ -866,7 +887,16 @@ struct HistoryView: View {
                         onRefresh: {},
                         onError: { _ in },
                         filePath: file.path,
-                        gitRef: selectedCommit.map(\.hash)
+                        gitRef: selectedCommit.map(\.hash),
+                        onCommitPatch: { lines, direction, scope in
+                            guard let commit = selectedCommit,
+                                  diffCommitHash == commit.hash, diffFilePath == file.path else { return }
+                            commitPatchController.prepare(CommitPatchRequest(commit: commit.hash,
+                                files: [file], direction: direction,
+                                lines: Set(lines.map(CommitPatchRequest.Line.init)), scope: scope), in: repositoryURL)
+                        },
+                        commitPatchDisabledReason: commitPatchDisabledReason(for: [file])
+                            ?? (diffCommitHash == selectedCommit?.hash && diffFilePath == file.path ? nil : "Loading commit diff…")
                     )
                 }
             } else {
@@ -1368,6 +1398,9 @@ struct HistoryView: View {
         let loadID = UUID()
         await MainActor.run {
             commitFilesLoadID = loadID
+            commitPatchEligibilityLoaded = false
+            commitPatchEligibilityError = nil
+            commitPatchReasons = [:]
             fileChanges = []
             selectedFile = nil
             diffHunks = []
@@ -1390,13 +1423,36 @@ struct HistoryView: View {
             fileChanges = changes
             selectedFile = changes.first
         }
+        do {
+            let reasons = try await GitStatusService.shared.commitPatchUnavailableReasons(commit: commit.hash, in: repositoryURL)
+            guard commitFilesLoadID == loadID, selectedCommit?.hash == commit.hash else { return }
+            commitPatchReasons = reasons
+            commitPatchEligibilityLoaded = true
+        } catch {
+            guard commitFilesLoadID == loadID else { return }
+            commitPatchEligibilityError = error.localizedDescription
+            commitPatchEligibilityLoaded = true
+        }
     }
-    
+
+    private func commitPatchDisabledReason(for files: [CommitFileChange]) -> String? {
+        if selectedCommit?.isMerge == true { return "Selected changes from merge commits are not supported." }
+        if commitPatchController.isBusy { return "Preparing or applying selected changes…" }
+        if !commitPatchEligibilityLoaded { return "Checking selected changes…" }
+        if let commitPatchEligibilityError { return commitPatchEligibilityError }
+        for file in files {
+            if let reason = commitPatchReasons[file.path] ?? file.oldPath.flatMap({ commitPatchReasons[$0] }) { return reason }
+        }
+        return nil
+    }
+
     private func loadDiff(for file: CommitFileChange?, in commit: Commit?) async {
         let loadID = UUID()
         await MainActor.run {
             diffLoadID = loadID
             diffHunks = []
+            diffCommitHash = nil
+            diffFilePath = nil
         }
 
         guard let file = file, let commit = commit else {
@@ -1415,6 +1471,8 @@ struct HistoryView: View {
                 return
             }
             diffHunks = hunks
+            diffCommitHash = commit.hash
+            diffFilePath = file.path
         }
     }
 
