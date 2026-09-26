@@ -91,6 +91,8 @@ struct GitUndoExecutor {
             try await runFileCommand(["reset", "HEAD", "--"], paths: paths, in: repositoryURL)
         case .applyPatch(let patch, let cached, let reverse):
             try await patchRunner.applyPatch(patch, in: repositoryURL, cached: cached, reverse: reverse)
+        case .checkedWorkingTreePatch(let patch, let reverse):
+            try await GitStatusService.shared.applyCheckedWorkingTreePatch(patch, reverse: reverse, in: repositoryURL)
         case .resetHead(let target, let mode, let expectedHead):
             if let expectedHead {
                 let actual = try await runner.runGit(arguments: ["rev-parse", "HEAD"], in: repositoryURL)

@@ -35,15 +35,22 @@ extension Notification.Name {
 private actor SyncRefreshCoordinator {
     private var localRefreshInFlight = false
     private var lastLocalRefreshDate: Date?
+    private var queuedForcedRefreshes: [URL] = []
     private var automaticFetchInFlight = false
     private var lastAutomaticFetchDate = Date.distantPast
 
     func beginLocalRefresh(
         force: Bool,
         minimumInterval: TimeInterval,
-        now: Date
+        now: Date,
+        repositoryURL: URL
     ) -> Bool {
-        guard !localRefreshInFlight else { return false }
+        guard !localRefreshInFlight else {
+            if force, !queuedForcedRefreshes.contains(repositoryURL) {
+                queuedForcedRefreshes.append(repositoryURL)
+            }
+            return false
+        }
         if !force,
            let lastLocalRefreshDate,
            now.timeIntervalSince(lastLocalRefreshDate) < minimumInterval {
@@ -54,9 +61,11 @@ private actor SyncRefreshCoordinator {
         return true
     }
 
-    func finishLocalRefresh(at date: Date) {
+    func finishLocalRefresh(at date: Date) -> [URL] {
         localRefreshInFlight = false
         lastLocalRefreshDate = date
+        defer { queuedForcedRefreshes.removeAll() }
+        return queuedForcedRefreshes
     }
 
     func beginAutomaticFetch(
@@ -130,7 +139,8 @@ class SyncState: ObservableObject {
         guard await refreshCoordinator.beginLocalRefresh(
             force: force,
             minimumInterval: Self.localRefreshCoalescingInterval,
-            now: .now
+            now: .now,
+            repositoryURL: repositoryURL
         ) else {
             return
         }
@@ -173,7 +183,14 @@ class SyncState: ObservableObject {
             )
         }
 
-        await refreshCoordinator.finishLocalRefresh(at: .now)
+        let queuedRefreshes = await refreshCoordinator.finishLocalRefresh(at: .now)
+        if !queuedRefreshes.isEmpty {
+            Task {
+                for queuedRepositoryURL in queuedRefreshes {
+                    await refresh(repositoryURL: queuedRepositoryURL)
+                }
+            }
+        }
     }
 
     func startBackgroundSync(

@@ -46,6 +46,7 @@ indirect enum GitUndoOperation: Equatable {
     case stageFiles(paths: [String])
     case unstageFiles(paths: [String])
     case applyPatch(patch: String, cached: Bool, reverse: Bool)
+    case checkedWorkingTreePatch(patch: String, reverse: Bool)
     case resetHead(target: String, mode: GitUndoResetMode, expectedHead: String?)
     case commit(message: String, noVerify: Bool, signOff: Bool)
     case cherryPick(commit: String)

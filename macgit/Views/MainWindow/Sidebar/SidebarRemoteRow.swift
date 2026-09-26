@@ -58,7 +58,7 @@ struct SidebarRemoteRow: View {
         } else {
             rowView
                 .overlay {
-                    SidebarRemoteBranchDragSource(
+                    SidebarBranchDragSource(
                         onTap: {
                             actions.select(.remoteBranch(row.fullPath))
                         },
@@ -70,7 +70,7 @@ struct SidebarRemoteRow: View {
                             actions.makePayload(row.fullPath)
                         },
                         dragTitle: row.fullPath,
-                        onDragEnded: {
+                        onDragEnded: { _ in
                             actions.finishDrag(row.fullPath)
                         }
                     )

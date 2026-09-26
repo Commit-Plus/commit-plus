@@ -205,6 +205,7 @@ final class GitSubmoduleLifecycleTests: XCTestCase {
             repositoryURL: setup.parent,
             selection: .constant(nil),
             onRequestCheckout: { _, _ in },
+            onRequestRemoteBranchCheckout: { _ in },
             onRequestFetchBranch: { _ in },
             onRequestRemoveSubmodule: { path, force in
                 try await GitStatusService.shared.removeSubmodule(path: path, force: force, in: setup.parent)

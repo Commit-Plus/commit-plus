@@ -247,6 +247,8 @@ actor GitStatusService {
     let branchListCache = BranchListCache()
     var lfsMutations = Set<String>()
     private var gitCorePaths: [String: Task<String, Error>] = [:]
+    // Prevent two selected-patch operations from interleaving across windows for the same checkout.
+    var activeCommitPatchRepositories: Set<String> = []
 
     init(
         runner: (any GitCommandRunning)? = nil,

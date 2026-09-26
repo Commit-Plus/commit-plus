@@ -26,11 +26,48 @@ struct CommitFileListView: View {
     let changes: [CommitFileChange]
     @Binding var selectedFile: CommitFileChange?
     var onPreview: ((CommitFileChange) -> Void)? = nil
+    var onPatch: (([CommitFileChange], CommitPatchRequest.Direction) -> Void)? = nil
+    var patchDisabledReason: (([CommitFileChange]) -> String?)? = nil
+    @State private var selectedFiles: Set<CommitFileChange> = []
     @State private var visibleFileCount = 200
     private let pageSize = 200
     
     var body: some View {
-        List(selection: $selectedFile) {
+        Group {
+            if onPatch != nil {
+                List(selection: $selectedFiles) { fileRows }
+                    .onChange(of: selectedFiles) { old, new in
+                        if let added = changes.first(where: { new.subtracting(old).contains($0) }) {
+                            selectedFile = added
+                        } else if let selectedFile, !new.contains(selectedFile) {
+                            self.selectedFile = changes.first(where: { new.contains($0) })
+                        }
+                    }
+            } else {
+                List(selection: $selectedFile) { fileRows }
+            }
+        }
+        .listStyle(.inset)
+        .onAppear { synchronizeSelection() }
+        .onChange(of: changes) {
+            visibleFileCount = pageSize
+            selectedFiles = selectedFiles.intersection(Set(changes))
+            synchronizeSelection()
+            revealSelectedFile()
+        }
+        .onChange(of: selectedFile) {
+            synchronizeSelection()
+            revealSelectedFile()
+        }
+    }
+
+    private func synchronizeSelection() {
+        if let selectedFile, !selectedFiles.contains(selectedFile) { selectedFiles = [selectedFile] }
+        if selectedFile == nil { selectedFiles = [] }
+    }
+
+    private var fileRows: some View {
+        Group {
             ForEach(changes.prefix(visibleFileCount)) { change in
                 HStack(spacing: 8) {
                     Image(systemName: statusSymbol(for: change.status))
@@ -85,6 +122,15 @@ struct CommitFileListView: View {
                 }
                 .padding(.vertical, 2)
                 .tag(change)
+                .contextMenu {
+                    if let onPatch {
+                        let files = selectedFiles.contains(change) ? changes.filter { selectedFiles.contains($0) } : [change]
+                        let reason = patchDisabledReason?(files)
+                        Button("Apply Selected Changes") { onPatch(files, .apply) }.disabled(reason != nil)
+                        Button("Revert Selected Changes") { onPatch(files, .revert) }.disabled(reason != nil)
+                        if let reason { Text(reason) }
+                    }
+                }
             }
             if visibleFileCount < changes.count {
                 Text("Loading more files… (\(visibleFileCount) of \(changes.count))")
@@ -96,14 +142,6 @@ struct CommitFileListView: View {
                         visibleFileCount = min(visibleFileCount + pageSize, changes.count)
                     }
             }
-        }
-        .listStyle(.inset)
-        .onChange(of: changes.first?.id) {
-            visibleFileCount = pageSize
-            revealSelectedFile()
-        }
-        .onChange(of: selectedFile) {
-            revealSelectedFile()
         }
     }
 

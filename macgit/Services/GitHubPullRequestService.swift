@@ -243,6 +243,13 @@ struct GitHubPullRequestService: PullRequestProviding {
             let (data, response) = try await httpClient.data(
                 for: try makeJSONRequest(url: url, token: token, method: "POST", body: payload)
             )
+            if response.statusCode == 422,
+               let errorResponse = try? decoder.decode(GitHubErrorResponse.self, from: data),
+               errorResponse.isDuplicatePullRequest {
+                throw PullRequestProviderError.providerMessage(
+                    "GitHub couldn't create this pull request. A pull request from this branch to the selected target already exists. Check the repository's pull requests, or choose a different target branch."
+                )
+            }
             try validateWrite(response: response, data: data)
             let created = try decoder.decode(GitHubPullRequestResponse.self, from: data)
             var warnings: [String] = []
@@ -848,6 +855,19 @@ private struct GitHubReviewCommentResponse: Decodable {
 
 private struct GitHubErrorResponse: Decodable {
     var message: String
+    var errors: [ValidationError]?
+
+    var isDuplicatePullRequest: Bool {
+        errors?.contains {
+            $0.resource == "PullRequest" &&
+                $0.message?.localizedCaseInsensitiveContains("a pull request already exists") == true
+        } == true
+    }
+
+    struct ValidationError: Decodable {
+        var resource: String?
+        var message: String?
+    }
 }
 
 private struct GitHubCombinedStatusResponse: Decodable {
