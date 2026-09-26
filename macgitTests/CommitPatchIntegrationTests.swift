@@ -405,6 +405,8 @@ final class CommitPatchIntegrationTests: XCTestCase {
         XCTAssertFalse(already.hasConflicts)
         XCTAssertFalse(already.hasChanges)
         XCTAssertTrue(already.reviewFiles.allSatisfy { $0.state == .alreadyApplied })
+        XCTAssertTrue(already.reviewFiles.allSatisfy { !DiffParser.parse($0.patch).isEmpty }, "Already-present changes remain previewable")
+        XCTAssertTrue(already.patch.isEmpty, "Preview patches must not be applied again")
         try await service.applyCommitPatch(already)
         XCTAssertEqual(try git(["ls-files", "--stage"], repo), index)
         try git(["checkout", "--detach", base], repo)
@@ -502,6 +504,8 @@ final class CommitPatchIntegrationTests: XCTestCase {
         let conflict = try XCTUnwrap(review.reviewFiles.first { $0.file.path == "b.txt" })
         let skipped = try await service.resolveCommitPatch(review, fileID: conflict.id, result: nil)
         XCTAssertFalse(skipped.hasConflicts)
+        XCTAssertFalse(try XCTUnwrap(skipped.reviewFiles.first { $0.id == conflict.id }).patch.isEmpty,
+            "Skipped changes remain previewable")
         try await service.applyCommitPatch(skipped)
         XCTAssertEqual(try read("a.txt", repo), "new\n")
         XCTAssertEqual(try read("b.txt", repo), "local\n")

@@ -106,10 +106,13 @@ struct CommitPatchReviewSheet: View {
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                 }
+                if preview.review.state == .alreadyApplied || preview.review.state == .skipped {
+                    Text("Preview of the selected changes. This file will not be changed.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Group {
-                    if !preview.review.appliesChanges && preview.review.state != .conflict {
-                        EmptyStateView(message: preview.review.state == .resolved ? "No changes needed" : preview.review.state.rawValue,
-                            detail: "This file will not be changed.")
+                    if preview.review.state == .resolved && preview.review.patch.isEmpty {
+                        EmptyStateView(message: "No changes needed", detail: "This file will not be changed.")
                     } else if preview.hunks.isEmpty {
                         EmptyStateView(message: "File metadata changes", detail: "This file has no changed lines.")
                     } else {

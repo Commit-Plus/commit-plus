@@ -12,7 +12,7 @@ extension GitStatusService {
         // Check each file independently: a batch can contain both new and already-present changes.
         do {
             try await runCommitPatch(patch, checkOnly: true, reverse: true, in: repositoryURL)
-            return CommitPatchReviewFile(file: file, patch: "", state: .alreadyApplied)
+            return CommitPatchReviewFile(file: file, patch: patch, state: .alreadyApplied)
         } catch { try Task.checkCancellation() }
 
         let url = repositoryURL.appendingPathComponent(file.path)
@@ -43,7 +43,7 @@ extension GitStatusService {
             throw GitError.commandFailed("Could not decode the selected changes in \(file.path).")
         }
         if currentData == selectedData {
-            return CommitPatchReviewFile(file: file, patch: "", state: .alreadyApplied)
+            return CommitPatchReviewFile(file: file, patch: patch, state: .alreadyApplied)
         }
         guard !CommitPatchReviewFile.containsConflictMarkers(current),
               !CommitPatchReviewFile.containsConflictMarkers(selected),
@@ -72,7 +72,7 @@ extension GitStatusService {
                 current: current, selected: selected, markedResult: marked, permissions: permissions))
         }
         let merged = try String(contentsOf: oursURL, encoding: .utf8)
-        if merged == current { return CommitPatchReviewFile(file: file, patch: "", state: .alreadyApplied) }
+        if merged == current { return CommitPatchReviewFile(file: file, patch: patch, state: .alreadyApplied) }
         let mergedPatch = try await commitPatchResultDiff(path: file.path, current: current,
             result: merged, permissions: permissions)
         try await runCommitPatch(mergedPatch, checkOnly: true, reverse: false, in: repositoryURL)
@@ -101,7 +101,7 @@ extension GitStatusService {
             updated.reviewFiles[index].patch = patch
             updated.reviewFiles[index].state = .resolved
         } else {
-            updated.reviewFiles[index].patch = ""
+            // Keep the selected patch available for preview; skipped files are excluded by rebuildPatch().
             updated.reviewFiles[index].state = .skipped
         }
         updated.reviewFiles[index].conflict = nil
