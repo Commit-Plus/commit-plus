@@ -31,6 +31,7 @@ struct DiffView: View {
     let onError: (String) -> Void
     let filePath: String?
     let gitRef: String?
+    let prefersTextDiff: Bool
     let onCommitPatch: (([DiffLine], CommitPatchRequest.Direction, String) -> Void)?
     let commitPatchDisabledReason: String?
 
@@ -43,6 +44,7 @@ struct DiffView: View {
         onError: @escaping (String) -> Void = { _ in },
         filePath: String? = nil,
         gitRef: String? = nil,
+        prefersTextDiff: Bool = false,
         onCommitPatch: (([DiffLine], CommitPatchRequest.Direction, String) -> Void)? = nil,
         commitPatchDisabledReason: String? = nil
     ) {
@@ -54,6 +56,7 @@ struct DiffView: View {
         self.onError = onError
         self.filePath = filePath
         self.gitRef = gitRef
+        self.prefersTextDiff = prefersTextDiff
         self.onCommitPatch = onCommitPatch
         self.commitPatchDisabledReason = commitPatchDisabledReason
     }
@@ -77,7 +80,7 @@ struct DiffView: View {
     }
 
     var body: some View {
-        if isImageFile {
+        if isImageFile && !prefersTextDiff {
             imagePreview
         } else if hunks.isEmpty {
             EmptyStateView(message: "No diff to display", detail: "Select a file to see changes")
