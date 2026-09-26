@@ -49,6 +49,7 @@ struct FileStatusView: View {
     @ObservedObject private var integrationSettings = IntegrationSettingsStore.shared
     @State private var gitStatus: GitStatus = GitStatus(staged: [], unstaged: [], untracked: [])
     @State private var lfsPaths = Set<String>()
+    @State private var stagedLFSPaths = Set<String>()
     @State private var changedFiles: [StatusFile] = []
     @State private var visibleStagedFileCount = 100
     @State private var visibleChangedFileCount = 100
@@ -453,6 +454,7 @@ struct FileStatusView: View {
     }
 
     private func fileRow(file: StatusFile, isStaged: Bool) -> some View {
+        let isLFS = (isStaged ? stagedLFSPaths : lfsPaths).contains(file.path)
         let selectionKey = FileStatusSelectionKey(file: file, isStaged: isStaged)
         let isSelected = selectedFileKey == selectionKey
         let quickAction = FileStatusRowQuickAction(isStaged: isStaged)
@@ -486,9 +488,9 @@ struct FileStatusView: View {
                                 .font(.system(size: 13, weight: .medium))
                                 .lineLimit(1)
                                 .truncationMode(.middle)
-                            if lfsPaths.contains(file.path) || isPotentialConflict {
+                            if isLFS || isPotentialConflict {
                                 HStack(spacing: 6) {
-                                    if lfsPaths.contains(file.path) {
+                                    if isLFS {
                                         GitLFSChip()
                                     }
                                     if isPotentialConflict {
@@ -1478,6 +1480,7 @@ struct FileStatusView: View {
 
             let paths = Set((loadedStatus.staged + loadedStatus.unstaged + loadedStatus.untracked).map(\.path))
             lfsPaths = (try? await GitStatusService.shared.lfsPaths(Array(paths), in: repositoryURL)) ?? []
+            stagedLFSPaths = (try? await GitStatusService.shared.lfsPaths(loadedStatus.staged.map(\.path), cached: true, in: repositoryURL)) ?? []
             gitStatus = loadedStatus
             changedFiles = loadedStatus.unstaged + loadedStatus.untracked
             currentBranch = loadedCurrentBranch

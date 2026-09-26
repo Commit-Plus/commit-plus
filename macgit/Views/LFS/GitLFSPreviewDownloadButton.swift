@@ -6,6 +6,7 @@ struct GitLFSPreviewDownloadButton: View {
     let remote: String
     @State private var runtime = GitLFSRuntimeController.shared
     @State private var showDownload = false
+    @State private var requestedEntryID: String?
 
     var body: some View {
         GitLFSAccessView(repositoryURL: controller.repositoryURL) { authorize in
@@ -16,20 +17,23 @@ struct GitLFSPreviewDownloadButton: View {
     @ViewBuilder
     private func downloadButton(authorize: @escaping @MainActor () async -> Bool) -> some View {
         Button("Download for Preview") {
+            let selectedID = controller.selectedEntry?.id
+            requestedEntryID = selectedID
             Task {
                 guard await authorize() else { return }
                 await runtime.refresh()
+                guard controller.selectedEntry?.id == selectedID else { return }
                 if runtime.status?.activeRuntime == nil { showDownload = true }
-                else if await authorize() { controller.downloadLFSPreview(remote: remote) }
+                else if await authorize(), controller.selectedEntry?.id == selectedID { controller.downloadLFSPreview(remote: remote) }
             }
         }
         .disabled(remote.isEmpty || controller.isLoadingPreview || runtime.isInstalling)
         .alert("Download Git LFS?", isPresented: $showDownload) {
             Button("Download & Continue") {
-                let selectedID = controller.selectedEntry?.id
+                let selectedID = requestedEntryID
                 Task {
                     let installed = await runtime.install()
-                    if installed, controller.selectedEntry?.id == selectedID, await authorize() {
+                    if installed, await authorize(), controller.selectedEntry?.id == selectedID {
                         controller.downloadLFSPreview(remote: remote)
                     }
                 }

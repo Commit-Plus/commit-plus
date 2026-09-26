@@ -201,9 +201,9 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
     private static func terminateChildren(of pid: Int32) {
         var children = [Int32](repeating: 0, count: 4096)
         let capacity = Int32(children.count * MemoryLayout<Int32>.size)
-        let byteCount = children.withUnsafeMutableBytes { proc_listchildpids(pid, $0.baseAddress, capacity) }
-        guard byteCount > 0 else { return }
-        for child in children.prefix(Int(byteCount) / MemoryLayout<Int32>.size) where child > 0 && child != pid {
+        let count = children.withUnsafeMutableBytes { proc_listchildpids(pid, $0.baseAddress, capacity) }
+        guard count > 0 else { return }
+        for child in children.prefix(min(Int(count), children.count)) where child > 0 && child != pid {
             terminateChildren(of: child)
             kill(child, SIGTERM)
         }

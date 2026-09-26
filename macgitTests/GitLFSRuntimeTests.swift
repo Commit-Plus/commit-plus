@@ -4,6 +4,28 @@ import XCTest
 
 @MainActor
 final class GitLFSRuntimeTests: XCTestCase {
+    func testMissingRuntimePreservesGitLookup() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lfs-missing-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "lfs-missing-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let configuration = GitRuntimeConfiguration(applicationSupportDirectory: root, candidateSystemGitURLs: [],
+            manifest: GitLFSRuntime.manifest, preferenceDefaults: defaults, preferenceKey: "lfsPreference",
+            managedDirectoryName: "GitLFS", executableRelativePath: "git-lfs-3.8.0/git-lfs", versionPrefix: "git-lfs/")
+        let manager = GitRuntimeManager(configuration: configuration, processRunner: GitLFSVersionRunner())
+        let commands = root.appendingPathComponent("commands")
+        let runtime = GitLFSRuntime(manager: manager, commandDirectory: commands)
+        let environment = ["PATH": "/usr/bin:/bin", "GIT_EXEC_PATH": "/nonexistent/git-core"]
+        let resolved = try await runtime.environment(inheriting: environment)
+        XCTAssertEqual(resolved, environment)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: commands.path))
+        do {
+            _ = try await runtime.executable()
+            XCTFail("Explicit LFS operations must still report the missing runtime")
+        } catch {}
+    }
+
     func testMetadataExecutionDoesNotProbeLFS() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lfs-metadata-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

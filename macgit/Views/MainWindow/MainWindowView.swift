@@ -1361,6 +1361,7 @@ struct MainWindowView: View {
                     }, refreshRepository: {
                         await syncState.refresh(repositoryURL: repositoryURL, force: true)
                     }, authorizeAction: authorize)
+                    .onDisappear { lfsTrackingPath = nil }
                 }
                 .id(repositoryURL)
             case .item(.gitFlow):

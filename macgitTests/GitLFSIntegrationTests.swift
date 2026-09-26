@@ -9,7 +9,7 @@ final class GitLFSIntegrationTests: XCTestCase {
         let resultFile = repo.appendingPathComponent("should-not-be-written")
         let task = Task {
             try await service.runProcessRaw(executableURL: URL(fileURLWithPath: "/bin/sh"),
-                arguments: ["-c", "sleep 2; echo unexpected > \"$RESULT_FILE\""], in: repo,
+                arguments: ["-c", "(sleep 2; echo unexpected > \"$RESULT_FILE\") & wait"], in: repo,
                 environment: ["PATH": "/usr/bin:/bin", "RESULT_FILE": resultFile.path])
         }
         try await Task.sleep(for: .milliseconds(200))
@@ -51,8 +51,8 @@ final class GitLFSIntegrationTests: XCTestCase {
         let clone = repo.deletingLastPathComponent().appendingPathComponent("clone")
         try await service.cloneRepository(remoteURL: remote.path, to: clone, checkoutBranch: "main", recurseSubmodules: false, downloadLFSContent: false)
         XCTAssertNotNil(GitLFSPointer(try String(contentsOf: clone.appendingPathComponent("asset.dat"), encoding: .utf8)))
-        try await service.setupLFS(in: clone)
-        try await service.downloadLFS(remote: "origin", in: clone, credentialResolver: nil)
+        _ = try await service.runGit(arguments: ["remote", "rename", "origin", "upstream"], in: clone)
+        try await service.finishLFSClone(in: clone)
         XCTAssertEqual(try Data(contentsOf: clone.appendingPathComponent("asset.dat")), content)
         let changed = Data("local edits".utf8)
         try changed.write(to: clone.appendingPathComponent("asset.dat"))

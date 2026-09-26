@@ -1444,8 +1444,7 @@ struct CloneSheetView: View {
                 guard lfsRuntime.status?.activeRuntime != nil else {
                     throw GitError.commandFailed(lfsRuntime.error ?? "Git LFS installation was cancelled.")
                 }
-                try await GitStatusService.shared.setupLFS(in: repository)
-                try await GitStatusService.shared.downloadLFS(remote: "origin", in: repository, credentialResolver: lfsCredentialResolver)
+                try await GitStatusService.shared.finishLFSClone(in: repository, credentialResolver: lfsCredentialResolver)
                 onClone(repository)
                 dismiss()
             } catch {

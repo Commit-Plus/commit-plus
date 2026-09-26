@@ -136,6 +136,7 @@ final class RevisionBrowserController {
         guard let entry = selectedEntry, let snapshot, preview?.lfsPointer != nil else { return }
         previewTask?.cancel()
         let id = previewID
+        previewError = nil
         isLoadingPreview = true
         previewTask = Task {
             do {

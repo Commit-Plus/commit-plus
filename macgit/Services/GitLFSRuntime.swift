@@ -72,10 +72,11 @@ actor GitLFSRuntime {
     func environment(inheriting environment: [String: String]) async throws -> [String: String] {
         if !didResolve { _ = await status() }
         var result = environment
+        guard let cachedURL else { return result }
         // Git prepends its exec-path ahead of PATH. Embedded Git includes its own
         // git-lfs, so PATH alone cannot enforce the user's separate LFS choice.
         if let corePath = environment["GIT_EXEC_PATH"] {
-            let key = corePath + "|" + (cachedURL?.path ?? "missing")
+            let key = corePath + "|" + cachedURL.path
             let commands: URL
             if let cached = commandPaths[key] { commands = cached }
             else {
@@ -95,12 +96,7 @@ actor GitLFSRuntime {
                     try FileManager.default.createSymbolicLink(at: staging.appendingPathComponent(source.lastPathComponent), withDestinationURL: source)
                 }
                 let target = staging.appendingPathComponent("git-lfs")
-                if let cachedURL {
-                    try FileManager.default.createSymbolicLink(at: target, withDestinationURL: cachedURL)
-                } else {
-                    try "#!/bin/sh\necho 'Git LFS is unavailable. Open Git LFS in Commit+ to install it.' >&2\nexit 127\n".write(to: target, atomically: true, encoding: .utf8)
-                    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: target.path)
-                }
+                try FileManager.default.createSymbolicLink(at: target, withDestinationURL: cachedURL)
                 if !FileManager.default.fileExists(atPath: commands.path) {
                     do { try FileManager.default.moveItem(at: staging, to: commands) }
                     catch { if !FileManager.default.fileExists(atPath: commands.path) { throw error } }
@@ -109,7 +105,7 @@ actor GitLFSRuntime {
             }
             result["GIT_EXEC_PATH"] = commands.path
             result["PATH"] = commands.path + ":" + (environment["PATH"] ?? "/usr/bin:/bin")
-        } else if let cachedURL {
+        } else {
             result["PATH"] = cachedURL.deletingLastPathComponent().path + ":" + (environment["PATH"] ?? "/usr/bin:/bin")
         }
         return result

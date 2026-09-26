@@ -2,7 +2,7 @@
 
 Date: 2026-09-23. Status: first-release implementation added; manual UI and live-provider verification remain outstanding.
 
-Implementation reference: [Git LFS user guide](../git-lfs.md). The delivered UI keeps Git LFS visible in Workspace so new users can discover setup directly. Setup, tracking, and review are presented in that workspace rather than a separate three-page wizard. Explicit LFS downloads show file and byte progress through the CLI progress interface, with an indeterminate fallback. Tracking rules have a source-aware table and preserve raw output for inspection. Existing custom hooks require manual integration. History migration, locking, and pruning remain outside this release.
+Implementation reference: [Git LFS user guide](../git-lfs.md). The delivered UI keeps Git LFS visible in Workspace so new users can discover setup directly. Setup, tracking, and review are presented in that workspace rather than a separate three-page wizard. Explicit LFS downloads show file and byte progress through the CLI progress interface, with an indeterminate fallback. Tracking rules have a source-aware table and preserve raw output for inspection. Setup automatically integrates existing hooks, including those in a custom `core.hooksPath`. History migration, locking, and pruning remain outside this release.
 
 ## 1. What is Git LFS?
 

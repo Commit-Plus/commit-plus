@@ -112,6 +112,15 @@ extension GitStatusService {
         defer { lfsMutations.remove(key) }
         let scope = (try? await runGit(arguments: ["config", "--bool", "extensions.worktreeConfig"], in: repository))?
             .trimmingCharacters(in: .whitespacesAndNewlines) == "true" ? "--worktree" : "--local"
+        let configKeys = ["filter.lfs.clean", "filter.lfs.smudge", "filter.lfs.process", "filter.lfs.required", "core.hooksPath"]
+        let configOutput = try await runGit(arguments: ["config", scope, "--null", "--list"], in: repository)
+        var previousConfig: [String: [String]] = [:]
+        for record in configOutput.split(separator: "\0") {
+            let fields = record.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+            let name = String(fields[0])
+            guard configKeys.contains(name) else { continue }
+            previousConfig[name, default: []].append(fields.count == 2 ? String(fields[1]) : "true")
+        }
         let hook = try await lfsHookURL(in: repository)
         let contents = (try? String(contentsOf: hook, encoding: .utf8)) ?? ""
         // Repeated setup must not wrap our own dispatcher again.
@@ -154,8 +163,23 @@ extension GitStatusService {
             // Publish only after the complete hook directory and filters are ready.
             _ = try await runGit(arguments: ["config", scope, "core.hooksPath", directory.path], in: repository)
         } catch {
+            let setupError = error
+            let savedConfig = previousConfig
+            // An unstructured task can roll back even when setup's task was cancelled.
+            try await Task {
+                let current = try await self.runGit(arguments: ["config", scope, "--null", "--list"], in: repository)
+                let currentKeys = Set(current.split(separator: "\0").map { String($0.prefix(while: { $0 != "\n" })) })
+                for name in configKeys {
+                    if currentKeys.contains(name) {
+                        _ = try await self.runGit(arguments: ["config", scope, "--unset-all", name], in: repository)
+                    }
+                    for value in savedConfig[name] ?? [] {
+                        _ = try await self.runGit(arguments: ["config", scope, "--add", name, value], in: repository)
+                    }
+                }
+            }.value
             try? FileManager.default.removeItem(at: directory)
-            throw error
+            throw setupError
         }
     }
 

@@ -97,7 +97,8 @@ struct GitLFSView: View {
             isInitialLoadPending = false
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh)) { notification in
-            guard let url = notification.object as? URL, url.standardizedFileURL == repositoryURL.standardizedFileURL else { return }
+            let url = (notification.userInfo?["repositoryURL"] as? URL) ?? (notification.object as? URL)
+            guard let url, url.standardizedFileURL == repositoryURL.standardizedFileURL else { return }
             Task { await controller.load() }
         }
         .alert("Download Git LFS?", isPresented: $controller.showingRuntimePrompt) {

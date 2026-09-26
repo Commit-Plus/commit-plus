@@ -65,6 +65,24 @@ final class GitLFSTests: XCTestCase {
         XCTAssertFalse(safe.contains("private"))
         XCTAssertTrue(safe.contains("example.com/object"))
     }
+    func testDiagnosticsRedactMalformedURL() {
+        let safe = GitLFSErrorMessage.sanitized("download https://user:secret@[invalid?signature=private failed")
+        XCTAssertFalse(safe.contains("secret"))
+        XCTAssertFalse(safe.contains("private"))
+        XCTAssertTrue(safe.contains("<remote URL>"))
+    }
+
+    func testAuthenticationClassificationRequiresHTTPContext() {
+        for detail in ["object does not exist: abc401def403", "object does not exist: 401 bytes"] {
+            let message = GitLFSErrorMessage.describe(NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: detail]))
+            XCTAssertTrue(message.hasPrefix("The LFS object is missing"))
+        }
+        for detail in ["HTTP 401", "HTTP/1.1 403", "status code: 401", "403 Forbidden"] {
+            let message = GitLFSErrorMessage.describe(NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: detail]))
+            XCTAssertTrue(message.hasPrefix("Git LFS could not authenticate"))
+        }
+    }
+
     func testIncludeFiltersRejectAmbiguousSelections() throws {
         XCTAssertEqual(try GitStatusService.lfsIncludePaths(["Assets/a.dat", "日本語 space.dat"]), "/Assets/a.dat,/日本語 space.dat")
         for path in ["a,b.dat", "*.dat", "a[1].dat", "../outside", "line\nbreak", " trailing "] {

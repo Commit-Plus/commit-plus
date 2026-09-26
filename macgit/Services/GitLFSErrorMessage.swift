@@ -6,7 +6,11 @@ nonisolated enum GitLFSErrorMessage {
         var result = message
         if let regex = try? NSRegularExpression(pattern: "https?://[^\\s]+") {
             for match in regex.matches(in: result, range: NSRange(result.startIndex..., in: result)).reversed() {
-                guard let range = Range(match.range, in: result), var url = URLComponents(string: String(result[range])) else { continue }
+                guard let range = Range(match.range, in: result) else { continue }
+                guard var url = URLComponents(string: String(result[range])) else {
+                    result.replaceSubrange(range, with: "<remote URL>")
+                    continue
+                }
                 url.user = nil
                 url.password = nil
                 url.query = nil
@@ -22,7 +26,8 @@ nonisolated enum GitLFSErrorMessage {
         let detail = sanitized(error.localizedDescription)
         let lower = detail.lowercased()
         let explanation: String
-        if lower.contains("401") || lower.contains("403") || lower.contains("authentication") || lower.contains("credentials") {
+        let httpAuthStatus = lower.range(of: #"(?:http(?:/\d(?:\.\d)?)?\s+|status(?: code)?[\s:=]+|error[\s:=]+)(?:401|403)\b|\b(?:401 unauthorized|403 forbidden)\b"#, options: .regularExpression) != nil
+        if httpAuthStatus || lower.contains("authentication") || lower.contains("credentials") {
             explanation = "Git LFS could not authenticate. Check the account for the LFS endpoint; it may differ from the Git remote."
         } else if lower.contains("quota") || lower.contains("bandwidth") {
             explanation = "The remote reported a Git LFS storage or bandwidth limit. Check the provider's usage settings."

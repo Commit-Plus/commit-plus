@@ -48,15 +48,32 @@ extension GitStatusService {
         // Clone Git data first so a failed LFS download never requires cloning again.
         _ = try await runGit(arguments: ["-c", "filter.lfs.process=", "-c", "filter.lfs.smudge=", "-c", "filter.lfs.required=false"] + arguments,
             in: parentURL, environment: environment)
-        let files = try await runGit(arguments: ["ls-files", "-z"], in: destinationURL)
-        let paths = files.split(separator: "\0").map(String.init)
-        guard try await !lfsPaths(paths, in: destinationURL).isEmpty else { return }
         guard downloadLFSContent else { return }
         do {
-            try await setupLFS(in: destinationURL)
-            try await downloadLFS(remote: "origin", in: destinationURL, credentialResolver: credentialResolver)
+            try await finishLFSClone(in: destinationURL, credentialResolver: credentialResolver)
         } catch {
             throw GitLFSCloneRecoveryError(repository: destinationURL, reason: error.localizedDescription)
+        }
+    }
+
+    /// Finish both initial clone downloads and recovery, including initialized nested submodules.
+    func finishLFSClone(in repository: URL, credentialResolver: GitProviderCredentialResolver? = nil) async throws {
+        let submodulePaths = try await runGit(
+            arguments: ["submodule", "foreach", "--quiet", "--recursive", #"printf '%s\0' "$PWD""#], in: repository)
+        let repositories = [repository] + submodulePaths.split(separator: "\0").map { URL(fileURLWithPath: String($0)) }
+        for checkout in repositories {
+            try Task.checkCancellation()
+            let files = try await runGit(arguments: ["ls-files", "-z"], in: checkout)
+            let paths = files.split(separator: "\0").map(String.init)
+            guard try await !lfsPaths(paths, in: checkout).isEmpty else { continue }
+            // Fresh clones have one remote; respect clone.defaultRemoteName, including in submodules.
+            let output = try await runGit(arguments: ["remote"], in: checkout)
+            let remotes = output.split(whereSeparator: \.isNewline).map(String.init)
+            guard let remote = remotes.count == 1 ? remotes.first : (remotes.contains("origin") ? "origin" : nil) else {
+                throw GitError.commandFailed("Cannot determine the clone remote for \(checkout.lastPathComponent). Open Git LFS and select its remote.")
+            }
+            try await setupLFS(in: checkout)
+            try await downloadLFS(remote: remote, in: checkout, credentialResolver: credentialResolver)
         }
     }
 
