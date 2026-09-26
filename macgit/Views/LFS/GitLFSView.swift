@@ -17,6 +17,7 @@ struct GitLFSView: View {
     @State private var literal = false
     @State private var minimumMiB = 50
     @State private var showingSetup = false
+    @State private var isInitialLoadPending = true
 
     init(repositoryURL: URL, initialPath: String? = nil, credentialResolver: @escaping @MainActor (String) async -> GitProviderCredentialResolver?,
          refreshRepository: @escaping @MainActor @Sendable () async -> Void,
@@ -44,7 +45,10 @@ struct GitLFSView: View {
                 Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red).textSelection(.enabled)
             }
             if let notice = controller.notice { Text(notice).foregroundStyle(.secondary) }
-            if runtime.status?.activeRuntime == nil {
+            if controller.snapshot == nil && (isInitialLoadPending || controller.isLoading) {
+                ProgressView("Reading Git LFS…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if runtime.status?.activeRuntime == nil {
                 ContentUnavailableView {
                     Label("Git LFS Is Required", systemImage: "externaldrive.badge.exclamationmark")
                 } description: {
@@ -66,10 +70,9 @@ struct GitLFSView: View {
                     Text("Tracking Rules").tag("Tracking Rules")
                 }.pickerStyle(.segmented)
                 if tab == "Files" { fileTable } else { rules(snapshot.rules) }
-            } else if controller.isLoading {
-                ProgressView("Reading Git LFS…").frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView("Unable to Read Git LFS", systemImage: "exclamationmark.triangle", description: Text("Check the message above, then Refresh to try again."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if let label = controller.operationLabel {
                 HStack {
@@ -87,8 +90,12 @@ struct GitLFSView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding()
-        .task { await controller.load(promptForRuntime: true) }
+        .task {
+            await controller.load(promptForRuntime: true)
+            isInitialLoadPending = false
+        }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh)) { notification in
             guard let url = notification.object as? URL, url.standardizedFileURL == repositoryURL.standardizedFileURL else { return }
             Task { await controller.load() }

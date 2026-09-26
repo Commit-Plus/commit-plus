@@ -474,17 +474,10 @@ struct FileStatusView: View {
                 .labelsHidden()
                 .pointingHandCursor()
 
-                if isPotentialConflict {
-                    PotentialConflictFileIndicator(
-                        baseRef: currentBranchIntegrationStatus?.baseRef,
-                        onOpenDetails: { presentPotentialConflictDetails(for: file) }
-                    )
-                } else {
-                    Image(systemName: fileIcon(for: file))
-                        .foregroundStyle(fileColor(for: file))
-                        .font(.system(size: 14, weight: .medium))
-                        .frame(width: 18)
-                }
+                Image(systemName: fileIcon(for: file))
+                    .foregroundStyle(fileColor(for: file))
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(width: 18)
 
                 HStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 1) {
@@ -492,8 +485,21 @@ struct FileStatusView: View {
                             Text(file.displayName)
                                 .font(.system(size: 13, weight: .medium))
                                 .lineLimit(1)
-                            if lfsPaths.contains(file.path) {
-                                GitLFSChip()
+                                .truncationMode(.middle)
+                            if lfsPaths.contains(file.path) || isPotentialConflict {
+                                HStack(spacing: 6) {
+                                    if lfsPaths.contains(file.path) {
+                                        GitLFSChip()
+                                    }
+                                    if isPotentialConflict {
+                                        PotentialConflictFileIndicator(
+                                            baseRef: currentBranchIntegrationStatus?.baseRef,
+                                            onOpenDetails: { presentPotentialConflictDetails(for: file) }
+                                        )
+                                    }
+                                }
+                                .fixedSize(horizontal: true, vertical: false)
+                                .layoutPriority(1)
                             }
                         }
                         if let original = file.originalPath {
@@ -1433,7 +1439,8 @@ struct FileStatusView: View {
     }
 
     private func hasPotentialConflict(_ file: StatusFile) -> Bool {
-        guard file.status != .conflict,
+        guard syncState.inProgressOperation == nil,
+              file.status != .conflict,
               let conflictPaths = currentBranchIntegrationStatus?.potentialConflictPaths
         else {
             return false
