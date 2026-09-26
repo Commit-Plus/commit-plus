@@ -816,6 +816,9 @@ struct MainWindowView: View {
                     showingCheckoutConfirmation = true
                 }
             },
+            onRequestRemoteBranchCheckout: { target in
+                pendingRemoteBranchCheckout = target
+            },
             onRequestFetchBranch: { branch in
                 Task {
                     let remote = await trackedRemote(for: branch)

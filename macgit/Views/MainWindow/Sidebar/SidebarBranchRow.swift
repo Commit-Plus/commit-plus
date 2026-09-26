@@ -62,16 +62,6 @@ struct SidebarBranchRow: View {
     private var branchLeafRow: some View {
         let rowView = content
             .tag(SidebarSelection.branch(row.fullPath))
-            .onTapGesture {
-                actions.select(.branch(row.fullPath))
-            }
-            .simultaneousGesture(
-                TapGesture(count: 2).onEnded {
-                    if !isCurrentBranch {
-                        actions.checkout(row.fullPath)
-                    }
-                }
-            )
             .contextMenu {
                 SidebarBranchContextMenu(
                     branch: row.fullPath,
@@ -82,12 +72,6 @@ struct SidebarBranchRow: View {
                     branchesByRemote: branchesByRemote,
                     actions: actions
                 )
-            }
-            .contentShape(.dragPreview, RoundedRectangle(cornerRadius: 8))
-            .onDrag {
-                actions.makeItemProvider(row.fullPath)
-            } preview: {
-                BranchDragPreview(branchName: row.fullPath)
             }
 
         if isCurrentBranch {
@@ -129,6 +113,15 @@ struct SidebarBranchRow: View {
                 }
         } else {
             rowView
+                .overlay {
+                    SidebarBranchDragSource(
+                        onTap: { actions.select(.branch(row.fullPath)) },
+                        onDoubleTap: { actions.checkout(row.fullPath) },
+                        dragPayload: { makeBranchPayload(row.fullPath) },
+                        dragTitle: row.fullPath,
+                        onDragEnded: finishBranchDrag
+                    )
+                }
         }
     }
 

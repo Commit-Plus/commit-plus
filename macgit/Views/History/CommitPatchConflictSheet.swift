@@ -7,7 +7,8 @@ struct CommitPatchConflictSheet: View {
     let isBusy: Bool
     let errorMessage: String?
     let onCancel: () -> Void
-    let onResolve: (String?) async -> Bool
+    let onSkip: () -> Void
+    let onResolve: (String) -> Void
     @State private var result: String
     @State private var scrollController = SyncedScrollController()
     @State private var undoResetGeneration = 0
@@ -16,18 +17,19 @@ struct CommitPatchConflictSheet: View {
     @State private var redoResults: [String] = []
 
     init(file: CommitPatchReviewFile, isBusy: Bool, errorMessage: String?, onCancel: @escaping () -> Void,
-         onResolve: @escaping (String?) async -> Bool) {
+         onSkip: @escaping () -> Void, onResolve: @escaping (String) -> Void) {
         self.file = file
         self.isBusy = isBusy
         self.errorMessage = errorMessage
         self.onCancel = onCancel
+        self.onSkip = onSkip
         self.onResolve = onResolve
         self._result = State(initialValue: file.conflict?.markedResult ?? "")
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Resolve Selected Changes").font(.title2.bold())
+            Text(file.reviewTitle).font(.title2.bold())
             Text(file.file.path).font(.callout.monospaced()).textSelection(.enabled)
             if let conflict = file.conflict {
                 Text(conflict.message).foregroundStyle(.secondary)
@@ -49,7 +51,37 @@ struct CommitPatchConflictSheet: View {
                         baselineText: conflict.current, isDisabled: isBusy, undoResetGeneration: undoResetGeneration,
                         scrollController: scrollController)
                         .frame(maxHeight: .infinity)
-                } else { Spacer() }
+                } else {
+                    if conflict.kind == .missingFile {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "doc.badge.questionmark")
+                                .font(.title2)
+                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("File isn’t on this branch")
+                                    .font(.headline)
+                                Text("The commit changes an existing file, but this branch has no copy of it. The green lines below are only the changes from the commit; they aren’t a merge conflict. Apply Selected Changes can add changes to an existing file, but it can’t recreate the missing file from those lines alone.")
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        Text("Changes from the source commit · This is not a conflict diff")
+                        .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if DiffParser.parse(file.patch).isEmpty {
+                        ScrollView {
+                            Text(file.patch).font(.callout.monospaced()).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    } else {
+                        DiffView(hunks: DiffParser.parse(file.patch), filePath: file.file.path, prefersTextDiff: true)
+                    }
+                }
             }
             if let errorMessage { Text(errorMessage).foregroundStyle(.red).font(.callout) }
             HStack {
@@ -57,7 +89,7 @@ struct CommitPatchConflictSheet: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel", action: onCancel).keyboardShortcut(.cancelAction)
-                Button("Skip this file") { finish(nil) }
+                Button("Skip this file", action: onSkip)
                 if file.conflict?.markedResult != nil {
                     Button("Review Result") { finish(result) }
                         .keyboardShortcut(.defaultAction)
@@ -66,9 +98,8 @@ struct CommitPatchConflictSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 1000, height: 700)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .disabled(isBusy)
-        .interactiveDismissDisabled(isBusy)
         .background(CommitPatchConflictWindowContext(identifier: commandContext))
         .onReceive(NotificationCenter.default.publisher(for: .conflictUndoAction)) { notification in
             guard !isBusy, notification.userInfo?["commandContext"] as? String == commandContext.rawValue,
@@ -109,7 +140,7 @@ struct CommitPatchConflictSheet: View {
         undoResetGeneration += 1
     }
 
-    private func finish(_ text: String?) {
-        Task { if await onResolve(text) { onCancel() } }
+    private func finish(_ text: String) {
+        onResolve(text)
     }
 }

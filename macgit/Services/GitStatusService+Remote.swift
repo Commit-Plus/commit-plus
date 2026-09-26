@@ -359,6 +359,7 @@ extension GitStatusService {
             arguments.append("\(trimmedRemote)/\(trimmedBranch)")
         }
         _ = try await runGit(arguments: arguments, in: repositoryURL)
+        await invalidateBranchListCache(in: repositoryURL)
         return trimmedLocalBranch
     }
 

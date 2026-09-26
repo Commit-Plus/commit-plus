@@ -502,7 +502,14 @@ final class CommitPatchIntegrationTests: XCTestCase {
         let files = await service.changedFiles(in: source, in: repo)
         let review = try await service.prepareCommitPatch(.init(commit: source, files: files, direction: .apply, lines: nil, scope: "Files"), in: repo)
         let conflict = try XCTUnwrap(review.reviewFiles.first { $0.file.path == "b.txt" })
-        let skipped = try await service.resolveCommitPatch(review, fileID: conflict.id, result: nil)
+        let skipped = try await MainActor.run {
+            let controller = CommitPatchController()
+            controller.prepared = review
+            controller.skip(fileID: conflict.id)
+            return try XCTUnwrap(controller.prepared)
+        }
+        XCTAssertEqual(try read("a.txt", repo), "old\n", "Skip must not apply other files yet")
+        XCTAssertEqual(try read("b.txt", repo), "local\n", "Skip must not change the working copy")
         XCTAssertFalse(skipped.hasConflicts)
         XCTAssertFalse(try XCTUnwrap(skipped.reviewFiles.first { $0.id == conflict.id }).patch.isEmpty,
             "Skipped changes remain previewable")

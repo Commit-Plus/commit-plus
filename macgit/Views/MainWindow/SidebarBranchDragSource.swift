@@ -1,5 +1,5 @@
 //
-//  SidebarRemoteBranchDragSource.swift
+//  SidebarBranchDragSource.swift
 //  macgit
 //
 //  Created by Thanh Tran on 26/5/26.
@@ -26,12 +26,12 @@
 import AppKit
 import SwiftUI
 
-struct SidebarRemoteBranchDragSource: NSViewRepresentable {
+struct SidebarBranchDragSource: NSViewRepresentable {
     let onTap: () -> Void
     let onDoubleTap: () -> Void
     let dragPayload: () -> GitDragPayload
     let dragTitle: String
-    let onDragEnded: () -> Void
+    let onDragEnded: (GitDragPayload) -> Void
 
     func makeNSView(context: Context) -> DragSourceView {
         DragSourceView(
@@ -56,17 +56,17 @@ struct SidebarRemoteBranchDragSource: NSViewRepresentable {
         var onDoubleTap: () -> Void
         var dragPayload: () -> GitDragPayload
         var dragTitle: String
-        var onDragEnded: () -> Void
+        var onDragEnded: (GitDragPayload) -> Void
 
         private var dragStartEvent: NSEvent?
-        private var isDragging = false
+        private var activeDragPayload: GitDragPayload?
 
         init(
             onTap: @escaping () -> Void,
             onDoubleTap: @escaping () -> Void,
             dragPayload: @escaping () -> GitDragPayload,
             dragTitle: String,
-            onDragEnded: @escaping () -> Void
+            onDragEnded: @escaping (GitDragPayload) -> Void
         ) {
             self.onTap = onTap
             self.onDoubleTap = onDoubleTap
@@ -83,25 +83,31 @@ struct SidebarRemoteBranchDragSource: NSViewRepresentable {
 
         override func mouseDown(with event: NSEvent) {
             dragStartEvent = event
+            // AppKit owns double-click timing; selection never waits for a tap recognizer.
+            onTap()
             if event.clickCount == 2 {
+                dragStartEvent = nil
                 onDoubleTap()
-            } else {
-                onTap()
             }
         }
 
         override func mouseDragged(with event: NSEvent) {
-            guard !isDragging, dragStartEvent != nil else {
+            guard activeDragPayload == nil, let dragStartEvent else {
+                return
+            }
+            let start = dragStartEvent.locationInWindow
+            let location = event.locationInWindow
+            guard hypot(location.x - start.x, location.y - start.y) >= 4 else {
                 return
             }
 
             let payload = dragPayload()
             guard let item = SidebarBranchDropTarget.DropTargetView.pasteboardItem(for: payload) else {
-                onDragEnded()
+                onDragEnded(payload)
                 return
             }
 
-            isDragging = true
+            activeDragPayload = payload
             let draggingItem = NSDraggingItem(pasteboardWriter: item)
             let image = dragImage(title: dragTitle)
             draggingItem.setDraggingFrame(
@@ -133,8 +139,10 @@ struct SidebarRemoteBranchDragSource: NSViewRepresentable {
             operation: NSDragOperation
         ) {
             dragStartEvent = nil
-            isDragging = false
-            onDragEnded()
+            if let activeDragPayload {
+                onDragEnded(activeDragPayload)
+            }
+            activeDragPayload = nil
         }
 
         private func dragImage(title: String) -> NSImage {

@@ -18,12 +18,33 @@ nonisolated struct CommitPatchReviewFile: Identifiable, Sendable {
     var id: UUID { file.id }
 
     struct Conflict: Sendable {
+        enum Kind: Sendable, Equatable {
+            case missingFile
+            case unsupportedChange
+            case existingMarkers
+            case overlappingEdits
+        }
+
+        let kind: Kind
         let message: String
         let current: String
         let selected: String
         // nil means a structural conflict that cannot safely use the text editor.
         let markedResult: String?
         let permissions: Int
+    }
+
+    var reviewTitle: String {
+        conflict?.markedResult == nil ? "Review Selected Changes" : "Resolve Text Conflict"
+    }
+
+    var displayState: String {
+        guard state == .conflict, let conflict else { return state.rawValue }
+        switch conflict.kind {
+        case .missingFile: return "File missing"
+        case .unsupportedChange: return "Cannot apply safely"
+        case .existingMarkers, .overlappingEdits: return "Needs resolution"
+        }
     }
 
     var appliesChanges: Bool {

@@ -7,8 +7,7 @@ struct CommitPatchReviewSheet: View {
     let errorMessage: String?
     let onCancel: () -> Void
     let onApply: () -> Void
-    let onResolve: (UUID, String?) async -> Bool
-    @State private var resolvingFile: CommitPatchReviewFile?
+    let onOpenConflict: (CommitPatchReviewFile) -> Void
 
     private struct FilePreview: Identifiable {
         let review: CommitPatchReviewFile
@@ -23,13 +22,13 @@ struct CommitPatchReviewSheet: View {
 
     init(prepared: PreparedCommitPatch, isBusy: Bool, errorMessage: String?,
          onCancel: @escaping () -> Void, onApply: @escaping () -> Void,
-         onResolve: @escaping (UUID, String?) async -> Bool) {
+         onOpenConflict: @escaping (CommitPatchReviewFile) -> Void) {
         self.prepared = prepared
         self.isBusy = isBusy
         self.errorMessage = errorMessage
         self.onCancel = onCancel
         self.onApply = onApply
-        self.onResolve = onResolve
+        self.onOpenConflict = onOpenConflict
         self.previews = prepared.reviewFiles.map { review in
             FilePreview(review: review, hunks: DiffParser.parse(review.patch), metadata: review.patch.components(separatedBy: "\n")
                 .prefix { !$0.hasPrefix("@@ ") }
@@ -66,12 +65,12 @@ struct CommitPatchReviewSheet: View {
             if previews.count > 1 {
                 Picker("File", selection: $selectedPreviewID) {
                     ForEach(previews) { preview in
-                        Text("\(preview.file.path) — \(preview.review.state.rawValue)").tag(Optional(preview.id))
+                        Text("\(preview.file.path) — \(preview.review.displayState)").tag(Optional(preview.id))
                     }
                 }
             }
             if prepared.hasConflicts {
-                Text("Resolve or skip each file marked ‘Needs resolution’ before applying. Nothing has been changed yet.")
+                Text("Some selected changes need attention. Resolve overlapping edits, or review files that are missing or cannot be changed safely. Nothing has been changed yet.")
                     .font(.callout).foregroundStyle(.orange)
             } else if !prepared.hasChanges {
                 Text(prepared.reviewFiles.allSatisfy { $0.state == .alreadyApplied }
@@ -81,13 +80,13 @@ struct CommitPatchReviewSheet: View {
             }
             if let preview = selectedPreview {
                 HStack {
-                    Text(preview.review.state.rawValue)
+                    Text(preview.review.displayState)
                         .font(.callout.weight(.medium))
                         .foregroundStyle(preview.review.state == .conflict ? .orange : .secondary)
                     Spacer()
                     if preview.review.state == .conflict {
-                        Button(preview.review.conflict?.markedResult == nil ? "Review options…" : "Resolve…") {
-                            resolvingFile = preview.review
+                        Button(preview.review.conflict?.markedResult == nil ? "Why can’t I apply this?" : "Resolve…") {
+                            onOpenConflict(preview.review)
                         }
                     }
                 }
@@ -137,9 +136,5 @@ struct CommitPatchReviewSheet: View {
         .padding(24)
         .frame(width: 720, height: 560)
         .interactiveDismissDisabled(isBusy)
-        .replacingSheet(item: $resolvingFile) { file in
-            CommitPatchConflictSheet(file: file, isBusy: isBusy, errorMessage: errorMessage,
-                onCancel: { resolvingFile = nil }, onResolve: { result in await onResolve(file.id, result) })
-        }
     }
 }

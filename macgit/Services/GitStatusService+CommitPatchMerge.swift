@@ -16,11 +16,15 @@ extension GitStatusService {
         } catch { try Task.checkCancellation() }
 
         let url = repositoryURL.appendingPathComponent(file.path)
+        let fileExists = FileManager.default.fileExists(atPath: url.path)
         guard file.status == .modified, file.oldPath == nil,
-              FileManager.default.fileExists(atPath: url.path),
+              fileExists,
               !patch.components(separatedBy: "\n").contains(where: { $0.hasPrefix("old mode ") || $0.hasPrefix("new mode ") }) else {
             return CommitPatchReviewFile(file: file, patch: patch, state: .conflict, conflict: .init(
-                message: "This change adds, deletes, renames, or changes the permissions of a file whose current state is different. Commit+ will not overwrite it automatically. Skip this file to apply the others, or cancel and review its current state.",
+                kind: !fileExists && file.status == .modified && file.oldPath == nil ? .missingFile : .unsupportedChange,
+                message: !fileExists && file.status == .modified && file.oldPath == nil
+                    ? "This file is missing from your working copy, so these edits cannot be merged safely. Review the selected changes below, then skip this file or cancel and restore the file before trying again."
+                    : "The file's current state does not match this addition, deletion, rename, or permission change. Commit+ will not overwrite it automatically. Review the selected changes below, then skip this file or cancel and review its current state.",
                 current: "", selected: "", markedResult: nil, permissions: 0))
         }
         let currentData = try Data(contentsOf: url)
@@ -49,6 +53,7 @@ extension GitStatusService {
               !CommitPatchReviewFile.containsConflictMarkers(selected),
               !CommitPatchReviewFile.containsConflictMarkers(String(decoding: baseData, as: UTF8.self)) else {
             return CommitPatchReviewFile(file: file, patch: patch, state: .conflict, conflict: .init(
+                kind: .existingMarkers,
                 message: "This file already contains conflict markers. Skip it or cancel and resolve those markers first.",
                 current: current, selected: selected, markedResult: nil, permissions: permissions))
         }
@@ -68,6 +73,7 @@ extension GitStatusService {
             let markerLines = marked.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .newlines) }
             guard markerLines.contains("<<<<<<< Your working copy"), markerLines.contains(">>>>>>> Selected changes") else { throw error }
             return CommitPatchReviewFile(file: file, patch: patch, state: .conflict, conflict: .init(
+                kind: .overlappingEdits,
                 message: "Your working copy and the selected changes edit the same lines. Resolve the result in a temporary preview; no files will be written until you click Apply.",
                 current: current, selected: selected, markedResult: marked, permissions: permissions))
         }

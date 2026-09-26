@@ -42,6 +42,7 @@ struct SidebarView: View {
     let isBranchSyncing: (String) -> Bool
     let canUpdateCurrentBranch: Bool
     let onRequestCheckout: (String, Bool) -> Void
+    let onRequestRemoteBranchCheckout: (RemoteBranchCheckoutTarget) -> Void
     let onRequestFetchBranch: (String) -> Void
     let onRequestPullRemoteBranch: (String, String) -> Void
     let onRequestPullTracked: (String) -> Void
@@ -202,6 +203,7 @@ struct SidebarView: View {
         isBranchSyncing: @escaping (String) -> Bool = { _ in false },
         canUpdateCurrentBranch: Bool = true,
         onRequestCheckout: @escaping (String, Bool) -> Void,
+        onRequestRemoteBranchCheckout: @escaping (RemoteBranchCheckoutTarget) -> Void,
         onRequestFetchBranch: @escaping (String) -> Void,
         onRequestPullRemoteBranch: @escaping (String, String) -> Void = { _, _ in },
         onRequestPullTracked: @escaping (String) -> Void = { _ in },
@@ -273,6 +275,7 @@ struct SidebarView: View {
         self.isBranchSyncing = isBranchSyncing
         self.canUpdateCurrentBranch = canUpdateCurrentBranch
         self.onRequestCheckout = onRequestCheckout
+        self.onRequestRemoteBranchCheckout = onRequestRemoteBranchCheckout
         self.onRequestFetchBranch = onRequestFetchBranch
         self.onRequestPullRemoteBranch = onRequestPullRemoteBranch
         self.onRequestPullTracked = onRequestPullTracked
@@ -441,16 +444,8 @@ struct SidebarView: View {
             toggleSection: { toggleSection(.remotes) },
             toggleFolder: toggleRemoteFolder,
             select: { selection = $0 },
-            checkoutFromRow: { fullPath in
-                Task {
-                    await checkoutRemoteBranch(fullPath)
-                }
-            },
-            checkoutFromContextMenu: { fullPath in
-                onRunRepositoryOperation("Checking out \(fullPath)...") {
-                    await checkoutRemoteBranch(fullPath)
-                }
-            },
+            checkoutFromRow: requestRemoteBranchCheckout,
+            checkoutFromContextMenu: requestRemoteBranchCheckout,
             pullIntoCurrent: onRequestPullRemoteBranch,
             confirmDelete: { remoteBranchDeleteTarget = $0 },
             createPullRequest: onRequestCreatePullRequestForRemote,
@@ -677,8 +672,17 @@ struct SidebarView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange)) { notification in
             if let url = notification.userInfo?["repositoryURL"] as? URL, url == repositoryURL {
+                let checkedOutBranch = notification.userInfo?["checkedOutBranch"] as? String
+                if checkedOutBranch != nil {
+                    expandBranchesSection()
+                }
                 Task {
                     await loadAllSections(force: true)
+                    if let checkedOutBranch {
+                        expandedFolders.formUnion(
+                            SidebarTreeBuilder.expandedFolderPaths(revealing: checkedOutBranch)
+                        )
+                    }
                 }
             }
         }
@@ -870,6 +874,7 @@ struct SidebarView: View {
         selection: .constant(nil),
         isBranchSyncing: { _ in false },
         onRequestCheckout: { _, _ in },
+        onRequestRemoteBranchCheckout: { _ in },
         onRequestFetchBranch: { _ in },
         onRequestPullTracked: { _ in },
         onRequestPushToTracked: { _ in },

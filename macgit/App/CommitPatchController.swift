@@ -1,10 +1,36 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import AppKit
 import Foundation
 import Observation
 
 @MainActor @Observable
 final class CommitPatchController {
-    var prepared: PreparedCommitPatch?
+    var prepared: PreparedCommitPatch? {
+        didSet { if prepared == nil { closeConflict() } }
+    }
+    private(set) var isResolving = false
+    @ObservationIgnored private var conflictWindow: CommitPatchConflictWindowController?
+
+    func openConflict(_ file: CommitPatchReviewFile) {
+        guard !isBusy, prepared?.reviewFiles.contains(where: { $0.id == file.id && $0.state == .conflict }) == true else { return }
+        if let conflictWindow {
+            conflictWindow.showWindow(nil)
+            conflictWindow.window?.makeKeyAndOrderFront(nil)
+            return
+        }
+        let window = CommitPatchConflictWindowController()
+        conflictWindow = window
+        isResolving = true
+        window.show(file: file, controller: self)
+    }
+
+    func closeConflict() {
+        let window = conflictWindow
+        conflictWindow = nil
+        isResolving = false
+        window?.close()
+    }
+
     private(set) var isBusy = false
     private(set) var isPreparing = false
     @ObservationIgnored private var preparationTask: Task<Void, Never>?
@@ -74,6 +100,27 @@ final class CommitPatchController {
                     userInfo: ["repositoryURL": prepared.repositoryURL])
             } catch {
                 reviewError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Skipping only changes the preview; Apply revalidates the repository before writing.
+    func skip(fileID: UUID) {
+        guard !isBusy, var updated = prepared,
+              let index = updated.reviewFiles.firstIndex(where: { $0.id == fileID && $0.state == .conflict }) else { return }
+        updated.reviewFiles[index].state = .skipped
+        updated.reviewFiles[index].conflict = nil
+        updated.rebuildPatch()
+        reviewError = nil
+        prepared = updated
+        closeConflict()
+    }
+
+    func resolveAndClose(fileID: UUID, result: String) {
+        guard !isBusy else { return }
+        Task { [self] in
+            if await resolve(fileID: fileID, result: result) {
+                closeConflict()
             }
         }
     }

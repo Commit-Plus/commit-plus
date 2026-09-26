@@ -299,7 +299,9 @@ struct HistoryView: View {
                     onApply: {
                         commitPatchController.apply(undoManager: undoManager, syncState: syncState, run: onRunRepositoryOperation)
                     },
-                    onResolve: { id, result in await commitPatchController.resolve(fileID: id, result: result) })
+                    onOpenConflict: { commitPatchController.openConflict($0) })
+                    .disabled(commitPatchController.isResolving)
+                    .onDisappear { commitPatchController.closeConflict() }
             }
         }
         .alert("Selected changes", isPresented: $commitPatchController.showingError) {
