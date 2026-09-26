@@ -24,6 +24,12 @@
   <a href="https://docs.commitplus.app/" target="_blank">Documentation</a>
 </p>
 
+<p align="center">
+  <a href="https://tools.cafe" target="_blank" rel="noopener">
+    <img src="https://tools.cafe/b/light.svg" alt="Featured on tools.cafe" width="256" height="80" />
+  </a>
+</p>
+
 ---
 
 <p align="center">
