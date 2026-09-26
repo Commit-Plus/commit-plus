@@ -111,33 +111,10 @@ extension GitStatusService {
     }
 
     func changedFiles(in commit: String, in repositoryURL: URL) async -> [CommitFileChange] {
-        let output = (try? await runGit(arguments: ["show", "--name-status", "--first-parent", "--format=", commit], in: repositoryURL)) ?? ""
-        var changes: [CommitFileChange] = []
-        for line in output.split(separator: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { continue }
-            let parts = trimmed.split(separator: "\t")
-            guard parts.count >= 2 else { continue }
-            let statusCode = String(parts[0]).trimmingCharacters(in: .whitespaces)
-            let path: String
-            if (statusCode.hasPrefix("R") || statusCode.hasPrefix("C")) && parts.count >= 3 {
-                path = String(parts[2])
-            } else {
-                path = String(parts[1])
-            }
-
-            let status: CommitFileStatus
-            switch statusCode.prefix(1) {
-            case "A": status = .added
-            case "M": status = .modified
-            case "D": status = .deleted
-            case "R": status = .renamed
-            case "C": status = .copied
-            default: status = .modified
-            }
-            changes.append(CommitFileChange(path: path, status: status))
-        }
-        return changes
+        do {
+            let output = try await runGitRaw(arguments: ["show", "--name-status", "-z", "--find-renames", "--first-parent", "--format=", commit], in: repositoryURL)
+            return try Self.parseComparisonFiles(output)
+        } catch { return [] }
     }
 
     func changedFiles(from baseRef: String, to targetRef: String, in repositoryURL: URL) async -> [CommitFileChange] {

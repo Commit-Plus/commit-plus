@@ -37,38 +37,16 @@ extension SidebarView {
         }
     }
 
-    func checkoutRemoteBranch(_ fullPath: String) async {
+    func requestRemoteBranchCheckout(_ fullPath: String) {
         guard let remoteBranch = remoteBranchParts(from: fullPath) else {
-            await MainActor.run {
-                errorMessage = "Could not parse remote branch '\(fullPath)'."
-                showingError = true
-            }
+            errorMessage = "Could not parse remote branch '\(fullPath)'."
+            showingError = true
             return
         }
-
-        do {
-            let localBranch = try await GitStatusService.shared.checkoutRemoteBranch(
-                remote: remoteBranch.remote,
-                branch: remoteBranch.branch,
-                in: repositoryURL
-            )
-            expandBranchesSection()
-            await loadBranches(force: true)
-            await loadRemotes()
-            await MainActor.run {
-                selection = .branch(localBranch)
-            }
-            NotificationCenter.default.post(
-                name: .repositoryDidChange,
-                object: nil,
-                userInfo: ["repositoryURL": repositoryURL]
-            )
-        } catch {
-            await MainActor.run {
-                errorMessage = error.localizedDescription
-                showingError = true
-            }
-        }
+        guard remoteBranch.branch != "HEAD" else { return }
+        onRequestRemoteBranchCheckout(
+            RemoteBranchCheckoutTarget(remote: remoteBranch.remote, branch: remoteBranch.branch)
+        )
     }
 
     func deleteRemoteBranch(_ target: RemoteBranchDeleteTarget) async {

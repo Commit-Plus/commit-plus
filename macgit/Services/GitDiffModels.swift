@@ -52,7 +52,7 @@ nonisolated enum DiffParser {
         var oldLine = 0
         var newLine = 0
 
-        let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = raw.components(separatedBy: "\n")
         var inHunk = false
 
         for line in lines {

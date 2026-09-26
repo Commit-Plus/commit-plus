@@ -88,7 +88,7 @@ extension MainWindowView {
             NotificationCenter.default.post(
                 name: .repositoryDidChange,
                 object: nil,
-                userInfo: ["repositoryURL": repositoryURL]
+                userInfo: ["repositoryURL": repositoryURL, "checkedOutBranch": checkedOutBranch]
             )
         } catch {
             syncState.showError(error.localizedDescription)

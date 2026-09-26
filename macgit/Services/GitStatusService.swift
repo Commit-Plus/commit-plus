@@ -222,6 +222,8 @@ actor GitStatusService {
     private let runner: (any GitCommandRunning)?
     let runtimeManager: GitRuntimeManager
     let branchListCache = BranchListCache()
+    // Prevent two selected-patch operations from interleaving across windows for the same checkout.
+    var activeCommitPatchRepositories: Set<String> = []
 
     init(
         runner: (any GitCommandRunning)? = nil,
