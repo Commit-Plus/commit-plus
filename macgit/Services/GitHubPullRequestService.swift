@@ -294,6 +294,11 @@ struct GitHubPullRequestService: PullRequestProviding {
             }
             return PullRequestCreationResult(summary: created.summary, warnings: warnings)
         } catch let error as PullRequestProviderError {
+            if case .providerMessage("Validation Failed") = error {
+                throw PullRequestProviderError.providerMessage(
+                    "GitHub couldn't create this pull request. A pull request from this branch to the selected target may already exist. Check the repository's pull requests, or choose a different target branch."
+                )
+            }
             throw error
         } catch {
             throw PullRequestProviderError.providerMessage("GitHub returned an invalid pull request response.")

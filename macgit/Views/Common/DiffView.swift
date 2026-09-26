@@ -22,6 +22,10 @@
 //
 import SwiftUI
 
+private func isChangedDiffLine(_ line: DiffLine) -> Bool {
+    (line.oldLineNumber == nil) != (line.newLineNumber == nil)
+}
+
 struct DiffView: View {
     let hunks: [DiffHunk]
     let file: StatusFile?
@@ -106,13 +110,13 @@ struct DiffView: View {
                                 onError: onError,
                                 onCommitHunk: onCommitPatch.map { action in
                                     { hunk, direction in
-                                        action(hunk.lines.filter { $0.type == .added || $0.type == .removed }, direction, "Selected hunk")
+                                        action(hunk.lines.filter(isChangedDiffLine), direction, "Selected hunk")
                                     }
                                 },
                                 onCommitLines: onCommitPatch.map { action in
                                     { ids, direction in
                                         action(hunks.flatMap(\.lines).filter {
-                                            ids.contains($0.id) && ($0.type == .added || $0.type == .removed)
+                                            ids.contains($0.id) && isChangedDiffLine($0)
                                         }, direction, "Selected lines")
                                     }
                                 },
@@ -455,7 +459,7 @@ struct HunkView: View {
     }
 
     private func commitLineIDs(_ line: DiffLine?) -> Set<UUID> {
-        if let line, !selectedLineIDs.contains(line.id), line.type == .added || line.type == .removed {
+        if let line, !selectedLineIDs.contains(line.id), isChangedDiffLine(line) {
             return [line.id]
         }
         return selectedLineIDs
@@ -463,7 +467,7 @@ struct HunkView: View {
 
     private func handleLineTap(at index: Int) {
         let line = hunk.lines[index]
-        guard line.type == .added || line.type == .removed else { return }
+        guard isChangedDiffLine(line) else { return }
 
         let flags = NSEvent.modifierFlags
         let isShift = flags.contains(.shift)
@@ -478,7 +482,7 @@ struct HunkView: View {
             }
             let start = min(lastIndex, index)
             let end = max(lastIndex, index)
-            let rangeIDs = Set(hunk.lines[start...end].filter { $0.type == .added || $0.type == .removed }.map(\.id))
+            let rangeIDs = Set(hunk.lines[start...end].filter(isChangedDiffLine).map(\.id))
             if isCommand {
                 selectedLineIDs.formSymmetricDifference(rangeIDs)
             } else {

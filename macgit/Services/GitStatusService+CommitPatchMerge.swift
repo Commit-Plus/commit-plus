@@ -1,4 +1,22 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+//  GitStatusService+CommitPatchMerge.swift
+//  macgit
+//
+//  Copyright (C) 2026  Thanh Tran <trantienthanh2412@gmail.com>
+//
+//  This program is free software; you can redistribute it and/or modify
+//  it under the terms of the GNU Affero General Public License as published by
+//  the Free Software Foundation, either version 3 of the License, or
+//  (at your option) any later version.
+//
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//  GNU Affero General Public License for more details.
+//
+//  You should have received a copy of the GNU Affero General Public License
+//  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
 import Foundation
 
 extension GitStatusService {
@@ -9,17 +27,21 @@ extension GitStatusService {
             return CommitPatchReviewFile(file: file, patch: patch, state: .ready)
         } catch { try Task.checkCancellation() }
 
-        // Check each file independently: a batch can contain both new and already-present changes.
-        do {
-            try await runCommitPatch(patch, checkOnly: true, reverse: true, in: repositoryURL)
-            return CommitPatchReviewFile(file: file, patch: patch, state: .alreadyApplied)
-        } catch { try Task.checkCancellation() }
-
         let url = repositoryURL.appendingPathComponent(file.path)
         let fileExists = FileManager.default.fileExists(atPath: url.path)
-        guard file.status == .modified, file.oldPath == nil,
-              fileExists,
-              !patch.components(separatedBy: "\n").contains(where: { $0.hasPrefix("old mode ") || $0.hasPrefix("new mode ") }) else {
+        let canThreeWayMerge = file.status == .modified && file.oldPath == nil && fileExists &&
+            !patch.components(separatedBy: "\n").contains(where: {
+                $0.hasPrefix("old mode ") || $0.hasPrefix("new mode ")
+            })
+        if !canThreeWayMerge {
+            // Structural changes cannot use the scratch three-way merge path.
+            // Check them in reverse so already-present additions/deletions stay no-ops.
+            do {
+                try await runCommitPatch(patch, checkOnly: true, reverse: true, in: repositoryURL)
+                return CommitPatchReviewFile(file: file, patch: patch, state: .alreadyApplied)
+            } catch { try Task.checkCancellation() }
+        }
+        guard canThreeWayMerge else {
             return CommitPatchReviewFile(file: file, patch: patch, state: .conflict, conflict: .init(
                 kind: !fileExists && file.status == .modified && file.oldPath == nil ? .missingFile : .unsupportedChange,
                 message: !fileExists && file.status == .modified && file.oldPath == nil

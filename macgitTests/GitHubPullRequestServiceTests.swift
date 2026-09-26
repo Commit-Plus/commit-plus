@@ -508,6 +508,23 @@ final class GitHubPullRequestServiceTests: XCTestCase {
         }
     }
 
+    func testCreatePullRequestValidationFailedExplainsPossibleExistingPullRequest() async throws {
+        let client = StubPullRequestHTTPClient(responses: [
+            .json(statusCode: 422, body: #"{"message":"Validation Failed"}"#)
+        ])
+        let service = GitHubPullRequestService(httpClient: client)
+
+        do {
+            _ = try await service.createPullRequest(makeDraft(), token: makeToken())
+            XCTFail("Expected createPullRequest to throw")
+        } catch {
+            XCTAssertEqual(
+                error as? PullRequestProviderError,
+                .providerMessage("GitHub couldn't create this pull request. A pull request from this branch to the selected target may already exist. Check the repository's pull requests, or choose a different target branch.")
+            )
+        }
+    }
+
     func testMergePullRequestUsesProviderMergeEndpoint() async throws {
         let client = StubPullRequestHTTPClient(responses: [
             .json(statusCode: 200, body: #"{"merged":true,"message":"Pull Request successfully merged"}"#)
