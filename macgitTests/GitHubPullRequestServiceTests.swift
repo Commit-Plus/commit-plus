@@ -508,9 +508,9 @@ final class GitHubPullRequestServiceTests: XCTestCase {
         }
     }
 
-    func testCreatePullRequestValidationFailedExplainsPossibleExistingPullRequest() async throws {
+    func testCreatePullRequestDuplicateValidationExplainsPossibleExistingPullRequest() async throws {
         let client = StubPullRequestHTTPClient(responses: [
-            .json(statusCode: 422, body: #"{"message":"Validation Failed"}"#)
+            .json(statusCode: 422, body: #"{"message":"Validation Failed","errors":[{"resource":"PullRequest","code":"custom","message":"A pull request already exists for feature/pr-actions:main"}]}"#)
         ])
         let service = GitHubPullRequestService(httpClient: client)
 
@@ -520,8 +520,22 @@ final class GitHubPullRequestServiceTests: XCTestCase {
         } catch {
             XCTAssertEqual(
                 error as? PullRequestProviderError,
-                .providerMessage("GitHub couldn't create this pull request. A pull request from this branch to the selected target may already exist. Check the repository's pull requests, or choose a different target branch.")
+                .providerMessage("GitHub couldn't create this pull request. A pull request from this branch to the selected target already exists. Check the repository's pull requests, or choose a different target branch.")
             )
+        }
+    }
+
+    func testCreatePullRequestOtherValidationFailurePreservesGeneralError() async throws {
+        let client = StubPullRequestHTTPClient(responses: [
+            .json(statusCode: 422, body: #"{"message":"Validation Failed","errors":[{"resource":"PullRequest","code":"custom","message":"No commits between main and feature/pr-actions"}]}"#)
+        ])
+        let service = GitHubPullRequestService(httpClient: client)
+
+        do {
+            _ = try await service.createPullRequest(makeDraft(), token: makeToken())
+            XCTFail("Expected createPullRequest to throw")
+        } catch {
+            XCTAssertEqual(error as? PullRequestProviderError, .providerMessage("Validation Failed"))
         }
     }
 
