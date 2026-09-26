@@ -36,6 +36,7 @@ struct ProUpgradeSheet: View {
         (feature: "Number of devices", free: "1", pro: "3"),
         (feature: "BYOK AI providers", free: "OpenAI & Gemini", pro: "Full"),
         (feature: "View and manage PRs", free: "Public repositories", pro: "Full"),
+        (feature: "Git LFS", free: "Public repositories", pro: "Full"),
         (feature: "Git Flow", free: "Public & local repositories", pro: "Full"),
         (feature: "Git provider accounts", free: "1", pro: "Unlimited"),
     ]
@@ -161,7 +162,7 @@ struct ProUpgradeSheet: View {
 
     private var upgradeDescription: String {
         switch feature {
-        case .pullRequests, .gitFlow:
+        case .pullRequests, .gitFlow, .gitLFS:
             "Upgrade to Commit+ Pro to use \(feature.displayName) in private repositories, plus advanced workflows and AI tools across your Macs."
         case .aiCommitMessage, .repositoryChat, .repositoryAIActions, .aiConflictResolution, .aiBringYourOwnKey,
              .multipleProviderAccounts:

@@ -58,27 +58,25 @@ extension GitStatusService {
     }
 
     func status(for repositoryURL: URL) async throws -> GitStatus {
-        let output = try await runGit(arguments: ["status", "--porcelain", "--untracked-files=all"], in: repositoryURL)
+        let output = try await runGit(arguments: ["status", "--porcelain=v1", "-z", "--untracked-files=all"], in: repositoryURL)
         var staged: [StatusFile] = []
         var unstaged: [StatusFile] = []
         var untracked: [StatusFile] = []
 
-        for line in output.split(separator: "\n") {
-            let line = String(line)
+        var records = output.split(separator: "\0").makeIterator()
+        while let record = records.next() {
+            let line = String(record)
             guard line.count >= 3 else { continue }
             let indexStatus = line.prefix(1)
             let worktreeStatus = line.dropFirst(1).prefix(1)
             let pathPart = String(line.dropFirst(3))
 
-            // Parse renamed paths (R  old -> new)
-            var path = pathPart
-            var originalPath: String? = nil
-            if indexStatus == "R" || worktreeStatus == "R" {
-                let components = pathPart.split(separator: " -> ", maxSplits: 1)
-                if components.count == 2 {
-                    originalPath = String(components[0])
-                    path = String(components[1])
-                }
+            // NUL-delimited porcelain keeps filenames verbatim. Renames/copies emit
+            // the destination first, followed by a separate source-path record.
+            let path = pathPart
+            var originalPath: String?
+            if indexStatus == "R" || worktreeStatus == "R" || indexStatus == "C" || worktreeStatus == "C" {
+                originalPath = records.next().map(String.init)
             }
 
             let indexChar = Character(String(indexStatus))

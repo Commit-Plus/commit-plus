@@ -6,6 +6,7 @@ nonisolated struct RevisionFilePreview: Sendable {
     let lines: [DiffLine]
     let message: String?
     var imageData: Data? = nil
+    var lfsPointer: GitLFSPointer? = nil
 
     static func notice(_ message: String) -> Self {
         Self(text: nil, lines: [], message: message)

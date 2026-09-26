@@ -6,6 +6,7 @@ import Observation
 final class RevisionBrowserController {
     let repositoryURL: URL
     let revision: String
+    var lfsCredentialResolver: GitProviderCredentialResolver?
     private(set) var snapshot: RevisionBrowserSnapshot?
     private(set) var children: [String: [RevisionTreeEntry]] = [:]
     private(set) var expanded: Set<String> = []
@@ -128,6 +129,26 @@ final class RevisionBrowserController {
                 previewError = error.localizedDescription
                 isLoadingPreview = false
             }
+        }
+    }
+
+    func downloadLFSPreview(remote: String) {
+        guard let entry = selectedEntry, let snapshot, preview?.lfsPointer != nil else { return }
+        previewTask?.cancel()
+        let id = previewID
+        previewError = nil
+        isLoadingPreview = true
+        previewTask = Task {
+            do {
+                try await GitStatusService.shared.downloadLFSPreview(path: entry.path, revision: snapshot.commitID, remote: remote, in: repositoryURL, credentialResolver: lfsCredentialResolver)
+                let loaded = try await service.browserPreview(entry: entry, in: repositoryURL)
+                guard id == previewID, !Task.isCancelled else { return }
+                preview = loaded
+            } catch {
+                guard id == previewID, !Task.isCancelled else { return }
+                previewError = error.localizedDescription
+            }
+            if id == previewID { isLoadingPreview = false }
         }
     }
 

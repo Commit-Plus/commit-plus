@@ -25,12 +25,17 @@ struct PotentialConflictFileIndicator: View {
     @State private var showingDetails = false
 
     var body: some View {
-        Button("Show Potential Update Conflict", systemImage: "exclamationmark.triangle", action: showDetails)
-            .labelStyle(.iconOnly)
-            .font(.system(size: 14, weight: .medium))
+        Button("Potential conflict", systemImage: "exclamationmark.triangle", action: showDetails)
+            .font(.caption.weight(.medium))
             .foregroundStyle(.orange)
             .buttonStyle(.plain)
-            .frame(width: 20, height: 20)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .overlay {
+                RoundedRectangle(cornerRadius: 3)
+                    .strokeBorder(.orange.opacity(0.6), lineWidth: 1)
+            }
+            .fixedSize()
             .contentShape(Rectangle())
             .help(helpText)
             .accessibilityHint(helpText)
