@@ -62,6 +62,8 @@ struct SidebarBranchRow: View {
     private var branchLeafRow: some View {
         let rowView = content
             .tag(SidebarSelection.branch(row.fullPath))
+
+        let rowWithContextMenu = rowView
             .contextMenu {
                 SidebarBranchContextMenu(
                     branch: row.fullPath,
@@ -75,7 +77,7 @@ struct SidebarBranchRow: View {
             }
 
         if isCurrentBranch {
-            rowView
+            rowWithContextMenu
                 .overlay {
                     SidebarBranchDropTarget(
                         passthroughTrailingWidth: Self.currentBranchTrailingControlsWidth,
@@ -120,6 +122,17 @@ struct SidebarBranchRow: View {
                         dragPayload: { makeBranchPayload(row.fullPath) },
                         dragTitle: row.fullPath,
                         onDragEnded: finishBranchDrag
+                    )
+                }
+                .contextMenu {
+                    SidebarBranchContextMenu(
+                        branch: row.fullPath,
+                        currentBranch: currentBranch,
+                        syncStatus: branchSyncStatus[row.fullPath],
+                        upstream: upstreamByBranch[row.fullPath],
+                        remoteNames: remoteNames,
+                        branchesByRemote: branchesByRemote,
+                        actions: actions
                     )
                 }
         }
