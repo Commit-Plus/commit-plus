@@ -1316,11 +1316,13 @@ struct MainWindowView: View {
             case .item(.search):
                 SearchView(repositoryURL: repositoryURL)
             case .item(.gitLFS):
-                GitLFSView(repositoryURL: repositoryURL, initialPath: lfsTrackingPath, credentialResolver: { @MainActor remote in
-                    await credentialResolverForRemoteOperation(remotes: [remote])
-                }, refreshRepository: {
-                    await syncState.refresh(repositoryURL: repositoryURL, force: true)
-                })
+                GitLFSAccessView(repositoryURL: repositoryURL) { authorize in
+                    GitLFSView(repositoryURL: repositoryURL, initialPath: lfsTrackingPath, credentialResolver: { @MainActor remote in
+                        await credentialResolverForRemoteOperation(remotes: [remote])
+                    }, refreshRepository: {
+                        await syncState.refresh(repositoryURL: repositoryURL, force: true)
+                    }, authorizeAction: authorize)
+                }
                 .id(repositoryURL)
             case .item(.gitFlow):
                 GitFlowDashboardView(
@@ -1398,7 +1400,7 @@ struct MainWindowView: View {
             Task {
                 _ = await authorizeGitFlowAccess(forceRefresh: true)
             }
-        case .privateRepositories, .aiCommitMessage, .repositoryChat, .repositoryAIActions,
+        case .privateRepositories, .gitLFS, .aiCommitMessage, .repositoryChat, .repositoryAIActions,
              .aiConflictResolution, .aiBringYourOwnKey, .multipleProviderAccounts:
             break
         }

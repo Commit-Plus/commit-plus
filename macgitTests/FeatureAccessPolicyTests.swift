@@ -69,6 +69,40 @@ final class FeatureAccessPolicyTests: XCTestCase {
         )
     }
 
+    func testGitLFSPlanAndRepositoryMatrix() {
+        let resolver = FeatureAccessResolver(policy: .bundled)
+        for entitlement in [AccountEntitlement.free, inactivePro] {
+            XCTAssertEqual(resolver.decision(for: .gitLFS, entitlement: entitlement, repositoryVisibility: .public), .allowed)
+            for visibility in [RepositoryVisibility.private, .local] {
+                XCTAssertEqual(resolver.decision(for: .gitLFS, entitlement: entitlement, repositoryVisibility: visibility), .denied(.requiresPro))
+            }
+        }
+        for visibility in [RepositoryVisibility.public, .private, .local] {
+            XCTAssertEqual(resolver.decision(for: .gitLFS, entitlement: activePro, repositoryVisibility: visibility), .allowed)
+        }
+        for entitlement in [AccountEntitlement.free, activePro] {
+            XCTAssertEqual(resolver.decision(for: .gitLFS, entitlement: entitlement, repositoryVisibility: .unknown), .denied(.repositoryVisibilityUnavailable))
+        }
+    }
+
+    func testGitLFSLegacyAndMalformedPoliciesUseScopedFallback() {
+        let legacy = FeatureAccessPolicy(schemaVersion: 1, revision: 5, features: [:])
+        XCTAssertEqual(legacy.rule(for: .gitLFS), FeatureAccessPolicy.bundled.rule(for: .gitLFS))
+        let malformed = FeaturePolicyDocumentDecoder.decode(document(overrides: ["gitLFS": proOnlyRule()]))
+        XCTAssertEqual(malformed?.rule(for: .gitLFS), FeatureAccessPolicy.bundled.rule(for: .gitLFS))
+    }
+
+    func testGitLFSRemoteKillSwitchIsRespected() {
+        let policy = FeaturePolicyDocumentDecoder.decode(document(overrides: ["gitLFS": [
+            "enabled": false,
+            "plans": [
+                "free": ["enabled": true, "repositoryScope": "public"],
+                "pro": ["enabled": true, "repositoryScope": "all"]
+            ]
+        ]]))!
+        XCTAssertEqual(FeatureAccessResolver(policy: policy).decision(for: .gitLFS, entitlement: activePro, repositoryVisibility: .private), .denied(.featureDisabled))
+    }
+
     func testFreeAIAllowsChatAndGenerationButRequiresProForWorkflowsAndConflicts() {
         let resolver = FeatureAccessResolver(policy: .bundled)
         for feature in [PlanFeature.aiCommitMessage, .repositoryChat] {

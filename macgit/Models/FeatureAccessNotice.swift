@@ -76,6 +76,8 @@ extension PlanFeature {
             "Private repositories"
         case .pullRequests:
             "Pull Requests"
+        case .gitLFS:
+            "Git LFS"
         case .gitFlow:
             "Git Flow"
         case .aiCommitMessage:

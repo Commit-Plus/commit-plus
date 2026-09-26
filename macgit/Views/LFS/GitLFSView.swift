@@ -19,14 +19,15 @@ struct GitLFSView: View {
     @State private var showingSetup = false
 
     init(repositoryURL: URL, initialPath: String? = nil, credentialResolver: @escaping @MainActor (String) async -> GitProviderCredentialResolver?,
-         refreshRepository: @escaping @MainActor @Sendable () async -> Void) {
+         refreshRepository: @escaping @MainActor @Sendable () async -> Void,
+         authorizeAction: @escaping @MainActor () async -> Bool) {
         self.repositoryURL = repositoryURL
         self.credentialResolver = credentialResolver
         self.refreshRepository = refreshRepository
         _pattern = State(initialValue: initialPath ?? "")
         _literal = State(initialValue: initialPath != nil)
         _tab = State(initialValue: initialPath == nil ? "Files" : "Tracking Rules")
-        _controller = State(initialValue: RepositoryLFSController(repository: repositoryURL))
+        _controller = State(initialValue: RepositoryLFSController(repository: repositoryURL, authorizeAction: authorizeAction))
     }
 
     private var files: [GitLFSFile] {

@@ -20,10 +20,15 @@ final class RepositoryLFSController {
     private var operation: Task<Void, Never>?
     private var generation = 0
 
-    init(repository: URL) { self.repository = repository }
+    private let authorizeAction: @MainActor () async -> Bool
+
+    init(repository: URL, authorizeAction: @escaping @MainActor () async -> Bool) {
+        self.repository = repository
+        self.authorizeAction = authorizeAction
+    }
 
     func load(promptForRuntime: Bool = false) async {
-        guard operation == nil else { return }
+        guard operation == nil, await authorizeAction() else { return }
         generation += 1
         let generation = generation
         isLoading = true
@@ -42,6 +47,7 @@ final class RepositoryLFSController {
     }
 
     func prepareRule(pattern: String, literal: Bool, removing: Bool) async {
+        guard await authorizeAction() else { return }
         do {
             review = try await GitStatusService.shared.reviewLFSTracking(pattern: pattern, literal: literal, removing: removing, in: repository)
         } catch { self.error = error.localizedDescription }
@@ -55,6 +61,11 @@ final class RepositoryLFSController {
         error = nil
         notice = nil
         operation = Task {
+            guard await authorizeAction() else {
+                operation = nil
+                operationLabel = nil
+                return
+            }
             do { try await action(); notice = "Completed. Review any changes in File Status before committing." }
             catch { self.error = Task.isCancelled ? "Operation cancelled. Repository state has been refreshed; completed changes were retained." : error.localizedDescription }
             operation = nil
@@ -70,7 +81,7 @@ final class RepositoryLFSController {
     }
 
     func scanLargeFiles(minimumMiB: Int) async {
-        guard !isScanning else { return }
+        guard !isScanning, await authorizeAction() else { return }
         isScanning = true
         defer { isScanning = false }
         do {
@@ -80,6 +91,7 @@ final class RepositoryLFSController {
     }
 
     func prepareConversion(path: String) async {
+        guard await authorizeAction() else { return }
         do { conversion = try await GitStatusService.shared.reviewLFSConversion(path: path, in: repository) }
         catch { self.error = error.localizedDescription }
     }

@@ -36,7 +36,7 @@ final class GitLFSTests: XCTestCase {
                 MainActor.assertIsolated()
                 requestedRemote = remote
                 return nil
-            }, refreshRepository: {})
+            }, refreshRepository: {}, authorizeAction: { true })
         let result = await view.credentialResolver("origin")
         XCTAssertNil(result)
         XCTAssertEqual(requestedRemote, "origin")

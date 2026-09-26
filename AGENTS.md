@@ -24,7 +24,13 @@ See `README.md` for features and `CONTRIBUTING.md` for setup and coding conventi
 - `command-line/`: the `commit` CLI that opens repositories in Commit+.
 - `scripts/`: CLI build/tests and release tooling; `.github/workflows/`: CI and release automation.
 
-Firebase backend code, rules, and backend tests live in the separate `landing-page` repository. Native client configuration is documented in `docs/firebase-setup.md`.
+## Firebase Ownership
+
+- Firebase backend logic has moved to the sibling `../landing-page` repository. Make changes to Firestore rules, Cloud Functions, backend tests, and feature-policy provisioning scripts there, following that repository's `AGENTS.md`.
+- Do not recreate or maintain Firebase backend logic in `macgit`. This repository owns only native Firebase client integration, local policy fallbacks, and app-side access checks.
+- For plan/feature changes, inspect the feature policy in `../landing-page` and keep its configuration aligned with the native client when needed. Distinguish local changes from deployed Firebase changes; do not claim deployment without verification.
+- Do not run Firebase Emulator or emulator-backed tests, including through wrapper scripts. Use source review, syntax checks, and relevant builds; report emulator tests as not run.
+- Native client configuration is documented in `docs/firebase-setup.md`.
 
 ## Implementation Rules
 

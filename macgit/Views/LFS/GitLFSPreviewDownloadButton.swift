@@ -8,11 +8,19 @@ struct GitLFSPreviewDownloadButton: View {
     @State private var showDownload = false
 
     var body: some View {
+        GitLFSAccessView(repositoryURL: controller.repositoryURL) { authorize in
+            downloadButton(authorize: authorize)
+        }
+    }
+
+    @ViewBuilder
+    private func downloadButton(authorize: @escaping @MainActor () async -> Bool) -> some View {
         Button("Download for Preview") {
             Task {
+                guard await authorize() else { return }
                 await runtime.refresh()
                 if runtime.status?.activeRuntime == nil { showDownload = true }
-                else { controller.downloadLFSPreview(remote: remote) }
+                else if await authorize() { controller.downloadLFSPreview(remote: remote) }
             }
         }
         .disabled(remote.isEmpty || controller.isLoadingPreview || runtime.isInstalling)
@@ -21,7 +29,7 @@ struct GitLFSPreviewDownloadButton: View {
                 let selectedID = controller.selectedEntry?.id
                 Task {
                     let installed = await runtime.install()
-                    if installed, controller.selectedEntry?.id == selectedID {
+                    if installed, controller.selectedEntry?.id == selectedID, await authorize() {
                         controller.downloadLFSPreview(remote: remote)
                     }
                 }
