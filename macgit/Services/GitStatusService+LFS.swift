@@ -165,20 +165,26 @@ extension GitStatusService {
         } catch {
             let setupError = error
             let savedConfig = previousConfig
-            // An unstructured task can roll back even when setup's task was cancelled.
-            try await Task {
-                let current = try await self.runGit(arguments: ["config", scope, "--null", "--list"], in: repository)
-                let currentKeys = Set(current.split(separator: "\0").map { String($0.prefix(while: { $0 != "\n" })) })
-                for name in configKeys {
-                    if currentKeys.contains(name) {
-                        _ = try await self.runGit(arguments: ["config", scope, "--unset-all", name], in: repository)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            do {
+                // An unstructured task can roll back even when setup's task was cancelled.
+                try await Task {
+                    let current = try await self.runGit(arguments: ["config", scope, "--null", "--list"], in: repository)
+                    let currentKeys = Set(current.split(separator: "\0").map { String($0.prefix(while: { $0 != "\n" })) })
+                    for name in configKeys {
+                        if currentKeys.contains(name) {
+                            _ = try await self.runGit(arguments: ["config", scope, "--unset-all", name], in: repository)
+                        }
+                        for value in savedConfig[name] ?? [] {
+                            _ = try await self.runGit(arguments: ["config", scope, "--add", name, value], in: repository)
+                        }
                     }
-                    for value in savedConfig[name] ?? [] {
-                        _ = try await self.runGit(arguments: ["config", scope, "--add", name, value], in: repository)
-                    }
-                }
-            }.value
-            try? FileManager.default.removeItem(at: directory)
+                }.value
+            } catch {
+                throw GitError.commandFailed(
+                    "Git LFS setup failed: \(setupError.localizedDescription)\n\nConfiguration rollback also failed: \(error.localizedDescription)\nRepository settings may be partially restored; repair Git LFS setup before pushing."
+                )
+            }
             throw setupError
         }
     }
