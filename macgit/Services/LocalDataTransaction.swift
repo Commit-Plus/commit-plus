@@ -6,11 +6,13 @@ struct LocalDataTransaction {
     private(set) var changes: [(String, String, Data?)] = []
 
     func value<T: Decodable>(_ type: T.Type, in collection: String, id: String) throws -> T? {
-        try records[collection]?[id].map { try JSONDecoder().decode(type, from: $0) }
+        guard records[collection] != nil else { throw LocalDataError.collectionNotLoaded(collection) }
+        return try records[collection]?[id].map { try JSONDecoder().decode(type, from: $0) }
     }
 
     func values<T: Decodable>(_ type: T.Type, in collection: String) throws -> [String: T] {
-        try (records[collection] ?? [:]).mapValues { try JSONDecoder().decode(type, from: $0) }
+        guard records[collection] != nil else { throw LocalDataError.collectionNotLoaded(collection) }
+        return try (records[collection] ?? [:]).mapValues { try JSONDecoder().decode(type, from: $0) }
     }
 
     mutating func set<T: Encodable>(_ value: T, in collection: String, id: String) throws {

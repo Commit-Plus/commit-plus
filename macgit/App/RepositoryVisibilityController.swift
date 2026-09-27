@@ -140,7 +140,7 @@ final class RepositoryVisibilityController: ObservableObject {
         forceRefresh: Bool
     ) async -> RepositoryVisibility {
         if !forceRefresh,
-           let cached = cache.cachedVisibility(
+           let cached = await cache.cachedVisibility(
             for: repository,
             maximumAge: cacheMaximumAge,
             now: .now

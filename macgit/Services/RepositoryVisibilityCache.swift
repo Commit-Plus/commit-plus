@@ -63,7 +63,7 @@ protocol RepositoryVisibilityCaching {
         for repository: GitRepositoryIdentity,
         maximumAge: TimeInterval,
         now: Date
-    ) -> RepositoryVisibility?
+    ) async -> RepositoryVisibility?
 
     func save(
         _ visibility: RepositoryVisibility,
@@ -77,8 +77,8 @@ final class SQLiteRepositoryVisibilityCache: RepositoryVisibilityCaching {
     private let dataStore: LocalDataStore
     init(dataStore: LocalDataStore? = nil) { self.dataStore = dataStore ?? .shared }
 
-    func cachedVisibility(for repository: GitRepositoryIdentity, maximumAge: TimeInterval, now: Date) -> RepositoryVisibility? {
-        guard let record = try? dataStore.value(CachedRepositoryVisibility.self, in: "repositoryVisibility",
+    func cachedVisibility(for repository: GitRepositoryIdentity, maximumAge: TimeInterval, now: Date) async -> RepositoryVisibility? {
+        guard let record = try? await dataStore.readValue(CachedRepositoryVisibility.self, in: "repositoryVisibility",
                                               id: CachedRepositoryVisibility.cacheKey(for: repository)),
               record.visibility == .public || record.visibility == .private,
               now.timeIntervalSince(record.resolvedAt) >= 0,
@@ -90,7 +90,7 @@ final class SQLiteRepositoryVisibilityCache: RepositoryVisibilityCaching {
         guard visibility == .public || visibility == .private else { return }
         let record = CachedRepositoryVisibility(repository: repository, visibility: visibility, resolvedAt: resolvedAt)
         do {
-            try await dataStore.transaction { transaction in
+            try await dataStore.transaction(reading: ["repositoryVisibility"]) { transaction in
                 for (id, cached) in try transaction.values(CachedRepositoryVisibility.self, in: "repositoryVisibility")
                     where resolvedAt.timeIntervalSince(cached.resolvedAt) > 30 * 24 * 60 * 60 {
                     transaction.remove(in: "repositoryVisibility", id: id)

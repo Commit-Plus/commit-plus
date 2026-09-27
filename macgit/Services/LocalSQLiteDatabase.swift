@@ -12,7 +12,7 @@ actor LocalSQLiteDatabase {
         try withDatabase { db in try !hasImported(db) }
     }
 
-    func load(importing legacy: [String: [String: Data]]?) throws -> [String: [String: Data]] {
+    func prepare(importing legacy: [String: [String: Data]]?) throws {
         try withDatabase { db in
             if let legacy {
                 try transaction(db) {
@@ -23,17 +23,17 @@ actor LocalSQLiteDatabase {
                             }
                         }
                         // Read back every imported row before marking the import complete.
-                        let imported = try read(db)
                         for (collection, values) in legacy {
-                            for (id, payload) in values where imported[collection]?[id] != payload {
-                                throw failure("Local data migration verification failed.")
+                            for (id, payload) in values {
+                                guard try readValue(db, collection: collection, id: id) == payload else {
+                                    throw failure("Local data migration verification failed.")
+                                }
                             }
                         }
                         try query(db, "INSERT INTO migrations (id) VALUES ('user-defaults-v1')")
                     }
                 }
             }
-            return try read(db)
         }
     }
 
@@ -60,10 +60,30 @@ actor LocalSQLiteDatabase {
                   [collection, id, String(decoding: payload, as: UTF8.self)])
     }
 
-    private func read(_ db: OpaquePointer) throws -> [String: [String: Data]] {
-        var result: [String: [String: Data]] = [:]
-        try query(db, "SELECT collection, id, payload FROM records ORDER BY collection, id") { row in
-            result[column(row, 0), default: [:]][column(row, 1)] = Data(column(row, 2).utf8)
+    func value(in collection: String, id: String) throws -> Data? {
+        try withDatabase { try readValue($0, collection: collection, id: id) }
+    }
+
+    func read(collections: Set<String>) throws -> [String: [String: Data]] {
+        guard !collections.isEmpty else { return [:] }
+        return try withDatabase { db in
+            var result: [String: [String: Data]] = [:]
+            try transaction(db) {
+                for collection in collections {
+                    result[collection] = [:]
+                    try query(db, "SELECT id, payload FROM records WHERE collection = ?", [collection]) { row in
+                        result[collection]?[column(row, 0)] = Data(column(row, 1).utf8)
+                    }
+                }
+            }
+            return result
+        }
+    }
+
+    private func readValue(_ db: OpaquePointer, collection: String, id: String) throws -> Data? {
+        var result: Data?
+        try query(db, "SELECT payload FROM records WHERE collection = ? AND id = ?", [collection, id]) {
+            result = Data(column($0, 0).utf8)
         }
         return result
     }

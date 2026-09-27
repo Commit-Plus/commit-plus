@@ -98,7 +98,7 @@ final class GitFlowConfigurationSyncController: ObservableObject {
         let uploadID = pendingUploadID(uid: uid, repositoryID: identity.documentID)
 
         do {
-            if let pendingVersion = pendingVersion(uploadID) {
+            if let pendingVersion = try await pendingVersion(uploadID) {
                 if case .value(let localConfiguration) = localResult {
                     try await upload(
                         localConfiguration,
@@ -117,7 +117,7 @@ final class GitFlowConfigurationSyncController: ObservableObject {
                 uid: uid
             ) {
                 let latestLocalResult = await localStore.loadResult(in: repositoryURL)
-                let pendingVersion = pendingVersion(uploadID)
+                let pendingVersion = try await pendingVersion(uploadID)
                 if pendingVersion != nil || localConfigurationChanged(
                     from: localResult,
                     to: latestLocalResult
@@ -233,20 +233,20 @@ final class GitFlowConfigurationSyncController: ObservableObject {
         "\(uid)|\(repositoryID)"
     }
 
-    private func pendingVersion(_ id: String) -> String? {
-        try? dataStore.value(String.self, in: "gitFlowPending", id: id)
+    private func pendingVersion(_ id: String) async throws -> String? {
+        try await dataStore.readValue(String.self, in: "gitFlowPending", id: id)
     }
 
     private func markPendingUpload(_ id: String) async throws -> String {
         let version = UUID().uuidString
-        try await dataStore.transaction { transaction in
+        try await dataStore.transaction(reading: ["gitFlowPending"]) { transaction in
             try transaction.set(version, in: "gitFlowPending", id: id)
         }
         return version
     }
 
     private func clearPendingUpload(_ id: String, version: String) async throws {
-        try await dataStore.transaction { transaction in
+        try await dataStore.transaction(reading: ["gitFlowPending"]) { transaction in
             guard try transaction.value(String.self, in: "gitFlowPending", id: id) == version else { return }
             transaction.remove(in: "gitFlowPending", id: id)
         }

@@ -1645,7 +1645,7 @@ struct MainWindowView: View {
             loadedGitFlowCheckpoint,
             loadedGitCommonDirectory
         )
-        let loadedSettings = repoSettingsStore.settings(
+        let loadedSettings = await repoSettingsStore.settings(
             for: repositoryURL.path,
             currentBranch: currentBranch,
             remotes: remotes

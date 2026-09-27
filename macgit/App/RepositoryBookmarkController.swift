@@ -55,6 +55,8 @@ final class RepositoryBookmarkController: ObservableObject {
     private let cloudStore: RepositoryBookmarkCloudStore?
     private let dataStore: LocalDataStore
     @Published private var activeUID: String?
+    private var loadID = UUID()
+    private var accountUpdateID = UUID()
     private var observation: ObservationToken?
 
     init(cloudStore: RepositoryBookmarkCloudStore?, dataStore: LocalDataStore? = nil) {
@@ -64,14 +66,20 @@ final class RepositoryBookmarkController: ObservableObject {
 
     deinit { observation?.cancel() }
 
-    func load() throws {
-        bookmarks = try dataStore.values(RepositoryBookmark.self, in: "bookmarks").values.sorted {
+    func load() async throws {
+        let request = UUID()
+        loadID = request
+        let snapshot = try await dataStore.snapshot(collections: ["bookmarks", "bookmarkPaths", "bookmarkUploads", "bookmarkDeletes"])
+        guard request == loadID else { return }
+        let loadedBookmarks = try snapshot.values(RepositoryBookmark.self, in: "bookmarks").values.sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
-        localPaths = try dataStore.values(String.self, in: "bookmarkPaths")
-        mismatchedBookmarkIDs.formIntersection(Set(bookmarks.map(\.id)))
-        let uploads = try dataStore.values(String.self, in: "bookmarkUploads")
-        let deletes = try dataStore.values(String.self, in: "bookmarkDeletes")
+        let loadedPaths = try snapshot.values(String.self, in: "bookmarkPaths")
+        let uploads = try snapshot.values(String.self, in: "bookmarkUploads")
+        let deletes = try snapshot.values(String.self, in: "bookmarkDeletes")
+        bookmarks = loadedBookmarks
+        localPaths = loadedPaths
+        mismatchedBookmarkIDs.formIntersection(Set(loadedBookmarks.map(\.id)))
         hasPendingChanges = !uploads.isEmpty || !deletes.isEmpty
     }
 
@@ -82,13 +90,16 @@ final class RepositoryBookmarkController: ObservableObject {
         isRetryingSync = true
         defer { isRetryingSync = false }
         await flushPendingChanges(uid: uid, cloudStore: cloudStore)
-        do { try load() } catch { errorMessage = error.localizedDescription }
+        do { try await load() } catch { errorMessage = error.localizedDescription }
     }
 
     func updateAccount(_ account: AccountSnapshot?) async {
+        let request = UUID()
+        accountUpdateID = request
         do {
             try await dataStore.prepare()
-            try load()
+            try await load()
+            guard request == accountUpdateID else { return }
             let uid = account?.uid
             guard uid != activeUID else { return }
             observation?.cancel()
@@ -138,7 +149,7 @@ final class RepositoryBookmarkController: ObservableObject {
     ) async throws -> RepositoryBookmark {
         let currentRemotes = try await GitStatusService.shared.repositoryBookmarkRemotes(in: repositoryURL)
         guard currentRemotes.contains(remote) else { throw RepositoryBookmarkError.remoteChanged }
-        let result = try await dataStore.transaction { transaction in
+        let result = try await dataStore.transaction(reading: ["bookmarks", "bookmarkPaths", "bookmarkUploads", "bookmarkDeletes"]) { transaction in
             guard let current = try transaction.value(RepositoryBookmark.self, in: "bookmarks", id: bookmark.id),
                   current.canonicalKey == bookmark.canonicalKey else { throw RepositoryBookmarkError.bookmarkChanged }
             let identity = remote.identity
@@ -170,12 +181,12 @@ final class RepositoryBookmarkController: ObservableObject {
         }
         mismatchedBookmarkIDs.remove(bookmark.id)
         mismatchedBookmarkIDs.remove(result.id)
-        try load()
+        try await load()
         if let uid = activeUID, let cloudStore {
             await upload(result, uid: uid, cloudStore: cloudStore)
             // Keep the cloud's old bookmark until its replacement has been saved.
             if result.id != bookmark.id,
-               try dataStore.value(String.self, in: "bookmarkUploads", id: result.id) == nil {
+               try await dataStore.readValue(String.self, in: "bookmarkUploads", id: result.id) == nil {
                 await deleteFromCloud(bookmark.id, uid: uid, cloudStore: cloudStore)
             }
         }
@@ -187,7 +198,7 @@ final class RepositoryBookmarkController: ObservableObject {
         guard let identity = RepositoryBookmarkIdentity.resolve(remoteURLString: remoteURLString) else {
             throw RepositoryBookmarkError.unsupportedRemote
         }
-        let bookmark = try await dataStore.transaction { transaction in
+        let bookmark = try await dataStore.transaction(reading: ["bookmarks", "bookmarkPaths", "bookmarkUploads", "bookmarkDeletes"]) { transaction in
             let existing = try transaction.values(RepositoryBookmark.self, in: "bookmarks").values.first { $0.canonicalKey == identity.canonicalKey }
             let bookmark = existing ?? RepositoryBookmark(identity: identity)
             try transaction.set(bookmark, in: "bookmarks", id: bookmark.id)
@@ -198,29 +209,29 @@ final class RepositoryBookmarkController: ObservableObject {
             }
             return bookmark
         }
-        try load()
+        try await load()
         if let uid = activeUID, let cloudStore { await upload(bookmark, uid: uid, cloudStore: cloudStore) }
         return bookmark
     }
 
     func removeBookmark(_ bookmark: RepositoryBookmark) async {
         do {
-            try await dataStore.transaction { transaction in
+            try await dataStore.transaction(reading: ["bookmarks", "bookmarkPaths", "bookmarkUploads", "bookmarkDeletes"]) { transaction in
                 transaction.remove(in: "bookmarks", id: bookmark.id)
                 transaction.remove(in: "bookmarkPaths", id: bookmark.id)
                 transaction.remove(in: "bookmarkUploads", id: bookmark.id)
                 try transaction.set(UUID().uuidString, in: "bookmarkDeletes", id: bookmark.id)
             }
-            try load()
+            try await load()
             if let uid = activeUID, let cloudStore { await deleteFromCloud(bookmark.id, uid: uid, cloudStore: cloudStore) }
         } catch { errorMessage = error.localizedDescription }
     }
 
     func link(_ bookmark: RepositoryBookmark, to repositoryURL: URL) async throws {
-        try await dataStore.transaction { transaction in
+        try await dataStore.transaction(reading: ["bookmarks", "bookmarkPaths", "bookmarkUploads", "bookmarkDeletes"]) { transaction in
             try transaction.set(repositoryURL.path, in: "bookmarkPaths", id: bookmark.id)
         }
-        try load()
+        try await load()
     }
 
     func validateAndLink(_ bookmark: RepositoryBookmark, to repositoryURL: URL) async throws {
@@ -253,7 +264,7 @@ final class RepositoryBookmarkController: ObservableObject {
             let matches = bookmarks.filter { localPaths[$0.id] == nil && keys.contains($0.canonicalKey) }
             guard !matches.isEmpty else { continue }
             do {
-                try await dataStore.transaction { transaction in
+                try await dataStore.transaction(reading: ["bookmarks", "bookmarkPaths", "bookmarkUploads", "bookmarkDeletes"]) { transaction in
                     for bookmark in matches {
                         // Recheck persisted state: a cloud update or manual link may have won the race.
                         guard let current = try transaction.value(RepositoryBookmark.self, in: "bookmarks", id: bookmark.id),
@@ -262,15 +273,15 @@ final class RepositoryBookmarkController: ObservableObject {
                         try transaction.set(repositoryURL.path, in: "bookmarkPaths", id: bookmark.id)
                     }
                 }
-                try load()
+                try await load()
             } catch { errorMessage = error.localizedDescription }
         }
     }
 
     func unlinkLocalFolder(for bookmark: RepositoryBookmark) async {
         do {
-            try await dataStore.transaction { $0.remove(in: "bookmarkPaths", id: bookmark.id) }
-            try load()
+            try await dataStore.transaction(reading: ["bookmarks", "bookmarkPaths", "bookmarkUploads", "bookmarkDeletes"]) { $0.remove(in: "bookmarkPaths", id: bookmark.id) }
+            try await load()
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -287,12 +298,12 @@ final class RepositoryBookmarkController: ObservableObject {
     }
 
     private func acknowledge(_ collection: String, id: String, version: String, uid: String) async throws {
-        try await dataStore.transaction { transaction in
+        try await dataStore.transaction(reading: ["bookmarks", "bookmarkPaths", "bookmarkUploads", "bookmarkDeletes"]) { transaction in
             guard self.activeUID == uid,
                   try transaction.value(String.self, in: collection, id: id) == version else { return }
             transaction.remove(in: collection, id: id)
         }
-        try load()
+        try await load()
     }
 
     private func upload(_ bookmark: RepositoryBookmark, uid: String, cloudStore: RepositoryBookmarkCloudStore) async {
@@ -300,7 +311,7 @@ final class RepositoryBookmarkController: ObservableObject {
         syncingBookmarkIDs.insert(bookmark.id)
         defer { syncingBookmarkIDs.remove(bookmark.id) }
         do {
-            guard let version = try dataStore.value(String.self, in: "bookmarkUploads", id: bookmark.id) else { return }
+            guard let version = try await dataStore.readValue(String.self, in: "bookmarkUploads", id: bookmark.id) else { return }
             try await cloudStore.save(bookmark, uid: uid)
             try await acknowledge("bookmarkUploads", id: bookmark.id, version: version, uid: uid)
         } catch { errorMessage = error.localizedDescription }
@@ -311,7 +322,7 @@ final class RepositoryBookmarkController: ObservableObject {
         syncingBookmarkIDs.insert(id)
         defer { syncingBookmarkIDs.remove(id) }
         do {
-            guard let version = try dataStore.value(String.self, in: "bookmarkDeletes", id: id) else { return }
+            guard let version = try await dataStore.readValue(String.self, in: "bookmarkDeletes", id: id) else { return }
             try await cloudStore.delete(bookmarkID: id, uid: uid)
             try await acknowledge("bookmarkDeletes", id: id, version: version, uid: uid)
         } catch { errorMessage = error.localizedDescription }
@@ -325,8 +336,8 @@ final class RepositoryBookmarkController: ObservableObject {
                 await upload(bookmark, uid: uid, cloudStore: cloudStore)
             }
             // A replacement must reach the cloud before deleting its old identity.
-            guard try dataStore.values(String.self, in: "bookmarkUploads").isEmpty else { return }
-            for id in try dataStore.values(String.self, in: "bookmarkDeletes").keys {
+            guard try await dataStore.readValues(String.self, in: "bookmarkUploads").isEmpty else { return }
+            for id in try await dataStore.readValues(String.self, in: "bookmarkDeletes").keys {
                 guard activeUID == uid else { return }
                 if syncingBookmarkIDs.contains(id) { continue }
                 await deleteFromCloud(id, uid: uid, cloudStore: cloudStore)
@@ -335,7 +346,7 @@ final class RepositoryBookmarkController: ObservableObject {
     }
 
     private func applyCloudBookmarks(_ cloudBookmarks: [RepositoryBookmark], uid: String) async throws {
-        try await dataStore.transaction { transaction in
+        try await dataStore.transaction(reading: ["bookmarks", "bookmarkPaths", "bookmarkUploads", "bookmarkDeletes"]) { transaction in
             guard self.activeUID == uid else { return }
             let pendingUploads = try transaction.values(String.self, in: "bookmarkUploads")
             let pendingDeletes = try transaction.values(String.self, in: "bookmarkDeletes")
@@ -352,6 +363,6 @@ final class RepositoryBookmarkController: ObservableObject {
                 transaction.remove(in: "bookmarkPaths", id: id)
             }
         }
-        try load()
+        try await load()
     }
 }

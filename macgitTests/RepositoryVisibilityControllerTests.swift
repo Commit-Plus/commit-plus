@@ -125,20 +125,13 @@ final class RepositoryVisibilityControllerTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
 
         await cache.save(.unknown, for: repository, resolvedAt: now)
-        XCTAssertNil(cache.cachedVisibility(for: repository, maximumAge: 900, now: now))
-
+        let unknown = await cache.cachedVisibility(for: repository, maximumAge: 900, now: now)
+        XCTAssertNil(unknown)
         await cache.save(.private, for: repository, resolvedAt: now)
-        XCTAssertEqual(
-            cache.cachedVisibility(for: repository, maximumAge: 900, now: now),
-            .private
-        )
-        XCTAssertNil(
-            cache.cachedVisibility(
-                for: repository,
-                maximumAge: 900,
-                now: now.addingTimeInterval(901)
-            )
-        )
+        let saved = await cache.cachedVisibility(for: repository, maximumAge: 900, now: now)
+        XCTAssertEqual(saved, .private)
+        let expired = await cache.cachedVisibility(for: repository, maximumAge: 900, now: now.addingTimeInterval(901))
+        XCTAssertNil(expired)
     }
 
     private let repositoryURL = URL(fileURLWithPath: "/tmp/repository")

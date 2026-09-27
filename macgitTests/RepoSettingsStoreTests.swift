@@ -51,8 +51,8 @@ final class RepoSettingsStoreTests: XCTestCase {
         try await store.update(for: repoA, settings: repoASettings)
 
         let freshStore = RepoSettingsStore(dataStore: try await fixture.reopen())
-        let loadedA = freshStore.settings(for: repoA, currentBranch: "main", remotes: ["origin"])
-        let loadedB = freshStore.settings(for: repoB, currentBranch: nil, remotes: ["upstream"])
+        let loadedA = await freshStore.settings(for: repoA, currentBranch: "main", remotes: ["origin"])
+        let loadedB = await freshStore.settings(for: repoB, currentBranch: nil, remotes: ["upstream"])
 
         XCTAssertEqual(loadedA, repoASettings)
         XCTAssertTrue(loadedA.skipProtectedBranchCommitWarnings)

@@ -1,6 +1,6 @@
 # Cải thiện RAM và cold start
 
-Ngày: 2026-09-27. Trạng thái: đã triển khai phần 1 (Welcome), phần 2 (AI, còn mục dropdown) và phần 3 (PR cache). Phần 4–6 chưa triển khai. Kiểm tra tương tác runtime còn chờ.
+Ngày: 2026-09-27. Trạng thái: đã triển khai phần 1 (Welcome), phần 2 (AI, còn mục dropdown) phần 3 (PR cache) và phần 4 (local storage). Phần 5–6 chưa triển khai. Kiểm tra tương tác runtime còn chờ.
 
 Không có bước đo baseline, theo yêu cầu của người dùng. Triển khai từng phần độc lập để dễ review và kiểm tra. Không đặt mục tiêu giảm MB hoặc thời gian cụ thể khi chưa có phép đo. Không tự launch/relaunch app.
 
@@ -53,12 +53,12 @@ Kiểm tra: phân trang/filter, mở lại app, TTL, offline, cache hỏng, gi�
 
 Điểm sửa chính: `LocalDataStore`, `LocalSQLiteDatabase`, `LocalDataTransaction` và các store sử dụng chúng.
 
-- [ ] Liệt kê collection và consumer; xác định dữ liệu thật sự cần trước khi hiện màn hình đầu tiên.
-- [ ] Thay đọc toàn bộ records bằng truy vấn theo collection/entity cần dùng.
-- [ ] Chuyển các consumer sang tải bất đồng bộ hoặc snapshot có phạm vi rõ ràng; không đưa SQLite I/O vào main thread.
-- [ ] Giữ serialization của writer và tính atomic của transaction nhiều collection.
-- [ ] Giữ migration, verification, retry và thông báo lỗi; tránh mất dữ liệu khi import bị gián đoạn.
-- [ ] Giải phóng snapshot không cần; tránh giải mã lại cùng dữ liệu trong mỗi lần render.
+- [x] Liệt kê collection và consumer; xác định dữ liệu thật sự cần trước khi hiện màn hình đầu tiên.
+- [x] Thay đọc toàn bộ records bằng truy vấn theo collection/entity cần dùng.
+- [x] Chuyển các consumer sang tải bất đồng bộ hoặc snapshot có phạm vi rõ ràng; không đưa SQLite I/O vào main thread.
+- [x] Giữ serialization của writer và tính atomic của transaction nhiều collection.
+- [x] Giữ migration, verification, retry và thông báo lỗi; tránh mất dữ liệu khi import bị gián đoạn.
+- [x] Giải phóng snapshot không cần; tránh giải mã lại cùng dữ liệu trong mỗi lần render.
 
 Kiểm tra: DB mới/cũ, migration lỗi giữa chừng, ghi đồng thời, transaction lỗi, dữ liệu nhiều collection và tải lại sau ghi. Đây là phần thay đổi contract, cần review riêng.
 
@@ -133,3 +133,21 @@ Không tự commit, push hoặc thay đổi release. Các checkbox chỉ đượ
 - Gỡ provider account xóa cache tương ứng. Logout/đổi tài khoản Commit+ xóa cache phiên trước; khôi phục auth ban đầu không xóa cache hợp lệ. Tests dùng DB tạm riêng.
 - Đã kiểm tra persistence qua cache/controller mới, TTL, giới hạn/oversize, corruption, namespace account/repo/filter/page và response đến muộn sau Clear Cache.
 - Validation cuối trên mã bàn giao: **BUILD SUCCEEDED**, **85/85 test PASS**, `git diff --check` sạch. Không đo baseline, không tự mở lại app để kiểm tra UI. Chưa commit phần 3.
+
+### Phần 4 — Local storage (2026-09-27)
+
+- `prepare()` chỉ giữ ba collection nhỏ phục vụ API định tuyến credential đồng bộ; bỏ snapshot RAM của toàn bộ database.
+
+| Collection | Consumer và thời điểm đọc |
+| --- | --- |
+| `providerAccounts`, `providerPreferences`, `sshPaths` | Account/credential routing; snapshot resident sau prepare |
+| `repoSettings` | RepoSettingsStore và commit-rule sync; đọc theo repository khi cần |
+| `bookmarks`, `bookmarkPaths`, `bookmarkUploads`, `bookmarkDeletes` | Bookmark controller; snapshot có phạm vi khi load/sync, giữ model UI cần hiển thị |
+| `providerDeletions`, `providerSyncedIdentities` | Provider account sync; đọc khi reconcile |
+| `repositoryVisibility` | Visibility controller; đọc theo repository |
+| `gitFlowPending`, `commitRulePending` | Sync controller; đọc marker khi đồng bộ |
+
+- SQLite I/O vẫn chạy trên actor database. Snapshot transaction chỉ chứa collection được khai báo, được giải phóng sau thao tác; writer vẫn serialize và commit nhiều collection atomically. Resident snapshot chỉ cập nhật sau commit thành công.
+- Migration vẫn import trong transaction và kiểm tra từng record trước khi đánh dấu hoàn tất; không nạp toàn bộ database để verification. Lỗi đọc pending marker được chuyển tới xử lý lỗi sync để tránh hiểu nhầm là không có thay đổi local.
+- Thêm coverage cho đọc có phạm vi, không giữ collection không liên quan, rollback khi đọc thiếu scope, ghi đồng thời và cập nhật resident snapshot.
+- Validation: build macOS **PASS**, **60/60 test PASS** trong các nhóm local storage, migration, bookmark, settings, sync, visibility và credential stores; commit-rule sync sau thay đổi cuối **4/4 test PASS**. Không launch/relaunch app; chưa đo mức giảm RAM/cold start.

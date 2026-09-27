@@ -19,7 +19,7 @@ final class RepositoryCommitRuleSyncControllerTests: XCTestCase {
         let warning = await controller.reconcile(repositoryURL: url, uid: "user-a", cloud: cloud) { applied = $0 }
         XCTAssertNil(warning)
         XCTAssertEqual(applied, true)
-        let loaded = local.settings(for: url.path, currentBranch: nil, remotes: [])
+        let loaded = await local.settings(for: url.path, currentBranch: nil, remotes: [])
         XCTAssertTrue(loaded.skipProtectedBranchCommitWarnings)
         XCTAssertEqual(loaded.userName, "Local author")
         XCTAssertEqual(cloud.saves, [])
@@ -71,8 +71,10 @@ final class RepositoryCommitRuleSyncControllerTests: XCTestCase {
         }
         XCTAssertNil(warning)
         XCTAssertEqual(cloud.saves, [false])
-        XCTAssertEqual(local.settings(for: url.path, currentBranch: nil, remotes: []).userName, "Changed while loading")
-        XCTAssertTrue(try fixture.store.values(Bool.self, in: "commitRulePending").isEmpty)
+        let current = await local.settings(for: url.path, currentBranch: nil, remotes: [])
+        XCTAssertEqual(current.userName, "Changed while loading")
+        let loadedValue1 = try await fixture.store.readValues(Bool.self, in: "commitRulePending")
+        XCTAssertTrue(loadedValue1.isEmpty)
     }
 }
 

@@ -26,9 +26,9 @@ protocol GitProviderAccountLocalStore {
     func save(_ account: GitProviderAccount) async throws
     func delete(accountID: String) async throws -> GitProviderAccount?
     func remove(accountID: String) async throws
-    func pendingDeletions() throws -> [GitProviderAccount]
+    func pendingDeletions() async throws -> [GitProviderAccount]
     func clearPendingDeletion(_ account: GitProviderAccount) async throws
-    func syncedIdentityKeys(uid: String) -> Set<String>
+    func syncedIdentityKeys(uid: String) async -> Set<String>
     func setSyncedIdentityKeys(_ keys: Set<String>, uid: String) async throws
 }
 
@@ -53,7 +53,7 @@ final class SQLiteGitProviderAccountLocalStore: GitProviderAccountLocalStore {
     }
 
     func save(_ account: GitProviderAccount) async throws {
-        try await dataStore.transaction { transaction in
+        try await dataStore.transaction(reading: ["providerAccounts", "providerDeletions", "providerPreferences"]) { transaction in
             let identity = GitProviderAccountLocalIdentity(account)
             for (id, stored) in try transaction.values(GitProviderAccount.self, in: "providerAccounts")
                 where id == account.id || GitProviderAccountLocalIdentity(stored) == identity {
@@ -68,7 +68,7 @@ final class SQLiteGitProviderAccountLocalStore: GitProviderAccountLocalStore {
     }
 
     func delete(accountID: String) async throws -> GitProviderAccount? {
-        try await dataStore.transaction { transaction in
+        try await dataStore.transaction(reading: ["providerAccounts", "providerDeletions", "providerPreferences"]) { transaction in
             guard let account = try transaction.value(GitProviderAccount.self, in: "providerAccounts", id: accountID) else { return nil }
             try Self.remove(account, from: &transaction)
             for (id, deleted) in try transaction.values(GitProviderAccount.self, in: "providerDeletions")
@@ -81,7 +81,7 @@ final class SQLiteGitProviderAccountLocalStore: GitProviderAccountLocalStore {
     }
 
     func remove(accountID: String) async throws {
-        try await dataStore.transaction { transaction in
+        try await dataStore.transaction(reading: ["providerAccounts", "providerDeletions", "providerPreferences"]) { transaction in
             if let account = try transaction.value(GitProviderAccount.self, in: "providerAccounts", id: accountID) {
                 try Self.remove(account, from: &transaction)
             }
@@ -96,12 +96,12 @@ final class SQLiteGitProviderAccountLocalStore: GitProviderAccountLocalStore {
         }
     }
 
-    func pendingDeletions() throws -> [GitProviderAccount] {
-        Array(try dataStore.values(GitProviderAccount.self, in: "providerDeletions").values)
+    func pendingDeletions() async throws -> [GitProviderAccount] {
+        Array(try await dataStore.readValues(GitProviderAccount.self, in: "providerDeletions").values)
     }
 
     func clearPendingDeletion(_ account: GitProviderAccount) async throws {
-        try await dataStore.transaction { transaction in
+        try await dataStore.transaction(reading: ["providerAccounts", "providerDeletions", "providerPreferences"]) { transaction in
             for (id, deleted) in try transaction.values(GitProviderAccount.self, in: "providerDeletions")
                 where GitProviderAccountLocalIdentity(deleted) == GitProviderAccountLocalIdentity(account) {
                 transaction.remove(in: "providerDeletions", id: id)
@@ -109,12 +109,12 @@ final class SQLiteGitProviderAccountLocalStore: GitProviderAccountLocalStore {
         }
     }
 
-    func syncedIdentityKeys(uid: String) -> Set<String> {
-        Set((try? dataStore.value([String].self, in: "providerSyncedIdentities", id: uid)) ?? [])
+    func syncedIdentityKeys(uid: String) async -> Set<String> {
+        Set((try? await dataStore.readValue([String].self, in: "providerSyncedIdentities", id: uid)) ?? [])
     }
 
     func setSyncedIdentityKeys(_ keys: Set<String>, uid: String) async throws {
-        try await dataStore.transaction { transaction in
+        try await dataStore.transaction(reading: ["providerAccounts", "providerDeletions", "providerPreferences"]) { transaction in
             try transaction.set(keys.sorted(), in: "providerSyncedIdentities", id: uid)
         }
     }
@@ -154,7 +154,7 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
             return
         }
 
-        let pendingDeletions = try localStore.pendingDeletions()
+        let pendingDeletions = try await localStore.pendingDeletions()
         let pendingIdentities = Set(pendingDeletions.map(GitProviderAccountLocalIdentity.init))
         for deletedAccount in pendingDeletions {
             let identity = GitProviderAccountLocalIdentity(deletedAccount)
@@ -176,7 +176,7 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
         let visibleCloudIdentityKeys = Set(visibleCloudAccounts.map {
             GitProviderAccountLocalIdentity($0).storageKey
         })
-        let previouslySyncedIdentityKeys = localStore.syncedIdentityKeys(uid: uid)
+        let previouslySyncedIdentityKeys = await localStore.syncedIdentityKeys(uid: uid)
         for localAccount in initialLocalAccounts {
             let identityKey = GitProviderAccountLocalIdentity(localAccount).storageKey
             if previouslySyncedIdentityKeys.contains(identityKey),
@@ -213,7 +213,7 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
         try await localStore.save(account)
         guard let cloudUID else { return }
         if await mirrorToCloud(account, uid: cloudUID) {
-            var syncedKeys = localStore.syncedIdentityKeys(uid: cloudUID)
+            var syncedKeys = await localStore.syncedIdentityKeys(uid: cloudUID)
             syncedKeys.insert(GitProviderAccountLocalIdentity(account).storageKey)
             // The account is already durable. A sync bookkeeping failure must not
             // make the caller delete credentials as if the local save had failed.
@@ -232,7 +232,7 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
                 try? await cloudStore.delete(accountID: accountID, macgitUID: cloudUID)
             }
             try await localStore.clearPendingDeletion(deletedAccount)
-            var syncedKeys = localStore.syncedIdentityKeys(uid: cloudUID)
+            var syncedKeys = await localStore.syncedIdentityKeys(uid: cloudUID)
             syncedKeys.remove(GitProviderAccountLocalIdentity(deletedAccount).storageKey)
             try await localStore.setSyncedIdentityKeys(syncedKeys, uid: cloudUID)
         } catch {
