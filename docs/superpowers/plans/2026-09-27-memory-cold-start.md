@@ -1,6 +1,6 @@
 # Cải thiện RAM và cold start
 
-Ngày: 2026-09-27. Trạng thái: đã triển khai phần 1 (Welcome) và phần 2 (AI). Phần 3–6 chưa triển khai. Kiểm tra tương tác runtime còn chờ.
+Ngày: 2026-09-27. Trạng thái: đã triển khai phần 1 (Welcome), phần 2 (AI, còn mục dropdown) và phần 3 (PR cache). Phần 4–6 chưa triển khai. Kiểm tra tương tác runtime còn chờ.
 
 Không có bước đo baseline, theo yêu cầu của người dùng. Triển khai từng phần độc lập để dễ review và kiểm tra. Không đặt mục tiêu giảm MB hoặc thời gian cụ thể khi chưa có phép đo. Không tự launch/relaunch app.
 
@@ -34,18 +34,18 @@ Kiểm tra: guest, signed-in, đổi provider/key, nhiều window, entitlement t
 
 Điểm sửa chính: `PullRequestController`, các model PR và lifecycle provider account.
 
-- [ ] Tạo cache SQLite riêng trong thư mục cache của app, không dùng snapshot RAM của `LocalDataStore`.
-- [ ] Đọc/ghi ngoài main thread; cache lỗi hoặc bị xóa phải fallback sang tải mạng.
-- [ ] Cache list theo page; key chứa account, provider/host, repository, filter/sort và pagination.
-- [ ] Cache detail riêng theo PR; changes/diff chỉ tải khi mở phần tương ứng.
-- [ ] RAM chỉ giữ dữ liệu màn hình hiện tại; bỏ dictionary cache tích lũy trong controller.
-- [ ] Có version schema, TTL, giới hạn tổng dung lượng disk và giới hạn mỗi entry; bỏ qua payload quá lớn.
-- [ ] Dọn entry hết hạn và ít dùng; không quét/nạp toàn bộ payload để dọn cache.
-- [ ] Cache hợp lệ hiển thị ngay; hết hạn refresh; Reload bỏ qua cache.
-- [ ] Comment/merge/update invalidate đúng list/detail/changes liên quan.
-- [ ] Xóa cache theo account khi logout/gỡ account; request cũ không được ghi lại cache sau khi xóa.
-- [ ] Không lưu token/credential; không dùng dữ liệu account khác hoặc kết quả request đã lỗi thời.
-- [ ] Điều chỉnh chức năng Clear Cache để bao phủ cache disk và trạng thái đang hiển thị phù hợp.
+- [x] Tạo cache SQLite riêng trong thư mục cache của app, không dùng snapshot RAM của `LocalDataStore`.
+- [x] Đọc/ghi ngoài main thread; cache lỗi hoặc bị xóa phải fallback sang tải mạng.
+- [x] Cache list theo page; key chứa account, provider/host, repository, filter/sort và pagination.
+- [x] Cache detail riêng theo PR; changes/diff chỉ tải khi mở phần tương ứng.
+- [x] RAM chỉ giữ dữ liệu màn hình hiện tại; bỏ dictionary cache tích lũy trong controller.
+- [x] Có version schema, TTL, giới hạn tổng dung lượng disk và giới hạn mỗi entry; bỏ qua payload quá lớn.
+- [x] Dọn entry hết hạn và ít dùng; không quét/nạp toàn bộ payload để dọn cache.
+- [x] Cache hợp lệ hiển thị ngay; hết hạn refresh; Reload bỏ qua cache.
+- [x] Comment/merge/update invalidate đúng list/detail/changes liên quan.
+- [x] Xóa cache theo account khi logout/gỡ account; request cũ không được ghi lại cache sau khi xóa.
+- [x] Không lưu token/credential; không dùng dữ liệu account khác hoặc kết quả request đã lỗi thời.
+- [x] Điều chỉnh chức năng Clear Cache để bao phủ cache disk và trạng thái đang hiển thị phù hợp.
 
 Kiểm tra: phân trang/filter, mở lại app, TTL, offline, cache hỏng, giới hạn dung lượng, mutation, đổi account, logout trong lúc request chạy và private PR giữa hai account.
 
@@ -121,3 +121,15 @@ Không tự commit, push hoặc thay đổi release. Các checkbox chỉ đượ
 - App active chỉ kiểm tra managed usage nếu provider đó từng được yêu cầu và session còn quyền sử dụng. Kiểm tra quyền khi thực thi AI được giữ nguyên.
 - Build macOS: **PASS**. Các nhóm AIProviderAvailability, AICommitMessage, CloudAIProvider và CommitPlusAIUsageController: **44/44 PASS**.
 - Chưa kiểm tra tương tác dropdown/nhiều window bằng runtime; chưa đo giảm RAM/cold start. Phần 2 hiện chưa commit.
+
+### Phần 3 — PR cache SQLite (2026-09-27)
+
+- `PullRequestDiskCache` là actor riêng, đọc/ghi/encode/decode SQLite ngoài main actor, không dùng `LocalDataStore` và không giữ dictionary payload trong RAM.
+- List/detail/changes được cache theo account, provider, host, repository, loại dữ liệu và page/filter hoặc số PR. Sort của provider hiện cố định; created-by-me là filter trên page đang hiển thị.
+- TTL giữ như trước: list 120 giây, detail/changes 300 giây. Giới hạn 32 MiB payload, 300 entry, 2 MiB/entry; SQLite tự thu hồi page và giới hạn 10.240 page. Payload quá lớn vẫn trả về UI, không lưu cache.
+- Dọn hết hạn và entry ít dùng bằng metadata SQL; cache lỗi là cache miss. Clear Cache/logout có thể xóa cache hỏng. File cache có permission 0600; không serialize token.
+- Bỏ ba dictionary cache trong PR controller. View giải phóng list/detail/changes khi rời màn hình, lần sau đọc lại disk; request ID chặn response từ selection/view/account cũ. Epoch trong cache chặn ghi lại dữ liệu sau invalidation.
+- Comment/create/merge giữ invalidation và force-refresh hiện có. Clear Cache bao gồm SQLite kể cả khi không có cửa sổ repo; màn hình PR đang mở tải lại từ mạng.
+- Gỡ provider account xóa cache tương ứng. Logout/đổi tài khoản Commit+ xóa cache phiên trước; khôi phục auth ban đầu không xóa cache hợp lệ. Tests dùng DB tạm riêng.
+- Đã kiểm tra persistence qua cache/controller mới, TTL, giới hạn/oversize, corruption, namespace account/repo/filter/page và response đến muộn sau Clear Cache.
+- Validation cuối trên mã bàn giao: **BUILD SUCCEEDED**, **85/85 test PASS**, `git diff --check` sạch. Không đo baseline, không tự mở lại app để kiểm tra UI. Chưa commit phần 3.

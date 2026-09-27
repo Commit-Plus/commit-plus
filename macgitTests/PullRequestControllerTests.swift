@@ -343,7 +343,7 @@ final class PullRequestControllerTests: XCTestCase {
         XCTAssertEqual(service.receivedDetailNumber, 12)
     }
 
-    func testLoadPullRequestsUsesMemoryCacheUntilForcedRefresh() async throws {
+    func testLoadPullRequestsUsesDiskCacheUntilForcedRefresh() async throws {
         let account = makeAccount()
         let token = makeToken()
         let service = FakePullRequestProvider(result: .success([makeSummary()]))
@@ -373,7 +373,7 @@ final class PullRequestControllerTests: XCTestCase {
         XCTAssertEqual(service.listCallCount, 2)
     }
 
-    func testLoadPullRequestDetailUsesMemoryCache() async throws {
+    func testLoadPullRequestDetailUsesDiskCache() async throws {
         let account = makeAccount()
         let token = makeToken()
         let detail = PullRequestDetail(
@@ -1089,6 +1089,82 @@ final class PullRequestControllerTests: XCTestCase {
         XCTAssertEqual(service.receivedDetailNumber, summary.number)
     }
 
+    func testDiskCacheSurvivesNewControllerAndSeparatesRepositoryFilterAndPage() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appending(path: "cache.sqlite")
+        let account = makeAccount()
+        let vault = FakePullRequestTokenVault(tokensByAccountID: [account.id: makeToken()])
+        let accounts = GitProviderAccountController(store: FakePullRequestAccountStore(accounts: [account]), tokenVault: vault)
+        await accounts.reload()
+        let service = FakePullRequestProvider(result: .success([makeSummary()]))
+        let first = PullRequestController(providerAccountController: accounts, tokenVault: vault,
+            services: [.github: service], diskCache: PullRequestDiskCache(url: url))
+        let remote = "https://github.com/octocat/Hello-World.git"
+        await first.loadPullRequests(remoteURLString: remote)
+        first.releaseVisibleData()
+        XCTAssertTrue(first.items.isEmpty)
+        let reopened = PullRequestController(providerAccountController: accounts, tokenVault: vault,
+            services: [.github: service], diskCache: PullRequestDiskCache(url: url))
+        await reopened.loadPullRequests(remoteURLString: remote)
+        XCTAssertEqual(service.listCallCount, 1)
+        XCTAssertEqual(reopened.items.count, 1)
+        await reopened.loadPullRequests(remoteURLString: remote, page: 2)
+        reopened.stateFilter = .closed
+        await reopened.loadPullRequests(remoteURLString: remote)
+        await reopened.loadPullRequests(remoteURLString: "https://github.com/octocat/Another.git")
+        XCTAssertEqual(service.listCallCount, 4)
+    }
+
+    func testDiskCacheSeparatesAccountsForSameRepository() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let cache = PullRequestDiskCache(url: folder.appending(path: "cache.sqlite"))
+        let service = FakePullRequestProvider(result: .success([makeSummary()]))
+        for id in ["alice", "bob"] {
+            let account = makeAccount(id: id)
+            let vault = FakePullRequestTokenVault(tokensByAccountID: [account.id: makeToken()])
+            let accounts = GitProviderAccountController(store: FakePullRequestAccountStore(accounts: [account]), tokenVault: vault)
+            await accounts.reload()
+            let controller = PullRequestController(providerAccountController: accounts, tokenVault: vault,
+                services: [.github: service], diskCache: cache)
+            await controller.loadPullRequests(remoteURLString: "https://github.com/octocat/Hello-World.git")
+        }
+        XCTAssertEqual(service.listCallCount, 2)
+    }
+
+    func testClearingCacheDiscardsSuspendedListResponse() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let cache = PullRequestDiskCache(url: folder.appending(path: "cache.sqlite"))
+        let account = makeAccount()
+        let vault = FakePullRequestTokenVault(tokensByAccountID: [account.id: makeToken()])
+        let accounts = GitProviderAccountController(store: FakePullRequestAccountStore(accounts: [account]), tokenVault: vault)
+        await accounts.reload()
+        let service = FakePullRequestProvider(result: .success([makeSummary()]))
+        let started = expectation(description: "Network list pending")
+        var continuation: CheckedContinuation<Void, Never>?
+        service.beforeListResponse = {
+            await withCheckedContinuation {
+                continuation = $0
+                started.fulfill()
+            }
+        }
+        let controller = PullRequestController(providerAccountController: accounts, tokenVault: vault,
+            services: [.github: service], diskCache: cache)
+        let remote = "https://github.com/octocat/Hello-World.git"
+        let old = Task { await controller.loadPullRequests(remoteURLString: remote) }
+        await fulfillment(of: [started], timeout: 2)
+        controller.clearSessionCaches()
+        service.beforeListResponse = nil
+        continuation?.resume()
+        await old.value
+        XCTAssertTrue(controller.items.isEmpty)
+        await controller.loadPullRequests(remoteURLString: remote)
+        XCTAssertEqual(service.listCallCount, 2)
+        XCTAssertEqual(controller.items.count, 1)
+    }
+
     private func makeAccount(
         id: String = "macgit-user-1:github:github.com:583231",
         scopes: [String] = ["repo", "read:user"],
@@ -1204,6 +1280,7 @@ private final class FakePullRequestProvider: PullRequestProviding {
     private(set) var receivedPerPage: Int?
     private(set) var receivedDetailNumber: Int?
     private(set) var receivedChangesNumber: Int?
+    var beforeListResponse: (() async -> Void)?
     private(set) var listCallCount = 0
     private(set) var detailCallCount = 0
     private(set) var changesCallCount = 0
@@ -1244,6 +1321,7 @@ private final class FakePullRequestProvider: PullRequestProviding {
         perPage: Int
     ) async throws -> PullRequestListPage {
         listCallCount += 1
+        await beforeListResponse?()
         receivedRepository = repository
         receivedToken = token
         receivedFilter = filter

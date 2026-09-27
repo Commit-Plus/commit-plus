@@ -25,18 +25,24 @@ private struct PullRequestListCacheKey: Hashable {
     let filter: PullRequestListFilter
     let page: Int
     let perPage: Int
+    var diskKey: String { repository.diskKey + "." + ([accountID, "list"] + [filter.rawValue, String(page), String(perPage)]).map { Data($0.utf8).base64EncodedString() }.joined(separator: ".") }
+
 }
 
 private struct PullRequestDetailCacheKey: Hashable {
     let repository: GitRepositoryIdentityKey
     let accountID: String
     let number: Int
+    var diskKey: String { repository.diskKey + "." + ([accountID, "detail"] + [String(number)]).map { Data($0.utf8).base64EncodedString() }.joined(separator: ".") }
+
 }
 
 private struct PullRequestChangesCacheKey: Hashable {
     let repository: GitRepositoryIdentityKey
     let accountID: String
     let number: Int
+    var diskKey: String { repository.diskKey + "." + ([accountID, "changes"] + [String(number)]).map { Data($0.utf8).base64EncodedString() }.joined(separator: ".") }
+
 }
 
 private struct GitRepositoryIdentityKey: Hashable {
@@ -45,27 +51,16 @@ private struct GitRepositoryIdentityKey: Hashable {
     let owner: String
     let name: String
 
+    var diskKey: String {
+        [provider.rawValue, host, owner, name].map { Data($0.utf8).base64EncodedString() }.joined(separator: ".")
+    }
+
     init(_ repository: GitRepositoryIdentity) {
         provider = repository.provider
-        host = repository.hostURL.absoluteString.lowercased()
-        owner = repository.owner.lowercased()
-        name = repository.name.lowercased()
+        host = repository.hostURL.absoluteString
+        owner = repository.owner
+        name = repository.name
     }
-}
-
-private struct CachedPullRequestListPage {
-    let value: PullRequestListPage
-    let expiresAt: Date
-}
-
-private struct CachedPullRequestDetail {
-    let value: PullRequestDetail
-    let expiresAt: Date
-}
-
-private struct CachedPullRequestChanges {
-    let value: [PullRequestChangedFile]
-    let expiresAt: Date
 }
 
 @MainActor
@@ -119,9 +114,11 @@ final class PullRequestController: ObservableObject {
     private let changesCacheTTL: TimeInterval = 300
     private let commentRefreshAttempts = 3
     private let commentRefreshDelayNanoseconds: UInt64 = 300_000_000
-    private var listCache: [PullRequestListCacheKey: CachedPullRequestListPage] = [:]
-    private var detailCache: [PullRequestDetailCacheKey: CachedPullRequestDetail] = [:]
-    private var changesCache: [PullRequestChangesCacheKey: CachedPullRequestChanges] = [:]
+    private let diskCache: PullRequestDiskCache
+    private var cacheMaintenance: Task<Void, Never>?
+    private var accountObservation: AnyCancellable?
+    private var listLoadID = UUID()
+    private var detailLoadID = UUID()
     private var changesLoadID = UUID()
     private var createDraftChangesLoadID = UUID()
     private var createDraftParticipantsLoadID = UUID()
@@ -196,7 +193,8 @@ final class PullRequestController: ObservableObject {
                 repositoryURL: repositoryURL
             )
         },
-        openURL: @escaping (URL) -> Bool = { _ in false }
+        openURL: @escaping (URL) -> Bool = { _ in false },
+        diskCache: PullRequestDiskCache? = nil
     ) {
         self.providerAccountController = providerAccountController
         self.tokenVault = tokenVault
@@ -211,6 +209,25 @@ final class PullRequestController: ObservableObject {
         self.fetchPullRequestRef = fetchPullRequestRef
         self.checkoutBranch = checkoutBranch
         self.openURL = openURL
+        self.diskCache = diskCache ?? (FirebaseBootstrap.isRunningUnitTests
+            ? PullRequestDiskCache(url: FileManager.default.temporaryDirectory.appending(path: "PRCacheTests-\(UUID().uuidString).sqlite"))
+            : .shared)
+        var previousAccounts = providerAccountController.accounts
+        accountObservation = providerAccountController.$accounts.dropFirst().sink { [weak self] accounts in
+            guard let self else { return }
+            let removed = Set(previousAccounts.map(\.id)).subtracting(accounts.map(\.id))
+            let selected = selectedProviderAccountID
+            let selectedChanged = selected != nil && previousAccounts.first(where: { $0.id == selected })
+                != accounts.first(where: { $0.id == selected })
+            previousAccounts = accounts
+            for id in removed { scheduleCacheRemoval(accountID: id) }
+            if selectedChanged {
+                releaseVisibleData()
+                activeToken = nil
+                activeRepository = nil
+                selectedProviderAccountID = nil
+            }
+        }
     }
 
     var visibleItems: [PullRequestSummary] {
@@ -238,9 +255,12 @@ final class PullRequestController: ObservableObject {
     }
 
     func loadPullRequests(repositoryURL: URL, page: Int = 1, forceRefresh: Bool = false) async {
+        let contextID = UUID()
+        listLoadID = contextID
         activeRepositoryURL = repositoryURL
         guard let remoteName = await remoteNameProvider(repositoryURL),
               let remoteURLString = await remoteURLProvider(repositoryURL, remoteName) else {
+            guard listLoadID == contextID, !Task.isCancelled else { return }
             items = []
             resetPagination()
             activeRemoteName = nil
@@ -249,6 +269,7 @@ final class PullRequestController: ObservableObject {
             errorMessage = "No remotes configured."
             return
         }
+        guard listLoadID == contextID, !Task.isCancelled else { return }
         activeRemoteName = remoteName
         await loadPullRequests(remoteURLString: remoteURLString, page: page, forceRefresh: forceRefresh)
     }
@@ -259,8 +280,11 @@ final class PullRequestController: ObservableObject {
         page: Int = 1,
         forceRefresh: Bool = false
     ) async {
+        let contextID = UUID()
+        listLoadID = contextID
         activeRepositoryURL = repositoryURL
         guard let remoteURLString = await remoteURLProvider(repositoryURL, remoteName) else {
+            guard listLoadID == contextID, !Task.isCancelled else { return }
             items = []
             resetPagination()
             activeRemoteName = nil
@@ -269,15 +293,22 @@ final class PullRequestController: ObservableObject {
             errorMessage = "No remotes configured."
             return
         }
+        guard listLoadID == contextID, !Task.isCancelled else { return }
         activeRemoteName = remoteName
         await loadPullRequests(remoteURLString: remoteURLString, page: page, forceRefresh: forceRefresh)
     }
 
     func loadPullRequests(remoteURLString: String, page: Int = 1, forceRefresh: Bool = false) async {
+        let loadID = UUID()
+        listLoadID = loadID
+        await cacheMaintenance?.value
+        guard listLoadID == loadID, !Task.isCancelled else { return }
+        let cacheGeneration = await diskCache.generation()
+        guard listLoadID == loadID, !Task.isCancelled else { return }
         isLoading = true
         errorMessage = nil
         accountConnectionHost = nil
-        defer { isLoading = false }
+        defer { if listLoadID == loadID { isLoading = false } }
 
         guard let remoteIdentity = GitRemoteIdentityResolver.identity(
             from: remoteURLString,
@@ -323,6 +354,10 @@ final class PullRequestController: ObservableObject {
             errorMessage = matchingAccounts.contains(where: supportsProviderAPI) ? "Reconnect..." : "Connect Account..."
             return
         }
+        if selectedProviderAccountID != apiCredential.account.id
+            || activeRepository.map({ GitRepositoryIdentityKey($0) }) != GitRepositoryIdentityKey(repository) {
+            clearSelectedDetail()
+        }
         selectedProviderAccountID = apiCredential.account.id
         let token = apiCredential.token
 
@@ -346,37 +381,38 @@ final class PullRequestController: ObservableObject {
             perPage: pullRequestPageSize
         )
         if !forceRefresh,
-           let cached = listCache[cacheKey] {
-            if cached.expiresAt > Date() {
-                apply(cached.value)
-                accountConnectionHost = nil
-                errorMessage = nil
-                return
-            }
-            listCache.removeValue(forKey: cacheKey)
+           let cached = await diskCache.value(PullRequestListPage.self, key: cacheKey.diskKey, generation: cacheGeneration) {
+            guard listLoadID == loadID, !Task.isCancelled else { return }
+            apply(cached)
+            accountConnectionHost = nil
+            errorMessage = nil
+            return
         }
+        guard listLoadID == loadID, !Task.isCancelled else { return }
 
         do {
             let pageResult = try await service.listPullRequests(
                 repository: repository,
                 token: token,
-                filter: stateFilter,
+                filter: cacheKey.filter,
                 page: page,
                 perPage: pullRequestPageSize
             )
-            listCache[cacheKey] = CachedPullRequestListPage(
-                value: pageResult,
-                expiresAt: Date().addingTimeInterval(listCacheTTL)
-            )
+            guard listLoadID == loadID, !Task.isCancelled else { return }
+            await diskCache.save(pageResult, key: cacheKey.diskKey, accountID: cacheKey.accountID,
+                                 kind: "list", ttl: listCacheTTL, generation: cacheGeneration)
+            guard listLoadID == loadID, !Task.isCancelled else { return }
             apply(pageResult)
             accountConnectionHost = nil
             errorMessage = nil
         } catch let error as PullRequestProviderError {
+            guard listLoadID == loadID, !Task.isCancelled else { return }
             items = []
             resetPagination()
             accountConnectionHost = nil
             errorMessage = error.localizedDescription
         } catch {
+            guard listLoadID == loadID, !Task.isCancelled else { return }
             items = []
             resetPagination()
             accountConnectionHost = nil
@@ -399,6 +435,11 @@ final class PullRequestController: ObservableObject {
     }
 
     func loadPullRequestDetail(_ summary: PullRequestSummary, forceRefresh: Bool = false) async {
+        let loadID = UUID()
+        detailLoadID = loadID
+        await cacheMaintenance?.value
+        let cacheGeneration = await diskCache.generation()
+        guard detailLoadID == loadID, !Task.isCancelled else { return }
         guard let repository = activeRepository,
               let token = activeToken,
               let service = services[repository.provider] else {
@@ -408,7 +449,7 @@ final class PullRequestController: ObservableObject {
 
         isLoadingDetail = true
         detailErrorMessage = nil
-        defer { isLoadingDetail = false }
+        defer { if detailLoadID == loadID { isLoadingDetail = false } }
 
         let cacheKey = PullRequestDetailCacheKey(
             repository: GitRepositoryIdentityKey(repository),
@@ -416,13 +457,12 @@ final class PullRequestController: ObservableObject {
             number: summary.number
         )
         if !forceRefresh,
-           let cached = detailCache[cacheKey] {
-            if cached.expiresAt > Date() {
-                selectedDetail = cached.value
-                return
-            }
-            detailCache.removeValue(forKey: cacheKey)
+           let cached = await diskCache.value(PullRequestDetail.self, key: cacheKey.diskKey, generation: cacheGeneration) {
+            guard detailLoadID == loadID, !Task.isCancelled else { return }
+            selectedDetail = cached
+            return
         }
+        guard detailLoadID == loadID, !Task.isCancelled else { return }
 
         do {
             let detail = try await service.pullRequestDetail(
@@ -430,17 +470,20 @@ final class PullRequestController: ObservableObject {
                 token: token,
                 number: summary.number
             )
-            detailCache[cacheKey] = CachedPullRequestDetail(
-                value: detail,
-                expiresAt: Date().addingTimeInterval(detailCacheTTL)
-            )
+            guard detailLoadID == loadID, !Task.isCancelled else { return }
+            await diskCache.save(detail, key: cacheKey.diskKey, accountID: cacheKey.accountID,
+                                 kind: "detail", number: cacheKey.number, ttl: detailCacheTTL, generation: cacheGeneration)
+            guard detailLoadID == loadID, !Task.isCancelled else { return }
             selectedDetail = detail
         } catch {
+            guard detailLoadID == loadID, !Task.isCancelled else { return }
             detailErrorMessage = error.localizedDescription
         }
     }
 
     func clearSelectedDetail() {
+        detailLoadID = UUID()
+        isLoadingDetail = false
         selectedDetail = nil
         selectedChanges = []
         changesErrorMessage = nil
@@ -458,6 +501,9 @@ final class PullRequestController: ObservableObject {
 
         let loadID = UUID()
         changesLoadID = loadID
+        await cacheMaintenance?.value
+        let cacheGeneration = await diskCache.generation()
+        guard changesLoadID == loadID, !Task.isCancelled else { return }
         isLoadingChanges = true
         changesErrorMessage = nil
         defer {
@@ -472,15 +518,13 @@ final class PullRequestController: ObservableObject {
             number: summary.number
         )
         if !forceRefresh,
-           let cached = changesCache[cacheKey] {
-            if cached.expiresAt > Date() {
-                guard changesLoadID == loadID,
-                      selectedDetail?.summary.number == summary.number else { return }
-                selectedChanges = cached.value
-                return
-            }
-            changesCache.removeValue(forKey: cacheKey)
+           let cached = await diskCache.value([PullRequestChangedFile].self, key: cacheKey.diskKey, generation: cacheGeneration) {
+            guard changesLoadID == loadID, !Task.isCancelled,
+                  selectedDetail?.summary.number == summary.number else { return }
+            selectedChanges = cached
+            return
         }
+        guard changesLoadID == loadID, !Task.isCancelled else { return }
 
         do {
             let changes = try await service.pullRequestChanges(
@@ -488,15 +532,14 @@ final class PullRequestController: ObservableObject {
                 token: token,
                 number: summary.number
             )
-            changesCache[cacheKey] = CachedPullRequestChanges(
-                value: changes,
-                expiresAt: Date().addingTimeInterval(changesCacheTTL)
-            )
-            guard changesLoadID == loadID,
+            guard changesLoadID == loadID, !Task.isCancelled else { return }
+            await diskCache.save(changes, key: cacheKey.diskKey, accountID: cacheKey.accountID,
+                                 kind: "changes", number: cacheKey.number, ttl: changesCacheTTL, generation: cacheGeneration)
+            guard changesLoadID == loadID, !Task.isCancelled,
                   selectedDetail?.summary.number == summary.number else { return }
             selectedChanges = changes
         } catch {
-            guard changesLoadID == loadID,
+            guard changesLoadID == loadID, !Task.isCancelled,
                   selectedDetail?.summary.number == summary.number else { return }
             changesErrorMessage = error.localizedDescription
         }
@@ -884,25 +927,43 @@ final class PullRequestController: ObservableObject {
     }
 
     private func invalidateListCache() {
-        listCache.removeAll()
+        listLoadID = UUID()
+        isLoading = false
+        scheduleCacheRemoval(kind: "list")
     }
 
     private func invalidateDetailCache(for number: Int? = nil) {
-        guard let number else {
-            detailCache.removeAll()
-            return
-        }
-        detailCache = detailCache.filter { $0.key.number != number }
+        detailLoadID = UUID()
+        isLoadingDetail = false
+        scheduleCacheRemoval(kind: "detail", number: number)
     }
 
     private func invalidateChangesCache() {
-        changesCache.removeAll()
+        changesLoadID = UUID()
+        isLoadingChanges = false
+        scheduleCacheRemoval(kind: "changes")
+    }
+
+    private func scheduleCacheRemoval(accountID: String? = nil, kind: String? = nil, number: Int? = nil) {
+        let previous = cacheMaintenance
+        let cache = diskCache
+        cacheMaintenance = Task {
+            await previous?.value
+            await cache.remove(accountID: accountID, kind: kind, number: number)
+        }
     }
 
     func clearSessionCaches() {
-        invalidateListCache()
-        invalidateDetailCache()
-        invalidateChangesCache()
+        releaseVisibleData()
+        scheduleCacheRemoval()
+    }
+
+    func releaseVisibleData() {
+        listLoadID = UUID()
+        isLoading = false
+        items = []
+        resetPagination()
+        clearSelectedDetail()
     }
 
     private func apiCredential(for accounts: [GitProviderAccount]) -> (

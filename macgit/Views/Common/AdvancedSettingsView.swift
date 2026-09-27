@@ -234,6 +234,7 @@ struct AdvancedSettingsView: View {
         clearMessages()
         Task {
             await GitStatusService.shared.clearSessionCaches()
+            await PullRequestDiskCache.shared.remove()
             await MainActor.run {
                 NotificationCenter.default.post(
                     name: .advancedClearSessionCaches,
