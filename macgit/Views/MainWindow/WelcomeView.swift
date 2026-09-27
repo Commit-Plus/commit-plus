@@ -24,7 +24,7 @@ struct WelcomeView: View {
     @ObservedObject private var store = RecentRepositoriesStore.shared
     @State private var model = WelcomeDashboardModel()
     @State private var showingUnavailableRepository = false
-    @State private var forceRefresh = false
+    @State private var hasStartedLoading = false
     @State private var refreshID = UUID()
     let accountDisplayName: String?
     let onOpenAccount: () -> Void
@@ -53,16 +53,25 @@ struct WelcomeView: View {
             Text(locationError ?? "Use the repository list to locate its folder or remove it from recents.")
         }
         .task(id: refreshID) {
-            let force = forceRefresh
-            forceRefresh = false
-            await model.refresh(repositories: store.repositories, force: force)
+            // The first render uses disk cache immediately. Subsequent events
+            // share a short cancellable debounce instead of starting Git scans.
+            if hasStartedLoading {
+                do { try await Task.sleep(for: .milliseconds(200)) }
+                catch { return }
+            }
+            hasStartedLoading = true
+            async let activity: Void = model.refresh(repositories: store.repositories)
+            async let attention: Void = model.refreshAttention(repositories: store.repositories)
+            _ = await (activity, attention)
         }
-        .task(id: refreshID) { await model.refreshAttention(repositories: store.repositories) }
         .onChange(of: store.repositories.map { "\($0.url.path)|\($0.lastOpened.timeIntervalSince1970)" }) { _, _ in refresh() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refresh() }
-        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in refresh() }
-        .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange)) { _ in refresh() }
-        .onReceive(NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh)) { _ in refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.invalidate(repositories: store.repositories, activity: false)
+            refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in refreshImmediately() }
+        .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange), perform: refreshRepository)
+        .onReceive(NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh), perform: refreshRepository)
     }
 
     private func reviewAttention(_ repository: WelcomeRepositoryAttention) {
@@ -113,7 +122,18 @@ struct WelcomeView: View {
     }
 
     private func refreshImmediately() {
-        forceRefresh = true
+        model.invalidate(repositories: store.repositories)
+        refresh()
+    }
+
+    private func refreshRepository(_ notification: Notification) {
+        if let url = notification.userInfo?["repositoryURL"] as? URL {
+            let repositories = store.repositories.filter { $0.url.standardizedFileURL == url.standardizedFileURL }
+            guard !repositories.isEmpty else { return }
+            model.invalidate(repositories: repositories)
+        } else {
+            model.invalidate(repositories: store.repositories)
+        }
         refresh()
     }
 
