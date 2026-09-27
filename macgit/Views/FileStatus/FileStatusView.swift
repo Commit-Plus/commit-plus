@@ -41,12 +41,15 @@ struct FileStatusView: View {
     var onRequestUpdateCurrentBranch: (CurrentBranchIntegrationStatus) -> Void = { _ in }
     var onRequestApplyStash: (String) -> Void = { _ in }
     var onRequestComparePath: (ComparisonPath) -> Void = { _ in }
+    var onRequestTrackLFS: (String) -> Void = { _ in }
     var onAuthorizeCommit: () async -> Bool = { true }
     var onRequestPushAfterCommit: (String, String) async throws -> Void
     var onRunRepositoryOperation: RepositoryOperationRunner
 
     @ObservedObject private var integrationSettings = IntegrationSettingsStore.shared
     @State private var gitStatus: GitStatus = GitStatus(staged: [], unstaged: [], untracked: [])
+    @State private var lfsPaths = Set<String>()
+    @State private var stagedLFSPaths = Set<String>()
     @State private var changedFiles: [StatusFile] = []
     @State private var visibleStagedFileCount = 100
     @State private var visibleChangedFileCount = 100
@@ -451,6 +454,7 @@ struct FileStatusView: View {
     }
 
     private func fileRow(file: StatusFile, isStaged: Bool) -> some View {
+        let isLFS = (isStaged ? stagedLFSPaths : lfsPaths).contains(file.path)
         let selectionKey = FileStatusSelectionKey(file: file, isStaged: isStaged)
         let isSelected = selectedFileKey == selectionKey
         let quickAction = FileStatusRowQuickAction(isStaged: isStaged)
@@ -472,23 +476,34 @@ struct FileStatusView: View {
                 .labelsHidden()
                 .pointingHandCursor()
 
-                if isPotentialConflict {
-                    PotentialConflictFileIndicator(
-                        baseRef: currentBranchIntegrationStatus?.baseRef,
-                        onOpenDetails: { presentPotentialConflictDetails(for: file) }
-                    )
-                } else {
-                    Image(systemName: fileIcon(for: file))
-                        .foregroundStyle(fileColor(for: file))
-                        .font(.system(size: 14, weight: .medium))
-                        .frame(width: 18)
-                }
+                Image(systemName: fileIcon(for: file))
+                    .foregroundStyle(fileColor(for: file))
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(width: 18)
 
                 HStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(file.displayName)
-                            .font(.system(size: 13, weight: .medium))
-                            .lineLimit(1)
+                        HStack(spacing: 6) {
+                            Text(file.displayName)
+                                .font(.system(size: 13, weight: .medium))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            if isLFS || isPotentialConflict {
+                                HStack(spacing: 6) {
+                                    if isLFS {
+                                        GitLFSChip()
+                                    }
+                                    if isPotentialConflict {
+                                        PotentialConflictFileIndicator(
+                                            baseRef: currentBranchIntegrationStatus?.baseRef,
+                                            onOpenDetails: { presentPotentialConflictDetails(for: file) }
+                                        )
+                                    }
+                                }
+                                .fixedSize(horizontal: true, vertical: false)
+                                .layoutPriority(1)
+                            }
+                        }
                         if let original = file.originalPath {
                             Text("\(original) → \(file.path)")
                                 .font(.system(size: 10))
@@ -713,6 +728,8 @@ struct FileStatusView: View {
 
     @ViewBuilder
     private func fileContextMenu(file: StatusFile, isStaged: Bool) -> some View {
+        Button("Track with Git LFS…", systemImage: "externaldrive") { onRequestTrackLFS(file.path) }
+        Divider()
         let selection = actionSelection
 
         comparisonMenu(file: file)
@@ -1424,7 +1441,8 @@ struct FileStatusView: View {
     }
 
     private func hasPotentialConflict(_ file: StatusFile) -> Bool {
-        guard file.status != .conflict,
+        guard syncState.inProgressOperation == nil,
+              file.status != .conflict,
               let conflictPaths = currentBranchIntegrationStatus?.potentialConflictPaths
         else {
             return false
@@ -1460,6 +1478,9 @@ struct FileStatusView: View {
                 loadedIntegrationStatus = nil
             }
 
+            let paths = Set((loadedStatus.staged + loadedStatus.unstaged + loadedStatus.untracked).map(\.path))
+            lfsPaths = (try? await GitStatusService.shared.lfsPaths(Array(paths), in: repositoryURL)) ?? []
+            stagedLFSPaths = (try? await GitStatusService.shared.lfsPaths(loadedStatus.staged.map(\.path), cached: true, in: repositoryURL)) ?? []
             gitStatus = loadedStatus
             changedFiles = loadedStatus.unstaged + loadedStatus.untracked
             currentBranch = loadedCurrentBranch

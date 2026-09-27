@@ -22,6 +22,7 @@ enum PlanFeature: String, CaseIterable, Codable, Hashable {
     case privateRepositories
     case pullRequests
     case gitFlow
+    case gitLFS
     case aiCommitMessage
     case repositoryChat
     case repositoryAIActions
@@ -76,7 +77,7 @@ struct FeatureAccessPolicy: Codable, Equatable {
 
     static let bundled = FeatureAccessPolicy(
         schemaVersion: supportedSchemaVersion,
-        revision: 5,
+        revision: 6,
         features: [
             .privateRepositories: FeaturePolicyRule(
                 enabled: true,
@@ -84,6 +85,11 @@ struct FeatureAccessPolicy: Codable, Equatable {
                 pro: PlanFeatureRule(enabled: true, repositoryScope: .all)
             ),
             .pullRequests: FeaturePolicyRule(
+                enabled: true,
+                free: PlanFeatureRule(enabled: true, repositoryScope: .public),
+                pro: PlanFeatureRule(enabled: true, repositoryScope: .all)
+            ),
+            .gitLFS: FeaturePolicyRule(
                 enabled: true,
                 free: PlanFeatureRule(enabled: true, repositoryScope: .public),
                 pro: PlanFeatureRule(enabled: true, repositoryScope: .all)

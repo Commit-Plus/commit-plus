@@ -104,6 +104,18 @@ struct TemporaryGitCredentialInjector: GitCredentialInjecting {
     private var helperScript: String {
         """
         #!/bin/sh
+        if [ -n "$MACGIT_GIT_CREDENTIAL_HOST" ]; then
+          case "$1" in
+            *"$MACGIT_GIT_CREDENTIAL_SCHEME://"*)
+              authority=${1#*://}
+              authority=${authority%%/*}
+              authority=${authority%%\\'*}
+              authority=${authority##*@}
+              [ "$authority" = "$MACGIT_GIT_CREDENTIAL_HOST" ] || exit 1
+              ;;
+            *) exit 1 ;;
+          esac
+        fi
         case "$1" in
           *sername*|*USERNAME*)
             /usr/bin/printf '%s\n' "$(/bin/cat "$MACGIT_GIT_USERNAME_FILE")"

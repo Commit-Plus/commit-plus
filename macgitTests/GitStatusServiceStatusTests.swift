@@ -63,6 +63,39 @@ final class GitStatusServiceStatusTests: XCTestCase {
         XCTAssertTrue(status.untracked.contains { $0.path == "clip.mp4" }, "Untracked .mp4 file should appear in status")
     }
 
+    func testStatusPathsWithSpecialCharactersCanBeStaged() async throws {
+        let repoURL = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repoURL) }
+        let names = ["Screen Recording 2026-09-23.mov", "quote\"file.txt", "日本語.txt", "line\nbreak.txt", "tab\tfile.txt", "old -> new.txt", "back\\slash.txt"]
+        for name in names {
+            try "content".write(to: repoURL.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+        let service = GitStatusService.shared
+        let status = try await service.status(for: repoURL)
+        XCTAssertEqual(Set(status.untracked.map(\.path)), Set(names))
+        for file in status.untracked {
+            try await service.stage(file: file, in: repoURL)
+        }
+        let staged = try await service.status(for: repoURL)
+        XCTAssertEqual(Set(staged.staged.map(\.path)), Set(names))
+        XCTAssertTrue(staged.untracked.isEmpty)
+    }
+
+    func testStatusPreservesBothRenamePathsWithSpecialCharacters() async throws {
+        let repoURL = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repoURL) }
+        let oldPath = "old -> name\"日本語.txt"
+        let newPath = "new name\nfinal.txt"
+        try "rename content".write(to: repoURL.appendingPathComponent(oldPath), atomically: true, encoding: .utf8)
+        try runGit(["add", "--", oldPath], in: repoURL)
+        try runGit(["commit", "-m", "Add rename fixture"], in: repoURL)
+        try runGit(["mv", "--", oldPath, newPath], in: repoURL)
+        let status = try await GitStatusService.shared.status(for: repoURL)
+        let renamed = try XCTUnwrap(status.staged.first { $0.status == .renamed })
+        XCTAssertEqual(renamed.path, newPath)
+        XCTAssertEqual(renamed.originalPath, oldPath)
+    }
+
     func testStatusHidesUntrackedEmbeddedGitRepository() async throws {
         let repoURL = try makeTempRepo()
         let nested = repoURL.appendingPathComponent("Package/cki-tool")
