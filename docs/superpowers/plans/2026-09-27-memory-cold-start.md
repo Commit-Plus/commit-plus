@@ -1,6 +1,6 @@
 # Cải thiện RAM và cold start
 
-Ngày: 2026-09-27. Trạng thái: đã triển khai phần 1 (Welcome), phần 2 (AI, còn mục dropdown) phần 3 (PR cache) và phần 4 (local storage). Phần 5–6 chưa triển khai. Kiểm tra tương tác runtime còn chờ.
+Ngày: 2026-09-27. Trạng thái: đã triển khai phần 1 (Welcome), phần 2 (AI, còn mục dropdown), phần 3 (PR cache), phần 4 (local storage) và phần 5 (cloud lifecycle). Phần 6 chưa triển khai. Kiểm tra tương tác runtime còn chờ.
 
 Không có bước đo baseline, theo yêu cầu của người dùng. Triển khai từng phần độc lập để dễ review và kiểm tra. Không đặt mục tiêu giảm MB hoặc thời gian cụ thể khi chưa có phép đo. Không tự launch/relaunch app.
 
@@ -66,12 +66,12 @@ Kiểm tra: DB mới/cũ, migration lỗi giữa chừng, ghi đồng thời, tr
 
 Điểm sửa chính: `macgitApp`, `AccountSessionController`, `FeatureAccessController` và các controller sync.
 
-- [ ] Liệt kê dịch vụ/listener bắt đầu trong init và điều kiện thực sự cần chúng.
-- [ ] Tách tạo đối tượng khỏi bắt đầu đồng bộ; trì hoãn phần không cần cho first window.
-- [ ] Giữ bootstrap bắt buộc trước khi dùng Firebase API.
-- [ ] Không làm yếu auth, entitlement, device enforcement hoặc feature policy trong thời gian chờ.
-- [ ] Bảo đảm start idempotent; không nhân listener theo window.
-- [ ] Hủy listener/task đúng khi đổi session; bỏ kết quả từ session cũ.
+- [x] Liệt kê dịch vụ/listener bắt đầu trong init và điều kiện thực sự cần chúng.
+- [x] Tách tạo đối tượng khỏi bắt đầu đồng bộ; trì hoãn phần không cần cho first window.
+- [x] Giữ bootstrap bắt buộc trước khi dùng Firebase API.
+- [x] Không làm yếu auth, entitlement, device enforcement hoặc feature policy trong thời gian chờ.
+- [x] Bảo đảm start idempotent; không nhân listener theo window.
+- [x] Hủy listener/task đúng khi đổi session; bỏ kết quả từ session cũ.
 
 Kiểm tra: guest, session được khôi phục, offline, đăng nhập/đăng xuất, đổi account, nhiều window, policy và entitlement cập nhật. Phân biệt trì hoãn công việc với giảm RAM ổn định.
 
@@ -151,3 +151,13 @@ Không tự commit, push hoặc thay đổi release. Các checkbox chỉ đượ
 - Migration vẫn import trong transaction và kiểm tra từng record trước khi đánh dấu hoàn tất; không nạp toàn bộ database để verification. Lỗi đọc pending marker được chuyển tới xử lý lỗi sync để tránh hiểu nhầm là không có thay đổi local.
 - Thêm coverage cho đọc có phạm vi, không giữ collection không liên quan, rollback khi đọc thiếu scope, ghi đồng thời và cập nhật resident snapshot.
 - Validation: build macOS **PASS**, **60/60 test PASS** trong các nhóm local storage, migration, bookmark, settings, sync, visibility và credential stores; commit-rule sync sau thay đổi cuối **4/4 test PASS**. Không launch/relaunch app; chưa đo mức giảm RAM/cold start.
+
+### Phần 5 — Cloud lifecycle (2026-09-27)
+
+- Phase 4 đã commit tại `33166a1` (`perf: load local data on demand`).
+- Inventory khởi động: Firebase bootstrap và khôi phục/claim device vẫn chạy trước khi công bố authenticated session; entitlement và settings sync chỉ bắt đầu sau session hợp lệ. Git Flow và commit-rule cloud store chỉ làm I/O khi repository dùng tính năng tương ứng. AI managed usage vẫn tải theo nhu cầu.
+- Feature policy dùng ngay cached/bundled policy nhưng chỉ mở live listener sau khi first window hoàn tất initial setup. `start()` idempotent nên nhiều window không nhân listener.
+- Provider-account và bookmark sync được chuyển khỏi từng `ContentView` sang `AppCloudLifecycleController` cấp app. Cùng một session chỉ reconcile một lần; provider và bookmark hydrate song song. Khi session đổi trong lúc đang sync, workflow hoàn tất thao tác shared-store đang chạy, bỏ session trung gian đã lỗi thời và chỉ áp dụng session mới nhất.
+- Device observation, entitlement observation và settings observation vẫn giữ generation/UID guard và cleanup hiện có. Bookmark listener tiếp tục bị thay thế khi account đổi; callback cũ bị chặn bằng active UID.
+- Coverage phase 5: lifecycle start idempotent, nhiều window cùng session, thay session nhanh, feature listener trì hoãn và chỉ start một lần; regression auth/device, settings sync, provider accounts và bookmarks: **64/64 test PASS**.
+- Không launch/relaunch app; chưa kiểm tra tương tác nhiều window bằng runtime và chưa đo mức giảm RAM/cold start. Phần 5 chưa commit.

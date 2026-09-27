@@ -31,6 +31,7 @@ struct macgitApp: App {
     @StateObject private var repositoryVisibilityController: RepositoryVisibilityController
     @StateObject private var repositoryBookmarkController: RepositoryBookmarkController
     @StateObject private var gitFlowConfigurationSyncController: GitFlowConfigurationSyncController
+    @StateObject private var cloudLifecycleController: AppCloudLifecycleController
     @FocusedValue(\.repositoryWindowCommandState) private var repositoryWindowCommandState
 
     init() {
@@ -79,23 +80,22 @@ struct macgitApp: App {
             : nil
         let providerStore = LocalFirstGitProviderAccountStore(cloudStore: providerCloudStore)
         let providerTokenVault = KeychainGitProviderTokenVault()
-        _providerAccountController = StateObject(
-            wrappedValue: GitProviderAccountController(
-                store: providerStore,
-                tokenVault: providerTokenVault,
-                authService: GitHubProviderAuthService(configuration: providerConfiguration),
-                configuration: providerConfiguration,
-                gitLabAuthService: GitLabProviderAuthService(configuration: gitLabProviderConfiguration),
-                gitLabRedirectURI: gitLabProviderConfiguration.redirectURI,
-                openURL: NSWorkspace.shared.open,
-                multipleAccountAccess: {
-                    featureAccessController.decision(
-                        for: .multipleProviderAccounts,
-                        entitlement: accountController.entitlement
-                    )
-                }
-            )
+        let providerAccountController = GitProviderAccountController(
+            store: providerStore,
+            tokenVault: providerTokenVault,
+            authService: GitHubProviderAuthService(configuration: providerConfiguration),
+            configuration: providerConfiguration,
+            gitLabAuthService: GitLabProviderAuthService(configuration: gitLabProviderConfiguration),
+            gitLabRedirectURI: gitLabProviderConfiguration.redirectURI,
+            openURL: NSWorkspace.shared.open,
+            multipleAccountAccess: {
+                featureAccessController.decision(
+                    for: .multipleProviderAccounts,
+                    entitlement: accountController.entitlement
+                )
+            }
         )
+        _providerAccountController = StateObject(wrappedValue: providerAccountController)
         let managedUsage = CommitPlusAIUsageController()
         managedUsage.setSession(uid: accountController.account?.uid)
         let managedTokens = FirebaseCommitPlusAITokenProvider()
@@ -130,18 +130,27 @@ struct macgitApp: App {
                 cache: SQLiteRepositoryVisibilityCache()
             )
         )
-        _repositoryBookmarkController = StateObject(
-            wrappedValue: RepositoryBookmarkController(
-                cloudStore: cloudFeaturesEnabled
-                    ? FirestoreRepositoryBookmarkStore()
-                    : nil
-            )
+        let repositoryBookmarkController = RepositoryBookmarkController(
+            cloudStore: cloudFeaturesEnabled
+                ? FirestoreRepositoryBookmarkStore()
+                : nil
         )
+        _repositoryBookmarkController = StateObject(wrappedValue: repositoryBookmarkController)
         _gitFlowConfigurationSyncController = StateObject(
             wrappedValue: GitFlowConfigurationSyncController(
                 cloudStore: cloudFeaturesEnabled
                     ? FirestoreGitFlowConfigurationStore()
                     : nil
+            )
+        )
+        _cloudLifecycleController = StateObject(
+            wrappedValue: AppCloudLifecycleController(
+                startFeaturePolicy: featureAccessController.start,
+                synchronizeAccount: { account in
+                    async let providerAccounts: Void = providerAccountController.updateMacgitAccount(account)
+                    async let bookmarks: Void = repositoryBookmarkController.updateAccount(account)
+                    _ = await (providerAccounts, bookmarks)
+                }
             )
         )
     }
@@ -227,6 +236,10 @@ struct macgitApp: App {
                 .preferredColorScheme(appState.appearance.colorScheme)
                 .task {
                     appUpdateController.start()
+                }
+                .task(id: accountController.account?.uid) {
+                    cloudLifecycleController.start()
+                    await cloudLifecycleController.updateAccount(accountController.account)
                 }
                 .onChange(of: accountController.account?.uid, initial: true) { _, uid in
                     aiProviderController.managedUsageController?.setSession(uid: uid)

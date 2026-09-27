@@ -47,6 +47,7 @@ final class FeatureAccessControllerTests: XCTestCase {
         XCTAssertEqual(controller.policyLastUpdatedAt, updatedAt)
         XCTAssertTrue(controller.isUsingCachedPolicy)
 
+        controller.start()
         provider.fail("Firestore unavailable")
 
         XCTAssertEqual(controller.policy, .bundled)
@@ -64,6 +65,7 @@ final class FeatureAccessControllerTests: XCTestCase {
             features: FeatureAccessPolicy.bundled.features
         )
 
+        controller.start()
         provider.send(remote)
 
         XCTAssertEqual(controller.policy, remote)
@@ -71,10 +73,22 @@ final class FeatureAccessControllerTests: XCTestCase {
         XCTAssertNil(controller.policyError)
         XCTAssertFalse(controller.isUsingCachedPolicy)
     }
+
+    func testLiveObservationIsDeferredAndStartsOnlyOnce() {
+        let provider = FakeFeaturePolicyProvider()
+        let controller = FeatureAccessController(provider: provider, cache: FakeFeaturePolicyCache())
+
+        XCTAssertEqual(provider.observeCount, 0)
+        controller.start()
+        controller.start()
+
+        XCTAssertEqual(provider.observeCount, 1)
+    }
 }
 
 @MainActor
 private final class FakeFeaturePolicyProvider: FeaturePolicyProviding {
+    private(set) var observeCount = 0
     private var onChange: ((FeatureAccessPolicy) -> Void)?
     private var onError: ((String) -> Void)?
 
@@ -82,6 +96,7 @@ private final class FakeFeaturePolicyProvider: FeaturePolicyProviding {
         onChange: @escaping (FeatureAccessPolicy) -> Void,
         onError: @escaping (String) -> Void
     ) -> ObservationToken {
+        observeCount += 1
         self.onChange = onChange
         self.onError = onError
         return FakeFeaturePolicyObservationToken()

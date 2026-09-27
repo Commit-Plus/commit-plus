@@ -214,10 +214,6 @@ struct ContentView: View {
                 value: RepositoryWindowRequest.repositoryPicker()
             )
         }
-        .task(id: accountController.account?.uid) {
-            await providerAccountController.updateMacgitAccount(accountController.account)
-            await repositoryBookmarkController.updateAccount(accountController.account)
-        }
         .background(
             RepositoryWindowReader(
                 repositoryWindowContext: windowContext,
