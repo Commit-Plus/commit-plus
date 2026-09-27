@@ -1,6 +1,6 @@
 # Cải thiện RAM và cold start
 
-Ngày: 2026-09-27. Trạng thái: đã triển khai phần 1 (Welcome), build và 20 test pass; phần 2–6 chưa triển khai. Kiểm tra tương tác runtime còn chờ.
+Ngày: 2026-09-27. Trạng thái: đã triển khai phần 1 (Welcome) và phần 2 (AI). Phần 3–6 chưa triển khai. Kiểm tra tương tác runtime còn chờ.
 
 Không có bước đo baseline, theo yêu cầu của người dùng. Triển khai từng phần độc lập để dễ review và kiểm tra. Không đặt mục tiêu giảm MB hoặc thời gian cụ thể khi chưa có phép đo. Không tự launch/relaunch app.
 
@@ -21,12 +21,12 @@ Kiểm tra: nhiều repo, repo mất đường dẫn, notification dồn dập, 
 
 Điểm sửa chính: `AIProviderController`, `macgitApp`, các màn hình chọn provider/Settings.
 
-- [ ] Bỏ kiểm tra toàn bộ provider từ Welcome khi không cần AI.
-- [ ] Kiểm tra provider đang chọn khi mở tính năng AI; kiểm tra danh sách khi mở provider picker/Settings.
-- [ ] Trì hoãn đọc credential/configuration không cần cho màn hình đầu tiên.
-- [ ] Dùng chung một tác vụ refresh đang chạy; tránh lặp theo số window.
-- [ ] Invalidate đúng khi đổi credential, model, account hoặc entitlement.
-- [ ] Giữ kiểm tra quyền và availability tại thời điểm thực thi AI.
+- [x] Bỏ kiểm tra toàn bộ provider từ Welcome khi không cần AI.
+- [ ] Kiểm tra provider đang chọn khi mở tính năng AI; kiểm tra danh sách khi mở provider picker/Settings. Đã tách theo màn hình; danh sách hiện được kiểm tra khi control picker xuất hiện, chưa phải chỉ khi dropdown mở.
+- [x] Trì hoãn đọc credential/configuration không cần cho màn hình đầu tiên.
+- [x] Dùng chung một tác vụ refresh đang chạy; tránh lặp theo số window.
+- [x] Invalidate đúng khi đổi credential, model, account hoặc entitlement.
+- [x] Giữ kiểm tra quyền và availability tại thời điểm thực thi AI.
 
 Kiểm tra: guest, signed-in, đổi provider/key, nhiều window, entitlement thay đổi và gửi yêu cầu ngay khi mở tính năng.
 
@@ -110,3 +110,14 @@ Không tự commit, push hoặc thay đổi release. Các checkbox chỉ đượ
 - Các đợt refresh sau lần đầu được debounce 200 ms bằng task gắn với view; generation và cancellation guard chặn kết quả cũ, giữ invalidation chưa xử lý.
 - Đã thêm `WelcomeDashboardRefreshTests` cho cache-first, invalidate theo repo, cảnh báo ngoài top 7, cancellation và force refresh.
 - Build macOS: **PASS**. Test Welcome: **20/20 PASS**, gồm 5 test refresh mới và 15 test cache/dashboard/attention hiện có. Chưa launch/relaunch app để kiểm tra tương tác, chưa đo mức giảm RAM hoặc cold start.
+
+### Phần 2 — AI (2026-09-27)
+
+- Commit phần 1 trên branch `feature/improve-memory-and-app`: `7f1fb99` (`perf: streamline Welcome dashboard refreshes`).
+- Bỏ đọc API key trong init và bỏ refresh toàn bộ provider từ Welcome khi khởi tạo/đổi account/entitlement.
+- Các màn hình dùng AI yêu cầu availability của selection; provider menu khi xuất hiện và AI Settings yêu cầu toàn bộ danh sách để các lựa chọn có trạng thái đúng. Chưa chuyển việc kiểm tra danh sách sang đúng sự kiện dropdown mở; hiện gắn với vòng đời control hiển thị.
+- Giữ đọc tên model từ UserDefaults để nhãn model và draft Settings đúng ngay khi hiện; không mở Keychain cho việc này.
+- Các request availability đồng thời dùng chung task theo provider. Revision/identity loại kết quả cũ sau đổi account, entitlement, key hoặc model; UI AI đang hiển thị refresh theo revision.
+- App active chỉ kiểm tra managed usage nếu provider đó từng được yêu cầu và session còn quyền sử dụng. Kiểm tra quyền khi thực thi AI được giữ nguyên.
+- Build macOS: **PASS**. Các nhóm AIProviderAvailability, AICommitMessage, CloudAIProvider và CommitPlusAIUsageController: **44/44 PASS**.
+- Chưa kiểm tra tương tác dropdown/nhiều window bằng runtime; chưa đo giảm RAM/cold start. Phần 2 hiện chưa commit.

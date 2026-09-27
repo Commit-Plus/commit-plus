@@ -79,7 +79,7 @@ struct AIProvidersSettingsView: View {
                 authenticationMode = nil
             }
         }
-        .task {
+        .task(id: controller.availabilityRevision) {
             await controller.refreshAvailability()
         }
     }

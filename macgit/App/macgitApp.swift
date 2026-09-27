@@ -230,14 +230,16 @@ struct macgitApp: App {
                 }
                 .onChange(of: accountController.account?.uid, initial: true) { _, uid in
                     aiProviderController.managedUsageController?.setSession(uid: uid)
-                    Task { await aiProviderController.refreshAvailability() }
+                }
+                .onChange(of: accountController.account?.uid) { _, _ in
+                    aiProviderController.invalidateAvailability()
                 }
                 .onChange(of: accountController.entitlement) { _, _ in
-                    Task { await aiProviderController.refreshAvailability() }
+                    aiProviderController.invalidateAvailability()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                     Task {
-                        await aiProviderController.managedUsageController?.refresh()
+                        await aiProviderController.refreshManagedUsageIfNeeded()
                     }
                 }
         }

@@ -84,6 +84,9 @@ struct AIProviderMenu: View {
         .buttonStyle(GlassButtonStyle(tint: .secondary, fontSize: 10))
         .disabled(controller.isGenerating)
         .help(providerHelp)
+        .task(id: controller.availabilityRevision) {
+            await controller.refreshAvailability()
+        }
     }
 
     private var labelTitle: String {

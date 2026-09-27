@@ -26,6 +26,10 @@ final class AIProviderController: ObservableObject {
     @Published private(set) var isGenerating = false
     @Published private(set) var selectedProviderID: AIProviderID
 
+    @Published private(set) var availabilityRevision = 0
+    private var availabilityTasks: [AIProviderID: (id: UUID, task: Task<AIProviderAvailability, Never>)] = [:]
+    private var requestedProviderIDs: Set<AIProviderID> = []
+
     let managedUsageController: CommitPlusAIUsageController?
     private var usageObservation: AnyCancellable?
     private let managedProviderAccess: () -> Bool
@@ -97,10 +101,6 @@ final class AIProviderController: ObservableObject {
         for descriptor in registry.descriptors {
             availabilityByProviderID[descriptor.id] = descriptor.isImplemented ? .checking : .comingSoon
             if descriptor.billing == .bringYourOwnKey,
-               (try? credentialStore.apiKey(for: descriptor.id)) != nil {
-                configuredProviderIDs.insert(descriptor.id)
-            }
-            if descriptor.billing == .bringYourOwnKey,
                let customModel = modelStore.customModel(for: descriptor.id) {
                 customModelsByProviderID[descriptor.id] = customModel
             }
@@ -144,7 +144,7 @@ final class AIProviderController: ObservableObject {
         }
         selectedProviderID = id
         defaults.set(id.rawValue, forKey: selectedProviderDefaultsKey)
-        if descriptor.billing == .commitPlus { Task { await managedUsageController?.refresh() } }
+        Task { await refreshAvailability(for: id) }
     }
 
     func isAPIKeyConfigured(for id: AIProviderID) -> Bool {
@@ -196,6 +196,7 @@ final class AIProviderController: ObservableObject {
         }
         try credentialStore.saveAPIKey(normalizedKey, for: id)
         configuredProviderIDs.insert(id)
+        invalidateAvailability()
     }
 
     func removeAPIKey(for id: AIProviderID) throws {
@@ -204,6 +205,7 @@ final class AIProviderController: ObservableObject {
         }
         try credentialStore.deleteAPIKey(for: id)
         configuredProviderIDs.remove(id)
+        invalidateAvailability()
         if selectedProviderID == id {
             selectProvider(.appleIntelligence)
         }
@@ -244,6 +246,7 @@ final class AIProviderController: ObservableObject {
                 customModelsByProviderID[draft.id] = normalizedModel
             }
         }
+        if !drafts.isEmpty { invalidateAvailability() }
     }
 
     private func validateProviderAccess(_ descriptor: AIProviderDescriptor) throws {
@@ -260,16 +263,53 @@ final class AIProviderController: ObservableObject {
         }
     }
 
-    func refreshAvailability() async {
-        await withTaskGroup(of: (AIProviderID, AIProviderAvailability).self) { group in
-            for provider in registry.providers {
-                let id = provider.descriptor.id
-                group.addTask { (id, await provider.availability()) }
-            }
-            for await (id, availability) in group {
-                availabilityByProviderID[id] = availability
+    /// Invalidating is cheap and does not start provider work from the Welcome window.
+    /// Visible AI surfaces observe the revision and request their own refresh.
+    func invalidateAvailability() {
+        for request in availabilityTasks.values { request.task.cancel() }
+        availabilityTasks.removeAll()
+        for descriptor in registry.descriptors {
+            availabilityByProviderID[descriptor.id] = descriptor.isImplemented ? .checking : .comingSoon
+        }
+        availabilityRevision += 1
+    }
+
+    func refreshManagedUsageIfNeeded() async {
+        guard requestedProviderIDs.contains(.commitPlusAI), managedProviderAccess() else { return }
+        await refreshAvailability(for: .commitPlusAI)
+    }
+
+    func refreshAvailability(selectedOnly: Bool = false) async {
+        let ids = selectedOnly ? [selectedProviderID] : registry.providers.map { $0.descriptor.id }
+        await withTaskGroup(of: Void.self) { group in
+            for id in ids {
+                group.addTask { await self.refreshAvailability(for: id) }
             }
         }
+    }
+
+    private func refreshAvailability(for id: AIProviderID) async {
+        guard !Task.isCancelled, let provider = registry.provider(for: id) else { return }
+        requestedProviderIDs.insert(id)
+        let request: (id: UUID, task: Task<AIProviderAvailability, Never>)
+        if let pending = availabilityTasks[id] {
+            request = pending
+        } else {
+            if provider.descriptor.billing == .bringYourOwnKey {
+                if (try? credentialStore.apiKey(for: id)) != nil {
+                    configuredProviderIDs.insert(id)
+                } else {
+                    configuredProviderIDs.remove(id)
+                }
+            }
+            request = (UUID(), Task { await provider.availability() })
+            availabilityTasks[id] = request
+        }
+        let value = await request.task.value
+        // A changed account/key or a newer refresh must win over an old result.
+        guard availabilityTasks[id]?.id == request.id else { return }
+        availabilityTasks[id] = nil
+        availabilityByProviderID[id] = value
     }
 
     func generateCommitMessage(
