@@ -20,6 +20,7 @@ import SwiftUI
 
 struct CommandLineSetupTipModifier: ViewModifier {
     let isBlocked: Bool
+    @AppStorage("hasAcceptedTermsOfService") private var hasAcceptedTerms = false
     @Environment(\.scenePhase) private var scenePhase
     @State private var showingTip = false
 
@@ -33,11 +34,14 @@ struct CommandLineSetupTipModifier: ViewModifier {
                 presentIfNeeded()
             }
             .onChange(of: isBlocked) { _, _ in presentIfNeeded() }
+            .onChange(of: hasAcceptedTerms) { _, _ in presentIfNeeded() }
             .onChange(of: scenePhase) { _, _ in presentIfNeeded() }
     }
 
     private func presentIfNeeded() {
-        guard !isBlocked, scenePhase == .active else { return }
+        // The terms gate disables its content, including sheets presented from it.
+        // Claim the reminder only after that gate has been accepted.
+        guard hasAcceptedTerms, !isBlocked, scenePhase == .active else { return }
         let model = CommandLineSetupModel()
         showingTip = showingTip || CommandLineReminderPolicy.shared.claimPresentation(isReady: model.isReady)
     }
