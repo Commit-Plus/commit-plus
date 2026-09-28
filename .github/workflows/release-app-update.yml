@@ -123,6 +123,14 @@ jobs:
       - name: Verify DMG
         run: scripts/release/verify-dmg.sh "$DMG_PATH"
 
+      - name: Extract release notes from CHANGELOG
+        id: release_notes
+        run: |
+          RELEASE_NOTES=$(scripts/release/extract-release-notes.sh "$TAG_VERSION" CHANGELOG.md)
+          # Escape for use in gh release create --notes-file
+          printf '%s' "$RELEASE_NOTES" > "$RUNNER_TEMP/release-notes.md"
+          echo "release_notes_path=$RUNNER_TEMP/release-notes.md" >> "$GITHUB_OUTPUT"
+
       - name: Create stable GitHub Release
         id: create_release
         env:
@@ -132,11 +140,14 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" "$ZIP_PATH" "$DMG_PATH" \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
+            gh release edit "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --notes-file "${{ steps.release_notes.outputs.release_notes_path }}"
           else
             gh release create "$GITHUB_REF_NAME" "$ZIP_PATH" "$DMG_PATH" \
               --repo "$GITHUB_REPOSITORY" \
               --title "$GITHUB_REF_NAME" \
-              --generate-notes
+              --notes-file "${{ steps.release_notes.outputs.release_notes_path }}"
           fi
 
           gh release edit "$GITHUB_REF_NAME" \
