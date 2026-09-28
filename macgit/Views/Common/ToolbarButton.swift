@@ -55,6 +55,7 @@ func toolbarButton(icon: String, label: String, showText: Bool = true, isLoading
         .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] }
         .alignmentGuide(.lastTextBaseline) { $0[VerticalAlignment.center] }
     }
+    .repositoryToolbarButtonStyle()
     .help(label)
     .disabled(disabled || isLoading)
 }

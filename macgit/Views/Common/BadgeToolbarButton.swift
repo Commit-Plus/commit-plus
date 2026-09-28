@@ -66,6 +66,7 @@ struct BadgeToolbarButton: View {
             .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] }
             .alignmentGuide(.lastTextBaseline) { $0[VerticalAlignment.center] }
         }
+        .repositoryToolbarButtonStyle()
         .help(label)
         .disabled(disabled || isLoading)
     }
