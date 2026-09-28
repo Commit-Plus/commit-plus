@@ -45,6 +45,7 @@ struct RevisionBrowserView: View {
             lfsRemotes = await GitStatusService.shared.remotes(in: controller.repositoryURL)
             if lfsRemotes.count == 1 { lfsRemote = lfsRemotes[0] }
         }
+        .onDisappear { controller.releaseResources() }
     }
 
     private var tree: some View {

@@ -1126,7 +1126,7 @@ struct FileStatusView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .task {
-            await aiProviderController.refreshAvailability()
+            await aiProviderController.refreshAvailability(selectedOnly: true)
         }
         .aiCommitMessageAccessGate(
             isRequested: $isAIGenerationRequested,

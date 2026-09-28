@@ -29,6 +29,7 @@ final class FeatureAccessController: ObservableObject {
     private let provider: FeaturePolicyProviding?
     private let cache: FeaturePolicyCaching
     private var observation: ObservationToken?
+    private var didStart = false
 
     init(
         provider: FeaturePolicyProviding?,
@@ -45,6 +46,13 @@ final class FeatureAccessController: ObservableObject {
             policy = .bundled
         }
 
+    }
+
+    /// The cached or bundled policy is immediately available. Live policy
+    /// updates begin once the first app window has finished initial setup.
+    func start() {
+        guard !didStart else { return }
+        didStart = true
         startObservation()
     }
 

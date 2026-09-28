@@ -154,7 +154,7 @@ final class CloudAIProviderTests: XCTestCase {
     }
 
     @MainActor
-    func testControllerLeavesConfiguredKeyUnchangedWhenDraftIsEmpty() throws {
+    func testControllerLeavesConfiguredKeyUnchangedWhenDraftIsEmpty() async throws {
         let credentialStore = InMemoryAIProviderCredentialStore(keys: [
             .openAI: "existing-openai-key",
         ])
@@ -169,6 +169,7 @@ final class CloudAIProviderTests: XCTestCase {
             AIProviderConfigurationDraft(id: .openAI),
         ], restrictedProviderAccess: .allowed)
 
+        await controller.refreshAvailability()
         XCTAssertEqual(try credentialStore.apiKey(for: .openAI), "existing-openai-key")
         XCTAssertTrue(controller.isAPIKeyConfigured(for: .openAI))
     }

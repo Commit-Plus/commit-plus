@@ -25,9 +25,11 @@ struct ContentView: View {
     @EnvironmentObject private var featureAccessController: FeatureAccessController
     @EnvironmentObject private var repositoryBookmarkController: RepositoryBookmarkController
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
     @ObservedObject var accountController: AccountSessionController
     @ObservedObject var providerAccountController: GitProviderAccountController
     @ObservedObject var aiProviderController: AIProviderController
+    let repositoryWindowLifecycleController: RepositoryWindowLifecycleController
     let isWelcomeWindow: Bool
     let initialShowsHistory: Bool?
 
@@ -45,6 +47,7 @@ struct ContentView: View {
     @State private var shouldFitScreenWhenRepositoryOpens = false
     @State private var webOpeningProgressID: UUID?
     @State private var windowContext = RepositoryWindowContext()
+    @State private var windowLifecycleID = UUID()
     @StateObject private var operationProgress = RepositoryOperationProgress()
 
     init(
@@ -52,13 +55,15 @@ struct ContentView: View {
         isWelcomeWindow: Bool = false,
         accountController: AccountSessionController,
         providerAccountController: GitProviderAccountController,
-        aiProviderController: AIProviderController
+        aiProviderController: AIProviderController,
+        repositoryWindowLifecycleController: RepositoryWindowLifecycleController
     ) {
         self.initialShowsHistory = request?.showsHistory
         self.isWelcomeWindow = isWelcomeWindow
         self.accountController = accountController
         self.providerAccountController = providerAccountController
         self.aiProviderController = aiProviderController
+        self.repositoryWindowLifecycleController = repositoryWindowLifecycleController
         _repositoryURL = State(initialValue: request?.repositoryURL)
         _showingCloneSheet = State(
             initialValue: request?.initialPresentation == .cloneRepository
@@ -100,6 +105,19 @@ struct ContentView: View {
             }
         }
         .onOpenURL(perform: handleExternalURL)
+        .onAppear {
+            guard !isWelcomeWindow else { return }
+            repositoryWindowLifecycleController.windowDidAppear(id: windowLifecycleID)
+            closeWelcomeIfRepositoryIsOpen()
+        }
+        .onChange(of: repositoryURL) { _, _ in
+            closeWelcomeIfRepositoryIsOpen()
+        }
+        .onDisappear {
+            guard !isWelcomeWindow,
+                  repositoryWindowLifecycleController.windowDidDisappear(id: windowLifecycleID) else { return }
+            openWindow(id: "welcome")
+        }
         .alert("Cannot Open Repository", isPresented: $showingRepositoryOpenError) {
         } message: {
             Text(repositoryOpenError)
@@ -214,10 +232,6 @@ struct ContentView: View {
                 value: RepositoryWindowRequest.repositoryPicker()
             )
         }
-        .task(id: accountController.account?.uid) {
-            await providerAccountController.updateMacgitAccount(accountController.account)
-            await repositoryBookmarkController.updateAccount(accountController.account)
-        }
         .background(
             RepositoryWindowReader(
                 repositoryWindowContext: windowContext,
@@ -259,6 +273,11 @@ struct ContentView: View {
         } else {
             accountController.presentAuthentication(.signIn)
         }
+    }
+
+    private func closeWelcomeIfRepositoryIsOpen() {
+        guard !isWelcomeWindow, repositoryURL != nil else { return }
+        dismissWindow(id: "welcome")
     }
 
     private var accountSheetPresentation: Binding<AccountSheet?> {
@@ -388,11 +407,11 @@ struct ContentView: View {
                 id: "main",
                 value: RepositoryWindowRequest.repository(
                     url,
-                    shouldFitVisibleScreen: true
+                    shouldFitVisibleScreen: appState.fitRepositoryWindowsToScreen
                 )
             )
         } else {
-            shouldFitScreenWhenRepositoryOpens = true
+            shouldFitScreenWhenRepositoryOpens = appState.fitRepositoryWindowsToScreen
             repositoryURL = url
         }
     }

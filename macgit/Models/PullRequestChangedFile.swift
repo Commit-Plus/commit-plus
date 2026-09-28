@@ -18,7 +18,7 @@
 
 import Foundation
 
-struct PullRequestChangedFile: Identifiable, Equatable {
+nonisolated struct PullRequestChangedFile: Identifiable, Equatable, Codable {
     var id: String { "\(previousPath ?? "")->\(path)" }
 
     let path: String
@@ -29,7 +29,7 @@ struct PullRequestChangedFile: Identifiable, Equatable {
     let patch: String?
     let patchUnavailableReason: String?
 
-    var diffHunks: [DiffHunk] {
+    @MainActor var diffHunks: [DiffHunk] {
         guard let patch else { return [] }
         return DiffParser.parse(patch)
     }

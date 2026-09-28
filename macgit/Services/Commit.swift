@@ -55,7 +55,7 @@ nonisolated struct CommitFileChange: Identifiable, Hashable, Sendable {
     var oldPath: String? = nil
 }
 
-nonisolated enum CommitFileStatus: String, Sendable {
+nonisolated enum CommitFileStatus: String, Sendable, Codable {
     case added = "A"
     case modified = "M"
     case deleted = "D"

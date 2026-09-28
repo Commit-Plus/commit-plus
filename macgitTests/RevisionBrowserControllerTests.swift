@@ -58,6 +58,28 @@ final class RevisionBrowserControllerTests: XCTestCase {
         let cachedCalls = await service.treeCalls
         XCTAssertEqual(cachedCalls, calls)
     }
+
+    func testReleaseResourcesClearsTreeAndPreviewPayloads() async throws {
+        let service = BrowserTestService()
+        let controller = RevisionBrowserController(
+            repositoryURL: URL(fileURLWithPath: "/tmp/browser"),
+            revision: "HEAD",
+            service: service
+        )
+        controller.load()
+        await controller.loadTask?.value
+        let entry = try XCTUnwrap(controller.children[""]?[1])
+        controller.select(entry)
+        await controller.previewTask?.value
+
+        controller.releaseResources()
+
+        XCTAssertNil(controller.snapshot)
+        XCTAssertTrue(controller.children.isEmpty)
+        XCTAssertTrue(controller.expanded.isEmpty)
+        XCTAssertNil(controller.selectedEntry)
+        XCTAssertNil(controller.preview)
+    }
 }
 
 private actor BrowserTestService: RevisionBrowserServing {

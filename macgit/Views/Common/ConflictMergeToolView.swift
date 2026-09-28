@@ -97,7 +97,7 @@ struct ConflictMergeToolView: View {
             await loadMergeContext()
         }
         .task {
-            await aiProviderController.refreshAvailability()
+            await aiProviderController.refreshAvailability(selectedOnly: true)
         }
         .alert("Error", isPresented: $showingError, actions: {
             Button("OK", role: .cancel) {}

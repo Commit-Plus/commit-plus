@@ -51,6 +51,9 @@ func toolbarButton(icon: String, label: String, showText: Bool = true, isLoading
                     .scaleEffect(0.6)
             }
         }
+        // Center the complete custom label, rather than an icon/text baseline.
+        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] }
+        .alignmentGuide(.lastTextBaseline) { $0[VerticalAlignment.center] }
     }
     .help(label)
     .disabled(disabled || isLoading)

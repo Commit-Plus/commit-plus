@@ -19,6 +19,7 @@ import Foundation
 
 actor BranchListCache {
     static let ttl: TimeInterval = 120
+    static let defaultCapacity = 32
 
     enum Key: Hashable {
         case local(URL)
@@ -38,37 +39,39 @@ actor BranchListCache {
     }
 
     private struct InFlight {
-        let generation: Int
+        let id: UUID
         let task: Task<[String], Never>
     }
 
-    private var entries: [Key: Entry] = [:]
-    private var generations: [Key: Int] = [:]
+    private var entries: BoundedMemoryCache<Key, Entry>
     private var inFlight: [Key: InFlight] = [:]
+
+    init(capacity: Int = BranchListCache.defaultCapacity) {
+        entries = BoundedMemoryCache(capacity: capacity)
+    }
 
     func values(
         for key: Key,
         now: Date = Date(),
         load: @escaping @Sendable () async -> [String]
     ) async -> [String] {
-        if let entry = entries[key], now.timeIntervalSince(entry.createdAt) < Self.ttl {
+        if let entry = entries.value(for: key), now.timeIntervalSince(entry.createdAt) < Self.ttl {
             return entry.values
         }
 
-        let generation = generations[key, default: 0]
-        if let request = inFlight[key], request.generation == generation {
+        if let request = inFlight[key] {
             return await request.task.value
         }
 
+        let id = UUID()
         let task = Task { await load() }
-        inFlight[key] = InFlight(generation: generation, task: task)
+        inFlight[key] = InFlight(id: id, task: task)
         let values = await task.value
 
-        if generations[key, default: 0] == generation {
-            entries[key] = Entry(values: values, createdAt: now)
-        }
-        if inFlight[key]?.generation == generation {
+        // Only the current loader may publish; cancelled loaders can still finish.
+        if inFlight[key]?.id == id {
             inFlight[key] = nil
+            entries.insert(Entry(values: values, createdAt: now), for: key)
         }
         return values
     }
@@ -105,9 +108,10 @@ actor BranchListCache {
     }
 
     private func invalidate(_ key: Key) {
-        entries[key] = nil
-        generations[key, default: 0] += 1
-        inFlight[key] = nil
+        entries.removeValue(forKey: key)
+        if let request = inFlight.removeValue(forKey: key) {
+            request.task.cancel()
+        }
     }
 
     private func isRemoteKey(_ key: Key) -> Bool {

@@ -29,8 +29,8 @@ final class RepoSettingsStore {
 
     init(dataStore: LocalDataStore? = nil) { self.dataStore = dataStore ?? .shared }
 
-    func settings(for repositoryPath: String, currentBranch: String?, remotes: [String]) -> RepoSettings {
-        (try? dataStore.value(RepoSettings.self, in: "repoSettings", id: repositoryPath))
+    func settings(for repositoryPath: String, currentBranch: String?, remotes: [String]) async -> RepoSettings {
+        (try? await dataStore.readValue(RepoSettings.self, in: "repoSettings", id: repositoryPath))
             ?? RepoSettings.defaults(currentBranch: currentBranch, remotes: remotes)
     }
 

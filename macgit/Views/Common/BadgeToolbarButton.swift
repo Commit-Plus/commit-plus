@@ -62,6 +62,9 @@ struct BadgeToolbarButton: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            // Keep badge text from changing the toolbar label's alignment.
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] }
+            .alignmentGuide(.lastTextBaseline) { $0[VerticalAlignment.center] }
         }
         .help(label)
         .disabled(disabled || isLoading)

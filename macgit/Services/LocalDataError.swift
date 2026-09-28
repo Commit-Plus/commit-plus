@@ -3,9 +3,11 @@ import Foundation
 
 enum LocalDataError: LocalizedError {
     case notReady
+    case collectionNotLoaded(String)
     case invalidLegacyData(String)
     var errorDescription: String? {
         switch self {
+        case .collectionNotLoaded(let collection): "Local collection requires an explicit read scope: \(collection)."
         case .notReady: "Local data is still loading."
         case .invalidLegacyData(let key): "Saved data could not be migrated (\(key)). The original data has been retained."
         }

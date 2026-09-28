@@ -51,7 +51,7 @@ final class GitProviderAccountPreferenceStore {
     }
 
     func update(accountID: String?, forPreferenceKey preferenceKey: String) async throws {
-        try await dataStore.transaction { transaction in
+        try await dataStore.transaction(reading: ["providerPreferences"]) { transaction in
             if let accountID, !accountID.isEmpty {
                 try transaction.set(accountID, in: "providerPreferences", id: preferenceKey)
             } else {
@@ -61,7 +61,7 @@ final class GitProviderAccountPreferenceStore {
     }
 
     func replacePreferences(_ preferences: [String: String]) async throws {
-        try await dataStore.transaction { transaction in
+        try await dataStore.transaction(reading: ["providerPreferences"]) { transaction in
             for key in try transaction.values(String.self, in: "providerPreferences").keys {
                 transaction.remove(in: "providerPreferences", id: key)
             }

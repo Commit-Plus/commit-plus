@@ -29,7 +29,7 @@ final class RepositoryCommitRuleSyncController: ObservableObject {
     func markChanged(_ value: Bool, uid: String?, repositoryURL: URL) async throws {
         guard let uid else { return }
         let id = key(uid: uid, path: repositoryURL.path)
-        try await dataStore.transaction { transaction in
+        try await dataStore.transaction(reading: ["repoSettings", "commitRulePending"]) { transaction in
             try transaction.set(value, in: "commitRulePending", id: id)
         }
     }
@@ -46,12 +46,13 @@ final class RepositoryCommitRuleSyncController: ObservableObject {
         do {
             try await dataStore.prepare()
             guard session == sessionID else { return nil }
-            let initial = localValue(repositoryURL)
+            let initial = await localValue(repositoryURL)
+            guard session == sessionID else { return nil }
             let remote = try await cloud.load(identity: identity, uid: uid)
             guard session == sessionID else { return nil }
             // Edits made while offline or while loading always win over an older download.
-            if pendingValues[pendingID] == nil, let remote {
-                let applied = try await dataStore.transaction { transaction in
+            if (try await pendingValue(pendingID)) == nil, let remote {
+                let applied = try await dataStore.transaction(reading: ["repoSettings", "commitRulePending"]) { transaction in
                     guard session == self.sessionID,
                           try transaction.value(Bool.self, in: "commitRulePending", id: pendingID) == nil else { return false }
                     var settings = try transaction.value(RepoSettings.self, in: "repoSettings", id: repositoryURL.path)
@@ -61,16 +62,19 @@ final class RepositoryCommitRuleSyncController: ObservableObject {
                     try transaction.set(settings, in: "repoSettings", id: repositoryURL.path)
                     return true
                 }
-                if applied, session == sessionID, pendingValues[pendingID] == nil, localValue(repositoryURL) == remote {
+                if applied, session == sessionID, (try await pendingValue(pendingID)) == nil, await localValue(repositoryURL) == remote {
+                    guard session == sessionID else { return nil }
                     onApplied(remote)
                 }
-            } else if pendingValues[pendingID] == nil {
+            } else if (try await pendingValue(pendingID)) == nil {
+                guard session == sessionID else { return nil }
                 try await markChanged(initial, uid: uid, repositoryURL: repositoryURL)
             }
-            while session == sessionID, let value = pendingValues[pendingID] {
+            while session == sessionID, let value = (try await pendingValue(pendingID)) {
+                guard session == sessionID else { return nil }
                 try await cloud.save(value, identity: identity, uid: uid)
                 guard session == sessionID else { return nil }
-                try await dataStore.transaction { transaction in
+                try await dataStore.transaction(reading: ["repoSettings", "commitRulePending"]) { transaction in
                     guard session == self.sessionID,
                           try transaction.value(Bool.self, in: "commitRulePending", id: pendingID) == value else { return }
                     transaction.remove(in: "commitRulePending", id: pendingID)
@@ -83,12 +87,12 @@ final class RepositoryCommitRuleSyncController: ObservableObject {
         }
     }
 
-    private var pendingValues: [String: Bool] {
-        (try? dataStore.values(Bool.self, in: "commitRulePending")) ?? [:]
+    private func pendingValue(_ id: String) async throws -> Bool? {
+        try await dataStore.readValue(Bool.self, in: "commitRulePending", id: id)
     }
 
     private func key(uid: String, path: String) -> String { "\(uid)|\(path)" }
-    private func localValue(_ url: URL) -> Bool {
-        localStore.settings(for: url.path, currentBranch: nil, remotes: []).skipProtectedBranchCommitWarnings
+    private func localValue(_ url: URL) async -> Bool {
+        await localStore.settings(for: url.path, currentBranch: nil, remotes: []).skipProtectedBranchCommitWarnings
     }
 }

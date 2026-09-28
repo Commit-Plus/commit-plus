@@ -155,6 +155,14 @@ struct PullRequestListView: View {
         } message: {
             Text(controller.detailErrorMessage ?? "Could not load pull request details.")
         }
+        .onDisappear { controller.releaseVisibleData() }
+        .onReceive(NotificationCenter.default.publisher(for: .advancedClearSessionCaches)) { _ in
+            closeDetail()
+            Task {
+                guard await authorizeAction() else { return }
+                await controller.loadPullRequests(repositoryURL: repositoryURL, forceRefresh: true)
+            }
+        }
         .task(id: repositoryURL) {
             guard await authorizeAction() else { return }
             closeDetail()

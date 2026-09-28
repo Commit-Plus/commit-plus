@@ -37,6 +37,7 @@ final class GitProviderAccountController: ObservableObject {
     private let openURL: (URL) -> Bool
     private let multipleAccountAccess: () -> FeatureAccessDecision
     private let accountAccessPolicy = GitProviderAccountAccessPolicy()
+    private var cacheOwnerUID: String?
     private var pendingOAuthSession: GitProviderOAuthSession?
 
     private var accountOwnerID: String { store.accountOwnerID }
@@ -76,6 +77,12 @@ final class GitProviderAccountController: ObservableObject {
 
     func updateMacgitAccount(_ account: AccountSnapshot?) async {
         let previousAccounts = accounts
+        // Initial auth restoration (nil -> uid) should retain valid disk cache.
+        if let previousUID = cacheOwnerUID, previousUID != account?.uid {
+            accounts = []
+            await PullRequestDiskCache.shared.remove()
+        }
+        cacheOwnerUID = account?.uid
         if account == nil {
             pendingDeviceAuthorization = nil
             pendingOAuthSession = nil
@@ -210,6 +217,8 @@ final class GitProviderAccountController: ObservableObject {
         errorMessage = nil
         do {
             try tokenVault.deleteToken(for: account)
+            accounts.removeAll { $0.id == account.id }
+            await PullRequestDiskCache.shared.remove(accountID: account.id)
             try await sshKeyStore.deleteKey(for: account)
             try await store.delete(accountID: account.id)
             accounts.removeAll { $0.id == account.id }

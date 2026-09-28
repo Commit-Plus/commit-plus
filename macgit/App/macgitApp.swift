@@ -31,6 +31,8 @@ struct macgitApp: App {
     @StateObject private var repositoryVisibilityController: RepositoryVisibilityController
     @StateObject private var repositoryBookmarkController: RepositoryBookmarkController
     @StateObject private var gitFlowConfigurationSyncController: GitFlowConfigurationSyncController
+    @StateObject private var cloudLifecycleController: AppCloudLifecycleController
+    private let repositoryWindowLifecycleController = RepositoryWindowLifecycleController()
     @FocusedValue(\.repositoryWindowCommandState) private var repositoryWindowCommandState
 
     init() {
@@ -79,23 +81,22 @@ struct macgitApp: App {
             : nil
         let providerStore = LocalFirstGitProviderAccountStore(cloudStore: providerCloudStore)
         let providerTokenVault = KeychainGitProviderTokenVault()
-        _providerAccountController = StateObject(
-            wrappedValue: GitProviderAccountController(
-                store: providerStore,
-                tokenVault: providerTokenVault,
-                authService: GitHubProviderAuthService(configuration: providerConfiguration),
-                configuration: providerConfiguration,
-                gitLabAuthService: GitLabProviderAuthService(configuration: gitLabProviderConfiguration),
-                gitLabRedirectURI: gitLabProviderConfiguration.redirectURI,
-                openURL: NSWorkspace.shared.open,
-                multipleAccountAccess: {
-                    featureAccessController.decision(
-                        for: .multipleProviderAccounts,
-                        entitlement: accountController.entitlement
-                    )
-                }
-            )
+        let providerAccountController = GitProviderAccountController(
+            store: providerStore,
+            tokenVault: providerTokenVault,
+            authService: GitHubProviderAuthService(configuration: providerConfiguration),
+            configuration: providerConfiguration,
+            gitLabAuthService: GitLabProviderAuthService(configuration: gitLabProviderConfiguration),
+            gitLabRedirectURI: gitLabProviderConfiguration.redirectURI,
+            openURL: NSWorkspace.shared.open,
+            multipleAccountAccess: {
+                featureAccessController.decision(
+                    for: .multipleProviderAccounts,
+                    entitlement: accountController.entitlement
+                )
+            }
         )
+        _providerAccountController = StateObject(wrappedValue: providerAccountController)
         let managedUsage = CommitPlusAIUsageController()
         managedUsage.setSession(uid: accountController.account?.uid)
         let managedTokens = FirebaseCommitPlusAITokenProvider()
@@ -130,18 +131,27 @@ struct macgitApp: App {
                 cache: SQLiteRepositoryVisibilityCache()
             )
         )
-        _repositoryBookmarkController = StateObject(
-            wrappedValue: RepositoryBookmarkController(
-                cloudStore: cloudFeaturesEnabled
-                    ? FirestoreRepositoryBookmarkStore()
-                    : nil
-            )
+        let repositoryBookmarkController = RepositoryBookmarkController(
+            cloudStore: cloudFeaturesEnabled
+                ? FirestoreRepositoryBookmarkStore()
+                : nil
         )
+        _repositoryBookmarkController = StateObject(wrappedValue: repositoryBookmarkController)
         _gitFlowConfigurationSyncController = StateObject(
             wrappedValue: GitFlowConfigurationSyncController(
                 cloudStore: cloudFeaturesEnabled
                     ? FirestoreGitFlowConfigurationStore()
                     : nil
+            )
+        )
+        _cloudLifecycleController = StateObject(
+            wrappedValue: AppCloudLifecycleController(
+                startFeaturePolicy: featureAccessController.start,
+                synchronizeAccount: { account in
+                    async let providerAccounts: Void = providerAccountController.updateMacgitAccount(account)
+                    async let bookmarks: Void = repositoryBookmarkController.updateAccount(account)
+                    _ = await (providerAccounts, bookmarks)
+                }
             )
         )
     }
@@ -216,7 +226,8 @@ struct macgitApp: App {
                 isWelcomeWindow: isWelcomeWindow,
                 accountController: accountController,
                 providerAccountController: providerAccountController,
-                aiProviderController: aiProviderController
+                aiProviderController: aiProviderController,
+                repositoryWindowLifecycleController: repositoryWindowLifecycleController
             )
                 .environmentObject(appState)
                 .environmentObject(appUpdateController)
@@ -228,16 +239,22 @@ struct macgitApp: App {
                 .task {
                     appUpdateController.start()
                 }
+                .task(id: accountController.account?.uid) {
+                    cloudLifecycleController.start()
+                    await cloudLifecycleController.updateAccount(accountController.account)
+                }
                 .onChange(of: accountController.account?.uid, initial: true) { _, uid in
                     aiProviderController.managedUsageController?.setSession(uid: uid)
-                    Task { await aiProviderController.refreshAvailability() }
+                }
+                .onChange(of: accountController.account?.uid) { _, _ in
+                    aiProviderController.invalidateAvailability()
                 }
                 .onChange(of: accountController.entitlement) { _, _ in
-                    Task { await aiProviderController.refreshAvailability() }
+                    aiProviderController.invalidateAvailability()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                     Task {
-                        await aiProviderController.managedUsageController?.refresh()
+                        await aiProviderController.refreshManagedUsageIfNeeded()
                     }
                 }
         }
@@ -253,7 +270,7 @@ struct macgitApp: App {
         WindowGroup(id: "main", for: RepositoryWindowRequest.self) { request in
             windowContent(request: request.wrappedValue)
         }
-        .defaultSize(width: 860, height: 680)
+        .defaultSize(width: 1180, height: 780)
         .defaultLaunchBehavior(.suppressed)
         .commands {
             RepositoryFileCommands()

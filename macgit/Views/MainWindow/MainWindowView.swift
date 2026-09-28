@@ -752,6 +752,7 @@ struct MainWindowView: View {
                 reason: "Repository window closed.",
                 appendTranscript: false
             )
+            repositoryAIChatController.windowWillClose()
             OpenRepositoryRegistry.shared.unregister(repositoryURL)
             syncState.stopBackgroundSync()
         }
@@ -1660,7 +1661,7 @@ struct MainWindowView: View {
             loadedGitFlowCheckpoint,
             loadedGitCommonDirectory
         )
-        let loadedSettings = repoSettingsStore.settings(
+        let loadedSettings = await repoSettingsStore.settings(
             for: repositoryURL.path,
             currentBranch: currentBranch,
             remotes: remotes

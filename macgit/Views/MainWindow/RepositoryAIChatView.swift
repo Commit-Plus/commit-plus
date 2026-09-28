@@ -95,7 +95,7 @@ struct RepositoryAIChatView: View {
         }
         .padding(16)
         .task {
-            await providerController.refreshAvailability()
+            await providerController.refreshAvailability(selectedOnly: true)
         }
         .replacingSheet(isPresented: $isShowingHistory) {
             RepositoryAIChatHistorySheet(controller: controller)

@@ -99,7 +99,7 @@ struct CommitSheetView: View {
         .padding(30)
         .frame(minWidth: 480)
         .task {
-            await aiProviderController.refreshAvailability()
+            await aiProviderController.refreshAvailability(selectedOnly: true)
         }
         .alert("Unable to Generate Commit Message", isPresented: $showingError) {
             Button("OK", role: .cancel) {}

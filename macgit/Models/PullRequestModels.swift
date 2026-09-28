@@ -18,14 +18,14 @@
 
 import Foundation
 
-enum PullRequestState: String, Codable, Equatable {
+nonisolated enum PullRequestState: String, Codable, Equatable {
     case open
     case closed
     case merged
     case draft
 }
 
-enum PullRequestListFilter: String, CaseIterable, Identifiable {
+nonisolated enum PullRequestListFilter: String, CaseIterable, Identifiable, Codable {
     case open = "Open"
     case closed = "Closed"
     case all = "All"
@@ -55,7 +55,7 @@ enum PullRequestListFilter: String, CaseIterable, Identifiable {
     }
 }
 
-struct PullRequestListPage: Equatable {
+nonisolated struct PullRequestListPage: Equatable, Codable {
     var items: [PullRequestSummary]
     var page: Int
     var perPage: Int
@@ -77,7 +77,7 @@ struct PullRequestListPage: Equatable {
     }
 }
 
-enum PullRequestCheckState: String, Codable, Equatable {
+nonisolated enum PullRequestCheckState: String, Codable, Equatable {
     case unknown
     case noChecks
     case pending
@@ -86,24 +86,24 @@ enum PullRequestCheckState: String, Codable, Equatable {
     case error
 }
 
-enum PullRequestMergeReadiness: String, Codable, Equatable {
+nonisolated enum PullRequestMergeReadiness: String, Codable, Equatable {
     case unknown
     case ready
     case blocked
 }
 
-struct PullRequestAuthor: Equatable, Codable {
+nonisolated struct PullRequestAuthor: Equatable, Codable {
     var username: String
     var avatarURL: URL?
 }
 
-struct PullRequestBranchRef: Equatable, Codable {
+nonisolated struct PullRequestBranchRef: Equatable, Codable {
     var label: String
     var ref: String
     var sha: String?
 }
 
-struct PullRequestSummary: Identifiable, Equatable, Codable {
+nonisolated struct PullRequestSummary: Identifiable, Equatable, Codable {
     var id: Int { number }
     var number: Int
     var title: String
@@ -147,7 +147,7 @@ struct PullRequestSummary: Identifiable, Equatable, Codable {
     }
 }
 
-struct PullRequestComment: Identifiable, Equatable, Codable {
+nonisolated struct PullRequestComment: Identifiable, Equatable, Codable {
     var id: Int
     var author: PullRequestAuthor
     var body: String
@@ -156,7 +156,7 @@ struct PullRequestComment: Identifiable, Equatable, Codable {
     var updatedAt: Date
 }
 
-struct PullRequestDetail: Identifiable, Equatable, Codable {
+nonisolated struct PullRequestDetail: Identifiable, Equatable, Codable {
     var id: Int { summary.id }
     var summary: PullRequestSummary
     var body: String

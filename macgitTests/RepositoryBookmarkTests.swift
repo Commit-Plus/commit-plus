@@ -34,7 +34,7 @@ final class RepositoryBookmarkTests: XCTestCase {
             try transaction.set(repo.path, in: "bookmarkPaths", id: old.id)
         }
         let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store)
-        try controller.load()
+        try await controller.load()
         await controller.linkMatchingBookmarks(to: [repo])
         XCTAssertEqual(controller.bookmarksNeedingAttention(at: repo).map(\.id), [old.id])
         let remotes = try await GitStatusService.shared.repositoryBookmarkRemotes(in: repo)
@@ -48,9 +48,12 @@ final class RepositoryBookmarkTests: XCTestCase {
         XCTAssertNil(controller.localURL(for: old))
         XCTAssertTrue(controller.bookmarksNeedingAttention(at: repo).isEmpty)
         let reopened = try await fixture.reopen()
-        XCTAssertEqual(try reopened.value(RepositoryBookmark.self, in: "bookmarks", id: updated.id), updated)
-        XCTAssertNotNil(try reopened.value(String.self, in: "bookmarkUploads", id: updated.id))
-        XCTAssertNotNil(try reopened.value(String.self, in: "bookmarkDeletes", id: old.id))
+        let loadedValue1 = try await reopened.readValue(RepositoryBookmark.self, in: "bookmarks", id: updated.id)
+        XCTAssertEqual(loadedValue1, updated)
+        let loadedValue2 = try await reopened.readValue(String.self, in: "bookmarkUploads", id: updated.id)
+        XCTAssertNotNil(loadedValue2)
+        let loadedValue3 = try await reopened.readValue(String.self, in: "bookmarkDeletes", id: old.id)
+        XCTAssertNotNil(loadedValue3)
     }
 
     @MainActor
@@ -69,7 +72,7 @@ final class RepositoryBookmarkTests: XCTestCase {
             }
         }
         let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store)
-        try controller.load()
+        try await controller.load()
         let remotes = try await GitStatusService.shared.repositoryBookmarkRemotes(in: repo)
         let origin = try XCTUnwrap(remotes.first { $0.name == "origin" })
         let updated = try await controller.updateBookmark(old, from: repo, remote: origin)
@@ -89,7 +92,7 @@ final class RepositoryBookmarkTests: XCTestCase {
         let old = try makeBookmark("https://github.com/team/old-client.git")
         try await fixture.store.transaction { try $0.set(old, in: "bookmarks", id: old.id) }
         let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store)
-        try controller.load()
+        try await controller.load()
         let remotes = try await GitStatusService.shared.repositoryBookmarkRemotes(in: repo)
         let origin = try XCTUnwrap(remotes.first { $0.name == "origin" })
         _ = try await GitStatusService.shared.runGit(arguments: ["remote", "set-url", "origin", "https://github.com/other/repo.git"], in: repo)
@@ -133,8 +136,10 @@ final class RepositoryBookmarkTests: XCTestCase {
         XCTAssertEqual(Array(cloud.stored.values), [updated])
         XCTAssertEqual(second.bookmarks.map(\.id), [updated.id])
         XCTAssertFalse(second.hasPendingChanges)
-        XCTAssertNil(try reopened.value(String.self, in: "bookmarkUploads", id: updated.id))
-        XCTAssertNil(try reopened.value(String.self, in: "bookmarkDeletes", id: old.id))
+        let loadedValue4 = try await reopened.readValue(String.self, in: "bookmarkUploads", id: updated.id)
+        XCTAssertNil(loadedValue4)
+        let loadedValue5 = try await reopened.readValue(String.self, in: "bookmarkDeletes", id: old.id)
+        XCTAssertNil(loadedValue5)
     }
 
     @MainActor
@@ -147,7 +152,7 @@ final class RepositoryBookmarkTests: XCTestCase {
         let old = try makeBookmark("https://github.com/team/old-client.git")
         try await fixture.store.transaction { try $0.set(old, in: "bookmarks", id: old.id) }
         let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store)
-        try controller.load()
+        try await controller.load()
         let model = RepositoryBookmarkRepairModel(bookmark: old)
         await model.selectRepository(repo)
         XCTAssertEqual(model.selectedRemoteID, "origin")
@@ -169,7 +174,7 @@ final class RepositoryBookmarkTests: XCTestCase {
         let old = try makeBookmark("https://github.com/team/old-client.git")
         try await fixture.store.transaction { try $0.set(old, in: "bookmarks", id: old.id) }
         let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store)
-        try controller.load()
+        try await controller.load()
         let model = RepositoryBookmarkRepairModel(bookmark: old)
         await model.selectRepository(repo)
         await controller.removeBookmark(old)
@@ -217,7 +222,7 @@ final class RepositoryBookmarkTests: XCTestCase {
                 try transaction.set(bookmark, in: "bookmarks", id: bookmark.id)
             }
         }
-        try controller.load()
+        try await controller.load()
         await controller.linkMatchingBookmarks(to: [repo, repo])
 
         XCTAssertEqual(controller.localURL(for: github), repo)

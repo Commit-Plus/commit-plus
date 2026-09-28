@@ -242,7 +242,8 @@ final class GitFlowConfigurationSyncTests: XCTestCase {
         XCTAssertEqual(cloudStore.configurationRequestCount, 0)
         XCTAssertEqual(cloudStore.savedConfiguration?.mainBranch, "trunk")
         XCTAssertEqual(cloudStore.savedConfiguration?.developBranch, "next")
-        XCTAssertTrue(try fixture.store.values(String.self, in: "gitFlowPending").isEmpty)
+        let loadedValue1 = try await fixture.store.readValues(String.self, in: "gitFlowPending")
+        XCTAssertTrue(loadedValue1.isEmpty)
     }
 
     private func makeRepository() throws -> URL {
