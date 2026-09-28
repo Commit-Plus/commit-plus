@@ -220,6 +220,7 @@ struct macgitApp: App {
         request: RepositoryWindowRequest?,
         isWelcomeWindow: Bool = false
     ) -> some View {
+        TermsAcceptanceGate {
         LocalDataLoadingView {
             ContentView(
                 request: request,
@@ -257,6 +258,7 @@ struct macgitApp: App {
                         await aiProviderController.refreshManagedUsageIfNeeded()
                     }
                 }
+        }
         }
     }
 
