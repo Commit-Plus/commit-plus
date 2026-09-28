@@ -383,4 +383,19 @@ final class AppSettingsSnapshotTests: XCTestCase {
         XCTAssertEqual(emissions.count, 2)
         XCTAssertEqual(emissions.last, expected)
     }
+
+    func testRepositoryWindowScreenFitDefaultsOffAndPersistsLocally() {
+        let suiteName = "AppSettingsSnapshotTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let state = AppState(userDefaults: defaults)
+        XCTAssertFalse(state.fitRepositoryWindowsToScreen)
+        let cloudSnapshot = state.snapshot
+
+        state.fitRepositoryWindowsToScreen = true
+
+        XCTAssertTrue(AppState(userDefaults: defaults).fitRepositoryWindowsToScreen)
+        XCTAssertEqual(state.snapshot, cloudSnapshot)
+    }
 }

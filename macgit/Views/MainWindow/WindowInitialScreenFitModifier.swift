@@ -18,48 +18,62 @@
 import SwiftUI
 
 struct WindowInitialScreenFitModifier: NSViewRepresentable {
+    static let defaultContentSize = NSSize(width: 1180, height: 780)
     let isEnabled: Bool
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         view.isHidden = true
-        scheduleScreenFit(for: view, coordinator: context.coordinator)
+        scheduleInitialSize(for: view, coordinator: context.coordinator)
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.isEnabled = isEnabled
-        scheduleScreenFit(for: nsView, coordinator: context.coordinator)
+        scheduleInitialSize(for: nsView, coordinator: context.coordinator)
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(isEnabled: isEnabled)
     }
 
-    private func scheduleScreenFit(for view: NSView, coordinator: Coordinator) {
+    private func scheduleInitialSize(for view: NSView, coordinator: Coordinator) {
         DispatchQueue.main.async {
-            coordinator.fitToVisibleScreenIfNeeded(window: view.window)
+            coordinator.applyInitialSizeIfNeeded(window: view.window)
         }
     }
 
     final class Coordinator {
         var isEnabled: Bool
-        private var didFitWindow = false
+        private var didApplyInitialSize = false
 
         init(isEnabled: Bool) {
             self.isEnabled = isEnabled
         }
 
-        func fitToVisibleScreenIfNeeded(window: NSWindow?) {
-            guard isEnabled,
-                  !didFitWindow,
+        func applyInitialSizeIfNeeded(window: NSWindow?) {
+            guard !didApplyInitialSize,
                   let window,
                   let screen = window.screen ?? NSScreen.main else {
                 return
             }
 
-            didFitWindow = true
-            window.setFrame(screen.visibleFrame, display: true)
+            didApplyInitialSize = true
+            if isEnabled {
+                window.setFrame(screen.visibleFrame, display: true)
+                return
+            }
+
+            let availableContentSize = window.contentRect(forFrameRect: screen.visibleFrame).size
+            let contentSize = NSSize(
+                width: min(WindowInitialScreenFitModifier.defaultContentSize.width, availableContentSize.width),
+                height: min(WindowInitialScreenFitModifier.defaultContentSize.height, availableContentSize.height)
+            )
+            window.setContentSize(contentSize)
+            window.setFrameOrigin(NSPoint(
+                x: screen.visibleFrame.midX - window.frame.width / 2,
+                y: screen.visibleFrame.midY - window.frame.height / 2
+            ))
         }
     }
 }

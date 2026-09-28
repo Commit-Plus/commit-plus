@@ -407,11 +407,11 @@ struct ContentView: View {
                 id: "main",
                 value: RepositoryWindowRequest.repository(
                     url,
-                    shouldFitVisibleScreen: true
+                    shouldFitVisibleScreen: appState.fitRepositoryWindowsToScreen
                 )
             )
         } else {
-            shouldFitScreenWhenRepositoryOpens = true
+            shouldFitScreenWhenRepositoryOpens = appState.fitRepositoryWindowsToScreen
             repositoryURL = url
         }
     }

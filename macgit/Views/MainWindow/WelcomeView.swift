@@ -20,6 +20,7 @@ import SwiftUI
 struct WelcomeView: View {
     @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var bookmarkController: RepositoryBookmarkController
+    @EnvironmentObject private var appState: AppState
     @State private var locationError: String?
     @ObservedObject private var store = RecentRepositoriesStore.shared
     @State private var model = WelcomeDashboardModel()
@@ -85,7 +86,9 @@ struct WelcomeView: View {
         }
         store.add(repository.url)
         openWindow(id: "main", value: RepositoryWindowRequest.repository(
-            repository.url, shouldFitVisibleScreen: true, showsHistory: repository.showsHistory
+            repository.url,
+            shouldFitVisibleScreen: appState.fitRepositoryWindowsToScreen,
+            showsHistory: repository.showsHistory
         ))
     }
 

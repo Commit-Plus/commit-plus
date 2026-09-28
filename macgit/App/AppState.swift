@@ -38,6 +38,7 @@ final class AppState: ObservableObject {
     private static let historyIncludeRemotesKey = "historyIncludeRemotes"
     private static let autoFetchEnabledKey = "autoFetchEnabled"
     private static let refreshOnAppActiveKey = "refreshOnAppActive"
+    private static let fitRepositoryWindowsToScreenKey = "fitRepositoryWindowsToScreen"
     private static let settingsSyncEnabledKey = "settingsSyncEnabled"
     private static let searchFilterKey = "searchFilter"
     private static let preferredSearchFileApplicationKey = "preferredSearchFileApplication"
@@ -191,6 +192,11 @@ final class AppState: ObservableObject {
             }
         }
     }
+    @Published var fitRepositoryWindowsToScreen: Bool {
+        didSet {
+            userDefaults.set(fitRepositoryWindowsToScreen, forKey: Self.fitRepositoryWindowsToScreenKey)
+        }
+    }
     @Published var syncEnabled: Bool {
         didSet {
             userDefaults.set(syncEnabled, forKey: Self.settingsSyncEnabledKey)
@@ -242,6 +248,9 @@ final class AppState: ObservableObject {
         let historyIncludeRemotes = userDefaults.object(forKey: Self.historyIncludeRemotesKey) as? Bool ?? false
         let autoFetchEnabled = userDefaults.object(forKey: Self.autoFetchEnabledKey) as? Bool ?? false
         let refreshOnAppActive = userDefaults.object(forKey: Self.refreshOnAppActiveKey) as? Bool ?? true
+        let fitRepositoryWindowsToScreen = userDefaults.object(
+            forKey: Self.fitRepositoryWindowsToScreenKey
+        ) as? Bool ?? false
         let syncEnabled = userDefaults.object(forKey: Self.settingsSyncEnabledKey) as? Bool ?? false
         let searchFilter = userDefaults.string(forKey: Self.searchFilterKey)
             .flatMap(SearchFilter.init(rawValue:)) ?? .all
@@ -287,6 +296,7 @@ final class AppState: ObservableObject {
         self.historyIncludeRemotes = historyIncludeRemotes
         self.autoFetchEnabled = autoFetchEnabled
         self.refreshOnAppActive = refreshOnAppActive
+        self.fitRepositoryWindowsToScreen = fitRepositoryWindowsToScreen
         self.syncEnabled = syncEnabled
         self.searchFilter = searchFilter
         self.preferredSearchFileApplicationBundleIdentifier = preferredSearchFileApplicationBundleIdentifier

@@ -270,7 +270,7 @@ struct macgitApp: App {
         WindowGroup(id: "main", for: RepositoryWindowRequest.self) { request in
             windowContent(request: request.wrappedValue)
         }
-        .defaultSize(width: 860, height: 680)
+        .defaultSize(width: 1180, height: 780)
         .defaultLaunchBehavior(.suppressed)
         .commands {
             RepositoryFileCommands()

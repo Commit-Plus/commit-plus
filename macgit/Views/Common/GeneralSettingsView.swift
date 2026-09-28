@@ -25,6 +25,16 @@ struct GeneralSettingsView: View {
         Form {
             Section {
                 SettingsToggleRow(
+                    title: "Fill screen when opening repositories",
+                    detail: "Expand newly opened repository windows to the available screen area. When off, they open at the same size as Welcome.",
+                    isOn: $appState.fitRepositoryWindowsToScreen
+                )
+            } header: {
+                Label("Windows", systemImage: "macwindow")
+            }
+
+            Section {
+                SettingsToggleRow(
                     title: "Show Git Flow",
                     detail: "Include Git Flow workflow actions as a dedicated repository sidebar section.",
                     isOn: $appState.showGitFlow
@@ -86,7 +96,7 @@ struct GeneralSettingsView: View {
             Button("Restore Defaults", role: .destructive, action: restoreDefaults)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Sidebar, History, and Pull & Fetch preferences on this page will be reset.")
+            Text("Window, Sidebar, History, and Pull & Fetch preferences on this page will be reset.")
         }
     }
 
@@ -95,6 +105,7 @@ struct GeneralSettingsView: View {
     }
 
     private func restoreDefaults() {
+        appState.fitRepositoryWindowsToScreen = false
         appState.showGitFlow = true
         appState.showSubmodules = false
         appState.showSubtrees = false
