@@ -2,16 +2,26 @@
 
 Changes in the latest Commit+ release compared with the previous release.
 
-## v1.1.6
+## v1.1.7
 
-Changes since `v1.1.5`.
+Changes since `v1.1.6`.
 
-Read more about Revision file and commit feature at our blog: https://commitplus.app/blog/browse-and-compare-git-revisions
+### Added
+
+- **Git LFS support** — Full Git LFS integration with embedded runtime, tracking rules management, file downloads, and credential handling. LFS files are tracked, downloaded, and displayed in File Status with dedicated controls.
+- **Selective apply and revert in History** — Apply or revert individual commits from History as patches, with conflict resolution UI for merge conflicts.
+
+### Changed
+
+- **Improved memory usage and app lifecycle** — Reduced memory footprint, faster cold starts, and better background/foreground handling.
+- **Updated revision browser** — Enhanced revision browsing with image previews and improved file preview support.
+- **Refined pull behavior** — Pull now defaults to the current branch's upstream; sync activity shows on the local branch being updated.
+- **Merge conflict handling** — Repository state refreshes after a failed pull so conflicts appear in File Status; Git's detailed failure output is included in error messages.
+- **In-progress merge visibility** — File Status shows in-progress merges with Continue and Abort actions, even when no file changes remain, and stays visible when opening a repository with an unfinished operation.
+
 ### Fixed
 
-- Allow Git hooks and filters to find Git LFS installed in common package-manager locations when Commit+ is opened from Finder.
-- Default Pull to the current branch's upstream remote and branch, and show sync activity on the local branch being updated.
-- Refresh repository state after a failed pull so merge conflicts appear in File Status, and include Git's detailed failure output in error messages.
-- Show in-progress merges in File Status with Continue and Abort actions, including merges with no remaining file changes, and keep File Status visible when opening a repository with an unfinished operation.
+- Git hooks and filters can now find Git LFS installed in common package-manager locations when Commit+ is opened from Finder.
+- Various stability fixes and UI polish across File Status, History, Diff View, and Settings.
 
-[Compare v1.1.5 to v1.1.6](https://github.com/Commit-Plus/commit-plus/compare/v1.1.5...v1.1.6)
+[Compare v1.1.6 to v1.1.7](https://github.com/Commit-Plus/commit-plus/compare/v1.1.6...v1.1.7)
