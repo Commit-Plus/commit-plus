@@ -1,6 +1,6 @@
 # Cải thiện RAM và cold start
 
-Ngày: 2026-09-27. Trạng thái: đã triển khai phần 1 (Welcome), phần 2 (AI, còn mục dropdown), phần 3 (PR cache), phần 4 (local storage) và phần 5 (cloud lifecycle). Phần 6 chưa triển khai. Kiểm tra tương tác runtime còn chờ.
+Ngày: 2026-09-27. Trạng thái: đã triển khai phần 1 (Welcome), phần 2 (AI, còn mục dropdown), phần 3 (PR cache), phần 4 (local storage), phần 5 (cloud lifecycle) và phần 6 (cache/lifecycle còn lại). Kiểm tra tương tác runtime còn chờ.
 
 Không có bước đo baseline, theo yêu cầu của người dùng. Triển khai từng phần độc lập để dễ review và kiểm tra. Không đặt mục tiêu giảm MB hoặc thời gian cụ thể khi chưa có phép đo. Không tự launch/relaunch app.
 
@@ -77,14 +77,14 @@ Kiểm tra: guest, session được khôi phục, offline, đăng nhập/đăng 
 
 ## 6. Cache và vòng đời còn lại
 
-- [ ] History: giới hạn snapshot theo branch/filter; giữ selection và viewport khi background refresh.
-- [ ] Branch/reference cache: giới hạn entry và invalidate sau mutation.
-- [ ] Diff, preview, ảnh và thumbnail: giới hạn kích thước/số entry, tải theo nhu cầu và hủy khi đóng.
-- [ ] Welcome activity: kiểm tra payload commit hash, giới hạn entry và giải phóng dữ liệu không hiển thị.
-- [ ] AI chat: kiểm tra conversation/context/tool output được giữ lại và vòng đời controller.
-- [ ] Undo: kiểm tra giới hạn/vòng đời nhưng không xóa dữ liệu cần cho undo còn hiệu lực.
-- [ ] Window/controller: kiểm tra task, timer, observer, closure và subscription giữ đối tượng sau khi đóng.
-- [ ] Ghi nhận từng mục đã có giới hạn hợp lý; không refactor chỉ để thay đổi kiến trúc.
+- [x] History: giới hạn snapshot theo branch/filter; giữ selection và viewport khi background refresh.
+- [x] Branch/reference cache: giới hạn entry và invalidate sau mutation.
+- [x] Diff, preview, ảnh và thumbnail: giới hạn kích thước/số entry, tải theo nhu cầu và hủy khi đóng.
+- [x] Welcome activity: kiểm tra payload commit hash, giới hạn entry và giải phóng dữ liệu không hiển thị.
+- [x] AI chat: kiểm tra conversation/context/tool output được giữ lại và vòng đời controller.
+- [x] Undo: kiểm tra giới hạn/vòng đời nhưng không xóa dữ liệu cần cho undo còn hiệu lực.
+- [x] Window/controller: kiểm tra task, timer, observer, closure và subscription giữ đối tượng sau khi đóng.
+- [x] Ghi nhận từng mục đã có giới hạn hợp lý; không refactor chỉ để thay đổi kiến trúc.
 
 Kiểm tra: mở/đóng nhiều repo, chuyển branch/filter, mở file lớn, chuyển PR, chat dài và undo/redo. Mỗi cache phải có owner, giới hạn, invalidation và điểm giải phóng rõ ràng.
 
@@ -160,4 +160,14 @@ Không tự commit, push hoặc thay đổi release. Các checkbox chỉ đượ
 - Provider-account và bookmark sync được chuyển khỏi từng `ContentView` sang `AppCloudLifecycleController` cấp app. Cùng một session chỉ reconcile một lần; provider và bookmark hydrate song song. Khi session đổi trong lúc đang sync, workflow hoàn tất thao tác shared-store đang chạy, bỏ session trung gian đã lỗi thời và chỉ áp dụng session mới nhất.
 - Device observation, entitlement observation và settings observation vẫn giữ generation/UID guard và cleanup hiện có. Bookmark listener tiếp tục bị thay thế khi account đổi; callback cũ bị chặn bằng active UID.
 - Coverage phase 5: lifecycle start idempotent, nhiều window cùng session, thay session nhanh, feature listener trì hoãn và chỉ start một lần; regression auth/device, settings sync, provider accounts và bookmarks: **64/64 test PASS**.
-- Không launch/relaunch app; chưa kiểm tra tương tác nhiều window bằng runtime và chưa đo mức giảm RAM/cold start. Phần 5 chưa commit.
+- Không launch/relaunch app; chưa kiểm tra tương tác nhiều window bằng runtime và chưa đo mức giảm RAM/cold start. Phần 5 đã commit tại `db2732e3`.
+
+### Phần 6 — Cache và vòng đời còn lại (2026-09-28)
+
+- Phase 5 đã commit tại `db2732e3` (`perf: coordinate cloud lifecycle once per app`).
+- Thêm `BoundedMemoryCache` dùng access-order. Cache branch/reference giới hạn 32 entry, History giữ tối đa 3 snapshot branch/filter; entry cũ bị loại và request đang chạy bị hủy khi invalidate.
+- Undo/redo giữ tối đa 50 action. Entry bị loại, redo bị thay thế và thao tác clear đều xóa file snapshot không còn được stack nào tham chiếu, nên dữ liệu phục vụ undo còn hiệu lực vẫn được giữ.
+- Revision Browser hủy task và giải phóng tree/preview khi đóng. Repository AI hủy request/timer, pending operation và dữ liệu selector tạm khi window đóng.
+- Các cache còn lại đã được audit và giữ nguyên khi đã có owner/giới hạn phù hợp: Welcome activity 20 entry, syntax-highlight preview 512 dòng không dài, revision tree 50.000 entry, PR payload dùng SQLite có giới hạn, diff/image/video theo vòng đời view, AI history lưu SQLite và chỉ conversation hiện tại resident.
+- Coverage cache/History/undo/revision: **48/48 test PASS**. Regression Repository AI agent/remote lifecycle: **19/19 test PASS**. Build macOS: **PASS**; `git diff --check`: **PASS**.
+- Không launch/relaunch app; chưa kiểm tra tương tác mở/đóng nhiều window bằng runtime và chưa đo mức giảm RAM/cold start. Phần 6 chưa commit.

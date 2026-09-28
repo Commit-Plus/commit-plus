@@ -751,6 +751,7 @@ struct MainWindowView: View {
                 reason: "Repository window closed.",
                 appendTranscript: false
             )
+            repositoryAIChatController.windowWillClose()
             OpenRepositoryRegistry.shared.unregister(repositoryURL)
             syncState.stopBackgroundSync()
         }

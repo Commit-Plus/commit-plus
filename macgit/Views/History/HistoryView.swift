@@ -80,7 +80,7 @@ struct HistoryView: View {
     @State private var showingError = false
     @State private var scrollTarget: String? = nil
     @State private var paging = HistoryPagingState(pageSize: 120)
-    @State private var historyCache: [String: HistorySnapshot] = [:]
+    @State private var historyCache = BoundedMemoryCache<String, HistorySnapshot>(capacity: 3)
     @State private var historySearchText = ""
     @State private var debouncedHistorySearchText = ""
     @State private var historySearchDebounceTask: Task<Void, Never>? = nil
@@ -1111,7 +1111,7 @@ struct HistoryView: View {
         preservingSelectionAndScroll: Bool = false
     ) async {
         let cacheKey = historyLoadKey
-        if reset, let cached = historyCache[cacheKey] {
+        if reset, let cached = historyCache.value(for: cacheKey) {
             await MainActor.run {
                 applyCachedSnapshot(cached)
             }
@@ -1305,11 +1305,11 @@ struct HistoryView: View {
             }
             cancelHistoryRefreshIndicator()
 
-            historyCache[cacheKey] = HistorySnapshot(
+            historyCache.insert(HistorySnapshot(
                 commits: loadedCommits,
                 graphModel: newGraphModel,
                 selectedCommitHash: selectedCommit?.hash
-            )
+            ), for: cacheKey)
 
             // Appending a page also updates the native Table's rows and can
             // transiently clear its selection, just like a background refresh.

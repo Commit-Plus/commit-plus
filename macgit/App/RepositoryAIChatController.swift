@@ -379,6 +379,17 @@ final class RepositoryAIChatController: ObservableObject {
         activeRequestTask.cancel()
     }
 
+    func windowWillClose() {
+        activeRequestTask?.cancel()
+        pendingMutationExpirationTask?.cancel()
+        pendingMutationExpirationTask = nil
+        pendingRemoteOperationExpirationTask?.cancel()
+        pendingRemoteOperationExpirationTask = nil
+        pendingMutation = nil
+        pendingRemoteOperation = nil
+        dismissSelection()
+    }
+
     func confirmPendingMutation(id: UUID) async {
         guard !isExecutingMutation,
               let pending = pendingMutation,

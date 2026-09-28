@@ -144,4 +144,15 @@ final class RevisionBrowserController {
         isLoading = false
         isLoadingPreview = false
     }
+
+    func releaseResources() {
+        cancel()
+        snapshot = nil
+        children.removeAll()
+        expanded.removeAll()
+        folderErrors.removeAll()
+        selectedEntry = nil
+        preview = nil
+        previewError = nil
+    }
 }

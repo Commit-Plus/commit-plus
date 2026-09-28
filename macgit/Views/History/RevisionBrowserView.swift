@@ -39,6 +39,7 @@ struct RevisionBrowserView: View {
             }
         }
         .task { controller.load() }
+        .onDisappear { controller.releaseResources() }
     }
 
     private var tree: some View {

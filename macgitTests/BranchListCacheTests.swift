@@ -145,6 +145,25 @@ final class BranchListCacheTests: XCTestCase {
         XCTAssertEqual(results.1, ["main"])
         XCTAssertEqual(callCount, 1)
     }
+
+    func testLeastRecentlyUsedEntryIsEvictedAtCapacity() async {
+        let cache = BranchListCache(capacity: 2)
+        let now = Date(timeIntervalSince1970: 0)
+        let first = URL(fileURLWithPath: "/tmp/repo-first")
+        let second = URL(fileURLWithPath: "/tmp/repo-second")
+        let third = URL(fileURLWithPath: "/tmp/repo-third")
+
+        _ = await cache.values(for: .local(first), now: now) { ["first"] }
+        _ = await cache.values(for: .local(second), now: now) { ["second"] }
+        _ = await cache.values(for: .local(first), now: now) { ["unexpected"] }
+        _ = await cache.values(for: .local(third), now: now) { ["third"] }
+
+        let retainedFirst = await cache.values(for: .local(first), now: now) { ["unexpected"] }
+        let reloadedSecond = await cache.values(for: .local(second), now: now) { ["reloaded"] }
+
+        XCTAssertEqual(reloadedSecond, ["reloaded"])
+        XCTAssertEqual(retainedFirst, ["first"])
+    }
 }
 
 private actor CallCounter {

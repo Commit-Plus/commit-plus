@@ -19,6 +19,7 @@ import Foundation
 
 actor BranchListCache {
     static let ttl: TimeInterval = 120
+    static let defaultCapacity = 32
 
     enum Key: Hashable {
         case local(URL)
@@ -42,16 +43,20 @@ actor BranchListCache {
         let task: Task<[String], Never>
     }
 
-    private var entries: [Key: Entry] = [:]
+    private var entries: BoundedMemoryCache<Key, Entry>
     private var generations: [Key: Int] = [:]
     private var inFlight: [Key: InFlight] = [:]
+
+    init(capacity: Int = BranchListCache.defaultCapacity) {
+        entries = BoundedMemoryCache(capacity: capacity)
+    }
 
     func values(
         for key: Key,
         now: Date = Date(),
         load: @escaping @Sendable () async -> [String]
     ) async -> [String] {
-        if let entry = entries[key], now.timeIntervalSince(entry.createdAt) < Self.ttl {
+        if let entry = entries.value(for: key), now.timeIntervalSince(entry.createdAt) < Self.ttl {
             return entry.values
         }
 
@@ -64,11 +69,16 @@ actor BranchListCache {
         inFlight[key] = InFlight(generation: generation, task: task)
         let values = await task.value
 
-        if generations[key, default: 0] == generation {
-            entries[key] = Entry(values: values, createdAt: now)
-        }
         if inFlight[key]?.generation == generation {
             inFlight[key] = nil
+        }
+        if generations[key, default: 0] == generation {
+            if let evicted = entries.insert(Entry(values: values, createdAt: now), for: key),
+               inFlight[evicted.key] == nil {
+                generations[evicted.key] = nil
+            }
+        } else if inFlight[key] == nil && entries.keys.contains(key) == false {
+            generations[key] = nil
         }
         return values
     }
@@ -105,9 +115,13 @@ actor BranchListCache {
     }
 
     private func invalidate(_ key: Key) {
-        entries[key] = nil
-        generations[key, default: 0] += 1
-        inFlight[key] = nil
+        entries.removeValue(forKey: key)
+        if let request = inFlight.removeValue(forKey: key) {
+            generations[key, default: 0] += 1
+            request.task.cancel()
+        } else {
+            generations[key] = nil
+        }
     }
 
     private func isRemoteKey(_ key: Key) -> Bool {

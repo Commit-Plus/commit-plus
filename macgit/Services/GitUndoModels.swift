@@ -83,6 +83,19 @@ indirect enum GitUndoOperation: Equatable {
     case recreateGitFlowWorktree(path: URL, branch: String, baseTip: String, label: String?)
 }
 
+private extension GitUndoOperation {
+    var fileSnapshotIDs: Set<UUID> {
+        switch self {
+        case .restoreFileSnapshot(let id), .deleteFileSnapshot(let id):
+            [id]
+        case .sequence(let operations):
+            operations.reduce(into: Set<UUID>()) { $0.formUnion($1.fileSnapshotIDs) }
+        default:
+            []
+        }
+    }
+}
+
 @MainActor
 final class OpenRepositoryRegistry {
     static let shared = OpenRepositoryRegistry()
@@ -207,8 +220,20 @@ enum GitUndoEntryFactory {
 
 @MainActor
 final class GitUndoManager: ObservableObject {
+    nonisolated static let defaultStackLimit = 50
     @Published private(set) var undoStack: [GitUndoEntry] = []
     @Published private(set) var redoStack: [GitUndoEntry] = []
+    private let stackLimit: Int
+    private let discardEntry: (GitUndoEntry) -> Void
+
+    init(
+        stackLimit: Int = GitUndoManager.defaultStackLimit,
+        discardEntry: ((GitUndoEntry) -> Void)? = nil
+    ) {
+        precondition(stackLimit > 0)
+        self.stackLimit = stackLimit
+        self.discardEntry = discardEntry ?? Self.deleteFileSnapshots
+    }
 
     var canUndo: Bool {
         !undoStack.isEmpty
@@ -229,8 +254,11 @@ final class GitUndoManager: ObservableObject {
     }
 
     func register(_ entry: GitUndoEntry) {
+        let discardedRedo = redoStack
         undoStack.append(entry)
         redoStack.removeAll()
+        trimUndoStack()
+        discard(discardedRedo)
     }
 
     func popForUndo() -> GitUndoEntry? {
@@ -251,6 +279,7 @@ final class GitUndoManager: ObservableObject {
 
     func completeRedo(_ entry: GitUndoEntry) {
         undoStack.append(entry)
+        trimUndoStack()
     }
 
     func restoreRedo(_ entry: GitUndoEntry) {
@@ -258,7 +287,38 @@ final class GitUndoManager: ObservableObject {
     }
 
     func removeAll() {
+        let discarded = undoStack + redoStack
         undoStack.removeAll()
         redoStack.removeAll()
+        discard(discarded)
+    }
+
+    private func trimUndoStack() {
+        guard undoStack.count > stackLimit else { return }
+        let discarded = Array(undoStack.prefix(undoStack.count - stackLimit))
+        undoStack.removeFirst(discarded.count)
+        discard(discarded)
+    }
+
+    private func discard(_ entries: [GitUndoEntry]) {
+        let retainedSnapshotIDs = (undoStack + redoStack).reduce(into: Set<UUID>()) {
+            $0.formUnion($1.undoOperation.fileSnapshotIDs)
+            $0.formUnion($1.redoOperation.fileSnapshotIDs)
+        }
+        for entry in entries {
+            let snapshotIDs = entry.undoOperation.fileSnapshotIDs
+                .union(entry.redoOperation.fileSnapshotIDs)
+            guard snapshotIDs.isDisjoint(with: retainedSnapshotIDs) else { continue }
+            discardEntry(entry)
+        }
+    }
+
+    private static func deleteFileSnapshots(in entry: GitUndoEntry) {
+        let store = GitFileUndoSnapshotStore()
+        let snapshotIDs = entry.undoOperation.fileSnapshotIDs
+            .union(entry.redoOperation.fileSnapshotIDs)
+        for id in snapshotIDs {
+            try? store.delete(snapshotID: id, in: entry.repositoryURL)
+        }
     }
 }
