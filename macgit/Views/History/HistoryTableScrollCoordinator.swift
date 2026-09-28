@@ -35,6 +35,19 @@ final class HistoryTableScrollCoordinator {
     private var restoreWidthsTask: Task<Void, Never>?
     private var isRestoringWidths = false
     private var contextClickMonitor: Any?
+    private let dragPreviewDataSource = HistoryDragPreviewDataSource()
+
+    func prepareDragPreview(_ presentation: CommitDragPreviewPresentation) {
+        guard let tableView else { return }
+        installDragPreviewDataSource(on: tableView)
+        dragPreviewDataSource.prepare(presentation, in: tableView)
+    }
+
+    private func installDragPreviewDataSource(on tableView: NSTableView) {
+        guard tableView.dataSource !== dragPreviewDataSource else { return }
+        dragPreviewDataSource.original = tableView.dataSource
+        tableView.dataSource = dragPreviewDataSource
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -84,6 +97,7 @@ final class HistoryTableScrollCoordinator {
                     restoreSavedWidths()
                 }
                 observeViewport(of: tableView)
+                installDragPreviewDataSource(on: tableView)
                 resizeForViewportIfNeeded()
                 return true
             }

@@ -20,10 +20,8 @@
 //  You should have received a copy of the GNU Affero General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
-import CoreTransferable
 import Combine
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct HistoryView: View {
     private struct SquashSheetPresentation: Identifiable {
@@ -586,7 +584,7 @@ struct HistoryView: View {
                         columnCustomization: $tableColumnCustomization
                     ) {
                         TableColumn("Graph") { commit in
-                            commitDragCell(for: commit) {
+                            commitInteractionCell(for: commit) {
                                 BranchGraphRowCanvas(
                                     model: graphModel,
                                     rowIndex: rowIndexByHash[commit.hash] ?? 0
@@ -599,7 +597,7 @@ struct HistoryView: View {
                         .disabledCustomizationBehavior([.reorder, .visibility])
 
                         TableColumn("Message") { commit in
-                            commitDragCell(for: commit) {
+                            commitInteractionCell(for: commit) {
                                 GeometryReader { geometry in
                                     HistoryCommitMessageCell(
                                         commit: commit,
@@ -624,7 +622,7 @@ struct HistoryView: View {
                         .disabledCustomizationBehavior([.reorder, .visibility])
 
                         TableColumn("Author") { commit in
-                            commitDragCell(for: commit) {
+                            commitInteractionCell(for: commit) {
                                 Text("\(commit.author) <\(commit.email)>")
                                     .font(.callout)
                                     .foregroundStyle(.secondary)
@@ -640,7 +638,7 @@ struct HistoryView: View {
                         .customizationID("author")
 
                         TableColumn("Date") { commit in
-                            commitDragCell(for: commit) {
+                            commitInteractionCell(for: commit) {
                                 Text(
                                     commit.date,
                                     format: .dateTime
@@ -665,7 +663,7 @@ struct HistoryView: View {
                         .customizationID("date")
 
                         TableColumn("Commit") { commit in
-                            commitDragCell(for: commit) {
+                            commitInteractionCell(for: commit) {
                                 Text(commit.shortHash)
                                     .font(.caption.monospaced())
                                     .foregroundStyle(.tertiary)
@@ -683,6 +681,7 @@ struct HistoryView: View {
                     } rows: {
                         ForEach(commits) { commit in
                             TableRow(commit)
+                                .draggable(makeCommitDragPayload(startingAt: commit))
                         }
                     }
                     .tableStyle(.bordered)
@@ -2141,7 +2140,7 @@ struct HistoryView: View {
             }
     }
 
-    private func commitDragCell<Content: View>(
+    private func commitInteractionCell<Content: View>(
         for commit: Commit,
         @ViewBuilder content: () -> Content
     ) -> some View {
@@ -2178,17 +2177,6 @@ struct HistoryView: View {
                     commitContextMenu(for: Set(contextCommits.map(\.hash)))
                 }
             }
-            .onDrag {
-                makeCommitItemProvider(startingAt: commit)
-            } preview: {
-                CommitDragPreview(
-                    presentation: CommitDragPreviewPresentation(
-                        commit: commit,
-                        commitCount: tableSelection.contains(commit.hash) ? tableSelection.count : 1
-                    ),
-                    onDragStateChange: { _ in }
-                )
-            }
     }
 
     private func selectCommitFromCell(_ commit: Commit) {
@@ -2202,7 +2190,7 @@ struct HistoryView: View {
         tableSelection = Set(commitSelection.selectedHashes)
     }
 
-    private func makeCommitItemProvider(startingAt commit: Commit) -> NSItemProvider {
+    private func makeCommitDragPayload(startingAt commit: Commit) -> GitDragPayload {
         let selectionHashes: [String]
         if tableSelection.contains(commit.hash) {
             selectionHashes = commits.map(\.hash).filter(tableSelection.contains)
@@ -2225,26 +2213,13 @@ struct HistoryView: View {
             draggedCommits,
             repositoryURL: repositoryURL
         )
+        GitDragPayloadStore.set(payload)
+        tableScrollCoordinator.prepareDragPreview(
+            CommitDragPreviewPresentation(commit: commit, commitCount: draggedCommits.count)
+        )
         activeDragCommitHashes = Set(draggedCommits.map(\.hash))
         beginCommitDrag(startingAt: commit.hash, payload: payload)
-        return makeCommitItemProvider(payload: payload)
-    }
-
-    private func makeCommitItemProvider(payload: GitDragPayload) -> NSItemProvider {
-        GitDragPayloadStore.set(payload)
-
-        let provider = NSItemProvider()
-        if let data = try? GitDragPayload.encodeTransferData(payload) {
-            provider.registerDataRepresentation(
-                forTypeIdentifier: UTType.macgitGitDragPayload.identifier,
-                visibility: .all
-            ) { completionHandler in
-                completionHandler(data, nil)
-                return nil
-            }
-        }
-        provider.register(payload)
-        return provider
+        return payload
     }
 
     private func beginCommitDrag(startingAt hash: String, payload: GitDragPayload) {
