@@ -148,7 +148,7 @@ final class GitUndoManagerTests: XCTestCase {
 
     func testUndoStackEvictsOldestEntryAndDiscardsItsResources() {
         var discarded: [GitUndoEntry] = []
-        let manager = GitUndoManager(stackLimit: 2) { discarded.append($0) }
+        let manager = GitUndoManager(stackLimit: 2) { entry, _ in discarded.append(entry) }
         let first = entry(label: "First")
         let second = entry(label: "Second")
         let third = entry(label: "Third")
@@ -163,7 +163,7 @@ final class GitUndoManagerTests: XCTestCase {
 
     func testRegisterDiscardsRedoResourcesAndRemoveAllDiscardsRemainingEntries() {
         var discarded: [GitUndoEntry] = []
-        let manager = GitUndoManager(discardEntry: { discarded.append($0) })
+        let manager = GitUndoManager(discardEntry: { entry, _ in discarded.append(entry) })
         let first = entry(label: "First")
         let second = entry(label: "Second")
 
@@ -174,6 +174,27 @@ final class GitUndoManagerTests: XCTestCase {
         manager.removeAll()
 
         XCTAssertEqual(discarded, [first, second])
+    }
+
+    func testEvictionDeletesOnlyUnsharedSnapshots() {
+        let shared = UUID()
+        let unshared = UUID()
+        var deleted: Set<UUID> = []
+        let manager = GitUndoManager(stackLimit: 1) { _, ids in deleted.formUnion(ids) }
+        let repository = URL(fileURLWithPath: "/tmp/repo")
+        manager.register(GitUndoEntry(
+            repositoryURL: repository, label: "Old",
+            undoOperation: .sequence([.restoreFileSnapshot(id: shared), .restoreFileSnapshot(id: unshared)]),
+            redoOperation: .deleteFileSnapshot(id: unshared)
+        ))
+        manager.register(GitUndoEntry(
+            repositoryURL: repository, label: "Retained",
+            undoOperation: .restoreFileSnapshot(id: shared),
+            redoOperation: .deleteFileSnapshot(id: shared)
+        ))
+        XCTAssertEqual(deleted, [unshared])
+        manager.removeAll()
+        XCTAssertEqual(deleted, [shared, unshared])
     }
 
     private func entry(label: String) -> GitUndoEntry {

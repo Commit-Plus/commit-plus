@@ -146,6 +146,26 @@ final class BranchListCacheTests: XCTestCase {
         XCTAssertEqual(callCount, 1)
     }
 
+    func testCancelledLoaderCannotRepopulateAfterReplacementIsEvicted() async {
+        let cache = BranchListCache(capacity: 1)
+        let repository = URL(fileURLWithPath: "/tmp/repo-old")
+        let gate = BranchLoaderGate()
+        let old = Task {
+            await cache.values(for: .local(repository)) {
+                await gate.wait()
+                return ["stale"]
+            }
+        }
+        await gate.waitUntilStarted()
+        await cache.invalidate(repositoryURL: repository)
+        _ = await cache.values(for: .local(repository)) { ["replacement"] }
+        _ = await cache.values(for: .local(URL(fileURLWithPath: "/tmp/repo-other"))) { ["other"] }
+        await gate.release()
+        _ = await old.value
+        let result = await cache.values(for: .local(repository)) { ["fresh"] }
+        XCTAssertEqual(result, ["fresh"])
+    }
+
     func testLeastRecentlyUsedEntryIsEvictedAtCapacity() async {
         let cache = BranchListCache(capacity: 2)
         let now = Date(timeIntervalSince1970: 0)
@@ -163,6 +183,23 @@ final class BranchListCacheTests: XCTestCase {
 
         XCTAssertEqual(reloadedSecond, ["reloaded"])
         XCTAssertEqual(retainedFirst, ["first"])
+    }
+}
+
+private actor BranchLoaderGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func waitUntilStarted() async {
+        while continuation == nil { await Task.yield() }
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
     }
 }
 

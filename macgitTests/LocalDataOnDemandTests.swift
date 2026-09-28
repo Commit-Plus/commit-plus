@@ -1,9 +1,29 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import XCTest
+import SQLite3
 @testable import macgit
 
 @MainActor
 final class LocalDataOnDemandTests: XCTestCase {
+    func testCollectionSnapshotReadsWhileAnotherConnectionReservesWriter() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("data.sqlite")
+        let database = LocalSQLiteDatabase(url: url)
+        let payload = Data("committed".utf8)
+        try await database.commit([("settings", "one", payload)])
+
+        var writer: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(url.path, &writer), SQLITE_OK)
+        let connection = try XCTUnwrap(writer)
+        defer { sqlite3_close(connection) }
+        XCTAssertEqual(sqlite3_exec(connection, "BEGIN IMMEDIATE", nil, nil, nil), SQLITE_OK)
+        defer { sqlite3_exec(connection, "ROLLBACK", nil, nil, nil) }
+
+        let snapshot = try await database.read(collections: ["settings"])
+        XCTAssertEqual(snapshot["settings"]?["one"], payload)
+    }
+
     func testPrepareAndOnDemandReadsDoNotRetainUnrelatedPayloads() async throws {
         let fixture = try LocalDataStoreTestFixture()
         defer { fixture.cleanup() }

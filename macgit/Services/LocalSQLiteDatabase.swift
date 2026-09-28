@@ -68,7 +68,7 @@ actor LocalSQLiteDatabase {
         guard !collections.isEmpty else { return [:] }
         return try withDatabase { db in
             var result: [String: [String: Data]] = [:]
-            try transaction(db) {
+            try transaction(db, readOnly: true) {
                 for collection in collections {
                     result[collection] = [:]
                     try query(db, "SELECT id, payload FROM records WHERE collection = ?", [collection]) { row in
@@ -88,8 +88,8 @@ actor LocalSQLiteDatabase {
         return result
     }
 
-    private func transaction(_ db: OpaquePointer, _ operation: () throws -> Void) throws {
-        try query(db, "BEGIN IMMEDIATE")
+    private func transaction(_ db: OpaquePointer, readOnly: Bool = false, _ operation: () throws -> Void) throws {
+        try query(db, readOnly ? "BEGIN DEFERRED" : "BEGIN IMMEDIATE")
         do {
             try operation()
             try query(db, "COMMIT")

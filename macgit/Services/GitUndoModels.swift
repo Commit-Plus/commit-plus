@@ -224,11 +224,11 @@ final class GitUndoManager: ObservableObject {
     @Published private(set) var undoStack: [GitUndoEntry] = []
     @Published private(set) var redoStack: [GitUndoEntry] = []
     private let stackLimit: Int
-    private let discardEntry: (GitUndoEntry) -> Void
+    private let discardEntry: (GitUndoEntry, Set<UUID>) -> Void
 
     init(
         stackLimit: Int = GitUndoManager.defaultStackLimit,
-        discardEntry: ((GitUndoEntry) -> Void)? = nil
+        discardEntry: ((GitUndoEntry, Set<UUID>) -> Void)? = nil
     ) {
         precondition(stackLimit > 0)
         self.stackLimit = stackLimit
@@ -308,15 +308,12 @@ final class GitUndoManager: ObservableObject {
         for entry in entries {
             let snapshotIDs = entry.undoOperation.fileSnapshotIDs
                 .union(entry.redoOperation.fileSnapshotIDs)
-            guard snapshotIDs.isDisjoint(with: retainedSnapshotIDs) else { continue }
-            discardEntry(entry)
+            discardEntry(entry, snapshotIDs.subtracting(retainedSnapshotIDs))
         }
     }
 
-    private static func deleteFileSnapshots(in entry: GitUndoEntry) {
+    private static func deleteFileSnapshots(in entry: GitUndoEntry, snapshotIDs: Set<UUID>) {
         let store = GitFileUndoSnapshotStore()
-        let snapshotIDs = entry.undoOperation.fileSnapshotIDs
-            .union(entry.redoOperation.fileSnapshotIDs)
         for id in snapshotIDs {
             try? store.delete(snapshotID: id, in: entry.repositoryURL)
         }

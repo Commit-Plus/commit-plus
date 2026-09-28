@@ -39,12 +39,11 @@ actor BranchListCache {
     }
 
     private struct InFlight {
-        let generation: Int
+        let id: UUID
         let task: Task<[String], Never>
     }
 
     private var entries: BoundedMemoryCache<Key, Entry>
-    private var generations: [Key: Int] = [:]
     private var inFlight: [Key: InFlight] = [:]
 
     init(capacity: Int = BranchListCache.defaultCapacity) {
@@ -60,25 +59,19 @@ actor BranchListCache {
             return entry.values
         }
 
-        let generation = generations[key, default: 0]
-        if let request = inFlight[key], request.generation == generation {
+        if let request = inFlight[key] {
             return await request.task.value
         }
 
+        let id = UUID()
         let task = Task { await load() }
-        inFlight[key] = InFlight(generation: generation, task: task)
+        inFlight[key] = InFlight(id: id, task: task)
         let values = await task.value
 
-        if inFlight[key]?.generation == generation {
+        // Only the current loader may publish; cancelled loaders can still finish.
+        if inFlight[key]?.id == id {
             inFlight[key] = nil
-        }
-        if generations[key, default: 0] == generation {
-            if let evicted = entries.insert(Entry(values: values, createdAt: now), for: key),
-               inFlight[evicted.key] == nil {
-                generations[evicted.key] = nil
-            }
-        } else if inFlight[key] == nil && entries.keys.contains(key) == false {
-            generations[key] = nil
+            entries.insert(Entry(values: values, createdAt: now), for: key)
         }
         return values
     }
@@ -117,10 +110,7 @@ actor BranchListCache {
     private func invalidate(_ key: Key) {
         entries.removeValue(forKey: key)
         if let request = inFlight.removeValue(forKey: key) {
-            generations[key, default: 0] += 1
             request.task.cancel()
-        } else {
-            generations[key] = nil
         }
     }
 
