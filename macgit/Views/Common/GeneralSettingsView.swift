@@ -35,6 +35,18 @@ struct GeneralSettingsView: View {
 
             Section {
                 SettingsToggleRow(
+                    title: "Show Tags",
+                    detail: "Include tags as a dedicated section in the repository sidebar.",
+                    isOn: $appState.showTags
+                )
+
+                SettingsToggleRow(
+                    title: "Show Worktrees",
+                    detail: "Include worktrees as a dedicated section in the repository sidebar.",
+                    isOn: $appState.showWorktrees
+                )
+
+                SettingsToggleRow(
                     title: "Show Git Flow",
                     detail: "Include Git Flow in the Workspace section of the repository sidebar.",
                     isOn: $appState.showGitFlow
@@ -128,6 +140,8 @@ struct GeneralSettingsView: View {
         appState.showWorkspaceReflog = true
         appState.showWorkspacePullRequests = true
         appState.showWorkspaceGitLFS = true
+        appState.showTags = true
+        appState.showWorktrees = true
         appState.showSubmodules = false
         appState.showSubtrees = false
         appState.historyIncludeRemotes = false

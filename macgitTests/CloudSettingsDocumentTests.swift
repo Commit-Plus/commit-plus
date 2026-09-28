@@ -28,6 +28,8 @@ final class CloudSettingsDocumentTests: XCTestCase {
         showWorkspaceReflog: false,
         showWorkspacePullRequests: true,
         showWorkspaceGitLFS: false,
+        showTags: false,
+        showWorktrees: true,
         showSubmodules: true,
         showSubtrees: false,
         showHeaderBranchButton: true,
@@ -60,6 +62,8 @@ final class CloudSettingsDocumentTests: XCTestCase {
                 "showWorkspaceReflog",
                 "showWorkspacePullRequests",
                 "showWorkspaceGitLFS",
+                "showTags",
+                "showWorktrees",
                 "showSubmodules",
                 "showSubtrees",
                 "showHeaderBranchButton",
@@ -85,6 +89,8 @@ final class CloudSettingsDocumentTests: XCTestCase {
         XCTAssertEqual(document["showWorkspaceReflog"] as? Bool, false)
         XCTAssertEqual(document["showWorkspacePullRequests"] as? Bool, true)
         XCTAssertEqual(document["showWorkspaceGitLFS"] as? Bool, false)
+        XCTAssertEqual(document["showTags"] as? Bool, false)
+        XCTAssertEqual(document["showWorktrees"] as? Bool, true)
         XCTAssertEqual(document["showSubmodules"] as? Bool, true)
         XCTAssertEqual(document["showSubtrees"] as? Bool, false)
         XCTAssertEqual(document["showHeaderBranchButton"] as? Bool, true)
@@ -140,6 +146,17 @@ final class CloudSettingsDocumentTests: XCTestCase {
         XCTAssertTrue(decoded.showWorkspaceReflog)
         XCTAssertTrue(decoded.showWorkspacePullRequests)
         XCTAssertTrue(decoded.showWorkspaceGitLFS)
+    }
+
+    func testDecodingDefaultsMissingTagsAndWorktreesVisibilityToTrue() throws {
+        var document = validDocument()
+        document.removeValue(forKey: "showTags")
+        document.removeValue(forKey: "showWorktrees")
+
+        let decoded = try CloudSettingsDocument.decode(document)
+
+        XCTAssertTrue(decoded.showTags)
+        XCTAssertTrue(decoded.showWorktrees)
     }
 
     func testDecodingDefaultsMissingHistoryFilterSettings() throws {

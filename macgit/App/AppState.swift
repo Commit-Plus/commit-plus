@@ -26,6 +26,8 @@ final class AppState: ObservableObject {
     private static let showWorkspaceReflogKey = "showWorkspaceReflog"
     private static let showWorkspacePullRequestsKey = "showWorkspacePullRequests"
     private static let showWorkspaceGitLFSKey = "showWorkspaceGitLFS"
+    private static let showTagsKey = "showTags"
+    private static let showWorktreesKey = "showWorktrees"
     private static let showSubmodulesKey = "showSubmodules"
     private static let showSubtreesKey = "showSubtrees"
     private static let showHeaderBranchButtonKey = "showHeaderBranchButton"
@@ -94,6 +96,22 @@ final class AppState: ObservableObject {
     @Published var showWorkspaceGitLFS: Bool {
         didSet {
             userDefaults.set(showWorkspaceGitLFS, forKey: Self.showWorkspaceGitLFSKey)
+            if !isApplyingSnapshot {
+                currentSettingsSnapshot = snapshot
+            }
+        }
+    }
+    @Published var showTags: Bool {
+        didSet {
+            userDefaults.set(showTags, forKey: Self.showTagsKey)
+            if !isApplyingSnapshot {
+                currentSettingsSnapshot = snapshot
+            }
+        }
+    }
+    @Published var showWorktrees: Bool {
+        didSet {
+            userDefaults.set(showWorktrees, forKey: Self.showWorktreesKey)
             if !isApplyingSnapshot {
                 currentSettingsSnapshot = snapshot
             }
@@ -262,6 +280,8 @@ final class AppState: ObservableObject {
         let showWorkspaceReflog = userDefaults.object(forKey: Self.showWorkspaceReflogKey) as? Bool ?? true
         let showWorkspacePullRequests = userDefaults.object(forKey: Self.showWorkspacePullRequestsKey) as? Bool ?? true
         let showWorkspaceGitLFS = userDefaults.object(forKey: Self.showWorkspaceGitLFSKey) as? Bool ?? true
+        let showTags = userDefaults.object(forKey: Self.showTagsKey) as? Bool ?? true
+        let showWorktrees = userDefaults.object(forKey: Self.showWorktreesKey) as? Bool ?? true
         let showSubmodules = userDefaults.object(forKey: Self.showSubmodulesKey) as? Bool ?? false
         let showSubtrees = userDefaults.object(forKey: Self.showSubtreesKey) as? Bool ?? false
         let showHeaderBranchButton = userDefaults.object(forKey: Self.showHeaderBranchButtonKey) as? Bool ?? true
@@ -294,6 +314,8 @@ final class AppState: ObservableObject {
             showWorkspaceReflog: showWorkspaceReflog,
             showWorkspacePullRequests: showWorkspacePullRequests,
             showWorkspaceGitLFS: showWorkspaceGitLFS,
+            showTags: showTags,
+            showWorktrees: showWorktrees,
             showSubmodules: showSubmodules,
             showSubtrees: showSubtrees,
             showHeaderBranchButton: showHeaderBranchButton,
@@ -317,6 +339,8 @@ final class AppState: ObservableObject {
         self.showWorkspaceReflog = showWorkspaceReflog
         self.showWorkspacePullRequests = showWorkspacePullRequests
         self.showWorkspaceGitLFS = showWorkspaceGitLFS
+        self.showTags = showTags
+        self.showWorktrees = showWorktrees
         self.showSubmodules = showSubmodules
         self.showSubtrees = showSubtrees
         self.showHeaderBranchButton = showHeaderBranchButton
@@ -347,6 +371,8 @@ final class AppState: ObservableObject {
             showWorkspaceReflog: showWorkspaceReflog,
             showWorkspacePullRequests: showWorkspacePullRequests,
             showWorkspaceGitLFS: showWorkspaceGitLFS,
+            showTags: showTags,
+            showWorktrees: showWorktrees,
             showSubmodules: showSubmodules,
             showSubtrees: showSubtrees,
             showHeaderBranchButton: showHeaderBranchButton,
@@ -375,6 +401,8 @@ final class AppState: ObservableObject {
         showWorkspaceReflog = snapshot.showWorkspaceReflog
         showWorkspacePullRequests = snapshot.showWorkspacePullRequests
         showWorkspaceGitLFS = snapshot.showWorkspaceGitLFS
+        showTags = snapshot.showTags
+        showWorktrees = snapshot.showWorktrees
         showSubmodules = snapshot.showSubmodules
         showSubtrees = snapshot.showSubtrees
         showHeaderBranchButton = snapshot.showHeaderBranchButton

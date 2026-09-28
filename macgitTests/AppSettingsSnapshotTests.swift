@@ -29,6 +29,8 @@ final class AppSettingsSnapshotTests: XCTestCase {
             showWorkspaceReflog: false,
             showWorkspacePullRequests: true,
             showWorkspaceGitLFS: false,
+            showTags: false,
+            showWorktrees: true,
             showSubmodules: true,
             showSubtrees: true,
             showHeaderBranchButton: false,
@@ -61,6 +63,8 @@ final class AppSettingsSnapshotTests: XCTestCase {
                 "showWorkspaceReflog",
                 "showWorkspacePullRequests",
                 "showWorkspaceGitLFS",
+                "showTags",
+                "showWorktrees",
                 "showSubmodules",
                 "showSubtrees",
                 "showHeaderBranchButton",
@@ -122,6 +126,28 @@ final class AppSettingsSnapshotTests: XCTestCase {
         XCTAssertTrue(decoded.showWorkspaceReflog)
         XCTAssertTrue(decoded.showWorkspacePullRequests)
         XCTAssertTrue(decoded.showWorkspaceGitLFS)
+    }
+
+    func testSnapshotDecodingDefaultsMissingTagsAndWorktreesVisibilityToTrue() throws {
+        let snapshot = AppSettingsSnapshot(
+            showToolbarButtonText: true,
+            showTags: false,
+            showWorktrees: false,
+            showSubmodules: false,
+            showSubtrees: false
+        )
+        let encoded = try JSONEncoder().encode(snapshot)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "showTags")
+        object.removeValue(forKey: "showWorktrees")
+
+        let decoded = try JSONDecoder().decode(
+            AppSettingsSnapshot.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+
+        XCTAssertTrue(decoded.showTags)
+        XCTAssertTrue(decoded.showWorktrees)
     }
 
     func testAppStateApplyChangesOnlyApprovedSettings() {
@@ -217,6 +243,25 @@ final class AppSettingsSnapshotTests: XCTestCase {
         XCTAssertFalse(reloaded.snapshot.showWorkspaceReflog)
         XCTAssertFalse(reloaded.snapshot.showWorkspacePullRequests)
         XCTAssertFalse(reloaded.snapshot.showWorkspaceGitLFS)
+    }
+
+    func testTagsAndWorktreesVisibilityDefaultsOnAndPersistsLocally() {
+        let suiteName = "AppSettingsSnapshotTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let state = AppState(userDefaults: defaults)
+        XCTAssertTrue(state.showTags)
+        XCTAssertTrue(state.showWorktrees)
+
+        state.showTags = false
+        state.showWorktrees = false
+
+        let reloaded = AppState(userDefaults: defaults)
+        XCTAssertFalse(reloaded.showTags)
+        XCTAssertFalse(reloaded.showWorktrees)
+        XCTAssertFalse(reloaded.snapshot.showTags)
+        XCTAssertFalse(reloaded.snapshot.showWorktrees)
     }
 
     func testSearchFilterIsDeviceLocalAndPersisted() {

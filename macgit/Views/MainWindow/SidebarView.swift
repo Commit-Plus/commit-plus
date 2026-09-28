@@ -756,6 +756,12 @@ struct SidebarView: View {
     private var sidebarContextMenu: some View {
         sidebarCreationMenu
         Divider()
+        Toggle(isOn: $appState.showTags) {
+            Label("Show Tags", systemImage: "tag")
+        }
+        Toggle(isOn: $appState.showWorktrees) {
+            Label("Show Worktrees", systemImage: "rectangle.3.group")
+        }
         Toggle(isOn: $appState.showSubmodules) {
             Label("Show Submodules", systemImage: "folder.badge.gearshape")
         }
@@ -802,25 +808,29 @@ struct SidebarView: View {
             actions: branchSectionActions
         )
 
-        SidebarWorktreesSection(
-            currentRepositoryURL: repositoryURL,
-            entries: worktreeEntries,
-            isExpanded: sectionStates.worktreesExpanded,
-            isLoading: isLoadingWorktrees,
-            onOpenInNewWindow: onRequestOpenWorktree,
-            actions: worktreeSectionActions
-        )
+        if appState.showWorktrees {
+            SidebarWorktreesSection(
+                currentRepositoryURL: repositoryURL,
+                entries: worktreeEntries,
+                isExpanded: sectionStates.worktreesExpanded,
+                isLoading: isLoadingWorktrees,
+                onOpenInNewWindow: onRequestOpenWorktree,
+                actions: worktreeSectionActions
+            )
+        }
 
-        SidebarTagsSection(
-            rows: visibleTagRows,
-            isExpanded: sectionStates.tagsExpanded,
-            isLoading: isLoadingTags,
-            expandedFolders: expandedTagFolders,
-            remoteNames: remoteNames,
-            isHeaderDropTargeted: activeDropTarget == .tagsHeader,
-            activeDropLabel: activeDropTarget == .tagsHeader ? activeDropLabel : nil,
-            actions: tagSectionActions
-        )
+        if appState.showTags {
+            SidebarTagsSection(
+                rows: visibleTagRows,
+                isExpanded: sectionStates.tagsExpanded,
+                isLoading: isLoadingTags,
+                expandedFolders: expandedTagFolders,
+                remoteNames: remoteNames,
+                isHeaderDropTargeted: activeDropTarget == .tagsHeader,
+                activeDropLabel: activeDropTarget == .tagsHeader ? activeDropLabel : nil,
+                actions: tagSectionActions
+            )
+        }
 
         SidebarRemotesSection(
             rows: visibleRemoteRows,

@@ -221,6 +221,8 @@ struct SettingsSyncConflictSheet: View {
                 settingRow("Workspace: Pull Requests", enabled: snapshot.showWorkspacePullRequests)
                 settingRow("Workspace: Git LFS", enabled: snapshot.showWorkspaceGitLFS)
                 settingRow("Workspace: Git Flow", enabled: snapshot.showGitFlow)
+                settingRow("Tags section", enabled: snapshot.showTags)
+                settingRow("Worktrees section", enabled: snapshot.showWorktrees)
                 settingRow("Submodules", enabled: snapshot.showSubmodules)
                 settingRow("Subtrees", enabled: snapshot.showSubtrees)
                 settingRow("Header: Branch", enabled: snapshot.showHeaderBranchButton)
