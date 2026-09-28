@@ -32,6 +32,7 @@ struct macgitApp: App {
     @StateObject private var repositoryBookmarkController: RepositoryBookmarkController
     @StateObject private var gitFlowConfigurationSyncController: GitFlowConfigurationSyncController
     @StateObject private var cloudLifecycleController: AppCloudLifecycleController
+    private let repositoryWindowLifecycleController = RepositoryWindowLifecycleController()
     @FocusedValue(\.repositoryWindowCommandState) private var repositoryWindowCommandState
 
     init() {
@@ -225,7 +226,8 @@ struct macgitApp: App {
                 isWelcomeWindow: isWelcomeWindow,
                 accountController: accountController,
                 providerAccountController: providerAccountController,
-                aiProviderController: aiProviderController
+                aiProviderController: aiProviderController,
+                repositoryWindowLifecycleController: repositoryWindowLifecycleController
             )
                 .environmentObject(appState)
                 .environmentObject(appUpdateController)

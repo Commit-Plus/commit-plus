@@ -168,6 +168,7 @@ Không tự commit, push hoặc thay đổi release. Các checkbox chỉ đượ
 - Thêm `BoundedMemoryCache` dùng access-order. Cache branch/reference giới hạn 32 entry, History giữ tối đa 3 snapshot branch/filter; entry cũ bị loại và request đang chạy bị hủy khi invalidate.
 - Undo/redo giữ tối đa 50 action. Entry bị loại, redo bị thay thế và thao tác clear đều xóa file snapshot không còn được stack nào tham chiếu, nên dữ liệu phục vụ undo còn hiệu lực vẫn được giữ.
 - Revision Browser hủy task và giải phóng tree/preview khi đóng. Repository AI hủy request/timer, pending operation và dữ liệu selector tạm khi window đóng.
+- Welcome được đóng khi một repository xuất hiện. Main window được đếm ở cấp app; khi main window cuối cùng đóng, Welcome được mở lại, tránh giữ đồng thời hai view tree trong luồng sử dụng repository thông thường.
 - Các cache còn lại đã được audit và giữ nguyên khi đã có owner/giới hạn phù hợp: Welcome activity 20 entry, syntax-highlight preview 512 dòng không dài, revision tree 50.000 entry, PR payload dùng SQLite có giới hạn, diff/image/video theo vòng đời view, AI history lưu SQLite và chỉ conversation hiện tại resident.
-- Coverage cache/History/undo/revision: **48/48 test PASS**. Regression Repository AI agent/remote lifecycle: **19/19 test PASS**. Build macOS: **PASS**; `git diff --check`: **PASS**.
+- Coverage cache/History/undo/revision: **48/48 test PASS**. Regression Repository AI agent/remote lifecycle: **19/19 test PASS**. Window lifecycle: **4/4 test PASS**. Build macOS: **PASS**; `git diff --check`: **PASS**.
 - Không launch/relaunch app; chưa kiểm tra tương tác mở/đóng nhiều window bằng runtime và chưa đo mức giảm RAM/cold start. Phần 6 chưa commit.
