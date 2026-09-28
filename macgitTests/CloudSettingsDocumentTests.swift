@@ -25,6 +25,9 @@ final class CloudSettingsDocumentTests: XCTestCase {
         appearance: .dark,
         showToolbarButtonText: false,
         showGitFlow: false,
+        showWorkspaceReflog: false,
+        showWorkspacePullRequests: true,
+        showWorkspaceGitLFS: false,
         showSubmodules: true,
         showSubtrees: false,
         showHeaderBranchButton: true,
@@ -54,6 +57,9 @@ final class CloudSettingsDocumentTests: XCTestCase {
                 "appearance",
                 "showToolbarButtonText",
                 "showGitFlow",
+                "showWorkspaceReflog",
+                "showWorkspacePullRequests",
+                "showWorkspaceGitLFS",
                 "showSubmodules",
                 "showSubtrees",
                 "showHeaderBranchButton",
@@ -76,6 +82,9 @@ final class CloudSettingsDocumentTests: XCTestCase {
         XCTAssertEqual(document["appearance"] as? String, "dark")
         XCTAssertEqual(document["showToolbarButtonText"] as? Bool, false)
         XCTAssertEqual(document["showGitFlow"] as? Bool, false)
+        XCTAssertEqual(document["showWorkspaceReflog"] as? Bool, false)
+        XCTAssertEqual(document["showWorkspacePullRequests"] as? Bool, true)
+        XCTAssertEqual(document["showWorkspaceGitLFS"] as? Bool, false)
         XCTAssertEqual(document["showSubmodules"] as? Bool, true)
         XCTAssertEqual(document["showSubtrees"] as? Bool, false)
         XCTAssertEqual(document["showHeaderBranchButton"] as? Bool, true)
@@ -118,6 +127,19 @@ final class CloudSettingsDocumentTests: XCTestCase {
         let decoded = try CloudSettingsDocument.decode(document)
 
         XCTAssertTrue(decoded.showGitFlow)
+    }
+
+    func testDecodingDefaultsMissingWorkspaceVisibilityToTrue() throws {
+        var document = validDocument()
+        document.removeValue(forKey: "showWorkspaceReflog")
+        document.removeValue(forKey: "showWorkspacePullRequests")
+        document.removeValue(forKey: "showWorkspaceGitLFS")
+
+        let decoded = try CloudSettingsDocument.decode(document)
+
+        XCTAssertTrue(decoded.showWorkspaceReflog)
+        XCTAssertTrue(decoded.showWorkspacePullRequests)
+        XCTAssertTrue(decoded.showWorkspaceGitLFS)
     }
 
     func testDecodingDefaultsMissingHistoryFilterSettings() throws {

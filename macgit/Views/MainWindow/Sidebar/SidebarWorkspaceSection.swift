@@ -19,11 +19,12 @@
 import SwiftUI
 
 struct SidebarWorkspaceSection: View {
+    @ObservedObject var appState: AppState
     let onRequestSearch: () -> Void
     let onRequestCreatePullRequest: () -> Void
-    let showGitFlow: Bool
     let gitFlowCommandState: GitFlowCommandState
     let onGitFlowAction: (GitFlowMenuAction) -> Void
+    @State private var isShowingVisibilityPopover = false
 
     var body: some View {
         Section {
@@ -41,12 +42,25 @@ struct SidebarWorkspaceSection: View {
                 .accessibilityElement(children: .combine)
 
                 Spacer()
+
+                Button("Customize Workspace", systemImage: "line.3.horizontal.decrease.circle") {
+                    isShowingVisibilityPopover.toggle()
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .padding(.trailing, 8)
+                .help("Choose which Workspace items are shown")
+                .sidebarPointingHandCursor()
+                .popover(isPresented: $isShowingVisibilityPopover, arrowEdge: .trailing) {
+                    WorkspaceVisibilityPopover(appState: appState)
+                }
             }
             .padding(.vertical, 2)
             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
 
             ForEach(SidebarSection.workspace.items) { item in
-                if item == .search {
+                if isVisible(item), item == .search {
                     Label(item.rawValue, systemImage: item.icon)
                         .padding(.leading, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -55,7 +69,7 @@ struct SidebarWorkspaceSection: View {
                             onRequestSearch()
                         }
                         .sidebarPointingHandCursor()
-                } else {
+                } else if isVisible(item) {
                     Label(item.rawValue, systemImage: item.icon)
                         .padding(.leading, 6)
                         .tag(SidebarSelection.item(item))
@@ -68,7 +82,7 @@ struct SidebarWorkspaceSection: View {
                 }
             }
 
-            if showGitFlow {
+            if appState.showGitFlow {
                 Label(SidebarItem.gitFlow.rawValue, systemImage: SidebarItem.gitFlow.icon)
                     .padding(.leading, 6)
                     .tag(SidebarSelection.item(.gitFlow))
@@ -84,6 +98,19 @@ struct SidebarWorkspaceSection: View {
                     .accessibilityHint("Shows Git Flow actions and workflow status.")
                     .sidebarPointingHandCursor()
             }
+        }
+    }
+
+    private func isVisible(_ item: SidebarItem) -> Bool {
+        switch item {
+        case .reflog:
+            appState.showWorkspaceReflog
+        case .pullRequests:
+            appState.showWorkspacePullRequests
+        case .gitLFS:
+            appState.showWorkspaceGitLFS
+        case .fileStatus, .history, .search, .gitFlow:
+            true
         }
     }
 }

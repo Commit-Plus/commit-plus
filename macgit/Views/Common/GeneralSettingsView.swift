@@ -36,8 +36,26 @@ struct GeneralSettingsView: View {
             Section {
                 SettingsToggleRow(
                     title: "Show Git Flow",
-                    detail: "Include Git Flow workflow actions as a dedicated repository sidebar section.",
+                    detail: "Include Git Flow in the Workspace section of the repository sidebar.",
                     isOn: $appState.showGitFlow
+                )
+
+                SettingsToggleRow(
+                    title: "Show Reflog",
+                    detail: "Include Reflog in the Workspace section of the repository sidebar.",
+                    isOn: $appState.showWorkspaceReflog
+                )
+
+                SettingsToggleRow(
+                    title: "Show Pull Requests",
+                    detail: "Include Pull Requests in the Workspace section of the repository sidebar.",
+                    isOn: $appState.showWorkspacePullRequests
+                )
+
+                SettingsToggleRow(
+                    title: "Show Git LFS",
+                    detail: "Include Git LFS in the Workspace section of the repository sidebar.",
+                    isOn: $appState.showWorkspaceGitLFS
                 )
 
                 SettingsToggleRow(
@@ -107,6 +125,9 @@ struct GeneralSettingsView: View {
     private func restoreDefaults() {
         appState.fitRepositoryWindowsToScreen = false
         appState.showGitFlow = true
+        appState.showWorkspaceReflog = true
+        appState.showWorkspacePullRequests = true
+        appState.showWorkspaceGitLFS = true
         appState.showSubmodules = false
         appState.showSubtrees = false
         appState.historyIncludeRemotes = false

@@ -23,6 +23,9 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
     var appearance: AppAppearance
     var showToolbarButtonText: Bool
     var showGitFlow: Bool
+    var showWorkspaceReflog: Bool
+    var showWorkspacePullRequests: Bool
+    var showWorkspaceGitLFS: Bool
     var showSubmodules: Bool
     var showSubtrees: Bool
     var showHeaderBranchButton: Bool
@@ -43,6 +46,9 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         appearance: AppAppearance = .system,
         showToolbarButtonText: Bool,
         showGitFlow: Bool = true,
+        showWorkspaceReflog: Bool = true,
+        showWorkspacePullRequests: Bool = true,
+        showWorkspaceGitLFS: Bool = true,
         showSubmodules: Bool,
         showSubtrees: Bool,
         showHeaderBranchButton: Bool = true,
@@ -63,6 +69,9 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         self.appearance = appearance
         self.showToolbarButtonText = showToolbarButtonText
         self.showGitFlow = showGitFlow
+        self.showWorkspaceReflog = showWorkspaceReflog
+        self.showWorkspacePullRequests = showWorkspacePullRequests
+        self.showWorkspaceGitLFS = showWorkspaceGitLFS
         self.showSubmodules = showSubmodules
         self.showSubtrees = showSubtrees
         self.showHeaderBranchButton = showHeaderBranchButton
@@ -86,6 +95,9 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         appearance = try container.decode(AppAppearance.self, forKey: .appearance)
         showToolbarButtonText = try container.decode(Bool.self, forKey: .showToolbarButtonText)
         showGitFlow = try container.decodeIfPresent(Bool.self, forKey: .showGitFlow) ?? true
+        showWorkspaceReflog = try container.decodeIfPresent(Bool.self, forKey: .showWorkspaceReflog) ?? true
+        showWorkspacePullRequests = try container.decodeIfPresent(Bool.self, forKey: .showWorkspacePullRequests) ?? true
+        showWorkspaceGitLFS = try container.decodeIfPresent(Bool.self, forKey: .showWorkspaceGitLFS) ?? true
         showSubmodules = try container.decode(Bool.self, forKey: .showSubmodules)
         showSubtrees = try container.decode(Bool.self, forKey: .showSubtrees)
         showHeaderBranchButton = try container.decode(Bool.self, forKey: .showHeaderBranchButton)

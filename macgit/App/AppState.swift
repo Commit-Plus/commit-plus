@@ -23,6 +23,9 @@ final class AppState: ObservableObject {
     private static let appearanceKey = "appearance"
     private static let showToolbarButtonTextKey = "showToolbarButtonText"
     private static let showGitFlowKey = "showGitFlow"
+    private static let showWorkspaceReflogKey = "showWorkspaceReflog"
+    private static let showWorkspacePullRequestsKey = "showWorkspacePullRequests"
+    private static let showWorkspaceGitLFSKey = "showWorkspaceGitLFS"
     private static let showSubmodulesKey = "showSubmodules"
     private static let showSubtreesKey = "showSubtrees"
     private static let showHeaderBranchButtonKey = "showHeaderBranchButton"
@@ -67,6 +70,30 @@ final class AppState: ObservableObject {
     @Published var showGitFlow: Bool {
         didSet {
             userDefaults.set(showGitFlow, forKey: Self.showGitFlowKey)
+            if !isApplyingSnapshot {
+                currentSettingsSnapshot = snapshot
+            }
+        }
+    }
+    @Published var showWorkspaceReflog: Bool {
+        didSet {
+            userDefaults.set(showWorkspaceReflog, forKey: Self.showWorkspaceReflogKey)
+            if !isApplyingSnapshot {
+                currentSettingsSnapshot = snapshot
+            }
+        }
+    }
+    @Published var showWorkspacePullRequests: Bool {
+        didSet {
+            userDefaults.set(showWorkspacePullRequests, forKey: Self.showWorkspacePullRequestsKey)
+            if !isApplyingSnapshot {
+                currentSettingsSnapshot = snapshot
+            }
+        }
+    }
+    @Published var showWorkspaceGitLFS: Bool {
+        didSet {
+            userDefaults.set(showWorkspaceGitLFS, forKey: Self.showWorkspaceGitLFSKey)
             if !isApplyingSnapshot {
                 currentSettingsSnapshot = snapshot
             }
@@ -232,6 +259,9 @@ final class AppState: ObservableObject {
             .flatMap(AppAppearance.init(rawValue:)) ?? .system
         let showToolbarButtonText = userDefaults.object(forKey: Self.showToolbarButtonTextKey) as? Bool ?? true
         let showGitFlow = userDefaults.object(forKey: Self.showGitFlowKey) as? Bool ?? true
+        let showWorkspaceReflog = userDefaults.object(forKey: Self.showWorkspaceReflogKey) as? Bool ?? true
+        let showWorkspacePullRequests = userDefaults.object(forKey: Self.showWorkspacePullRequestsKey) as? Bool ?? true
+        let showWorkspaceGitLFS = userDefaults.object(forKey: Self.showWorkspaceGitLFSKey) as? Bool ?? true
         let showSubmodules = userDefaults.object(forKey: Self.showSubmodulesKey) as? Bool ?? false
         let showSubtrees = userDefaults.object(forKey: Self.showSubtreesKey) as? Bool ?? false
         let showHeaderBranchButton = userDefaults.object(forKey: Self.showHeaderBranchButtonKey) as? Bool ?? true
@@ -261,6 +291,9 @@ final class AppState: ObservableObject {
             appearance: appearance,
             showToolbarButtonText: showToolbarButtonText,
             showGitFlow: showGitFlow,
+            showWorkspaceReflog: showWorkspaceReflog,
+            showWorkspacePullRequests: showWorkspacePullRequests,
+            showWorkspaceGitLFS: showWorkspaceGitLFS,
             showSubmodules: showSubmodules,
             showSubtrees: showSubtrees,
             showHeaderBranchButton: showHeaderBranchButton,
@@ -281,6 +314,9 @@ final class AppState: ObservableObject {
         self.appearance = appearance
         self.showToolbarButtonText = showToolbarButtonText
         self.showGitFlow = showGitFlow
+        self.showWorkspaceReflog = showWorkspaceReflog
+        self.showWorkspacePullRequests = showWorkspacePullRequests
+        self.showWorkspaceGitLFS = showWorkspaceGitLFS
         self.showSubmodules = showSubmodules
         self.showSubtrees = showSubtrees
         self.showHeaderBranchButton = showHeaderBranchButton
@@ -308,6 +344,9 @@ final class AppState: ObservableObject {
             appearance: appearance,
             showToolbarButtonText: showToolbarButtonText,
             showGitFlow: showGitFlow,
+            showWorkspaceReflog: showWorkspaceReflog,
+            showWorkspacePullRequests: showWorkspacePullRequests,
+            showWorkspaceGitLFS: showWorkspaceGitLFS,
             showSubmodules: showSubmodules,
             showSubtrees: showSubtrees,
             showHeaderBranchButton: showHeaderBranchButton,
@@ -333,6 +372,9 @@ final class AppState: ObservableObject {
         appearance = snapshot.appearance
         showToolbarButtonText = snapshot.showToolbarButtonText
         showGitFlow = snapshot.showGitFlow
+        showWorkspaceReflog = snapshot.showWorkspaceReflog
+        showWorkspacePullRequests = snapshot.showWorkspacePullRequests
+        showWorkspaceGitLFS = snapshot.showWorkspaceGitLFS
         showSubmodules = snapshot.showSubmodules
         showSubtrees = snapshot.showSubtrees
         showHeaderBranchButton = snapshot.showHeaderBranchButton

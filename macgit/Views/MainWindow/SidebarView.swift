@@ -767,9 +767,9 @@ struct SidebarView: View {
     @ViewBuilder
     private var sidebarRows: some View {
         SidebarWorkspaceSection(
+            appState: appState,
             onRequestSearch: onRequestSearch,
             onRequestCreatePullRequest: onRequestCreatePullRequestFromWorkspace,
-            showGitFlow: appState.showGitFlow,
             gitFlowCommandState: gitFlowCommandState,
             onGitFlowAction: performGitFlowAction
         )

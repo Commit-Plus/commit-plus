@@ -26,6 +26,9 @@ final class AppSettingsSnapshotTests: XCTestCase {
             appearance: .dark,
             showToolbarButtonText: false,
             showGitFlow: false,
+            showWorkspaceReflog: false,
+            showWorkspacePullRequests: true,
+            showWorkspaceGitLFS: false,
             showSubmodules: true,
             showSubtrees: true,
             showHeaderBranchButton: false,
@@ -55,6 +58,9 @@ final class AppSettingsSnapshotTests: XCTestCase {
                 "appearance",
                 "showToolbarButtonText",
                 "showGitFlow",
+                "showWorkspaceReflog",
+                "showWorkspacePullRequests",
+                "showWorkspaceGitLFS",
                 "showSubmodules",
                 "showSubtrees",
                 "showHeaderBranchButton",
@@ -91,6 +97,31 @@ final class AppSettingsSnapshotTests: XCTestCase {
         )
 
         XCTAssertTrue(decoded.showGitFlow)
+    }
+
+    func testSnapshotDecodingDefaultsMissingWorkspaceVisibilityToTrue() throws {
+        let snapshot = AppSettingsSnapshot(
+            showToolbarButtonText: true,
+            showWorkspaceReflog: false,
+            showWorkspacePullRequests: false,
+            showWorkspaceGitLFS: false,
+            showSubmodules: false,
+            showSubtrees: false
+        )
+        let encoded = try JSONEncoder().encode(snapshot)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "showWorkspaceReflog")
+        object.removeValue(forKey: "showWorkspacePullRequests")
+        object.removeValue(forKey: "showWorkspaceGitLFS")
+
+        let decoded = try JSONDecoder().decode(
+            AppSettingsSnapshot.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+
+        XCTAssertTrue(decoded.showWorkspaceReflog)
+        XCTAssertTrue(decoded.showWorkspacePullRequests)
+        XCTAssertTrue(decoded.showWorkspaceGitLFS)
     }
 
     func testAppStateApplyChangesOnlyApprovedSettings() {
@@ -163,6 +194,29 @@ final class AppSettingsSnapshotTests: XCTestCase {
 
         XCTAssertFalse(AppState(userDefaults: defaults).showGitFlow)
         XCTAssertEqual(defaults.object(forKey: "showGitFlow") as? Bool, false)
+    }
+
+    func testWorkspaceVisibilityDefaultsOnAndPersistsLocally() {
+        let suiteName = "AppSettingsSnapshotTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let state = AppState(userDefaults: defaults)
+        XCTAssertTrue(state.showWorkspaceReflog)
+        XCTAssertTrue(state.showWorkspacePullRequests)
+        XCTAssertTrue(state.showWorkspaceGitLFS)
+
+        state.showWorkspaceReflog = false
+        state.showWorkspacePullRequests = false
+        state.showWorkspaceGitLFS = false
+
+        let reloaded = AppState(userDefaults: defaults)
+        XCTAssertFalse(reloaded.showWorkspaceReflog)
+        XCTAssertFalse(reloaded.showWorkspacePullRequests)
+        XCTAssertFalse(reloaded.showWorkspaceGitLFS)
+        XCTAssertFalse(reloaded.snapshot.showWorkspaceReflog)
+        XCTAssertFalse(reloaded.snapshot.showWorkspacePullRequests)
+        XCTAssertFalse(reloaded.snapshot.showWorkspaceGitLFS)
     }
 
     func testSearchFilterIsDeviceLocalAndPersisted() {

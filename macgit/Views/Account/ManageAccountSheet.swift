@@ -217,7 +217,10 @@ struct SettingsSyncConflictSheet: View {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
                 settingValueRow("Appearance", value: snapshot.appearance.title)
                 settingRow("Toolbar button text", enabled: snapshot.showToolbarButtonText)
-                settingRow("Git Flow", enabled: snapshot.showGitFlow)
+                settingRow("Workspace: Reflog", enabled: snapshot.showWorkspaceReflog)
+                settingRow("Workspace: Pull Requests", enabled: snapshot.showWorkspacePullRequests)
+                settingRow("Workspace: Git LFS", enabled: snapshot.showWorkspaceGitLFS)
+                settingRow("Workspace: Git Flow", enabled: snapshot.showGitFlow)
                 settingRow("Submodules", enabled: snapshot.showSubmodules)
                 settingRow("Subtrees", enabled: snapshot.showSubtrees)
                 settingRow("Header: Branch", enabled: snapshot.showHeaderBranchButton)
