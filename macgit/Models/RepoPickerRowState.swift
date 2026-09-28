@@ -30,5 +30,4 @@ enum RepoPickerRowPresentationUpdate: Sendable {
     case branch(String?)
     case changedFiles(Int)
     case aheadBehind(ahead: Int, behind: Int)
-    case remoteURL(String)
 }

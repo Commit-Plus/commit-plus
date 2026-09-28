@@ -605,6 +605,9 @@ struct RepoPickerView: View {
         .task(id: repo.url) {
             await loadRowPresentation(for: repo)
         }
+        .task(id: repo.url) {
+            await loadRepositoryIcon(for: repo)
+        }
         .contextMenu {
             ForEach(bookmarkController.bookmarks.filter { bookmarkController.localURL(for: $0) == repo.url }) { bookmark in
                 Button("Update Bookmark: \(bookmark.name)…") { repairBookmark(bookmark, folder: repo.url) }
@@ -836,7 +839,6 @@ struct RepoPickerView: View {
 
     private func loadRowPresentation(for repo: RecentRepository) async {
         await MainActor.run {
-            loadingRepoIcons.insert(repo.url)
             rowStates[repo.url] = RepoPickerRowState(
                 currentBranch: rowStates[repo.url]?.currentBranch,
                 changedFileCount: nil,
@@ -852,8 +854,6 @@ struct RepoPickerView: View {
         guard FileManager.default.fileExists(atPath: repoPath),
               FileManager.default.fileExists(atPath: gitMetadataPath) else {
             await MainActor.run {
-                repoIcons[repo.url] = "code-branch"
-                loadingRepoIcons.remove(repo.url)
                 rowStates[repo.url] = RepoPickerRowState(
                     currentBranch: nil,
                     changedFileCount: nil,
@@ -869,9 +869,6 @@ struct RepoPickerView: View {
         await withTaskGroup(of: RepoPickerRowPresentationUpdate.self) { group in
             group.addTask {
                 .branch(await GitStatusService.shared.currentBranch(in: repo.url))
-            }
-            group.addTask {
-                .remoteURL(await GitStatusService.shared.remoteURL(remote: "origin", in: repo.url))
             }
             group.addTask {
                 .changedFiles(await GitStatusService.shared.uncommittedChangeCount(in: repo.url))
@@ -896,9 +893,6 @@ struct RepoPickerView: View {
                     case .aheadBehind(let ahead, let behind):
                         rowStates[repo.url]?.aheadCount = ahead
                         rowStates[repo.url]?.behindCount = behind
-                    case .remoteURL(let remoteURL):
-                        repoIcons[repo.url] = remoteURL.isEmpty ? "code-branch" : determineRepoIconName(from: remoteURL)
-                        loadingRepoIcons.remove(repo.url)
                     }
                 }
             }
@@ -908,6 +902,31 @@ struct RepoPickerView: View {
 
         await MainActor.run {
             rowStates[repo.url]?.isLoading = false
+        }
+    }
+
+    private func loadRepositoryIcon(for repo: RecentRepository) async {
+        await MainActor.run {
+            loadingRepoIcons.insert(repo.url)
+        }
+
+        let repoPath = repo.url.path
+        let gitMetadataPath = repo.url.appendingPathComponent(".git").path
+        guard FileManager.default.fileExists(atPath: repoPath),
+              FileManager.default.fileExists(atPath: gitMetadataPath) else {
+            await MainActor.run {
+                repoIcons[repo.url] = "code-branch"
+                loadingRepoIcons.remove(repo.url)
+            }
+            return
+        }
+
+        let remoteURL = await GitStatusService.shared.remoteURL(remote: "origin", in: repo.url)
+        guard !Task.isCancelled else { return }
+
+        await MainActor.run {
+            repoIcons[repo.url] = remoteURL.isEmpty ? "code-branch" : determineRepoIconName(from: remoteURL)
+            loadingRepoIcons.remove(repo.url)
         }
     }
 
