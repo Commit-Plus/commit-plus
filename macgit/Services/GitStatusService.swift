@@ -49,6 +49,7 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
     private var stderrData = Data()
     private var continuation: CheckedContinuation<GitProcessResult, Error>?
     private var didResume = false
+    private var wasCancelled = false
     private var isOutputTruncated = false
 
     init(
@@ -92,7 +93,9 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
         self.stdout = stdout
         self.stderr = stderr
         self.continuation = continuation
+        let cancelledBeforeStart = wasCancelled
         lock.unlock()
+        if cancelledBeforeStart { resume(throwing: CancellationError()); return }
 
         outputGroup.enter()
         outputGroup.enter()
@@ -106,6 +109,10 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
             try task.run()
             drain(stdout.fileHandleForReading, intoStandardError: false)
             drain(stderr.fileHandleForReading, intoStandardError: true)
+            lock.lock()
+            let cancelled = wasCancelled
+            lock.unlock()
+            if cancelled { cancel() }
         } catch {
             stdout.fileHandleForWriting.closeFile()
             stderr.fileHandleForWriting.closeFile()
@@ -162,7 +169,12 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
         outputLock.unlock()
         let errorOutput = String(decoding: errData, as: UTF8.self)
 
-        if process.terminationStatus != 0 {
+        lock.lock()
+        let cancelled = wasCancelled
+        lock.unlock()
+        if cancelled {
+            resume(throwing: CancellationError())
+        } else if process.terminationStatus != 0 {
             let output = String(decoding: outData, as: UTF8.self)
             // Git can write progress to stderr and the actual failure (such as merge conflicts) to stdout.
             let message = [errorOutput, output]
@@ -177,14 +189,24 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
 
     private func cancel() {
         lock.lock()
-        let task = task
-        let shouldTerminate = task?.isRunning == true
+        wasCancelled = true
+        let process = task
         lock.unlock()
+        guard let process, process.isRunning else { return }
+        Self.terminateChildren(of: process.processIdentifier)
+        process.terminate()
+        // Completion waits for process exit and pipe draining before callers release credentials.
+    }
 
-        if shouldTerminate {
-            task?.terminate()
+    private static func terminateChildren(of pid: Int32) {
+        var children = [Int32](repeating: 0, count: 4096)
+        let capacity = Int32(children.count * MemoryLayout<Int32>.size)
+        let count = children.withUnsafeMutableBytes { proc_listchildpids(pid, $0.baseAddress, capacity) }
+        guard count > 0 else { return }
+        for child in children.prefix(min(Int(count), children.count)) where child > 0 && child != pid {
+            terminateChildren(of: child)
+            kill(child, SIGTERM)
         }
-        resume(throwing: CancellationError())
     }
 
     private func resume(returning result: GitProcessResult) {
@@ -221,31 +243,81 @@ actor GitStatusService {
 
     private let runner: (any GitCommandRunning)?
     let runtimeManager: GitRuntimeManager
+    let lfsRuntime: GitLFSRuntime
     let branchListCache = BranchListCache()
+    var lfsMutations = Set<String>()
+    private var gitCorePaths: [String: Task<String, Error>] = [:]
     // Prevent two selected-patch operations from interleaving across windows for the same checkout.
     var activeCommitPatchRepositories: Set<String> = []
 
     init(
         runner: (any GitCommandRunning)? = nil,
-        runtimeManager: GitRuntimeManager = .shared
+        runtimeManager: GitRuntimeManager = .shared,
+        lfsRuntime: GitLFSRuntime = .shared
     ) {
         self.runner = runner
         self.runtimeManager = runtimeManager
+        self.lfsRuntime = lfsRuntime
     }
 
     func gitExecutable() async throws -> String {
         try await runtimeManager.executableURL().path
     }
 
+    /// Unknown commands retain LFS setup because they may invoke filters or hooks.
+    nonisolated static func requiresLFSRuntime(arguments: [String]) -> Bool {
+        switch arguments.first {
+        case "rev-parse", "rev-list", "merge-base", "for-each-ref", "show-ref", "check-ref-format":
+            return false
+        case "config":
+            return arguments.contains("--edit") || arguments.contains("-e")
+        case "branch":
+            return arguments != ["branch", "--show-current"]
+        case "remote":
+            return arguments.count != 1 && arguments.dropFirst().first != "get-url"
+        case "log":
+            // Require the final option to suppress diffs, so textconv/external diff
+            // drivers cannot invoke LFS. Do not mistake a path for this option.
+            return arguments.last != "--no-patch" || arguments.contains("--")
+        default:
+            return true
+        }
+    }
+
     func gitExecutionContext(
+        requiresLFS: Bool = true,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) async throws -> (executable: String, environment: [String: String]) {
         let executableURL = try await runtimeManager.executableURL()
-        let resolvedEnvironment = await runtimeManager.environment(
+        var resolvedEnvironment = await runtimeManager.environment(
             for: executableURL,
             inheriting: environment
         )
-        return (executableURL.path, resolvedEnvironment)
+        resolvedEnvironment["PATH"] = executableURL.deletingLastPathComponent().path + ":" + (resolvedEnvironment["PATH"] ?? "/usr/bin:/bin")
+        guard requiresLFS else { return (executableURL.path, resolvedEnvironment) }
+        if resolvedEnvironment["GIT_EXEC_PATH"] == nil {
+            let pathTask: Task<String, Error>
+            if let cached = gitCorePaths[executableURL.path] {
+                pathTask = cached
+            } else {
+                // Share the in-flight lookup across the Welcome screen's concurrent
+                // repository reads, as well as caching its completed result.
+                let processEnvironment = resolvedEnvironment
+                pathTask = Task {
+                    do {
+                        let result = try await GitProcessExecution(executable: executableURL.path, arguments: ["--exec-path"],
+                            directory: FileManager.default.temporaryDirectory, environment: processEnvironment, outputByteLimit: 16_384).run()
+                        return String(decoding: result.data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                    } catch {
+                        gitCorePaths[executableURL.path] = nil
+                        throw error
+                    }
+                }
+                gitCorePaths[executableURL.path] = pathTask
+            }
+            resolvedEnvironment["GIT_EXEC_PATH"] = try await pathTask.value
+        }
+        return (executableURL.path, try await lfsRuntime.environment(inheriting: resolvedEnvironment))
     }
 
     func runGit(arguments: [String], in directory: URL) async throws -> String {
@@ -343,7 +415,9 @@ actor GitStatusService {
 
         let startedAt = Date.now
         do {
-            let context = try await gitExecutionContext(environment: environment)
+            let context = try await gitExecutionContext(
+                requiresLFS: Self.requiresLFSRuntime(arguments: arguments), environment: environment
+            )
             let execution = GitProcessExecution(
                 executable: context.executable,
                 arguments: arguments,
@@ -384,7 +458,9 @@ actor GitStatusService {
     func runGitRaw(arguments: [String], in directory: URL, environment: [String: String], outputByteLimit: Int? = nil) async throws -> Data {
         let startedAt = Date()
         do {
-            let context = try await gitExecutionContext(environment: environment)
+            let context = try await gitExecutionContext(
+                requiresLFS: Self.requiresLFSRuntime(arguments: arguments), environment: environment
+            )
             let result = try await GitProcessExecution(
                 executable: context.executable,
                 arguments: arguments,
@@ -430,14 +506,17 @@ actor GitStatusService {
         executableURL: URL,
         arguments: [String],
         in directory: URL,
-        environment: [String: String]
+        environment: [String: String],
+        outputByteLimit: Int? = nil
     ) async throws -> Data {
         let result = try await GitProcessExecution(
             executable: executableURL.path,
             arguments: arguments,
             directory: directory,
-            environment: environment
+            environment: environment,
+            outputByteLimit: outputByteLimit
         ).run()
+        guard !result.isTruncated else { throw GitError.commandFailed("Command output exceeded the safety limit.") }
         return result.data
     }
 

@@ -1,0 +1,4 @@
+Git LFS
+https://github.com/git-lfs/git-lfs
+
+Commit+ optionally downloads the official Git LFS 3.8.0 macOS binary into private application storage. Git LFS is distributed under the MIT license; see GitLFS-LICENSE.txt. The downloaded archive retains upstream documentation.

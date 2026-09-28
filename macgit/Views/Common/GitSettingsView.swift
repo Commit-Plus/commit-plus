@@ -25,6 +25,7 @@ struct GitSettingsView: View {
 
         Form {
             GitRuntimeSettingsSection(viewModel: viewModel)
+            GitLFSRuntimeSection()
 
             Section {
                 TextField("Full Name", text: $viewModel.settings.userName)
