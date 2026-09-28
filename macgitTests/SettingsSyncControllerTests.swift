@@ -99,14 +99,17 @@ final class SettingsSyncControllerTests: XCTestCase {
         XCTAssertEqual(harness.controller.settingsSyncStatus, .syncing)
     }
 
-    func testLocalSettingChangeUploadsNewSnapshotWithoutRestart() async {
+    func testLocalSettingChangeUploadsImmediatelyWithoutRealtimeObservation() async {
         let harness = makeHarness(cloud: nil, enabled: true)
         await harness.controller.synchronizeSettingsNow()
 
-        harness.appState.showSubtrees = true
-        try? await Task.sleep(for: .milliseconds(600))
+        harness.appState.showSubmodules = true
+        for _ in 0..<20 where harness.store.cloud?.showSubmodules != true {
+            await Task.yield()
+        }
 
-        XCTAssertEqual(harness.store.cloud?.showSubtrees, true)
+        XCTAssertEqual(harness.store.cloud?.showSubmodules, true)
+        XCTAssertEqual(harness.store.observationCount, 0)
     }
 
     private func makeHarness(cloud: AppSettingsSnapshot?, enabled: Bool) -> ControllerHarness {
@@ -176,6 +179,7 @@ private final class ControllerFakeEntitlements: EntitlementProviding {
 @MainActor
 private final class ControllerFakeSettingsStore: CloudSettingsStore {
     var cloud: AppSettingsSnapshot?
+    private(set) var observationCount = 0
 
     init(cloud: AppSettingsSnapshot?) {
         self.cloud = cloud
@@ -187,7 +191,8 @@ private final class ControllerFakeSettingsStore: CloudSettingsStore {
         uid: String,
         onChange: @escaping (Result<AppSettingsSnapshot, Error>) -> Void
     ) -> ObservationToken {
-        ControllerObservationToken()
+        observationCount += 1
+        return ControllerObservationToken()
     }
 }
 

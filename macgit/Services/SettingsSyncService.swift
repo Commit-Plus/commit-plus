@@ -44,13 +44,8 @@ protocol SettingsSyncDebounceScheduling: AnyObject {
 final class TaskSettingsSyncScheduler: SettingsSyncDebounceScheduling {
     func schedule(_ operation: @escaping @MainActor () async -> Void) -> ObservationToken {
         let task = Task { @MainActor in
-            do {
-                try await Task.sleep(nanoseconds: 500_000_000)
-                guard !Task.isCancelled else { return }
-                await operation()
-            } catch {
-                // Cancellation is the normal debounce path.
-            }
+            guard !Task.isCancelled else { return }
+            await operation()
         }
         return SettingsSyncTaskToken(task: task)
     }
@@ -83,9 +78,9 @@ final class SettingsSyncService: ObservableObject {
     private let setSyncEnabled: (Bool) -> Void
     private let debounceScheduler: SettingsSyncDebounceScheduling
 
-    private var observation: ObservationToken?
     private var pendingDebounce: ObservationToken?
     private var activeUID: String?
+    private var isSessionActive = false
     private var pendingCloudSnapshot: AppSettingsSnapshot?
     private var lastKnownCloudSnapshot: AppSettingsSnapshot?
     private var pendingLocalSnapshot: AppSettingsSnapshot?
@@ -121,7 +116,7 @@ final class SettingsSyncService: ObservableObject {
         }
 
         if activeUID == uid,
-           observation != nil || pendingCloudSnapshot != nil {
+           isSessionActive || pendingCloudSnapshot != nil {
             return
         }
 
@@ -138,13 +133,13 @@ final class SettingsSyncService: ObservableObject {
                 try await store.save(localSnapshot, uid: uid)
                 guard isCurrent(uid: uid, generation: currentGeneration) else { return }
                 lastKnownCloudSnapshot = localSnapshot
-                beginObservation(uid: uid, generation: currentGeneration)
+                beginSession(uid: uid, generation: currentGeneration)
                 return
             }
 
             lastKnownCloudSnapshot = cloudSnapshot
             if cloudSnapshot == localSnapshot {
-                beginObservation(uid: uid, generation: currentGeneration)
+                beginSession(uid: uid, generation: currentGeneration)
             } else {
                 pendingCloudSnapshot = cloudSnapshot
                 status = .needsInitialChoice(cloudSnapshot)
@@ -167,7 +162,7 @@ final class SettingsSyncService: ObservableObject {
         case .useCloud:
             pendingCloudSnapshot = nil
             applyRemote(cloudSnapshot)
-            beginObservation(uid: uid, generation: currentGeneration)
+            beginSession(uid: uid, generation: currentGeneration)
         case .keepThisMac:
             let localSnapshot = currentSnapshot()
             do {
@@ -175,7 +170,7 @@ final class SettingsSyncService: ObservableObject {
                 guard isCurrent(uid: uid, generation: currentGeneration) else { return }
                 pendingCloudSnapshot = nil
                 lastKnownCloudSnapshot = localSnapshot
-                beginObservation(uid: uid, generation: currentGeneration)
+                beginSession(uid: uid, generation: currentGeneration)
             } catch {
                 guard isCurrent(uid: uid, generation: currentGeneration) else { return }
                 status = .failed(Self.message(for: error))
@@ -185,7 +180,7 @@ final class SettingsSyncService: ObservableObject {
 
     func localSettingsDidChange(_ snapshot: AppSettingsSnapshot) {
         guard let uid = activeUID,
-              observation != nil,
+              isSessionActive,
               !isApplyingRemote else { return }
 
         // A publisher can deliver the just-applied remote value after
@@ -208,7 +203,7 @@ final class SettingsSyncService: ObservableObject {
         generation currentGeneration: Int
     ) async {
         pendingDebounce = nil
-        guard isCurrent(uid: uid, generation: currentGeneration), observation != nil else { return }
+        guard isCurrent(uid: uid, generation: currentGeneration), isSessionActive else { return }
         do {
             try await store.save(snapshot, uid: uid)
             guard isCurrent(uid: uid, generation: currentGeneration) else { return }
@@ -223,38 +218,10 @@ final class SettingsSyncService: ObservableObject {
         }
     }
 
-    private func beginObservation(uid: String, generation currentGeneration: Int) {
+    private func beginSession(uid: String, generation currentGeneration: Int) {
         guard isCurrent(uid: uid, generation: currentGeneration) else { return }
-        observation?.cancel()
-        observation = store.observe(uid: uid) { [weak self] result in
-            guard let self else { return }
-            self.handleRemote(result, uid: uid, generation: currentGeneration)
-        }
+        isSessionActive = true
         status = .syncing
-    }
-
-    private func handleRemote(
-        _ result: Result<AppSettingsSnapshot, Error>,
-        uid: String,
-        generation currentGeneration: Int
-    ) {
-        guard isCurrent(uid: uid, generation: currentGeneration) else { return }
-        switch result {
-        case .success(let snapshot):
-            guard pendingLocalSnapshot == nil else {
-                // Local settings remain authoritative until their upload succeeds.
-                // Firestore can emit an older server snapshot when a pending write
-                // is offline or rejected; applying it would undo the user's edit.
-                return
-            }
-            lastKnownCloudSnapshot = snapshot
-            if currentSnapshot() != snapshot {
-                applyRemote(snapshot)
-            }
-            status = .syncing
-        case .failure(let error):
-            status = .failed(Self.message(for: error))
-        }
     }
 
     private func applyRemote(_ snapshot: AppSettingsSnapshot) {
@@ -268,9 +235,8 @@ final class SettingsSyncService: ObservableObject {
         generation += 1
         pendingDebounce?.cancel()
         pendingDebounce = nil
-        observation?.cancel()
-        observation = nil
         activeUID = nil
+        isSessionActive = false
         pendingCloudSnapshot = nil
         lastKnownCloudSnapshot = nil
         pendingLocalSnapshot = nil

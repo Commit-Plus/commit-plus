@@ -32,6 +32,15 @@ See `README.md` for features and `CONTRIBUTING.md` for setup and coding conventi
 - Do not run Firebase Emulator or emulator-backed tests, including through wrapper scripts. Use source review, syntax checks, and relevant builds; report emulator tests as not run.
 - Native client configuration is documented in `docs/firebase-setup.md`.
 
+### Firebase Deployment Completeness
+
+- Treat a native Firebase contract change as cross-repository work. Before handing it off, compare the app's document paths, encoded field names and types, queries, callable names, and authorization assumptions with the owning source in `../landing-page`.
+- Determine whether the change requires publishing backend state. Examples include Firestore rule changes for new or removed fields, paths, types, or access conditions; Firestore indexes for new query shapes; Cloud Functions changes for callable, trigger, runtime, or server-side behavior; and feature-policy or other provisioned Firebase documents consumed by the app.
+- Do not consider the app change operationally complete merely because both repositories build. If a required Firebase deployment has not happened, state that explicitly as a blocker or remaining rollout step.
+- In particular, when `CloudSettingsDocument.encode` adds a field, verify that the deployed `validAppSettings` allowlist and type checks accept it. A locally updated rules file is insufficient: production writes will reject the entire document until those rules are released.
+- Before any production Firebase deployment, inspect the exact diff, confirm the Firebase project and smallest affected deploy target, and obtain explicit user authorization unless the request already includes deployment. Never broaden a rules-only deployment into Functions or other targets.
+- After deployment, verify CLI success for the intended project/target and report separately what is local, committed, pushed, and deployed. Do not infer deployment from source state or a successful app build.
+
 ## Implementation Rules
 
 - Keep views focused on presentation and callbacks. Put coordination in the existing controllers/view models and Git execution in `GitStatusService*.swift`.

@@ -72,23 +72,23 @@ final class SettingsSyncServiceTests: XCTestCase {
         XCTAssertTrue(harness.store.loadedUIDs.isEmpty)
     }
 
-    func testFirstEnableWithNoCloudSettingsUploadsLocalAndObserves() async {
+    func testFirstEnableWithNoCloudSettingsUploadsLocalWithoutRealtimeObservation() async {
         let harness = makeHarness(cloud: nil)
 
         await harness.service.updateEligibility(uid: "u1", enabled: true)
 
         XCTAssertEqual(harness.store.saves, [.init(uid: "u1", snapshot: local)])
-        XCTAssertEqual(harness.store.observedUIDs, ["u1"])
+        XCTAssertTrue(harness.store.observedUIDs.isEmpty)
         XCTAssertEqual(harness.service.status, .syncing)
     }
 
-    func testEqualCloudSettingsStartObservationWithoutUpload() async {
+    func testEqualCloudSettingsStartSessionWithoutUploadOrRealtimeObservation() async {
         let harness = makeHarness(cloud: local)
 
         await harness.service.updateEligibility(uid: "u1", enabled: true)
 
         XCTAssertTrue(harness.store.saves.isEmpty)
-        XCTAssertEqual(harness.store.observedUIDs, ["u1"])
+        XCTAssertTrue(harness.store.observedUIDs.isEmpty)
         XCTAssertEqual(harness.service.status, .syncing)
     }
 
@@ -101,7 +101,7 @@ final class SettingsSyncServiceTests: XCTestCase {
         XCTAssertTrue(harness.store.observedUIDs.isEmpty)
     }
 
-    func testUseCloudChoiceAppliesCloudWithoutUploadingAndStartsObservation() async {
+    func testUseCloudChoiceAppliesCloudWithoutUploadingOrStartingRealtimeObservation() async {
         let harness = makeHarness(cloud: cloud)
         await harness.service.updateEligibility(uid: "u1", enabled: true)
 
@@ -109,18 +109,18 @@ final class SettingsSyncServiceTests: XCTestCase {
 
         XCTAssertEqual(harness.local.value, cloud)
         XCTAssertTrue(harness.store.saves.isEmpty)
-        XCTAssertEqual(harness.store.observedUIDs, ["u1"])
+        XCTAssertTrue(harness.store.observedUIDs.isEmpty)
         XCTAssertEqual(harness.service.status, .syncing)
     }
 
-    func testKeepThisMacChoiceUploadsCurrentLocalAndStartsObservation() async {
+    func testKeepThisMacChoiceUploadsCurrentLocalWithoutStartingRealtimeObservation() async {
         let harness = makeHarness(cloud: cloud)
         await harness.service.updateEligibility(uid: "u1", enabled: true)
 
         await harness.service.resolveInitialChoice(.keepThisMac)
 
         XCTAssertEqual(harness.store.saves, [.init(uid: "u1", snapshot: local)])
-        XCTAssertEqual(harness.store.observedUIDs, ["u1"])
+        XCTAssertTrue(harness.store.observedUIDs.isEmpty)
         XCTAssertEqual(harness.service.status, .syncing)
     }
 
@@ -134,16 +134,28 @@ final class SettingsSyncServiceTests: XCTestCase {
         XCTAssertEqual(harness.service.status, .off)
     }
 
-    func testRemoteApplyDoesNotEchoUpload() async {
+    func testRemoteChangesDoNotApplyDuringActiveSession() async {
         let harness = makeHarness(cloud: local)
         await harness.service.updateEligibility(uid: "u1", enabled: true)
 
         harness.store.send(cloud)
-        harness.service.localSettingsDidChange(cloud)
-        await harness.scheduler.fireAll()
 
-        XCTAssertEqual(harness.local.value, cloud)
+        XCTAssertEqual(harness.local.value, local)
         XCTAssertTrue(harness.store.saves.isEmpty)
+        XCTAssertTrue(harness.store.observedUIDs.isEmpty)
+    }
+
+    func testRemoteChangesAreComparedWhenNextSessionStarts() async {
+        let harness = makeHarness(cloud: local)
+        await harness.service.updateEligibility(uid: "u1", enabled: true)
+
+        harness.store.send(cloud)
+        await harness.service.updateEligibility(uid: nil, enabled: true)
+        await harness.service.updateEligibility(uid: "u1", enabled: true)
+
+        XCTAssertEqual(harness.local.value, local)
+        XCTAssertEqual(harness.service.status, .needsInitialChoice(cloud))
+        XCTAssertEqual(harness.store.loadedUIDs, ["u1", "u1"])
     }
 
     func testLocalEditsAreDebouncedAndOnlyLatestSnapshotUploads() async {
@@ -169,7 +181,7 @@ final class SettingsSyncServiceTests: XCTestCase {
         XCTAssertEqual(harness.store.saves, [.init(uid: "u1", snapshot: cloud)])
     }
 
-    func testRemoteRollbackDoesNotOverrideLocalWhenUploadFails() async {
+    func testCloudChangesDoNotOverrideLocalWhenUploadFails() async {
         let harness = makeHarness(cloud: local)
         await harness.service.updateEligibility(uid: "u1", enabled: true)
         var edited = local
@@ -188,7 +200,7 @@ final class SettingsSyncServiceTests: XCTestCase {
         XCTAssertEqual(harness.service.status, .failed("Settings save failed."))
     }
 
-    func testRemoteChangesResumeAfterLocalUploadSucceeds() async {
+    func testCloudChangesRemainDeferredAfterLocalUploadSucceeds() async {
         let harness = makeHarness(cloud: local)
         await harness.service.updateEligibility(uid: "u1", enabled: true)
         var edited = local
@@ -202,7 +214,7 @@ final class SettingsSyncServiceTests: XCTestCase {
         await harness.scheduler.fireAll()
         harness.store.send(cloud)
 
-        XCTAssertEqual(harness.local.value, cloud)
+        XCTAssertEqual(harness.local.value, edited)
     }
 
     func testRevertingLocalEditBeforeUploadKeepsLatestLocalValue() async {
@@ -218,19 +230,18 @@ final class SettingsSyncServiceTests: XCTestCase {
         XCTAssertEqual(harness.store.saves, [.init(uid: "u1", snapshot: local)])
     }
 
-    func testSignOutAndDisableCancelObservationAndPendingUpload() async {
+    func testSignOutAndDisableCancelPendingUploadAndActiveSession() async {
         let harness = makeHarness(cloud: local)
         await harness.service.updateEligibility(uid: "u1", enabled: true)
         harness.service.localSettingsDidChange(cloud)
 
         await harness.service.updateEligibility(uid: nil, enabled: true)
-        XCTAssertEqual(harness.store.tokens.last?.cancelCount, 1)
         XCTAssertEqual(harness.service.status, .off)
 
         await harness.service.updateEligibility(uid: "u1", enabled: true)
         await harness.service.updateEligibility(uid: "u1", enabled: false)
-        XCTAssertEqual(harness.store.tokens.last?.cancelCount, 1)
         XCTAssertEqual(harness.service.status, .off)
+        XCTAssertTrue(harness.store.observedUIDs.isEmpty)
 
         await harness.scheduler.fireAll()
         XCTAssertTrue(harness.store.saves.isEmpty)
@@ -244,7 +255,7 @@ final class SettingsSyncServiceTests: XCTestCase {
         await harness.service.updateEligibility(uid: "u1", enabled: true)
 
         XCTAssertEqual(harness.store.loadedUIDs, ["u1"])
-        XCTAssertEqual(harness.store.observedUIDs, ["u1"])
+        XCTAssertTrue(harness.store.observedUIDs.isEmpty)
         XCTAssertEqual(harness.service.status, .syncing)
     }
 
@@ -270,7 +281,7 @@ final class SettingsSyncServiceTests: XCTestCase {
         harness.store.resumeSuspendedLoads()
         await firstUpdate.value
         await replacementUpdate.value
-        XCTAssertEqual(harness.store.observedUIDs, ["u1"])
+        XCTAssertTrue(harness.store.observedUIDs.isEmpty)
         XCTAssertEqual(harness.service.status, .syncing)
     }
 
