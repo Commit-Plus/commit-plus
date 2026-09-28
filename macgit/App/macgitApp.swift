@@ -32,6 +32,7 @@ struct macgitApp: App {
     @StateObject private var repositoryBookmarkController: RepositoryBookmarkController
     @StateObject private var gitFlowConfigurationSyncController: GitFlowConfigurationSyncController
     @StateObject private var cloudLifecycleController: AppCloudLifecycleController
+    @State private var selectedAppSettingsSection: AppSettingsSection = .general
     private let repositoryWindowLifecycleController = RepositoryWindowLifecycleController()
     @FocusedValue(\.repositoryWindowCommandState) private var repositoryWindowCommandState
 
@@ -228,6 +229,7 @@ struct macgitApp: App {
                 accountController: accountController,
                 providerAccountController: providerAccountController,
                 aiProviderController: aiProviderController,
+                selectedAppSettingsSection: $selectedAppSettingsSection,
                 repositoryWindowLifecycleController: repositoryWindowLifecycleController
             )
                 .environmentObject(appState)
@@ -442,5 +444,22 @@ struct macgitApp: App {
                 }
             }
         }
+
+        Window("Settings", id: "settings") {
+            AppSettingsView(
+                appState: appState,
+                accountController: accountController,
+                featureAccessController: featureAccessController,
+                providerAccountController: providerAccountController,
+                aiProviderController: aiProviderController,
+                appUpdateController: appUpdateController,
+                selectedSection: $selectedAppSettingsSection
+            )
+            .environmentObject(featureAccessController)
+            .preferredColorScheme(appState.appearance.colorScheme)
+        }
+        .defaultSize(width: 920, height: 640)
+        .defaultLaunchBehavior(.suppressed)
+        .windowResizability(.contentMinSize)
     }
 }

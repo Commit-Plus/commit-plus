@@ -29,12 +29,10 @@ struct ContentView: View {
     @ObservedObject var accountController: AccountSessionController
     @ObservedObject var providerAccountController: GitProviderAccountController
     @ObservedObject var aiProviderController: AIProviderController
+    @Binding private var selectedAppSettingsSection: AppSettingsSection
     let repositoryWindowLifecycleController: RepositoryWindowLifecycleController
     let isWelcomeWindow: Bool
     let initialShowsHistory: Bool?
-
-    @State private var showingAppSettings = false
-    @State private var selectedAppSettingsSection: AppSettingsSection = .general
 
     @State private var repositoryOpenError = ""
     @State private var showingRepositoryOpenError = false
@@ -56,6 +54,7 @@ struct ContentView: View {
         accountController: AccountSessionController,
         providerAccountController: GitProviderAccountController,
         aiProviderController: AIProviderController,
+        selectedAppSettingsSection: Binding<AppSettingsSection>,
         repositoryWindowLifecycleController: RepositoryWindowLifecycleController
     ) {
         self.initialShowsHistory = request?.showsHistory
@@ -63,6 +62,7 @@ struct ContentView: View {
         self.accountController = accountController
         self.providerAccountController = providerAccountController
         self.aiProviderController = aiProviderController
+        _selectedAppSettingsSection = selectedAppSettingsSection
         self.repositoryWindowLifecycleController = repositoryWindowLifecycleController
         _repositoryURL = State(initialValue: request?.repositoryURL)
         _showingCloneSheet = State(
@@ -181,20 +181,6 @@ struct ContentView: View {
             }
             .interactiveDismissDisabled(accountController.isOpeningAccountOnWeb)
         }
-        .replacingSheet(isPresented: $showingAppSettings) {
-            AppSettingsView(
-                appState: appState,
-                accountController: accountController,
-                featureAccessController: featureAccessController,
-                providerAccountController: providerAccountController,
-                aiProviderController: aiProviderController,
-                appUpdateController: appUpdateController,
-                isPresented: $showingAppSettings,
-                selectedSection: $selectedAppSettingsSection
-            )
-                .environmentObject(featureAccessController)
-                .preferredColorScheme(appState.appearance.colorScheme)
-        }
         .alert("Current Repository is Open", isPresented: $showingKeepCurrentAlert) {
             Button("Cancel", role: .cancel) {}
             Button("Close Current", role: .destructive) {
@@ -223,7 +209,7 @@ struct ContentView: View {
             } else {
                 selectedAppSettingsSection = .general
             }
-            showingAppSettings = true
+            openWindow(id: "settings")
         }
         .onReceive(NotificationCenter.default.publisher(for: .newRepositoryTab)) { notification in
             guard !isWelcomeWindow, windowContext.owns(notification) else { return }
@@ -260,7 +246,7 @@ struct ContentView: View {
             operationProgress.activeOperation == nil ? .automatic : .disabled
         )
         .modifier(CommandLineSetupTipModifier(
-            isBlocked: showingAppSettings || showingCloneSheet || showingRepoPickerSheet
+            isBlocked: showingCloneSheet || showingRepoPickerSheet
                 || showingKeepCurrentAlert || accountController.presentedSheet != nil
                 || operationProgress.activeOperation != nil
         ))

@@ -18,13 +18,13 @@
 import SwiftUI
 
 struct AppSettingsView: View {
+    @Environment(\.dismissWindow) private var dismissWindow
     @ObservedObject var appState: AppState
     @ObservedObject var accountController: AccountSessionController
     @ObservedObject var featureAccessController: FeatureAccessController
     @ObservedObject var providerAccountController: GitProviderAccountController
     @ObservedObject var aiProviderController: AIProviderController
     @ObservedObject var appUpdateController: AppUpdateController
-    @Binding private var isPresented: Bool
     @Binding private var selectedSection: AppSettingsSection
     @State private var aiProviderDrafts: [AIProviderConfigurationDraft]
     @State private var saveErrorMessage: String?
@@ -37,7 +37,6 @@ struct AppSettingsView: View {
         providerAccountController: GitProviderAccountController,
         aiProviderController: AIProviderController,
         appUpdateController: AppUpdateController,
-        isPresented: Binding<Bool>,
         selectedSection: Binding<AppSettingsSection>
     ) {
         self.appState = appState
@@ -46,7 +45,6 @@ struct AppSettingsView: View {
         self.providerAccountController = providerAccountController
         self.aiProviderController = aiProviderController
         self.appUpdateController = appUpdateController
-        _isPresented = isPresented
         _selectedSection = selectedSection
         _aiProviderDrafts = State(initialValue: aiProviderController.configurationDrafts())
     }
@@ -92,7 +90,7 @@ struct AppSettingsView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
-        .frame(minWidth: 760, minHeight: 460, idealHeight: 580, maxHeight: 660)
+        .frame(minWidth: 860, idealWidth: 920, minHeight: 540, idealHeight: 640)
         .navigationTitle("Settings")
         .alert("Couldn’t Save Settings", isPresented: $isShowingSaveError) {
             Button("OK", role: .cancel) {}
@@ -116,7 +114,7 @@ struct AppSettingsView: View {
     }
 
     private func close() {
-        isPresented = false
+        dismissWindow(id: "settings")
     }
 
     private var restrictedAIProviderAccess: FeatureAccessDecision {
