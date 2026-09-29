@@ -31,16 +31,34 @@ nonisolated struct CommitGraphRowSlice: Equatable, Sendable {
         dots: [GraphDot],
         rowCount: Int
     ) -> [CommitGraphRowSlice] {
-        guard rowCount > 0 else { return [] }
+        makeRows(
+            paths: paths,
+            links: links,
+            dots: dots,
+            rowRange: 0..<rowCount,
+            rowCount: rowCount
+        )
+    }
 
-        var pathIndices = Array(repeating: [Int](), count: rowCount)
-        var linkIndices = Array(repeating: [Int](), count: rowCount)
-        var dotIndices = Array(repeating: [Int](), count: rowCount)
+    static func makeRows(
+        paths: [GraphPath],
+        links: [GraphLink],
+        dots: [GraphDot],
+        rowRange: Range<Int>,
+        rowCount: Int
+    ) -> [CommitGraphRowSlice] {
+        guard rowCount > 0, !rowRange.isEmpty else { return [] }
+
+        var pathIndices = Array(repeating: [Int](), count: rowRange.count)
+        var linkIndices = Array(repeating: [Int](), count: rowRange.count)
+        var dotIndices = Array(repeating: [Int](), count: rowRange.count)
 
         for (index, path) in paths.enumerated() {
             add(
                 index,
                 spanning: path.points.map(\.y),
+                rowRange: rowRange,
+                rowCount: rowCount,
                 to: &pathIndices
             )
         }
@@ -49,16 +67,20 @@ nonisolated struct CommitGraphRowSlice: Equatable, Sendable {
             add(
                 index,
                 spanning: [link.start.y, link.control.y, link.end.y],
+                rowRange: rowRange,
+                rowCount: rowCount,
                 to: &linkIndices
             )
         }
 
         for (index, dot) in dots.enumerated() {
             let row = min(rowCount - 1, max(0, Int(floor(dot.center.y))))
-            dotIndices[row].append(index)
+            if rowRange.contains(row) {
+                dotIndices[row - rowRange.lowerBound].append(index)
+            }
         }
 
-        return (0..<rowCount).map { row in
+        return pathIndices.indices.map { row in
             CommitGraphRowSlice(
                 pathIndices: pathIndices[row],
                 linkIndices: linkIndices[row],
@@ -70,21 +92,27 @@ nonisolated struct CommitGraphRowSlice: Equatable, Sendable {
     private static func add(
         _ index: Int,
         spanning yValues: [CGFloat],
+        rowRange: Range<Int>,
+        rowCount: Int,
         to rows: inout [[Int]]
     ) {
         guard let minimumY = yValues.min(),
               let maximumY = yValues.max(),
               maximumY >= 0,
-              minimumY <= CGFloat(rows.count) else {
+              minimumY <= CGFloat(rowCount) else {
             return
         }
 
         let lowerRow = max(0, Int(floor(minimumY)))
-        let upperRow = min(rows.count - 1, Int(floor(maximumY)))
+        let upperRow = min(rowCount - 1, Int(floor(maximumY)))
         guard lowerRow <= upperRow else { return }
 
-        for row in lowerRow...upperRow {
-            rows[row].append(index)
+        let visibleLowerRow = max(lowerRow, rowRange.lowerBound)
+        let visibleUpperRow = min(upperRow, rowRange.upperBound - 1)
+        guard visibleLowerRow <= visibleUpperRow else { return }
+
+        for row in visibleLowerRow...visibleUpperRow {
+            rows[row - rowRange.lowerBound].append(index)
         }
     }
 }

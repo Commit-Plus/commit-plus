@@ -76,12 +76,13 @@ nonisolated struct CommitGraphModel: Sendable {
         dots: [GraphDot],
         laneCount: Int,
         commitMetadata: [String: GraphCommitMetadata],
-        rowIndexByHash: [String: Int]
+        rowIndexByHash: [String: Int],
+        rowSlices: [CommitGraphRowSlice]? = nil
     ) {
         self.paths = paths
         self.links = links
         self.dots = dots
-        self.rowSlices = CommitGraphRowSlice.makeRows(
+        self.rowSlices = rowSlices ?? CommitGraphRowSlice.makeRows(
             paths: paths,
             links: links,
             dots: dots,

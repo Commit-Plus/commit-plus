@@ -47,6 +47,7 @@ struct HistoryView: View {
     
     @State private var commits: [Commit] = []
     @State private var graphModel: CommitGraphModel? = nil
+    @State private var graphGenerationState: CommitGraphGenerationState? = nil
     @State private var commitSelection = HistoryCommitSelection()
     @State private var activeDragCommitHashes: Set<String> = []
     @State private var activeCommitDragPayload: GitDragPayload?
@@ -1133,7 +1134,7 @@ struct HistoryView: View {
                 commits: cached.commits,
                 repositoryURL: repositoryURL
             )
-            let cachedGraphModel = await CommitGraphGenerator.generateAsync(
+            let cachedGraphResult = await CommitGraphGenerator.generateIncrementalAsync(
                 commits: cached.commits,
                 highlighting: Self.highlighting(for: appState.historyBranchFilter),
                 headHash: cachedHeadHash,
@@ -1142,7 +1143,7 @@ struct HistoryView: View {
             guard historyLoadKey == cacheKey else { return }
             applyCachedSnapshot(
                 cached,
-                graphModel: cachedGraphModel,
+                graphResult: cachedGraphResult,
                 headHash: cachedHeadHash
             )
             return
@@ -1162,6 +1163,7 @@ struct HistoryView: View {
                 cancelHistoryRefreshIndicator()
                 if commits.isEmpty {
                     graphModel = nil
+                    graphGenerationState = nil
                     selectedCommit = nil
                     tableSelection = []
                     fileChanges = []
@@ -1232,12 +1234,31 @@ struct HistoryView: View {
             repositoryURL: repositoryURL
         )
         let highlighting = Self.highlighting(for: appState.historyBranchFilter)
-        let newGraphModel = await CommitGraphGenerator.generateAsync(
-            commits: loadedCommits,
-            highlighting: highlighting,
-            headHash: headHash,
-            highlightRootHash: highlightRootHash
-        )
+        let previousGraphState = await MainActor.run { graphGenerationState }
+        let incrementalGraphResult: CommitGraphGenerationResult?
+        if !reset, let previousGraphState {
+            incrementalGraphResult = await CommitGraphGenerator.appendAsync(
+                commits: newCommits,
+                to: previousGraphState,
+                allCommits: loadedCommits,
+                highlighting: highlighting,
+                headHash: headHash,
+                highlightRootHash: highlightRootHash
+            )
+        } else {
+            incrementalGraphResult = nil
+        }
+        let newGraphResult: CommitGraphGenerationResult
+        if let incrementalGraphResult {
+            newGraphResult = incrementalGraphResult
+        } else {
+            newGraphResult = await CommitGraphGenerator.generateIncrementalAsync(
+                commits: loadedCommits,
+                highlighting: highlighting,
+                headHash: headHash,
+                highlightRootHash: highlightRootHash
+            )
+        }
 
         let viewportAnchor = await MainActor.run {
             preservingSelectionAndScroll
@@ -1253,7 +1274,8 @@ struct HistoryView: View {
                 isRestoringTableSelection = true
             }
             commits = loadedCommits
-            graphModel = newGraphModel
+            graphModel = newGraphResult.model
+            graphGenerationState = newGraphResult.state
             let visibleHashes = loadedCommits.map(\.hash)
             if reset && !preservingSelectionAndScroll {
                 // A branch change must select that branch's tip, even when the
@@ -1386,7 +1408,7 @@ struct HistoryView: View {
 
     private func applyCachedSnapshot(
         _ snapshot: HistorySnapshot,
-        graphModel cachedGraphModel: CommitGraphModel,
+        graphResult cachedGraphResult: CommitGraphGenerationResult,
         headHash: String?
     ) {
         cancelHistoryRefreshIndicator()
@@ -1401,7 +1423,8 @@ struct HistoryView: View {
         currentHeadHash = headHash
 
         commits = snapshot.commits
-        graphModel = cachedGraphModel
+        graphModel = cachedGraphResult.model
+        graphGenerationState = cachedGraphResult.state
 
         let visibleHashes = snapshot.commits.map(\.hash)
         if let cachedHash = snapshot.selectedCommit?.hash,
@@ -1477,7 +1500,7 @@ struct HistoryView: View {
             commits: loadedCommits,
             repositoryURL: repositoryURL
         )
-        let newGraphModel = await CommitGraphGenerator.generateAsync(
+        let newGraphResult = await CommitGraphGenerator.generateIncrementalAsync(
             commits: loadedCommits,
             highlighting: Self.highlighting(for: appState.historyBranchFilter),
             headHash: headHash,
@@ -1490,7 +1513,8 @@ struct HistoryView: View {
         await MainActor.run {
             let pinnedSelectedCommit = selectedCommit
             commits = loadedCommits
-            graphModel = newGraphModel
+            graphModel = newGraphResult.model
+            graphGenerationState = newGraphResult.state
             currentHeadHash = headHash
 
             let visibleHashes = loadedCommits.map(\.hash)
@@ -1576,7 +1600,7 @@ struct HistoryView: View {
             commits: trimmedCommits,
             repositoryURL: repositoryURL
         )
-        let trimmedGraphModel = await CommitGraphGenerator.generateAsync(
+        let trimmedGraphResult = await CommitGraphGenerator.generateIncrementalAsync(
             commits: trimmedCommits,
             highlighting: Self.highlighting(for: appState.historyBranchFilter),
             headHash: headHash,
@@ -1593,7 +1617,8 @@ struct HistoryView: View {
               commits.map(\.hash) == originalHashes else { return }
 
         commits = trimmedCommits
-        graphModel = trimmedGraphModel
+        graphModel = trimmedGraphResult.model
+        graphGenerationState = trimmedGraphResult.state
         currentHeadHash = headHash
         switch edge {
         case .newer:

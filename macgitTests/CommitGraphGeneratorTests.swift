@@ -41,6 +41,49 @@ final class CommitGraphGeneratorTests: XCTestCase {
         )
     }
 
+    private func assertModelsEqual(
+        _ actual: CommitGraphModel,
+        _ expected: CommitGraphModel,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(actual.paths.count, expected.paths.count, file: file, line: line)
+        for (actualPath, expectedPath) in zip(actual.paths, expected.paths) {
+            XCTAssertEqual(actualPath.points, expectedPath.points, file: file, line: line)
+            XCTAssertEqual(actualPath.colorIndex, expectedPath.colorIndex, file: file, line: line)
+            XCTAssertEqual(actualPath.isHighlighted, expectedPath.isHighlighted, file: file, line: line)
+        }
+
+        XCTAssertEqual(actual.links.count, expected.links.count, file: file, line: line)
+        for (actualLink, expectedLink) in zip(actual.links, expected.links) {
+            XCTAssertEqual(actualLink.start, expectedLink.start, file: file, line: line)
+            XCTAssertEqual(actualLink.control, expectedLink.control, file: file, line: line)
+            XCTAssertEqual(actualLink.end, expectedLink.end, file: file, line: line)
+            XCTAssertEqual(actualLink.colorIndex, expectedLink.colorIndex, file: file, line: line)
+            XCTAssertEqual(actualLink.isHighlighted, expectedLink.isHighlighted, file: file, line: line)
+        }
+
+        XCTAssertEqual(actual.dots.count, expected.dots.count, file: file, line: line)
+        for (actualDot, expectedDot) in zip(actual.dots, expected.dots) {
+            XCTAssertEqual(actualDot.center, expectedDot.center, file: file, line: line)
+            XCTAssertEqual(actualDot.lane, expectedDot.lane, file: file, line: line)
+            XCTAssertEqual(actualDot.type, expectedDot.type, file: file, line: line)
+            XCTAssertEqual(actualDot.colorIndex, expectedDot.colorIndex, file: file, line: line)
+            XCTAssertEqual(actualDot.isHighlighted, expectedDot.isHighlighted, file: file, line: line)
+        }
+
+        XCTAssertEqual(actual.rowSlices, expected.rowSlices, file: file, line: line)
+        XCTAssertEqual(actual.laneCount, expected.laneCount, file: file, line: line)
+        XCTAssertEqual(actual.rowIndexByHash, expected.rowIndexByHash, file: file, line: line)
+        XCTAssertEqual(actual.commitMetadata.count, expected.commitMetadata.count, file: file, line: line)
+        for (hash, expectedMetadata) in expected.commitMetadata {
+            let actualMetadata = actual.commitMetadata[hash]
+            XCTAssertEqual(actualMetadata?.colorIndex, expectedMetadata.colorIndex, file: file, line: line)
+            XCTAssertEqual(actualMetadata?.isHighlighted, expectedMetadata.isHighlighted, file: file, line: line)
+            XCTAssertEqual(actualMetadata?.leftMargin, expectedMetadata.leftMargin, file: file, line: line)
+        }
+    }
+
     func testLinearHistory() {
         let a = makeCommit(hash: "a")
         let b = makeCommit(hash: "b", parents: ["a"])
@@ -199,5 +242,95 @@ final class CommitGraphGeneratorTests: XCTestCase {
             ["a", "b", "f"]
         )
         XCTAssertFalse(model.commitMetadata["c"]?.isHighlighted ?? true)
+    }
+
+    func testIncrementalLinearHistoryMatchesFullGeneration() throws {
+        let a = makeCommit(hash: "a")
+        let b = makeCommit(hash: "b", parents: ["a"])
+        let c = makeCommit(hash: "c", parents: ["b"])
+        let d = makeCommit(hash: "d", parents: ["c"])
+        let commits = [d, c, b, a]
+
+        let initial = CommitGraphGenerator.generateIncremental(
+            commits: Array(commits.prefix(2)),
+            highlighting: .all,
+            headHash: "d",
+            highlightRootHash: nil
+        )
+        let incremental = try XCTUnwrap(
+            CommitGraphGenerator.append(
+                commits: Array(commits.dropFirst(2)),
+                to: initial.state,
+                allCommits: commits,
+                highlighting: .all,
+                headHash: "d",
+                highlightRootHash: nil
+            )
+        )
+        let full = CommitGraphGenerator.generate(
+            commits: commits,
+            highlighting: .all,
+            headHash: "d",
+            highlightRootHash: nil
+        )
+
+        assertModelsEqual(incremental.model, full)
+    }
+
+    func testIncrementalMergeHistoryMatchesFullGeneration() throws {
+        let a = makeCommit(hash: "a")
+        let b = makeCommit(hash: "b", parents: ["a"])
+        let c = makeCommit(hash: "c", parents: ["b"], refs: ["main"])
+        let f = makeCommit(hash: "f", parents: ["b"], refs: ["feature"])
+        let m = makeCommit(hash: "m", parents: ["c", "f"])
+        let commits = [m, f, c, b, a]
+
+        let initial = CommitGraphGenerator.generateIncremental(
+            commits: Array(commits.prefix(2)),
+            highlighting: .currentBranchOnly,
+            headHash: "m",
+            highlightRootHash: "c"
+        )
+        let incremental = try XCTUnwrap(
+            CommitGraphGenerator.append(
+                commits: Array(commits.dropFirst(2)),
+                to: initial.state,
+                allCommits: commits,
+                highlighting: .currentBranchOnly,
+                headHash: "m",
+                highlightRootHash: "c"
+            )
+        )
+        let full = CommitGraphGenerator.generate(
+            commits: commits,
+            highlighting: .currentBranchOnly,
+            headHash: "m",
+            highlightRootHash: "c"
+        )
+
+        assertModelsEqual(incremental.model, full)
+    }
+
+    func testIncrementalAppendRejectsNonSuffixChanges() {
+        let a = makeCommit(hash: "a")
+        let b = makeCommit(hash: "b", parents: ["a"])
+        let c = makeCommit(hash: "c", parents: ["b"])
+        let initial = CommitGraphGenerator.generateIncremental(
+            commits: [c, b],
+            highlighting: .all,
+            headHash: "c",
+            highlightRootHash: nil
+        )
+
+        XCTAssertNil(
+            CommitGraphGenerator.append(
+                commits: [a],
+                to: initial.state,
+                allCommits: [c, a, b],
+                highlighting: .all,
+                headHash: "c",
+                highlightRootHash: nil
+            )
+        )
     }
 }

@@ -22,6 +22,60 @@
 //
 import Foundation
 
+nonisolated struct CommitGraphGenerationResult: @unchecked Sendable {
+    let model: CommitGraphModel
+    let state: CommitGraphGenerationState
+}
+
+nonisolated struct CommitGraphGenerationState: @unchecked Sendable {
+    fileprivate var mutablePaths: [MutableGraphPath]
+    fileprivate var links: [GraphLink]
+    fileprivate var dots: [GraphDot]
+    fileprivate var metadata: [String: GraphCommitMetadata]
+    fileprivate var unsolved: [PathHelper]
+    fileprivate var offsetY: Double
+    fileprivate var colorPicker: ColorPicker
+    fileprivate var maxLane: Int
+    fileprivate var rowByHash: [String: Int]
+    fileprivate var rowSlices: [CommitGraphRowSlice]
+    fileprivate var commitHashes: [String]
+    fileprivate let highlighting: CommitGraphHighlighting
+    fileprivate let headHash: String?
+    fileprivate let highlightRootHash: String?
+
+    fileprivate func copied() -> CommitGraphGenerationState {
+        let copiedPaths = mutablePaths.map { $0.copied() }
+        let copiedPathByID = Dictionary(
+            uniqueKeysWithValues: zip(mutablePaths, copiedPaths).map {
+                (ObjectIdentifier($0.0), $0.1)
+            }
+        )
+        let copiedUnsolved = unsolved.compactMap { helper -> PathHelper? in
+            guard let copiedPath = copiedPathByID[ObjectIdentifier(helper.path)] else {
+                return nil
+            }
+            return helper.copied(path: copiedPath)
+        }
+
+        return CommitGraphGenerationState(
+            mutablePaths: copiedPaths,
+            links: links,
+            dots: dots,
+            metadata: metadata,
+            unsolved: copiedUnsolved,
+            offsetY: offsetY,
+            colorPicker: colorPicker,
+            maxLane: maxLane,
+            rowByHash: rowByHash,
+            rowSlices: rowSlices,
+            commitHashes: commitHashes,
+            highlighting: highlighting,
+            headHash: headHash,
+            highlightRootHash: highlightRootHash
+        )
+    }
+}
+
 nonisolated enum CommitGraphGenerator {
     private static let unitWidth = 12.0
     private static let halfWidth = 6.0
@@ -37,8 +91,42 @@ nonisolated enum CommitGraphGenerator {
         headHash: String?,
         highlightRootHash: String?
     ) async -> CommitGraphModel {
-        generate(
+        generateIncremental(
             commits: commits,
+            highlighting: highlighting,
+            headHash: headHash,
+            highlightRootHash: highlightRootHash
+        ).model
+    }
+
+    @concurrent
+    static func generateIncrementalAsync(
+        commits: [Commit],
+        highlighting: CommitGraphHighlighting,
+        headHash: String?,
+        highlightRootHash: String?
+    ) async -> CommitGraphGenerationResult {
+        generateIncremental(
+            commits: commits,
+            highlighting: highlighting,
+            headHash: headHash,
+            highlightRootHash: highlightRootHash
+        )
+    }
+
+    @concurrent
+    static func appendAsync(
+        commits: [Commit],
+        to previousState: CommitGraphGenerationState,
+        allCommits: [Commit],
+        highlighting: CommitGraphHighlighting,
+        headHash: String?,
+        highlightRootHash: String?
+    ) async -> CommitGraphGenerationResult? {
+        append(
+            commits: commits,
+            to: previousState,
+            allCommits: allCommits,
             highlighting: highlighting,
             headHash: headHash,
             highlightRootHash: highlightRootHash
@@ -51,17 +139,20 @@ nonisolated enum CommitGraphGenerator {
         headHash: String?,
         highlightRootHash: String?
     ) -> CommitGraphModel {
-        guard !commits.isEmpty else {
-            return CommitGraphModel(
-                paths: [],
-                links: [],
-                dots: [],
-                laneCount: 1,
-                commitMetadata: [:],
-                rowIndexByHash: [:]
-            )
-        }
+        generateIncremental(
+            commits: commits,
+            highlighting: highlighting,
+            headHash: headHash,
+            highlightRootHash: highlightRootHash
+        ).model
+    }
 
+    static func generateIncremental(
+        commits: [Commit],
+        highlighting: CommitGraphHighlighting,
+        headHash: String?,
+        highlightRootHash: String?
+    ) -> CommitGraphGenerationResult {
         let rowByHash = Dictionary(
             uniqueKeysWithValues: commits.enumerated().map { ($0.element.hash, $0.offset) }
         )
@@ -71,25 +162,78 @@ nonisolated enum CommitGraphGenerator {
             rowByHash: rowByHash
         )
 
-        var mutablePaths: [MutableGraphPath] = []
-        var links: [GraphLink] = []
-        var dots: [GraphDot] = []
-        var metadata: [String: GraphCommitMetadata] = [:]
-        var unsolved: [PathHelper] = []
+        var state = CommitGraphGenerationState(
+            mutablePaths: [],
+            links: [],
+            dots: [],
+            metadata: [:],
+            unsolved: [],
+            offsetY: -halfHeight,
+            colorPicker: ColorPicker(colorCount: colorCount),
+            maxLane: 0,
+            rowByHash: rowByHash,
+            rowSlices: [],
+            commitHashes: commits.map(\.hash),
+            highlighting: highlighting,
+            headHash: headHash,
+            highlightRootHash: highlightRootHash
+        )
+
+        process(commits: commits, highlightedCommits: highlightedCommits, state: &state)
+        let model = snapshot(state: &state, appendedRowStart: 0)
+        return CommitGraphGenerationResult(model: model, state: state)
+    }
+
+    static func append(
+        commits: [Commit],
+        to previousState: CommitGraphGenerationState,
+        allCommits: [Commit],
+        highlighting: CommitGraphHighlighting,
+        headHash: String?,
+        highlightRootHash: String?
+    ) -> CommitGraphGenerationResult? {
+        let previousCount = previousState.commitHashes.count
+        guard !commits.isEmpty,
+              previousState.highlighting == highlighting,
+              previousState.headHash == headHash,
+              previousState.highlightRootHash == highlightRootHash,
+              allCommits.count == previousCount + commits.count,
+              Array(allCommits.prefix(previousCount).map(\.hash)) == previousState.commitHashes,
+              Array(allCommits.suffix(commits.count).map(\.hash)) == commits.map(\.hash) else {
+            return nil
+        }
+
+        var state = previousState.copied()
+        state.rowByHash = Dictionary(
+            uniqueKeysWithValues: allCommits.enumerated().map { ($0.element.hash, $0.offset) }
+        )
+        state.commitHashes = allCommits.map(\.hash)
+        let highlightedCommits = reachableCommits(
+            from: highlightRootHash,
+            commits: allCommits,
+            rowByHash: state.rowByHash
+        )
+        process(commits: commits, highlightedCommits: highlightedCommits, state: &state)
+        let model = snapshot(state: &state, appendedRowStart: previousCount)
+        return CommitGraphGenerationResult(model: model, state: state)
+    }
+
+    private static func process(
+        commits: [Commit],
+        highlightedCommits: Set<String>,
+        state: inout CommitGraphGenerationState
+    ) {
         var ended: [PathHelper] = []
-        var offsetY = -halfHeight
-        var colorPicker = ColorPicker(colorCount: colorCount)
-        var maxLane = 0
 
         for commit in commits {
             var major: PathHelper?
-            offsetY += unitHeight
+            state.offsetY += unitHeight
 
             var offsetX = 4 - halfWidth
-            let maxOffsetOld = unsolved.last?.lastX ?? offsetX + unitWidth
+            let maxOffsetOld = state.unsolved.last?.lastX ?? offsetX + unitWidth
             var isHighlighted = false
 
-            for path in unsolved {
+            for path in state.unsolved {
                 if path.next == commit.hash {
                     if major == nil {
                         offsetX += unitWidth
@@ -98,33 +242,33 @@ nonisolated enum CommitGraphGenerator {
 
                         if let firstParent = commit.parents.first {
                             path.next = firstParent
-                            path.go(toX: offsetX, y: offsetY, halfHeight: halfHeight)
+                            path.go(toX: offsetX, y: state.offsetY, halfHeight: halfHeight)
                         } else {
-                            path.end(atX: offsetX, y: offsetY, halfHeight: halfHeight)
+                            path.end(atX: offsetX, y: state.offsetY, halfHeight: halfHeight)
                             ended.append(path)
                         }
                     } else if let major {
-                        path.end(atX: major.lastX, y: offsetY, halfHeight: halfHeight)
+                        path.end(atX: major.lastX, y: state.offsetY, halfHeight: halfHeight)
                         ended.append(path)
                         isHighlighted = isHighlighted || path.isHighlighted
                     }
                 } else {
                     offsetX += unitWidth
-                    path.pass(x: offsetX, y: offsetY, halfHeight: halfHeight)
+                    path.pass(x: offsetX, y: state.offsetY, halfHeight: halfHeight)
                 }
             }
 
             if !ended.isEmpty {
                 let endedIDs = Set(ended.map(ObjectIdentifier.init))
                 for path in ended {
-                    colorPicker.recycle(path.colorIndex)
+                    state.colorPicker.recycle(path.colorIndex)
                 }
-                unsolved.removeAll { endedIDs.contains(ObjectIdentifier($0)) }
+                state.unsolved.removeAll { endedIDs.contains(ObjectIdentifier($0)) }
                 ended.removeAll(keepingCapacity: true)
             }
 
             if !isHighlighted {
-                switch highlighting {
+                switch state.highlighting {
                 case .all:
                     isHighlighted = true
                 case .currentBranchOnly:
@@ -138,11 +282,11 @@ nonisolated enum CommitGraphGenerator {
                     let path = PathHelper(
                         next: firstParent,
                         isHighlighted: isHighlighted,
-                        colorIndex: colorPicker.next(),
-                        start: CGPoint(x: offsetX, y: offsetY)
+                        colorIndex: state.colorPicker.next(),
+                        start: CGPoint(x: offsetX, y: state.offsetY)
                     )
-                    unsolved.append(path)
-                    mutablePaths.append(path.path)
+                    state.unsolved.append(path)
+                    state.mutablePaths.append(path.path)
                     major = path
                 }
             } else if let major,
@@ -150,16 +294,16 @@ nonisolated enum CommitGraphGenerator {
                       !major.isHighlighted,
                       !commit.parents.isEmpty {
                 let highlightedPath = major.highlight()
-                mutablePaths.append(highlightedPath)
+                state.mutablePaths.append(highlightedPath)
             }
 
-            let position = CGPoint(x: major?.lastX ?? offsetX, y: offsetY)
+            let position = CGPoint(x: major?.lastX ?? offsetX, y: state.offsetY)
             let dotColor = major?.colorIndex ?? 0
             let dotLane = lane(forX: position.x)
-            maxLane = max(maxLane, dotLane)
+            state.maxLane = max(state.maxLane, dotLane)
 
             let dotType: GraphDotType
-            if commit.hash == headHash || commit.refs.contains(where: {
+            if commit.hash == state.headHash || commit.refs.contains(where: {
                 $0 == "HEAD" || $0.hasPrefix("HEAD -> ")
             }) {
                 dotType = .head
@@ -169,7 +313,7 @@ nonisolated enum CommitGraphGenerator {
                 dotType = .default
             }
 
-            dots.append(
+            state.dots.append(
                 GraphDot(
                     center: position,
                     lane: dotLane,
@@ -180,7 +324,7 @@ nonisolated enum CommitGraphGenerator {
             )
 
             var pathByNext: [String: PathHelper] = [:]
-            for path in unsolved where pathByNext[path.next] == nil {
+            for path in state.unsolved where pathByNext[path.next] == nil {
                 pathByNext[path.next] = path
             }
 
@@ -189,18 +333,18 @@ nonisolated enum CommitGraphGenerator {
                     if isHighlighted && !parent.isHighlighted {
                         parent.go(
                             toX: parent.lastX,
-                            y: offsetY + halfHeight,
+                            y: state.offsetY + halfHeight,
                             halfHeight: halfHeight
                         )
                         let highlightedPath = parent.highlight()
-                        mutablePaths.append(highlightedPath)
+                        state.mutablePaths.append(highlightedPath)
                     }
 
-                    links.append(
+                    state.links.append(
                         GraphLink(
                             start: position,
                             control: CGPoint(x: parent.lastX, y: position.y),
-                            end: CGPoint(x: parent.lastX, y: offsetY + halfHeight),
+                            end: CGPoint(x: parent.lastX, y: state.offsetY + halfHeight),
                             colorIndex: parent.colorIndex,
                             isHighlighted: isHighlighted
                         )
@@ -211,15 +355,15 @@ nonisolated enum CommitGraphGenerator {
                     let path = PathHelper(
                         next: parentHash,
                         isHighlighted: isHighlighted,
-                        colorIndex: colorPicker.next(),
+                        colorIndex: state.colorPicker.next(),
                         start: target
                     )
-                    unsolved.append(path)
-                    mutablePaths.append(path.path)
+                    state.unsolved.append(path)
+                    state.mutablePaths.append(path.path)
                     pathByNext[parentHash] = path
-                    maxLane = max(maxLane, lane(forX: target.x))
+                    state.maxLane = max(state.maxLane, lane(forX: target.x))
 
-                    links.append(
+                    state.links.append(
                         GraphLink(
                             start: position,
                             control: CGPoint(x: target.x, y: position.y),
@@ -231,15 +375,27 @@ nonisolated enum CommitGraphGenerator {
                 }
             }
 
-            metadata[commit.hash] = GraphCommitMetadata(
+            state.metadata[commit.hash] = GraphCommitMetadata(
                 colorIndex: dotColor,
                 isHighlighted: isHighlighted,
                 leftMargin: max(offsetX, maxOffsetOld) + halfWidth + 2
             )
         }
+    }
 
-        let endY = (Double(commits.count) - halfHeight) * unitHeight
-        for (index, path) in unsolved.enumerated() {
+    private static func snapshot(
+        state: inout CommitGraphGenerationState,
+        appendedRowStart: Int
+    ) -> CommitGraphModel {
+        let snapshotPaths = state.mutablePaths.map { $0.copied() }
+        let snapshotPathByID = Dictionary(
+            uniqueKeysWithValues: zip(state.mutablePaths, snapshotPaths).map {
+                (ObjectIdentifier($0.0), $0.1)
+            }
+        )
+        let endY = (Double(state.dots.count) - halfHeight) * unitHeight
+        var snapshotMaxLane = state.maxLane
+        for (index, path) in state.unsolved.enumerated() {
             if path.pointCount == 1,
                let firstPoint = path.firstPoint,
                abs(firstPoint.y - endY) < 0.0001 {
@@ -247,11 +403,17 @@ nonisolated enum CommitGraphGenerator {
             }
 
             let endX = (Double(index) + halfHeight) * unitWidth + 4
-            path.end(atX: endX, y: endY + halfHeight, halfHeight: halfHeight)
-            maxLane = max(maxLane, lane(forX: endX))
+            if let snapshotPath = snapshotPathByID[ObjectIdentifier(path.path)] {
+                path.copied(path: snapshotPath).end(
+                    atX: endX,
+                    y: endY + halfHeight,
+                    halfHeight: halfHeight
+                )
+            }
+            snapshotMaxLane = max(snapshotMaxLane, lane(forX: endX))
         }
 
-        let paths = mutablePaths.map {
+        let paths = snapshotPaths.map {
             GraphPath(
                 points: $0.points,
                 colorIndex: $0.colorIndex,
@@ -259,13 +421,23 @@ nonisolated enum CommitGraphGenerator {
             )
         }
 
+        let newRowSlices = CommitGraphRowSlice.makeRows(
+            paths: paths,
+            links: state.links,
+            dots: state.dots,
+            rowRange: appendedRowStart..<state.dots.count,
+            rowCount: state.dots.count
+        )
+        state.rowSlices.append(contentsOf: newRowSlices)
+
         return CommitGraphModel(
             paths: paths,
-            links: links,
-            dots: dots,
-            laneCount: max(1, maxLane + 1),
-            commitMetadata: metadata,
-            rowIndexByHash: rowByHash
+            links: state.links,
+            dots: state.dots,
+            laneCount: max(1, snapshotMaxLane + 1),
+            commitMetadata: state.metadata,
+            rowIndexByHash: state.rowByHash,
+            rowSlices: state.rowSlices
         )
     }
 
@@ -295,7 +467,7 @@ nonisolated enum CommitGraphGenerator {
     }
 }
 
-nonisolated private final class MutableGraphPath {
+nonisolated fileprivate final class MutableGraphPath {
     var points: [CGPoint]
     let colorIndex: Int
     let isHighlighted: Bool
@@ -305,9 +477,17 @@ nonisolated private final class MutableGraphPath {
         self.colorIndex = colorIndex
         self.isHighlighted = isHighlighted
     }
+
+    func copied() -> MutableGraphPath {
+        MutableGraphPath(
+            points: points,
+            colorIndex: colorIndex,
+            isHighlighted: isHighlighted
+        )
+    }
 }
 
-nonisolated private final class PathHelper {
+nonisolated fileprivate final class PathHelper {
     private(set) var path: MutableGraphPath
     var next: String
     private(set) var lastX: Double
@@ -332,6 +512,30 @@ nonisolated private final class PathHelper {
             points: [start],
             colorIndex: colorIndex,
             isHighlighted: isHighlighted
+        )
+    }
+
+    private init(
+        next: String,
+        lastX: Double,
+        lastY: Double,
+        endY: Double,
+        path: MutableGraphPath
+    ) {
+        self.next = next
+        self.lastX = lastX
+        self.lastY = lastY
+        self.endY = endY
+        self.path = path
+    }
+
+    func copied(path: MutableGraphPath) -> PathHelper {
+        PathHelper(
+            next: next,
+            lastX: lastX,
+            lastY: lastY,
+            endY: endY,
+            path: path
         )
     }
 
@@ -396,7 +600,7 @@ nonisolated private final class PathHelper {
     }
 }
 
-nonisolated private struct ColorPicker {
+nonisolated fileprivate struct ColorPicker {
     private let colorCount: Int
     private var queue: [Int] = []
 
