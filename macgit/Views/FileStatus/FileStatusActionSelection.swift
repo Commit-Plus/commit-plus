@@ -123,6 +123,23 @@ struct FileStatusActionSelection {
         return paths
     }
 
+    func filesForDrop(paths: [String], into section: FileStatusSelectionSection) -> [StatusFile] {
+        let draggedPaths = Set(paths.filter { !$0.isEmpty })
+        guard !draggedPaths.isEmpty else { return [] }
+
+        let sourceFiles = switch section {
+        case .staged:
+            changedFiles
+        case .changed:
+            stagedFiles
+        }
+
+        return sourceFiles.filter { file in
+            draggedPaths.contains(file.path)
+                || file.originalPath.map(draggedPaths.contains) == true
+        }
+    }
+
     private var currentSelectionKeys: Set<FileStatusSelectionKey> {
         Set(stagedFiles.map { FileStatusSelectionKey(file: $0, isStaged: true) })
             .union(changedFiles.map { FileStatusSelectionKey(file: $0, isStaged: false) })

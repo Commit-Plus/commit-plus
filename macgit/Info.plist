@@ -65,5 +65,18 @@
 	<string>https://commit-plus.github.io/commit-plus/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>$(SPARKLE_PUBLIC_ED_KEY)</string>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Commit+ Git Drag Payload</string>
+			<key>UTTypeIdentifier</key>
+			<string>dev.thanhtran.macgit.git-drag-payload</string>
+		</dict>
+	</array>
 </dict>
 </plist>

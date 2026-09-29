@@ -196,6 +196,58 @@ final class FileStatusActionSelectionTests: XCTestCase {
         )
     }
 
+    func testDroppingOnStagedReturnsOnlyChangedFiles() {
+        let staged = file("README.md", status: .staged)
+        let changed = file("Sources/App.swift", status: .modified)
+        let untracked = file("Notes.txt", status: .untracked)
+        let policy = FileStatusActionSelection(
+            selectedKeys: [],
+            stagedFiles: [staged],
+            changedFiles: [changed, untracked]
+        )
+
+        XCTAssertEqual(
+            policy.filesForDrop(
+                paths: [staged.path, changed.path, untracked.path],
+                into: .staged
+            ),
+            [changed, untracked]
+        )
+    }
+
+    func testDroppingOnChangedReturnsOnlyStagedFiles() {
+        let staged = file("README.md", status: .staged)
+        let changed = file("Sources/App.swift", status: .modified)
+        let policy = FileStatusActionSelection(
+            selectedKeys: [],
+            stagedFiles: [staged],
+            changedFiles: [changed]
+        )
+
+        XCTAssertEqual(
+            policy.filesForDrop(paths: [staged.path, changed.path], into: .changed),
+            [staged]
+        )
+    }
+
+    func testDropMatchesEitherPathOfRenamedFile() {
+        let renamed = file(
+            "new-name.txt",
+            status: .renamed,
+            originalPath: "old-name.txt"
+        )
+        let policy = FileStatusActionSelection(
+            selectedKeys: [],
+            stagedFiles: [renamed],
+            changedFiles: []
+        )
+
+        XCTAssertEqual(
+            policy.filesForDrop(paths: ["old-name.txt"], into: .changed),
+            [renamed]
+        )
+    }
+
     private func file(
         _ path: String,
         status: FileStatus,

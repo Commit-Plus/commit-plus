@@ -56,12 +56,15 @@ struct FileStatusView: View {
     @State private var selectedFile: StatusFile? = nil
     @State private var selectedFileKey: FileStatusSelectionKey? = nil
     @State private var selectedActionFileKeys: Set<FileStatusSelectionKey> = []
+    @State private var actionSelectionAnchorKey: FileStatusSelectionKey? = nil
     @State private var diffHunks: [DiffHunk] = []
     @State private var isLoadingDiff = false
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showingError = false
     @State private var isAIGenerationRequested = false
+    @State private var isStagedDropTargeted = false
+    @State private var isChangedDropTargeted = false
 
     @State private var isCommitBarExpanded = false
     @State private var isCommitting = false
@@ -142,6 +145,51 @@ struct FileStatusView: View {
         } else {
             selectedActionFileKeys.subtract(allKeys)
         }
+        actionSelectionAnchorKey = nil
+    }
+
+    private func selectFileRow(
+        file: StatusFile,
+        isStaged: Bool,
+        modifierFlags: NSEvent.ModifierFlags
+    ) {
+        let selectionKey = FileStatusSelectionKey(file: file, isStaged: isStaged)
+        let modifiers = modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        if modifiers.contains(.shift),
+           let anchorKey = actionSelectionAnchorKey,
+           anchorKey.isStaged == isStaged {
+            let files = isStaged ? gitStatus.staged : changedFiles
+            let visibleKeys = files.map { FileStatusSelectionKey(file: $0, isStaged: isStaged) }
+            if let anchorIndex = visibleKeys.firstIndex(of: anchorKey),
+               let selectedIndex = visibleKeys.firstIndex(of: selectionKey) {
+                let bounds = min(anchorIndex, selectedIndex)...max(anchorIndex, selectedIndex)
+                selectedActionFileKeys = Set(visibleKeys[bounds])
+            }
+        } else if modifiers.contains(.command) {
+            if selectedActionFileKeys.contains(selectionKey) {
+                selectedActionFileKeys.remove(selectionKey)
+                if actionSelectionAnchorKey == selectionKey {
+                    actionSelectionAnchorKey = selectedActionFileKeys.first
+                }
+            } else {
+                selectedActionFileKeys.insert(selectionKey)
+                actionSelectionAnchorKey = selectionKey
+            }
+        } else {
+            selectedActionFileKeys = [selectionKey]
+            actionSelectionAnchorKey = selectionKey
+        }
+
+        selectFileForPreview(file, selectionKey: selectionKey)
+    }
+
+    private func selectFileForPreview(_ file: StatusFile, selectionKey: FileStatusSelectionKey) {
+        guard selectedFileKey != selectionKey else { return }
+        selectedFile = file
+        selectedFileKey = selectionKey
+        diffHunks = []
+        isLoadingDiff = true
     }
 
     @ViewBuilder
@@ -225,10 +273,19 @@ struct FileStatusView: View {
                         PersistentHSplit(
                             autosaveName: "FileStatusMainSplit",
                             left: { fileListPanel.frame(minWidth: 220) },
-                            right: { diffPanel.frame(minWidth: 300) }
+                            right: {
+                                diffPanel
+                                    .frame(minWidth: 300)
+                                    .dropDestination(for: GitDragPayload.self) { payloads, _ in
+                                        handleStashDrop(payloads)
+                                    }
+                            }
                         )
 
                         commitBar
+                            .dropDestination(for: GitDragPayload.self) { payloads, _ in
+                                handleStashDrop(payloads)
+                            }
                     } else {
                         EmptyStateView(
                             icon: "doc.text.magnifyingglass",
@@ -242,18 +299,6 @@ struct FileStatusView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
-        .onDrop(of: [.macgitGitDragPayload], isTargeted: nil) { providers in
-            guard let provider = providers.first else { return false }
-            GitDragPayloadItemProviderLoader.load(from: provider) { result in
-                Task { @MainActor in
-                    if case .success(let payload) = result,
-                       let stashRef = payload.stash {
-                        onRequestApplyStash(stashRef)
-                    }
-                }
-            }
-            return true
-        }
         .task {
             await loadStatus()
         }
@@ -381,7 +426,17 @@ struct FileStatusView: View {
                     }
                 }
             }
-            .frame(minHeight: 0, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .fileStatusDropTarget(
+                isTargeted: isStagedDropTargeted,
+                label: "Drop to stage"
+            )
+            .dropDestination(for: GitDragPayload.self) { payloads, _ in
+                handleFileDrop(payloads, into: .staged)
+            } isTargeted: { isTargeted in
+                isStagedDropTargeted = isTargeted
+            }
 
             Divider()
 
@@ -442,9 +497,73 @@ struct FileStatusView: View {
                     }
                 }
             }
-            .frame(minHeight: 0, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .fileStatusDropTarget(
+                isTargeted: isChangedDropTargeted,
+                label: "Drop to unstage"
+            )
+            .dropDestination(for: GitDragPayload.self) { payloads, _ in
+                handleFileDrop(payloads, into: .changed)
+            } isTargeted: { isTargeted in
+                isChangedDropTargeted = isTargeted
+            }
         }
         .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private func canAcceptFileDrop(
+        _ payload: GitDragPayload,
+        into section: FileStatusSelectionSection
+    ) -> Bool {
+        payload.repositoryPath == GitDragPayload.normalizedPath(repositoryURL)
+            && !actionSelection.filesForDrop(paths: payload.files, into: section).isEmpty
+    }
+
+    private func handleFileDrop(
+        _ payloads: [GitDragPayload],
+        into section: FileStatusSelectionSection
+    ) -> Bool {
+        guard let payload = payloads.first else { return false }
+
+        GitDragPayloadStore.clear(ifMatching: payload)
+        if let stashRef = payload.stash {
+            onRequestApplyStash(stashRef)
+            return true
+        }
+
+        guard canAcceptFileDrop(payload, into: section) else { return false }
+        handleFileDrop(payload, into: section)
+        return true
+    }
+
+    private func handleStashDrop(_ payloads: [GitDragPayload]) -> Bool {
+        guard let payload = payloads.first,
+              let stashRef = payload.stash
+        else {
+            return false
+        }
+
+        GitDragPayloadStore.clear(ifMatching: payload)
+        onRequestApplyStash(stashRef)
+        return true
+    }
+
+    private func handleFileDrop(
+        _ payload: GitDragPayload,
+        into section: FileStatusSelectionSection
+    ) {
+        let files = actionSelection.filesForDrop(paths: payload.files, into: section)
+        guard !files.isEmpty else { return }
+
+        Task {
+            switch section {
+            case .staged:
+                await stage(files: files)
+            case .changed:
+                await unstage(files: files)
+            }
+        }
     }
 
     private func filePageLoader(action: @escaping () -> Void) -> some View {
@@ -456,7 +575,8 @@ struct FileStatusView: View {
     private func fileRow(file: StatusFile, isStaged: Bool) -> some View {
         let isLFS = (isStaged ? stagedLFSPaths : lfsPaths).contains(file.path)
         let selectionKey = FileStatusSelectionKey(file: file, isStaged: isStaged)
-        let isSelected = selectedFileKey == selectionKey
+        let isPreviewed = selectedFileKey == selectionKey
+        let isActionSelected = selectedActionFileKeys.contains(selectionKey)
         let quickAction = FileStatusRowQuickAction(isStaged: isStaged)
         let isPotentialConflict = hasPotentialConflict(file)
 
@@ -467,8 +587,12 @@ struct FileStatusView: View {
                     set: { isSelected in
                         if isSelected {
                             selectedActionFileKeys.insert(selectionKey)
+                            actionSelectionAnchorKey = selectionKey
                         } else {
                             selectedActionFileKeys.remove(selectionKey)
+                            if actionSelectionAnchorKey == selectionKey {
+                                actionSelectionAnchorKey = selectedActionFileKeys.first
+                            }
                         }
                     }
                 ))
@@ -476,12 +600,12 @@ struct FileStatusView: View {
                 .labelsHidden()
                 .pointingHandCursor()
 
-                Image(systemName: fileIcon(for: file))
-                    .foregroundStyle(fileColor(for: file))
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(width: 18)
+                HStack(spacing: 10) {
+                    Image(systemName: fileIcon(for: file))
+                        .foregroundStyle(fileColor(for: file))
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(width: 18)
 
-                HStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 6) {
                             Text(file.displayName)
@@ -520,6 +644,13 @@ struct FileStatusView: View {
                     Spacer()
                 }
                 .contentShape(Rectangle())
+                .onTapGesture {
+                    selectFileRow(
+                        file: file,
+                        isStaged: isStaged,
+                        modifierFlags: NSEvent.modifierFlags
+                    )
+                }
                 .onDrag {
                     let paths = actionSelection.dragPaths(startingAt: file, isStaged: isStaged)
                     return makeFileItemProvider(payload: .files(paths, repositoryURL: repositoryURL))
@@ -540,20 +671,13 @@ struct FileStatusView: View {
                 .padding(.trailing, 4)
         }
         .padding(.leading, 8)
-        .background(isSelected ? Color.accentColor.opacity(0.16) : Color.clear)
+        .background(isActionSelected ? Color.accentColor.opacity(0.16) : Color.clear)
         .overlay(alignment: .leading) {
             Rectangle()
-                .fill(isSelected ? Color.accentColor : Color.clear)
+                .fill(isPreviewed ? Color.accentColor : Color.clear)
                 .frame(width: 3)
         }
         .pointingHandCursor()
-        .onTapGesture {
-            guard selectedFileKey != selectionKey else { return }
-            selectedFile = file
-            selectedFileKey = selectionKey
-            diffHunks = []
-            isLoadingDiff = true
-        }
         .simultaneousGesture(
             TapGesture(count: 2).onEnded {
                 Task {
@@ -565,7 +689,7 @@ struct FileStatusView: View {
                 }
             }
         )
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityAddTraits(isActionSelected ? .isSelected : [])
         .contextMenu {
             fileContextMenu(file: file, isStaged: isStaged)
         }
@@ -1499,6 +1623,10 @@ struct FileStatusView: View {
 
             if !selectedActionFileKeys.isEmpty {
                 selectedActionFileKeys = actionSelection.prunedSelection
+            }
+            if let actionSelectionAnchorKey,
+               !selectedActionFileKeys.contains(actionSelectionAnchorKey) {
+                self.actionSelectionAnchorKey = selectedActionFileKeys.first
             }
         } catch {
             errorMessage = error.localizedDescription
