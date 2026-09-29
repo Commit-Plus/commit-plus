@@ -16,7 +16,7 @@ Thank you for your interest in contributing to Commit+! This guide will help you
 
 ## Code of Conduct
 
-Be respectful and constructive in all interactions. We are committed to providing a welcoming and inclusive experience for everyone.
+Be respectful and constructive in all interactions. By participating in this project, you agree to follow the [Commit+ Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## How Can I Contribute?
 

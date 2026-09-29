@@ -93,7 +93,7 @@ Install it from **Settings → General → Command Line**. The command opens the
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, coding conventions, and pull request guidelines.
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, coding conventions, and pull request guidelines, and follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 For security issues, please refer to [SECURITY.md](SECURITY.md).
 
