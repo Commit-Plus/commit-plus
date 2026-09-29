@@ -68,7 +68,8 @@ struct DiffView: View {
     @State private var selectedLineIDs: Set<UUID> = []
     @State private var lastSelectedLineID: UUID?
     @State private var loadedImage: NSImage?
-    @State private var renderedBlockRange = 0..<5
+    @State private var renderedBlockRange = 0..<1
+    @State private var highlightCache = DiffLineHighlightCache()
 
     private static let imageExtensions: Set<String> = [
         "png", "jpg", "jpeg", "gif", "svg", "webp", "bmp",
@@ -102,6 +103,7 @@ struct DiffView: View {
                                 lineRange: block.lineRange,
                                 file: file,
                                 fileExtension: syntaxFileExtension,
+                                highlightCache: highlightCache,
                                 repositoryURL: repositoryURL,
                                 undoManager: undoManager,
                                 selectedLineIDs: $selectedLineIDs,
@@ -143,7 +145,8 @@ struct DiffView: View {
             .onChange(of: hunks.first?.id) {
                 selectedLineIDs.removeAll()
                 lastSelectedLineID = nil
-                renderedBlockRange = 0..<min(5, blocks.count)
+                highlightCache.removeAll()
+                renderedBlockRange = 0..<min(1, blocks.count)
             }
             .id(hunks.first?.id)
         }
@@ -209,6 +212,7 @@ struct HunkView: View {
     let lineRange: Range<Int>
     let file: StatusFile?
     let fileExtension: String
+    let highlightCache: DiffLineHighlightCache
     let repositoryURL: URL?
     let undoManager: GitUndoManager?
     @Binding var selectedLineIDs: Set<UUID>
@@ -310,6 +314,7 @@ struct HunkView: View {
                             line: line,
                             fileExtension: fileExtension,
                             isSelected: selectedLineIDs.contains(line.id),
+                            highlightCache: highlightCache,
                             horizontalViewport: horizontalViewport
                         )
                         .frame(height: DiffRenderBlock.rowHeight)
@@ -627,8 +632,10 @@ struct DiffLineView: View {
     let fileExtension: String
     let isSelected: Bool
     var cachedHighlightedText: AttributedString? = nil
+    var highlightCache: DiffLineHighlightCache? = nil
     var showsDiffGutter = true
     var horizontalViewport = CGRect(x: 0, y: 0, width: 1_024, height: 0)
+    @State private var deferredHighlightedText: AttributedString? = nil
 
     var backgroundColor: Color {
         if isSelected {
@@ -709,6 +716,9 @@ struct DiffLineView: View {
                 Text(highlightedText)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
+                    .task(id: line.id) {
+                        await loadHighlightedTextIfNeeded()
+                    }
             }
 
             Spacer(minLength: 0)
@@ -723,13 +733,43 @@ struct DiffLineView: View {
     }
 
     private var highlightedText: AttributedString {
-        var attributed = cachedHighlightedText ?? SyntaxHighlighter(fileExtension: fileExtension)
-            .attributedString(for: line.text, fontSize: 12)
+        var attributed: AttributedString
+        if let cachedHighlightedText {
+            attributed = cachedHighlightedText
+        } else if let deferredHighlightedText {
+            attributed = deferredHighlightedText
+        } else if highlightCache != nil {
+            attributed = AttributedString(line.text)
+            attributed.font = Font(NSFont.monospacedSystemFont(ofSize: 12, weight: .regular))
+            attributed.foregroundColor = .primary
+        } else {
+            attributed = SyntaxHighlighter(fileExtension: fileExtension)
+                .attributedString(for: line.text, fontSize: 12)
+        }
 
         // Keep diff metadata readable while allowing syntax colors in the code.
         if line.type == .header || line.type == .conflictMarker {
             attributed.foregroundColor = textColor
         }
         return attributed
+    }
+
+    private func loadHighlightedTextIfNeeded() async {
+        guard cachedHighlightedText == nil,
+              let highlightCache,
+              !DiffLongLineLayout.isLong(line.text) else {
+            return
+        }
+        if let cached = highlightCache.cachedText(for: line.id) {
+            deferredHighlightedText = cached
+            return
+        }
+
+        // Let the plain monospaced row reach the first frame before regex work.
+        await Task.yield()
+        guard !Task.isCancelled else { return }
+        let highlighted = highlightCache.text(for: line, fileExtension: fileExtension)
+        guard !Task.isCancelled else { return }
+        deferredHighlightedText = highlighted
     }
 }

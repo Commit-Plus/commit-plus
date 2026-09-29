@@ -4,7 +4,7 @@ import XCTest
 @testable import macgit
 
 final class DiffRenderBatchTests: XCTestCase {
-    func testRenderWindowKeepsFourNeighboursInBothDirections() {
+    func testRenderWindowKeepsTwoNeighboursInBothDirections() {
         let hunk = DiffHunk(header: "@@ -0,0 +1,20000 @@", lines: (1...20_000).map {
             DiffLine(oldLineNumber: nil, newLineNumber: $0, text: "line \($0)", type: .added)
         })
@@ -16,10 +16,10 @@ final class DiffRenderBatchTests: XCTestCase {
             )
         }
         XCTAssertEqual(blocks.count, 200)
-        XCTAssertEqual(window(at: 0), 0..<5)
-        XCTAssertEqual(window(at: 100), 96..<105)
-        XCTAssertEqual(window(at: 50), 46..<55)
-        XCTAssertEqual(window(at: 199), 195..<200)
+        XCTAssertEqual(window(at: 0), 0..<3)
+        XCTAssertEqual(window(at: 100), 98..<103)
+        XCTAssertEqual(window(at: 50), 48..<53)
+        XCTAssertEqual(window(at: 199), 197..<200)
         for index in 1..<blocks.count {
             XCTAssertEqual(blocks[index - 1].endOffset, blocks[index].offset)
         }

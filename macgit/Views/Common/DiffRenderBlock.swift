@@ -3,14 +3,14 @@
 import Foundation
 import CoreGraphics
 
-/// Stable geometry lets the viewport retain four fully rendered neighbours in
+/// Stable geometry lets the viewport retain two fully rendered neighbours in
 /// either direction without asking a lazy stack to estimate offscreen heights.
 nonisolated struct DiffRenderBlock: Identifiable {
     static let rowHeight: CGFloat = 22
     static let headerHeight: CGFloat = 32
     static let scrollerHeight: CGFloat = 16
     static let spacing: CGFloat = 12
-    static let overscan = 4
+    static let overscan = 2
 
     let hunk: DiffHunk
     let lineRange: Range<Int>

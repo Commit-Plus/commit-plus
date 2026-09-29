@@ -305,14 +305,11 @@ struct FileStatusView: View {
         .onChange(of: selectedFileKey) { _, newSelectionKey in
             diffHunks = []
             isLoadingDiff = newSelectionKey != nil
-            guard let newSelectionKey,
-                  let file = selectedFile else {
-                return
-            }
-
-            Task {
-                await loadDiff(for: file, selectionKey: newSelectionKey)
-            }
+        }
+        .task(id: selectedFileKey) {
+            guard let selectionKey = selectedFileKey,
+                  let file = selectedFile else { return }
+            await loadDiff(for: file, selectionKey: selectionKey)
         }
         .alert("Error", isPresented: $showingError, actions: {
             Button("OK", role: .cancel) {}
@@ -1667,8 +1664,11 @@ struct FileStatusView: View {
     private func loadDiff(for file: StatusFile, selectionKey: FileStatusSelectionKey) async {
         do {
             let loadedDiffHunks = try await GitStatusService.shared.diff(for: file, in: repositoryURL)
+            guard !Task.isCancelled else { return }
             guard selectedFileKey == selectionKey else { return }
             diffHunks = loadedDiffHunks
+        } catch is CancellationError {
+            return
         } catch {
             guard selectedFileKey == selectionKey else { return }
             diffHunks = []
