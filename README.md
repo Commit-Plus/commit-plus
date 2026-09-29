@@ -34,71 +34,47 @@
   </picture>
 </p>
 
-Commit+ is a native macOS Git client built with Swift and SwiftUI — designed to be fast, lightweight, and deeply integrated with the platform. Optional account features add sync, updates, and AI-powered commit messages.
-
-## Why Commit+
-
-macOS Git clients today fall into three groups:
-
-- **Command line**: Powerful but requires memorizing dozens of commands and flags.
-- **Electron-based**: SourceTree, GitKraken, Fork. Cross-platform but not native — slow to start, heavy on memory, inconsistent with macOS conventions.
-- **Proprietary**: Tower. Polished and native, but paid and closed source.
-
-Commit+ is the missing fourth: native, lightweight, and open source.
+Commit+ is a native macOS Git client built with Swift and SwiftUI — designed to be fast, lightweight, and deeply integrated with the platform. Optional account features add settings sync, provider integrations, and AI-assisted workflows.
 
 ## Features
 
-### Drag & Drop
+### Revision Browser & Visual Comparisons
 
-Complex Git actions become effortless with drag and drop:
+- **Browse any revision**: Explore its complete file and folder tree without checking it out, with text, image, and Git LFS previews.
+- **Compare files and folders**: Compare a path in your working tree or a revision against any commit, branch, or tag.
+- **Compare branches**: Inspect changed files, unique commits, merge bases, and ahead/behind counts using merge-base or tip-to-tip comparisons.
 
-- **Reorder / Squash Commits**: Drag commits in the history view to reorder, squash, or fixup (interactive rebase)
-- **Cherry-Pick / Revert**: Drag commits between branches to cherry-pick; hold ⌥ to revert
-- **Merge / Rebase Branches**: Drag a branch onto HEAD to merge; hold ⌥ to rebase instead
-- **Push / Pull Branches**: Drag branches to the remote section to publish or pull
-- **Stage / Stash Files**: Drag files between working copy, staged, and stash views
-- **Apply Stashes**: Drag a stash or individual file back to the working copy to apply
+### Selective Apply & Revert
 
-### Undo Any Action
+Bring back only the changes you need from any commit — or reverse them — by file, hunk, or selected lines. Commit+ previews the patch, detects stale state, and provides visual conflict resolution when changes do not apply cleanly.
 
-Tower-style undo/redo for stage/unstage, commits, stashes, branch operations, discards, and remote actions. Press `Cmd+Z` to undo, `Cmd+Shift+Z` to redo.
+### Git LFS
 
-### Full Git Management
+Set up Git LFS, manage tracking rules, find and convert large files, inspect local object availability, and download missing content with progress and cancellation. Commit+ can use System Git LFS or manage its own private runtime, including LFS-aware clone and revision previews.
 
-Commit, Pull, Push, Fetch, Branch, Merge, Rebase, Stash, Cherry-pick, Revert, Reset — all with keyboard shortcuts.
+### Drag & Drop Workflows
 
-### Built-in Conflict Resolution
+Stage and unstage files, apply stashes, reorder or squash commits, cherry-pick or revert across branches, merge or rebase branches, and publish or pull branches with direct manipulation.
 
-Visual diff viewer with inline conflict markers, stage resolution, and abort merge/rebase — resolve conflicts without leaving the app.
+### Safe, Complete Git Management
 
-### Smarter Worktree Management
-
-Create, switch, and remove git worktrees from the sidebar for isolated parallel feature work, all managed visually.
+- **Everyday Git**: Commit, fetch, pull, push, branch, merge, rebase, stash, cherry-pick, revert, reset, tags, and reflog.
+- **Undo & redo**: Recover from staging, commits, stashes, discards, branch operations, and supported remote actions.
+- **Conflict resolution**: Review inline conflicts, choose resolutions, stage the result, or continue/skip/abort interrupted operations.
+- **Worktrees & submodules**: Create and manage worktrees, plus add, initialize, update, synchronize, edit, and remove submodules from the sidebar.
+- **Pull requests**: Create pull requests for GitHub, GitLab, and Bitbucket repositories, with in-app review for GitHub and GitLab.
 
 ### Git Flow
 
-Repository-aware Git Flow without requiring the external `git-flow` command:
+Set up and run feature, bugfix, release, and hotfix flows without an external `git-flow` installation. Start topics in the current repository or a new worktree, finish with merge or rebase strategies, and recover interrupted flows.
 
-- **One-click setup**: Detect `main`/`master` and `develop`, then customize branch names and prefixes per repository
-- **Start topics**: Create `feature/`, `bugfix/`, `release/`, and `hotfix/` branches from the right base branch
-- **Worktree-aware starts**: Start a topic in the current working copy or a new worktree
-- **Finish topics**: Finish with merge commits or rebase-and-fast-forward, with release/hotfix tag options
-- **Recovery controls**: Resume or abort interrupted finish flows after conflicts or partial operations
-- **Cross-Mac configuration sync**: Signed-in users can sync durable Git Flow settings for the same remote repository while keeping paths, worktrees, credentials, and recovery state local
+### AI-Assisted Git
 
-### AI Commit Generation
+Generate editable Conventional Commit messages with Apple Intelligence or your own OpenAI, Gemini, Claude, DeepSeek, or OpenRouter key. Repository AI can inspect repository context and route supported actions through Commit+'s existing safety and confirmation flows.
 
-Generate editable Conventional Commit messages from your staged diff, or from changed files when nothing is staged:
+### Search & Terminal Integration
 
-- **Provider choices**: Apple Intelligence, OpenAI, Google Gemini, Claude, DeepSeek, and OpenRouter
-- **Private local option**: Apple Intelligence runs on-device when supported and enabled on your Mac
-- **BYOK cloud providers**: Store API keys in macOS Keychain and configure model IDs in Settings
-- **Context-aware output**: Uses file lists, line stats, patch context, branch name, and recent commit subjects
-- **Safe handoff**: Generated messages stay editable before committing, and Commit+ asks you to regenerate if the underlying changes move during generation
-
-### Terminal Integration
-
-Open any repository directly from the terminal with the `commit` CLI command:
+Quick Search finds commits, files, branches, and tags from one place. The optional `commit` CLI opens a repository in Commit+ from Terminal:
 
 ```sh
 commit                  # Open the current folder's repository
@@ -107,32 +83,13 @@ commit "/path/to/repo"   # Open a specific repository
 commit --help
 ```
 
-On first launch, Commit+ offers to **Install CLI & Configure PATH** — this creates a `commit` symlink at `~/.local/bin/commit` and adds it to your shell configuration (zsh, bash, or fish). You can also install later from **Settings → General → Command Line**.
-
-The command opens the repository in Commit+ (it does not create a Git commit). Subfolders resolve to the working-tree root, and linked worktrees are supported. To uninstall, remove `~/.local/bin/commit`.
-
-### Quick Search
-
-Spotlight-style search modal (`Cmd+Shift+F`) to instantly find commits, files, branches, and tags.
+Install it from **Settings → General → Command Line**. The command opens the repository; it does not create a Git commit. Subfolders and linked worktrees are supported.
 
 ## System Requirements
 
 - **macOS**: 26.2+
 - **Xcode**: 26.2+ (to build from source)
 - **Git**: Installed on the system (Homebrew or Xcode Command Line Tools)
-
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+Shift+C` | Commit |
-| `Cmd+Shift+P` | Pull |
-| `Cmd+Option+P` | Push |
-| `Cmd+Option+F` | Fetch |
-| `Cmd+Shift+B` | Branch |
-| `Cmd+Shift+M` | Merge |
-| `Cmd+Shift+S` | Stash |
-| `Cmd+Shift+F` | Search |
 
 ## Contributing
 
