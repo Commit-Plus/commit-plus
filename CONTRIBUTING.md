@@ -56,7 +56,7 @@ Please **do not** report security vulnerabilities through public issues. See [SE
 
 ```bash
 git clone https://github.com/Commit-Plus/commit-plus.git
-cd macgit
+cd commit-plus
 ```
 
 ### Open in Xcode
