@@ -83,10 +83,10 @@ final class HistoryPaginationTests: XCTestCase {
 
     func testHistoryPagingStateTracksBoundedWindowInBothDirections() {
         var state = HistoryPagingState(pageSize: 100)
-        state.replaceWindow(startIndex: 0, count: 500, hasMore: true)
+        state.replaceWindow(startIndex: 0, count: 300, hasMore: true)
 
-        XCTAssertEqual(state.maximumLoadedCount, 500)
-        XCTAssertEqual(state.olderPageStartIndex, 500)
+        XCTAssertEqual(state.maximumLoadedCount, 300)
+        XCTAssertEqual(state.olderPageStartIndex, 300)
         XCTAssertFalse(state.canLoadNewer)
 
         XCTAssertTrue(state.beginLoadingMore())
@@ -98,22 +98,22 @@ final class HistoryPaginationTests: XCTestCase {
         state.discardNewerCommits(count: 100)
 
         XCTAssertEqual(state.startIndex, 100)
-        XCTAssertEqual(state.loadedCount, 500)
-        XCTAssertEqual(state.olderPageStartIndex, 600)
+        XCTAssertEqual(state.loadedCount, 300)
+        XCTAssertEqual(state.olderPageStartIndex, 400)
         XCTAssertTrue(state.canLoadNewer)
 
         XCTAssertTrue(state.beginLoadingNewer())
-        state.replaceWindow(startIndex: 0, count: 500, hasMore: true)
+        state.replaceWindow(startIndex: 0, count: 300, hasMore: true)
 
         XCTAssertEqual(state.startIndex, 0)
-        XCTAssertEqual(state.loadedCount, 500)
+        XCTAssertEqual(state.loadedCount, 300)
         XCTAssertFalse(state.canLoadNewer)
         XCTAssertFalse(state.isLoadingMore)
     }
 
     func testHistoryPagingStateTrimsOlderOverflow() {
         var state = HistoryPagingState(pageSize: 100)
-        state.replaceWindow(startIndex: 100, count: 600, hasMore: false)
+        state.replaceWindow(startIndex: 100, count: 400, hasMore: false)
 
         XCTAssertTrue(state.needsTrimming)
         XCTAssertFalse(state.beginLoadingNewer())
@@ -121,7 +121,7 @@ final class HistoryPaginationTests: XCTestCase {
         state.discardOlderCommits(count: 100)
 
         XCTAssertEqual(state.startIndex, 100)
-        XCTAssertEqual(state.loadedCount, 500)
+        XCTAssertEqual(state.loadedCount, 300)
         XCTAssertTrue(state.hasMore)
         XCTAssertFalse(state.needsTrimming)
     }

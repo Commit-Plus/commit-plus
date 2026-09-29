@@ -18,7 +18,7 @@
 import Foundation
 
 struct HistoryPagingState {
-    static let retainedPageCount = 5
+    static let retainedPageCount = 3
 
     let pageSize: Int
     private(set) var startIndex: Int = 0
