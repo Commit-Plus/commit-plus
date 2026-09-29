@@ -2,26 +2,25 @@
 
 Changes in the latest Commit+ release compared with the previous release.
 
-## v1.1.7
+## v1.1.8
 
-Changes since `v1.1.6`.
+Changes since `v1.1.7`.
 
 ### Added
 
-- **Git LFS support** — Full Git LFS integration with embedded runtime, tracking rules management, file downloads, and credential handling. LFS files are tracked, downloaded, and displayed in File Status with dedicated controls.
-- **Selective apply and revert in History** — Apply or revert individual commits from History as patches, with conflict resolution UI for merge conflicts.
+- **Drag-and-drop staging** — Stage or unstage one or multiple selected files by dragging them between File Status sections, with Shift and Command selection support.
+- **Customizable repository sidebar** — Choose whether Tags, Worktrees, Reflog, Pull Requests, Git LFS, and Git Flow appear in the sidebar. These preferences participate in settings sync.
 
-### Changed
+### Improved
 
-- **Improved memory usage and app lifecycle** — Reduced memory footprint, faster cold starts, and better background/foreground handling.
-- **Updated revision browser** — Enhanced revision browsing with image previews and improved file preview support.
-- **Refined pull behavior** — Pull now defaults to the current branch's upstream; sync activity shows on the local branch being updated.
-- **Merge conflict handling** — Repository state refreshes after a failed pull so conflicts appear in File Status; Git's detailed failure output is included in error messages.
-- **In-progress merge visibility** — File Status shows in-progress merges with Continue and Abort actions, even when no file changes remain, and stays visible when opening a repository with an unfinished operation.
+- **Dedicated Settings window** — Settings now opens in its own resizable macOS window instead of a sheet attached to a repository window.
+- **Faster repository and diff presentation** — Repository details no longer wait for icon loading, while diffs display plain text sooner and cache deferred syntax highlighting.
+- **Cleaner commit dragging** — Dragging commits from History now shows one preview with the selected commit count.
 
 ### Fixed
 
-- Git hooks and filters can now find Git LFS installed in common package-manager locations when Commit+ is opened from Finder.
-- Various stability fixes and UI polish across File Status, History, Diff View, and Settings.
+- Discard and undo snapshots now work correctly in linked Git worktrees.
+- The command-line setup tip waits until the terms have been accepted.
+- Repository toolbar button labels no longer clip on macOS 27.
 
-[Compare v1.1.6 to v1.1.7](https://github.com/Commit-Plus/commit-plus/compare/v1.1.6...v1.1.7)
+[Compare v1.1.7 to v1.1.8](https://github.com/Commit-Plus/commit-plus/compare/v1.1.7...v1.1.8)
