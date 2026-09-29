@@ -96,8 +96,21 @@ struct CommandLineTests {
         setenv("PATH", "/usr/bin:/bin", 1)
         try installer.install()
         check(installer.isInstalled, "Installed symlink")
+        check(installer.installedCommand == installer.destination, "Installed command path")
         try installer.install()
         check(installer.isInstalled, "Idempotent installation")
+        let previousAppHelper = temporary
+            .appendingPathComponent("Previous/Commit+.app/Contents/Helpers/commit")
+        try manager.createDirectory(
+            at: previousAppHelper.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: previousAppHelper)
+        try manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: previousAppHelper.path)
+        try manager.removeItem(at: installer.destination)
+        try manager.createSymbolicLink(at: installer.destination, withDestinationURL: previousAppHelper)
+        check(installer.isInstalled, "Recognize CLI from a previous Commit+ app location")
+        check(installer.conflict == nil, "Previous Commit+ CLI is not a conflict")
         try manager.removeItem(at: installer.destination)
         try Data("existing command".utf8).write(to: installer.destination)
         rejects { try installer.install() }

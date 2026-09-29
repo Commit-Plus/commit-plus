@@ -25,7 +25,10 @@ struct CommandLineSettingsSection: View {
     var body: some View {
         Section {
             Text("Open a repository from Terminal with commit or commit .")
-            LabeledContent("Command", value: model.destination.path)
+            LabeledContent(
+                model.isInstalled ? "Installed CLI" : "Install location",
+                value: (model.installedCommand ?? model.destination).path
+            )
             if model.isReady {
                 Label("CLI and PATH installed", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)

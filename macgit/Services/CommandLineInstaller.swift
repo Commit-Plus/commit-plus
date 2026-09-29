@@ -30,9 +30,17 @@ struct CommandLineInstaller {
 
     var destination: URL { directory.appendingPathComponent("commit") }
 
+    var installedCommand: URL? {
+        guard let target = symbolicLinkTarget,
+              FileManager.default.isExecutableFile(atPath: target.path),
+              target.standardizedFileURL == executable.standardizedFileURL || isCommitPlusHelper(target) else {
+            return nil
+        }
+        return destination
+    }
+
     var isInstalled: Bool {
-        guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: destination.path) else { return false }
-        return target == executable.path && FileManager.default.isExecutableFile(atPath: executable.path)
+        installedCommand != nil
     }
 
     var conflict: String? {
@@ -59,5 +67,25 @@ struct CommandLineInstaller {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         // Exclusive creation: never replace a file, command, or symlink that appeared in the meantime.
         try FileManager.default.createSymbolicLink(at: destination, withDestinationURL: executable)
+    }
+
+    private var symbolicLinkTarget: URL? {
+        guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: destination.path) else {
+            return nil
+        }
+        if target.hasPrefix("/") {
+            return URL(fileURLWithPath: target).standardizedFileURL
+        }
+        return directory.appendingPathComponent(target).standardizedFileURL
+    }
+
+    private func isCommitPlusHelper(_ target: URL) -> Bool {
+        let helpersDirectory = target.deletingLastPathComponent()
+        let contentsDirectory = helpersDirectory.deletingLastPathComponent()
+        let application = contentsDirectory.deletingLastPathComponent()
+        return target.lastPathComponent == "commit"
+            && helpersDirectory.lastPathComponent == "Helpers"
+            && contentsDirectory.lastPathComponent == "Contents"
+            && application.lastPathComponent == "Commit+.app"
     }
 }

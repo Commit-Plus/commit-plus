@@ -36,6 +36,7 @@ final class CommandLineSetupModel {
     }
 
     var destination: URL { installer.destination }
+    var installedCommand: URL? { installer.installedCommand }
 
     func refresh() {
         isInstalled = installer.isInstalled
