@@ -59,6 +59,7 @@ final class HistoryPaginationTests: XCTestCase {
         state.finishLoadingMore(loaded: 100)
 
         XCTAssertEqual(state.loadedCount, 100)
+        XCTAssertEqual(state.startIndex, 0)
         XCTAssertTrue(state.hasMore)
         XCTAssertFalse(state.isLoadingMore)
 
@@ -69,13 +70,60 @@ final class HistoryPaginationTests: XCTestCase {
 
         state.replaceLoadedHistory(count: 175, hasMore: true)
         XCTAssertEqual(state.loadedCount, 175)
+        XCTAssertEqual(state.startIndex, 0)
         XCTAssertTrue(state.hasMore)
         XCTAssertFalse(state.isLoadingMore)
 
         state.reset()
         XCTAssertEqual(state.loadedCount, 0)
+        XCTAssertEqual(state.startIndex, 0)
         XCTAssertTrue(state.hasMore)
         XCTAssertFalse(state.isLoadingMore)
+    }
+
+    func testHistoryPagingStateTracksBoundedWindowInBothDirections() {
+        var state = HistoryPagingState(pageSize: 100)
+        state.replaceWindow(startIndex: 0, count: 500, hasMore: true)
+
+        XCTAssertEqual(state.maximumLoadedCount, 500)
+        XCTAssertEqual(state.olderPageStartIndex, 500)
+        XCTAssertFalse(state.canLoadNewer)
+
+        XCTAssertTrue(state.beginLoadingMore())
+        state.finishLoadingMore(loaded: 100)
+
+        XCTAssertTrue(state.needsTrimming)
+        XCTAssertFalse(state.beginLoadingMore())
+
+        state.discardNewerCommits(count: 100)
+
+        XCTAssertEqual(state.startIndex, 100)
+        XCTAssertEqual(state.loadedCount, 500)
+        XCTAssertEqual(state.olderPageStartIndex, 600)
+        XCTAssertTrue(state.canLoadNewer)
+
+        XCTAssertTrue(state.beginLoadingNewer())
+        state.replaceWindow(startIndex: 0, count: 500, hasMore: true)
+
+        XCTAssertEqual(state.startIndex, 0)
+        XCTAssertEqual(state.loadedCount, 500)
+        XCTAssertFalse(state.canLoadNewer)
+        XCTAssertFalse(state.isLoadingMore)
+    }
+
+    func testHistoryPagingStateTrimsOlderOverflow() {
+        var state = HistoryPagingState(pageSize: 100)
+        state.replaceWindow(startIndex: 100, count: 600, hasMore: false)
+
+        XCTAssertTrue(state.needsTrimming)
+        XCTAssertFalse(state.beginLoadingNewer())
+
+        state.discardOlderCommits(count: 100)
+
+        XCTAssertEqual(state.startIndex, 100)
+        XCTAssertEqual(state.loadedCount, 500)
+        XCTAssertTrue(state.hasMore)
+        XCTAssertFalse(state.needsTrimming)
     }
 
     func testCommitHistoryUsesTopoOrder() async throws {
@@ -154,6 +202,10 @@ final class HistoryPaginationTests: XCTestCase {
 
         XCTAssertEqual(model1.dots.count, 3)
         XCTAssertEqual(model2.dots.count, 6)
+        XCTAssertEqual(
+            model2.rowIndexByHash,
+            Dictionary(uniqueKeysWithValues: combined.enumerated().map { ($0.element.hash, $0.offset) })
+        )
 
         for index in model1.dots.indices {
             XCTAssertEqual(model1.dots[index].lane, model2.dots[index].lane)

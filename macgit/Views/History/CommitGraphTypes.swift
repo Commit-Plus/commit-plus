@@ -68,13 +68,15 @@ nonisolated struct CommitGraphModel: Sendable {
     let rowSlices: [CommitGraphRowSlice]
     let laneCount: Int
     let commitMetadata: [String: GraphCommitMetadata]
+    let rowIndexByHash: [String: Int]
 
     init(
         paths: [GraphPath],
         links: [GraphLink],
         dots: [GraphDot],
         laneCount: Int,
-        commitMetadata: [String: GraphCommitMetadata]
+        commitMetadata: [String: GraphCommitMetadata],
+        rowIndexByHash: [String: Int]
     ) {
         self.paths = paths
         self.links = links
@@ -87,6 +89,7 @@ nonisolated struct CommitGraphModel: Sendable {
         )
         self.laneCount = laneCount
         self.commitMetadata = commitMetadata
+        self.rowIndexByHash = rowIndexByHash
     }
 }
 

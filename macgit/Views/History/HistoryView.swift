@@ -24,6 +24,11 @@ import Combine
 import SwiftUI
 
 struct HistoryView: View {
+    private enum HistoryWindowTrimEdge {
+        case newer
+        case older
+    }
+
     private struct SquashSheetPresentation: Identifiable {
         let id = UUID()
         let commits: [Commit]
@@ -78,6 +83,7 @@ struct HistoryView: View {
     @State private var showingError = false
     @State private var scrollTarget: String? = nil
     @State private var paging = HistoryPagingState(pageSize: 120)
+    @State private var historyWindowTrimTask: Task<Void, Never>? = nil
     @State private var historyCache = BoundedMemoryCache<String, HistorySnapshot>(capacity: 3)
     @State private var historySearchText = ""
     @State private var debouncedHistorySearchText = ""
@@ -225,6 +231,7 @@ struct HistoryView: View {
         .onDisappear {
             tableScrollCoordinator.stopContextClickMonitoring()
             historySearchDebounceTask?.cancel()
+            historyWindowTrimTask?.cancel()
             dragClickSuppressionTask?.cancel()
             dragCompletionMonitorTask?.cancel()
             activeDragCommitHashes.removeAll()
@@ -572,9 +579,6 @@ struct HistoryView: View {
     private var commitGraphList: some View {
         Group {
             if let graphModel {
-                let rowIndexByHash = Dictionary(
-                    uniqueKeysWithValues: commits.enumerated().map { ($0.element.hash, $0.offset) }
-                )
                 // Fixed initial hints only; the native coordinator owns all
                 // subsequent sizing, including window and scroller changes.
                 ZStack(alignment: .bottom) {
@@ -587,7 +591,7 @@ struct HistoryView: View {
                             commitInteractionCell(for: commit) {
                                 BranchGraphRowCanvas(
                                     model: graphModel,
-                                    rowIndex: rowIndexByHash[commit.hash] ?? 0
+                                    rowIndex: graphModel.rowIndexByHash[commit.hash] ?? 0
                                 )
                                 .opacity(activeDragCommitHashes.contains(commit.hash) ? 0.4 : 1)
                             }
@@ -605,7 +609,9 @@ struct HistoryView: View {
                                         isDragActive: activeDragCommitHashes.contains(commit.hash),
                                         scrollCoordinator: tableScrollCoordinator,
                                         onAppear: {
-                                            handleHistoryCommitCellAppearance(commit)
+                                            handleHistoryCommitCellAppearance(
+                                                at: graphModel.rowIndexByHash[commit.hash] ?? 0
+                                            )
                                         }
                                     )
                                     .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
@@ -1111,20 +1117,40 @@ struct HistoryView: View {
     ) async {
         let cacheKey = historyLoadKey
         if reset, let cached = historyCache.value(for: cacheKey) {
-            await MainActor.run {
-                applyCachedSnapshot(cached)
+            isLoading = true
+            defer { isLoading = false }
+            let cachedHeadHash: String?
+            if let resolvedHeadHash = Self.resolvedHeadHash(from: cached.commits) {
+                cachedHeadHash = resolvedHeadHash
+            } else {
+                cachedHeadHash = await GitStatusService.shared.tipHash(
+                    for: "HEAD",
+                    in: repositoryURL
+                )
             }
+            let cachedHighlightRootHash = await Self.highlightRootHash(
+                for: appState.historyBranchFilter,
+                commits: cached.commits,
+                repositoryURL: repositoryURL
+            )
+            let cachedGraphModel = await CommitGraphGenerator.generateAsync(
+                commits: cached.commits,
+                highlighting: Self.highlighting(for: appState.historyBranchFilter),
+                headHash: cachedHeadHash,
+                highlightRootHash: cachedHighlightRootHash
+            )
+            guard historyLoadKey == cacheKey else { return }
+            applyCachedSnapshot(
+                cached,
+                graphModel: cachedGraphModel,
+                headHash: cachedHeadHash
+            )
             return
         }
 
-        let preservedLoadLimit = await MainActor.run { () -> Int? in
+        let preservedWindow = await MainActor.run { () -> (startIndex: Int, count: Int)? in
             guard reset, preservingSelectionAndScroll else { return nil }
-
-            let selectedIndex = commitSelection.primaryHash.flatMap { primaryHash in
-                commits.firstIndex(where: { $0.hash == primaryHash })
-            }
-            let selectionBufferLimit = selectedIndex.map { $0 + paging.pageSize } ?? 0
-            return max(paging.pageSize, paging.loadedCount, selectionBufferLimit)
+            return (paging.startIndex, max(paging.pageSize, paging.loadedCount))
         }
 
         isLoading = true
@@ -1147,63 +1173,18 @@ struct HistoryView: View {
             }
         }
         let scope = Self.historyScope(branchFilter: appState.historyBranchFilter)
-        let skip = await MainActor.run { paging.loadedCount }
-        let pageSize = await MainActor.run { paging.pageSize }
-        let loadLimit = preservedLoadLimit ?? pageSize
-        let searchQuery = activeHistorySearchQuery
-        let newCommits: [Commit]
-        if searchQuery.isEmpty {
-            switch scope {
-            case .allBranches:
-                newCommits = await GitStatusService.shared.commitHistory(
-                    allBranches: true,
-                    limit: loadLimit,
-                    skip: skip,
-                    in: repositoryURL
-                )
-            case .currentBranch:
-                newCommits = await GitStatusService.shared.commitHistory(
-                    allBranches: false,
-                    limit: loadLimit,
-                    skip: skip,
-                    in: repositoryURL
-                )
-            case .ref(let ref):
-                newCommits = await GitStatusService.shared.commitHistory(
-                    branch: ref,
-                    limit: loadLimit,
-                    skip: skip,
-                    in: repositoryURL
-                )
-            }
-        } else {
-            switch scope {
-            case .allBranches:
-                newCommits = await GitStatusService.shared.searchCommitHistory(
-                    allBranches: true,
-                    query: searchQuery,
-                    limit: loadLimit,
-                    skip: skip,
-                    in: repositoryURL
-                )
-            case .currentBranch:
-                newCommits = await GitStatusService.shared.searchCommitHistory(
-                    allBranches: false,
-                    query: searchQuery,
-                    limit: loadLimit,
-                    skip: skip,
-                    in: repositoryURL
-                )
-            case .ref(let ref):
-                newCommits = await GitStatusService.shared.searchCommitHistory(
-                    branch: ref,
-                    query: searchQuery,
-                    limit: loadLimit,
-                    skip: skip,
-                    in: repositoryURL
-                )
-            }
+        let skip = await MainActor.run {
+            preservedWindow?.startIndex ?? paging.olderPageStartIndex
         }
+        let pageSize = await MainActor.run { paging.pageSize }
+        let loadLimit = preservedWindow?.count ?? pageSize
+        let searchQuery = activeHistorySearchQuery
+        let newCommits = await historyPage(
+            scope: scope,
+            searchQuery: searchQuery,
+            limit: loadLimit,
+            skip: skip
+        )
 
         let newSelectedCommit: Commit?
         let newScrollTarget: String?
@@ -1227,7 +1208,7 @@ struct HistoryView: View {
             newScrollTarget = newCommits.first?.hash
         }
 
-        let loadedCommits = await MainActor.run {
+        let loadedCommits = await MainActor.run { () -> [Commit] in
             if reset || skip == 0 {
                 return newCommits
             }
@@ -1258,7 +1239,13 @@ struct HistoryView: View {
             highlightRootHash: highlightRootHash
         )
 
+        let viewportAnchor = await MainActor.run {
+            preservingSelectionAndScroll
+                ? tableScrollCoordinator.viewportAnchor(commitHashes: commits.map(\.hash))
+                : nil
+        }
         await MainActor.run {
+            let pinnedSelectedCommit = selectedCommit
             let shouldPreserveTableSelection =
                 (preservingSelectionAndScroll || !reset)
                 && !commitSelection.selectedHashes.isEmpty
@@ -1268,15 +1255,13 @@ struct HistoryView: View {
             commits = loadedCommits
             graphModel = newGraphModel
             let visibleHashes = loadedCommits.map(\.hash)
-            if skip == 0 && !preservingSelectionAndScroll {
+            if reset && !preservingSelectionAndScroll {
                 // A branch change must select that branch's tip, even when the
                 // previously selected commit is also reachable from the new branch.
                 commitSelection = HistoryCommitSelection()
-            } else {
-                commitSelection.prune(visibleHashes: visibleHashes)
             }
             let shouldSelectDefaultCommit =
-                (skip == 0 && !preservingSelectionAndScroll)
+                (reset && !preservingSelectionAndScroll)
                 || commitSelection.selectedHashes.isEmpty
             if shouldSelectDefaultCommit, let newSelectedCommit {
                 commitSelection.select(
@@ -1285,17 +1270,25 @@ struct HistoryView: View {
                     visibleHashes: visibleHashes
                 )
             }
-            selectedCommit = Self.commit(withHash: commitSelection.primaryHash, in: loadedCommits)
-            tableSelection = Set(commitSelection.selectedHashes)
-            if skip == 0 && !preservingSelectionAndScroll {
+            let loadedSelectedCommit = Self.commit(
+                withHash: commitSelection.primaryHash,
+                in: loadedCommits
+            )
+            selectedCommit = loadedSelectedCommit
+                ?? pinnedSelectedCommit.flatMap { pinned in
+                    pinned.hash == commitSelection.primaryHash ? pinned : nil
+                }
+            tableSelection = Set(commitSelection.selectedHashes).intersection(visibleHashes)
+            if reset && !preservingSelectionAndScroll {
                 scrollTarget = Self.reloadTargetHash(
                     reset: true,
                     selectedCommitHash: selectedCommit?.hash,
                     newScrollTarget: newScrollTarget
                 )
             }
-            if skip == 0 && preservingSelectionAndScroll {
-                paging.replaceLoadedHistory(
+            if reset {
+                paging.replaceWindow(
+                    startIndex: preservedWindow?.startIndex ?? 0,
                     count: newCommits.count,
                     hasMore: newCommits.count == loadLimit
                 )
@@ -1306,8 +1299,9 @@ struct HistoryView: View {
 
             historyCache.insert(HistorySnapshot(
                 commits: loadedCommits,
-                graphModel: newGraphModel,
-                selectedCommitHash: selectedCommit?.hash
+                selectedCommit: selectedCommit,
+                startIndex: paging.startIndex,
+                hasMore: paging.hasMore
             ), for: cacheKey)
 
             // Appending a page also updates the native Table's rows and can
@@ -1318,6 +1312,20 @@ struct HistoryView: View {
                     in: loadedCommits,
                     loadKey: cacheKey
                 )
+            }
+
+            if let viewportAnchor {
+                Task { @MainActor in
+                    await Task.yield()
+                    await tableScrollCoordinator.restoreViewportAnchor(
+                        viewportAnchor,
+                        commitHashes: loadedCommits.map(\.hash)
+                    )
+                }
+            }
+
+            if !reset, paging.needsTrimming {
+                scheduleHistoryWindowTrim(from: .newer, loadKey: cacheKey)
             }
         }
     }
@@ -1340,19 +1348,21 @@ struct HistoryView: View {
                 return
             }
 
-            var restoredSelection = selection
-            restoredSelection.prune(visibleHashes: reloadedCommits.map(\.hash))
-            guard !restoredSelection.selectedHashes.isEmpty else {
+            let visibleHashes = reloadedCommits.map(\.hash)
+            let visibleSelection = Set(selection.selectedHashes).intersection(visibleHashes)
+            guard !visibleSelection.isEmpty else {
                 isRestoringTableSelection = false
                 return
             }
 
-            commitSelection = restoredSelection
-            selectedCommit = Self.commit(
-                withHash: restoredSelection.primaryHash,
+            commitSelection = selection
+            if let loadedSelectedCommit = Self.commit(
+                withHash: selection.primaryHash,
                 in: reloadedCommits
-            )
-            tableSelection = Set(restoredSelection.selectedHashes)
+            ) {
+                selectedCommit = loadedSelectedCommit
+            }
+            tableSelection = visibleSelection
             isRestoringTableSelection = false
         }
     }
@@ -1374,26 +1384,41 @@ struct HistoryView: View {
         }
     }
 
-    private func applyCachedSnapshot(_ snapshot: HistorySnapshot) {
+    private func applyCachedSnapshot(
+        _ snapshot: HistorySnapshot,
+        graphModel cachedGraphModel: CommitGraphModel,
+        headHash: String?
+    ) {
         cancelHistoryRefreshIndicator()
-        paging.reset()
-        paging.finishLoadingMore(loaded: snapshot.commits.count)
-        scrollTarget = snapshot.selectedCommitHash
-        currentHeadHash = Self.resolvedHeadHash(from: snapshot.commits)
+        paging.replaceWindow(
+            startIndex: snapshot.startIndex,
+            count: snapshot.commits.count,
+            hasMore: snapshot.hasMore
+        )
+        scrollTarget = snapshot.commits.contains(where: { $0.hash == snapshot.selectedCommit?.hash })
+            ? snapshot.selectedCommit?.hash
+            : nil
+        currentHeadHash = headHash
 
         commits = snapshot.commits
-        graphModel = snapshot.graphModel
+        graphModel = cachedGraphModel
 
         let visibleHashes = snapshot.commits.map(\.hash)
-        commitSelection.prune(visibleHashes: visibleHashes)
-        if let cachedHash = snapshot.selectedCommitHash,
+        if let cachedHash = snapshot.selectedCommit?.hash,
            snapshot.commits.contains(where: { $0.hash == cachedHash }) {
             commitSelection.select(cachedHash, modifiers: [], visibleHashes: visibleHashes)
+        } else if let cachedCommit = snapshot.selectedCommit {
+            commitSelection = HistoryCommitSelection(
+                selectedHashes: [cachedCommit.hash],
+                primaryHash: cachedCommit.hash,
+                anchorHash: cachedCommit.hash
+            )
         } else if commitSelection.selectedHashes.isEmpty, let first = snapshot.commits.first {
             commitSelection.select(first.hash, modifiers: [], visibleHashes: visibleHashes)
         }
         selectedCommit = Self.commit(withHash: commitSelection.primaryHash, in: snapshot.commits)
-        tableSelection = Set(commitSelection.selectedHashes)
+            ?? snapshot.selectedCommit
+        tableSelection = Set(commitSelection.selectedHashes).intersection(visibleHashes)
 
         isLoading = false
         isRefreshingHistory = false
@@ -1406,6 +1431,253 @@ struct HistoryView: View {
         }
         guard shouldLoad else { return }
         await loadHistory(reset: false)
+    }
+
+    private func loadNewerHistoryIfNeeded() async {
+        let request = await MainActor.run { () -> (startIndex: Int, count: Int, hadOlderCommits: Bool)? in
+            guard !isLoading, paging.beginLoadingNewer() else { return nil }
+            isLoading = true
+            let startIndex = max(0, paging.startIndex - paging.pageSize)
+            return (
+                startIndex,
+                paging.startIndex - startIndex,
+                paging.hasMore
+            )
+        }
+        guard let request else { return }
+        defer {
+            isLoading = false
+            paging.cancelLoadingMore()
+        }
+
+        let scope = Self.historyScope(branchFilter: appState.historyBranchFilter)
+        let searchQuery = activeHistorySearchQuery
+        let newerCommits = await historyPage(
+            scope: scope,
+            searchQuery: searchQuery,
+            limit: request.count,
+            skip: request.startIndex
+        )
+        guard !newerCommits.isEmpty else { return }
+
+        let currentCommits = await MainActor.run { commits }
+        var seenHashes = Set<String>()
+        let combinedCommits = (newerCommits + currentCommits).filter {
+            seenHashes.insert($0.hash).inserted
+        }
+        let loadedCommits = combinedCommits
+        let headHash: String?
+        if let resolvedHeadHash = Self.resolvedHeadHash(from: loadedCommits) {
+            headHash = resolvedHeadHash
+        } else {
+            headHash = await GitStatusService.shared.tipHash(for: "HEAD", in: repositoryURL)
+        }
+        let highlightRootHash = await Self.highlightRootHash(
+            for: appState.historyBranchFilter,
+            commits: loadedCommits,
+            repositoryURL: repositoryURL
+        )
+        let newGraphModel = await CommitGraphGenerator.generateAsync(
+            commits: loadedCommits,
+            highlighting: Self.highlighting(for: appState.historyBranchFilter),
+            headHash: headHash,
+            highlightRootHash: highlightRootHash
+        )
+        let viewportAnchor = await MainActor.run {
+            tableScrollCoordinator.viewportAnchor(commitHashes: commits.map(\.hash))
+        }
+
+        await MainActor.run {
+            let pinnedSelectedCommit = selectedCommit
+            commits = loadedCommits
+            graphModel = newGraphModel
+            currentHeadHash = headHash
+
+            let visibleHashes = loadedCommits.map(\.hash)
+            let loadedSelectedCommit = Self.commit(
+                withHash: commitSelection.primaryHash,
+                in: loadedCommits
+            )
+            selectedCommit = loadedSelectedCommit
+                ?? pinnedSelectedCommit.flatMap { pinned in
+                    pinned.hash == commitSelection.primaryHash ? pinned : nil
+                }
+            tableSelection = Set(commitSelection.selectedHashes).intersection(visibleHashes)
+            paging.replaceWindow(
+                startIndex: request.startIndex,
+                count: loadedCommits.count,
+                hasMore: request.hadOlderCommits
+            )
+
+            historyCache.insert(HistorySnapshot(
+                commits: loadedCommits,
+                selectedCommit: selectedCommit,
+                startIndex: paging.startIndex,
+                hasMore: paging.hasMore
+            ), for: historyLoadKey)
+
+            if let viewportAnchor, !paging.needsTrimming {
+                Task { @MainActor in
+                    await Task.yield()
+                    await tableScrollCoordinator.restoreViewportAnchor(
+                        viewportAnchor,
+                        commitHashes: loadedCommits.map(\.hash)
+                    )
+                }
+            }
+
+
+            if paging.needsTrimming {
+                scheduleHistoryWindowTrim(from: .older, loadKey: historyLoadKey)
+            }
+        }
+    }
+
+    private func scheduleHistoryWindowTrim(
+        from edge: HistoryWindowTrimEdge,
+        loadKey: String
+    ) {
+        historyWindowTrimTask?.cancel()
+        historyWindowTrimTask = Task { @MainActor in
+            await tableScrollCoordinator.waitForScrollingToSettle()
+            guard !Task.isCancelled else { return }
+            await trimHistoryWindowIfNeeded(from: edge, loadKey: loadKey)
+        }
+    }
+
+    private func trimHistoryWindowIfNeeded(
+        from edge: HistoryWindowTrimEdge,
+        loadKey: String
+    ) async {
+        guard historyLoadKey == loadKey else { return }
+        let excessCount = commits.count - paging.maximumLoadedCount
+        guard excessCount > 0 else { return }
+
+        let originalHashes = commits.map(\.hash)
+        let viewportAnchor = edge == .newer
+            ? tableScrollCoordinator.viewportAnchor(commitHashes: originalHashes)
+            : nil
+        let trimmedCommits: [Commit]
+        switch edge {
+        case .newer:
+            trimmedCommits = Array(commits.dropFirst(excessCount))
+        case .older:
+            trimmedCommits = Array(commits.dropLast(excessCount))
+        }
+
+        let headHash: String?
+        if let resolvedHeadHash = Self.resolvedHeadHash(from: trimmedCommits) {
+            headHash = resolvedHeadHash
+        } else {
+            headHash = await GitStatusService.shared.tipHash(for: "HEAD", in: repositoryURL)
+        }
+        let highlightRootHash = await Self.highlightRootHash(
+            for: appState.historyBranchFilter,
+            commits: trimmedCommits,
+            repositoryURL: repositoryURL
+        )
+        let trimmedGraphModel = await CommitGraphGenerator.generateAsync(
+            commits: trimmedCommits,
+            highlighting: Self.highlighting(for: appState.historyBranchFilter),
+            headHash: headHash,
+            highlightRootHash: highlightRootHash
+        )
+
+        // Graph generation runs off the main actor and the user may start a
+        // new momentum scroll while it is in flight. Require another quiet
+        // interval before replacing rows or correcting the viewport.
+        await tableScrollCoordinator.waitForScrollingToSettle()
+
+        guard !Task.isCancelled,
+              historyLoadKey == loadKey,
+              commits.map(\.hash) == originalHashes else { return }
+
+        commits = trimmedCommits
+        graphModel = trimmedGraphModel
+        currentHeadHash = headHash
+        switch edge {
+        case .newer:
+            paging.discardNewerCommits(count: excessCount)
+        case .older:
+            paging.discardOlderCommits(count: excessCount)
+        }
+
+        let visibleHashes = trimmedCommits.map(\.hash)
+        tableSelection = Set(commitSelection.selectedHashes).intersection(visibleHashes)
+        historyCache.insert(HistorySnapshot(
+            commits: trimmedCommits,
+            selectedCommit: selectedCommit,
+            startIndex: paging.startIndex,
+            hasMore: paging.hasMore
+        ), for: loadKey)
+
+        if let viewportAnchor {
+            await Task.yield()
+            await tableScrollCoordinator.restoreViewportAnchor(
+                viewportAnchor,
+                commitHashes: visibleHashes
+            )
+        }
+    }
+
+    private func historyPage(
+        scope: HistoryScope,
+        searchQuery: String,
+        limit: Int,
+        skip: Int
+    ) async -> [Commit] {
+        if searchQuery.isEmpty {
+            switch scope {
+            case .allBranches:
+                return await GitStatusService.shared.commitHistory(
+                    allBranches: true,
+                    limit: limit,
+                    skip: skip,
+                    in: repositoryURL
+                )
+            case .currentBranch:
+                return await GitStatusService.shared.commitHistory(
+                    allBranches: false,
+                    limit: limit,
+                    skip: skip,
+                    in: repositoryURL
+                )
+            case .ref(let ref):
+                return await GitStatusService.shared.commitHistory(
+                    branch: ref,
+                    limit: limit,
+                    skip: skip,
+                    in: repositoryURL
+                )
+            }
+        }
+
+        switch scope {
+        case .allBranches:
+            return await GitStatusService.shared.searchCommitHistory(
+                allBranches: true,
+                query: searchQuery,
+                limit: limit,
+                skip: skip,
+                in: repositoryURL
+            )
+        case .currentBranch:
+            return await GitStatusService.shared.searchCommitHistory(
+                allBranches: false,
+                query: searchQuery,
+                limit: limit,
+                skip: skip,
+                in: repositoryURL
+            )
+        case .ref(let ref):
+            return await GitStatusService.shared.searchCommitHistory(
+                branch: ref,
+                query: searchQuery,
+                limit: limit,
+                skip: skip,
+                in: repositoryURL
+            )
+        }
     }
     
     private func loadFileChanges(for commit: Commit?) async {
@@ -1521,8 +1793,23 @@ struct HistoryView: View {
             return
         }
 
+        if let primaryHash = commitSelection.primaryHash,
+           !visibleSet.contains(primaryHash),
+           newSelection.isSubset(of: Set(commitSelection.selectedHashes)) {
+            // A window update may leave only part of a multi-selection visible.
+            // Keep the off-window primary selection and its pinned detail.
+            return
+        }
+
         guard !newSelection.isEmpty else {
             guard !isRestoringTableSelection else { return }
+            if let primaryHash = commitSelection.primaryHash,
+               !visibleSet.contains(primaryHash) {
+                // The selected commit may be outside the retained history
+                // window. Keep its detail snapshot and logical selection so
+                // the native row selection returns when that page is loaded.
+                return
+            }
             commitSelection = HistoryCommitSelection()
             selectedCommit = nil
             return
@@ -1558,10 +1845,16 @@ struct HistoryView: View {
         handleCommitDoubleClick(primaryCommit)
     }
 
-    private func handleHistoryCommitCellAppearance(_ commit: Commit) {
-        guard commit.hash == commits.last?.hash else { return }
-        Task {
-            await loadOlderHistoryIfNeeded()
+    private func handleHistoryCommitCellAppearance(at row: Int) {
+        let prefetchDistance = max(1, paging.pageSize / 2)
+        if row <= prefetchDistance, paging.canLoadNewer {
+            Task {
+                await loadNewerHistoryIfNeeded()
+            }
+        } else if row >= max(0, commits.count - prefetchDistance - 1) {
+            Task {
+                await loadOlderHistoryIfNeeded()
+            }
         }
     }
     
@@ -1953,8 +2246,9 @@ struct HistoryView: View {
 
     struct HistorySnapshot {
         let commits: [Commit]
-        let graphModel: CommitGraphModel
-        let selectedCommitHash: String?
+        let selectedCommit: Commit?
+        let startIndex: Int
+        let hasMore: Bool
     }
 
     static func historyScope(branchFilter: HistoryBranchFilter) -> HistoryScope {
@@ -2187,7 +2481,7 @@ struct HistoryView: View {
             commits: commits,
             selection: &commitSelection
         )
-        tableSelection = Set(commitSelection.selectedHashes)
+        tableSelection = Set(commitSelection.selectedHashes).intersection(commits.map(\.hash))
     }
 
     private func makeCommitDragPayload(startingAt commit: Commit) -> GitDragPayload {

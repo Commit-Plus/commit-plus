@@ -19,6 +19,11 @@ import AppKit
 import QuartzCore
 import SwiftUI
 
+struct HistoryTableViewportAnchor: Equatable {
+    let commitHash: String
+    let rowOffset: CGFloat
+}
+
 @MainActor
 final class HistoryTableScrollCoordinator {
     private weak var tableView: NSTableView?
@@ -36,6 +41,8 @@ final class HistoryTableScrollCoordinator {
     private var isRestoringWidths = false
     private var contextClickMonitor: Any?
     private let dragPreviewDataSource = HistoryDragPreviewDataSource()
+    private var lastViewportOriginY: CGFloat?
+    private var lastScrollActivity = Date.distantPast
 
     func prepareDragPreview(_ presentation: CommitDragPreviewPresentation) {
         guard let tableView else { return }
@@ -146,9 +153,28 @@ final class HistoryTableScrollCoordinator {
                 forName: name, object: clipView, queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
+                    self?.recordScrollActivityIfNeeded(in: clipView)
                     self?.resizeForViewportIfNeeded()
                 }
             })
+        }
+    }
+
+    private func recordScrollActivityIfNeeded(in clipView: NSClipView) {
+        let originY = clipView.bounds.origin.y
+        defer { lastViewportOriginY = originY }
+        guard let lastViewportOriginY,
+              abs(lastViewportOriginY - originY) > 0.01 else { return }
+        lastScrollActivity = Date()
+    }
+
+    func waitForScrollingToSettle() async {
+        let quietInterval: TimeInterval = 0.18
+        while true {
+            let remaining = quietInterval - Date().timeIntervalSince(lastScrollActivity)
+            guard remaining > 0 else { return }
+            try? await Task.sleep(for: .seconds(remaining))
+            guard !Task.isCancelled else { return }
         }
     }
 
@@ -342,6 +368,53 @@ final class HistoryTableScrollCoordinator {
                 return
             }
             try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
+    func viewportAnchor(commitHashes: [String]) -> HistoryTableViewportAnchor? {
+        guard let tableView,
+              let clipView = tableView.enclosingScrollView?.contentView else {
+            return nil
+        }
+
+        let visibleRows = tableView.rows(in: clipView.bounds)
+        guard visibleRows.location != NSNotFound,
+              visibleRows.length > 0,
+              commitHashes.indices.contains(visibleRows.location) else {
+            return nil
+        }
+
+        let row = visibleRows.location
+        return HistoryTableViewportAnchor(
+            commitHash: commitHashes[row],
+            rowOffset: tableView.rect(ofRow: row).minY - clipView.bounds.minY
+        )
+    }
+
+    func restoreViewportAnchor(
+        _ anchor: HistoryTableViewportAnchor,
+        commitHashes: [String]
+    ) async {
+        guard let row = commitHashes.firstIndex(of: anchor.commitHash) else { return }
+
+        for _ in 0..<30 {
+            guard let tableView,
+                  tableView.numberOfRows > row,
+                  let clipView = tableView.enclosingScrollView?.contentView else {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+                continue
+            }
+
+            let maximumY = max(0, tableView.bounds.height - clipView.bounds.height)
+            let targetY = min(
+                maximumY,
+                max(0, tableView.rect(ofRow: row).minY - anchor.rowOffset)
+            )
+            clipView.setBoundsOrigin(
+                CGPoint(x: clipView.bounds.origin.x, y: targetY)
+            )
+            tableView.enclosingScrollView?.reflectScrolledClipView(clipView)
+            return
         }
     }
 

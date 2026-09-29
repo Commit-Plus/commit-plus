@@ -57,7 +57,8 @@ nonisolated enum CommitGraphGenerator {
                 links: [],
                 dots: [],
                 laneCount: 1,
-                commitMetadata: [:]
+                commitMetadata: [:],
+                rowIndexByHash: [:]
             )
         }
 
@@ -263,7 +264,8 @@ nonisolated enum CommitGraphGenerator {
             links: links,
             dots: dots,
             laneCount: max(1, maxLane + 1),
-            commitMetadata: metadata
+            commitMetadata: metadata,
+            rowIndexByHash: rowByHash
         )
     }
 

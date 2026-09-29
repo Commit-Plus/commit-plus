@@ -18,19 +18,45 @@
 import Foundation
 
 struct HistoryPagingState {
+    static let retainedPageCount = 5
+
     let pageSize: Int
+    private(set) var startIndex: Int = 0
     private(set) var loadedCount: Int = 0
     private(set) var hasMore: Bool = true
     private(set) var isLoadingMore: Bool = false
 
+    var maximumLoadedCount: Int {
+        pageSize * Self.retainedPageCount
+    }
+
+    var needsTrimming: Bool {
+        loadedCount > maximumLoadedCount
+    }
+
+    var canLoadNewer: Bool {
+        startIndex > 0
+    }
+
+    var olderPageStartIndex: Int {
+        startIndex + loadedCount
+    }
+
     mutating func reset() {
+        startIndex = 0
         loadedCount = 0
         hasMore = true
         isLoadingMore = false
     }
 
     mutating func beginLoadingMore() -> Bool {
-        guard hasMore, !isLoadingMore else { return false }
+        guard hasMore, !needsTrimming, !isLoadingMore else { return false }
+        isLoadingMore = true
+        return true
+    }
+
+    mutating func beginLoadingNewer() -> Bool {
+        guard canLoadNewer, !needsTrimming, !isLoadingMore else { return false }
         isLoadingMore = true
         return true
     }
@@ -41,10 +67,29 @@ struct HistoryPagingState {
         isLoadingMore = false
     }
 
-    mutating func replaceLoadedHistory(count: Int, hasMore: Bool) {
-        loadedCount = count
+    mutating func discardNewerCommits(count: Int) {
+        let discardedCount = min(max(0, count), loadedCount)
+        startIndex += discardedCount
+        loadedCount -= discardedCount
+    }
+
+    mutating func discardOlderCommits(count: Int) {
+        let discardedCount = min(max(0, count), loadedCount)
+        loadedCount -= discardedCount
+        if discardedCount > 0 {
+            hasMore = true
+        }
+    }
+
+    mutating func replaceWindow(startIndex: Int, count: Int, hasMore: Bool) {
+        self.startIndex = max(0, startIndex)
+        loadedCount = max(0, count)
         self.hasMore = hasMore
         isLoadingMore = false
+    }
+
+    mutating func replaceLoadedHistory(count: Int, hasMore: Bool) {
+        replaceWindow(startIndex: 0, count: count, hasMore: hasMore)
     }
 
     mutating func cancelLoadingMore() {
