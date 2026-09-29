@@ -42,12 +42,12 @@ actor AdvancedMaintenanceService {
     func orphanedUndoBackups(in repositories: [URL]) -> OrphanedUndoBackupReport {
         var directories: [URL] = []
         var byteCount: Int64 = 0
+        let snapshotStore = GitFileUndoSnapshotStore()
 
         for repositoryURL in Set(repositories.map(\.standardizedFileURL)) {
-            let root = repositoryURL.appendingPathComponent(
-                ".git/macgit/undo",
-                isDirectory: true
-            )
+            guard let root = try? snapshotStore.undoRoot(in: repositoryURL) else {
+                continue
+            }
             guard let children = try? fileManager.contentsOfDirectory(
                 at: root,
                 includingPropertiesForKeys: [.isDirectoryKey],
