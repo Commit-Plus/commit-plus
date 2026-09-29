@@ -27,7 +27,7 @@ struct GitFileUndoSnapshotStore {
 
     func capture(paths: [String], in repositoryURL: URL) throws -> GitFileUndoSnapshot {
         let snapshotID = UUID()
-        let directory = snapshotDirectory(snapshotID, in: repositoryURL)
+        let directory = try snapshotDirectory(snapshotID, in: repositoryURL)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
 
         let items = try paths.map { path in
@@ -56,11 +56,12 @@ struct GitFileUndoSnapshotStore {
     func restore(snapshotID: UUID, in repositoryURL: URL) throws {
         let data = try Data(contentsOf: manifestURL(snapshotID, in: repositoryURL))
         let snapshot = try JSONDecoder().decode(GitFileUndoSnapshot.self, from: data)
+        let snapshotDirectory = try snapshotDirectory(snapshotID, in: repositoryURL)
 
         for item in snapshot.items {
             let destination = repositoryURL.appendingPathComponent(item.path)
             if item.existed, let backupRelativePath = item.backupRelativePath {
-                let backup = snapshotDirectory(snapshotID, in: repositoryURL).appendingPathComponent(backupRelativePath)
+                let backup = snapshotDirectory.appendingPathComponent(backupRelativePath)
                 try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
                 if fileManager.fileExists(atPath: destination.path) {
                     try fileManager.removeItem(at: destination)
@@ -73,22 +74,58 @@ struct GitFileUndoSnapshotStore {
     }
 
     func delete(snapshotID: UUID, in repositoryURL: URL) throws {
-        let directory = snapshotDirectory(snapshotID, in: repositoryURL)
+        let directory = try snapshotDirectory(snapshotID, in: repositoryURL)
         if fileManager.fileExists(atPath: directory.path) {
             try fileManager.removeItem(at: directory)
         }
         GitUndoSnapshotRegistry.shared.unregister(snapshotID)
     }
 
-    private func undoRoot(in repositoryURL: URL) -> URL {
-        repositoryURL.appendingPathComponent(".git/macgit/undo", isDirectory: true)
+    func undoRoot(in repositoryURL: URL) throws -> URL {
+        try gitDirectory(in: repositoryURL)
+            .appendingPathComponent("macgit/undo", isDirectory: true)
     }
 
-    private func snapshotDirectory(_ id: UUID, in repositoryURL: URL) -> URL {
-        undoRoot(in: repositoryURL).appendingPathComponent(id.uuidString, isDirectory: true)
+    private func gitDirectory(in repositoryURL: URL) throws -> URL {
+        let dotGitURL = repositoryURL.appendingPathComponent(".git")
+        var isDirectory: ObjCBool = false
+
+        if fileManager.fileExists(atPath: dotGitURL.path, isDirectory: &isDirectory),
+           isDirectory.boolValue {
+            return dotGitURL.standardizedFileURL
+        }
+
+        let contents = try String(contentsOf: dotGitURL, encoding: .utf8)
+        let firstLine = contents.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        let prefix = "gitdir:"
+        guard firstLine.hasPrefix(prefix) else {
+            throw GitError.commandFailed("The repository's .git file does not contain a valid gitdir pointer.")
+        }
+
+        let path = firstLine.dropFirst(prefix.count)
+            .trimmingCharacters(in: .whitespaces)
+        guard !path.isEmpty else {
+            throw GitError.commandFailed("The repository's .git file contains an empty gitdir pointer.")
+        }
+
+        let gitDirectory = URL(
+            fileURLWithPath: path,
+            isDirectory: true,
+            relativeTo: dotGitURL.deletingLastPathComponent()
+        ).standardizedFileURL
+        var resolvedIsDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: gitDirectory.path, isDirectory: &resolvedIsDirectory),
+              resolvedIsDirectory.boolValue else {
+            throw GitError.commandFailed("The repository's git directory could not be found.")
+        }
+        return gitDirectory
     }
 
-    private func manifestURL(_ id: UUID, in repositoryURL: URL) -> URL {
-        snapshotDirectory(id, in: repositoryURL).appendingPathComponent("manifest.json")
+    private func snapshotDirectory(_ id: UUID, in repositoryURL: URL) throws -> URL {
+        try undoRoot(in: repositoryURL).appendingPathComponent(id.uuidString, isDirectory: true)
+    }
+
+    private func manifestURL(_ id: UUID, in repositoryURL: URL) throws -> URL {
+        try snapshotDirectory(id, in: repositoryURL).appendingPathComponent("manifest.json")
     }
 }
