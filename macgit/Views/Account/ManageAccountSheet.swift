@@ -30,6 +30,7 @@ struct ManageAccountSheet: View {
             if let account = controller.account {
                 Form {
                     LabeledContent("Account", value: account.displayLabel)
+                    LabeledContent("Email", value: account.email ?? "Not available")
                     LabeledContent("Sign-in methods", value: providerSummary(for: account))
                     LabeledContent("Current plan") {
                         Label(

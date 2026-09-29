@@ -43,6 +43,9 @@ struct AccountMenuContent: View {
 
     var body: some View {
         Text(summary)
+        if let email = accountEmail {
+            Text(email)
+        }
 
         ForEach(actions, id: \.self) { action in
             if action == .upgrade || action == .signOut {
@@ -96,6 +99,13 @@ struct AccountMenuContent: View {
             entitlement: controller.entitlement,
             cloudFeaturesAvailable: controller.cloudFeaturesAvailable
         )
+    }
+
+    private var accountEmail: String? {
+        guard let account = controller.account,
+              let email = account.email,
+              email != account.displayLabel else { return nil }
+        return email
     }
 
     private func presentSignIn() {
