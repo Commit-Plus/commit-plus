@@ -45,7 +45,7 @@ final class GitLabProviderAuthServiceTests: XCTestCase {
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(request.url?.absoluteString, "https://gitlab.example.com/oauth/authorize_device")
         XCTAssertTrue(body.contains("client_id=gitlab-client-id"))
-        XCTAssertTrue(body.contains("scope=api%20read_user"))
+        XCTAssertTrue(body.contains("scope=api%20read_user%20write_repository"))
         XCTAssertEqual(authorization.provider, .gitlab)
         XCTAssertEqual(authorization.deviceCode, "gitlab-device-code")
         XCTAssertEqual(authorization.userCode, "A1B2-C3D4")
@@ -113,6 +113,41 @@ final class GitLabProviderAuthServiceTests: XCTestCase {
         }
     }
 
+    func testRefreshTokenRotatesGitLabOAuthCredentials() async throws {
+        let client = StubGitLabAuthHTTPClient(responses: [
+            .json(
+                statusCode: 200,
+                body: #"{"access_token":"new-token","refresh_token":"new-refresh-token","expires_in":7200,"token_type":"Bearer"}"#
+            )
+        ])
+        let service = makeService(httpClient: client)
+
+        let token = try await service.refreshToken("old-refresh-token", host: makeHost())
+
+        let request = try XCTUnwrap(client.requests.first)
+        let body = try XCTUnwrap(request.httpBody.flatMap { String(data: $0, encoding: .utf8) })
+        XCTAssertEqual(request.url?.absoluteString, "https://gitlab.example.com/oauth/token")
+        XCTAssertTrue(body.contains("grant_type=refresh_token"))
+        XCTAssertTrue(body.contains("refresh_token=old-refresh-token"))
+        XCTAssertEqual(token.accessToken, "new-token")
+        XCTAssertEqual(token.refreshToken, "new-refresh-token")
+        XCTAssertEqual(token.expiresAt, Date(timeIntervalSince1970: 1_700_007_200))
+    }
+
+    func testInvalidRefreshTokenRequiresReauthorization() async throws {
+        let client = StubGitLabAuthHTTPClient(responses: [
+            .json(statusCode: 400, body: #"{"error":"invalid_grant","error_description":"Token is invalid"}"#)
+        ])
+        let service = makeService(httpClient: client)
+
+        do {
+            _ = try await service.refreshToken("invalid-refresh-token", host: makeHost())
+            XCTFail("Expected invalid refresh token to throw")
+        } catch {
+            XCTAssertEqual(error as? GitProviderAuthError, .reauthorizationRequired)
+        }
+    }
+
     func testDeviceAuthorizationSurfacesInvalidClientMessage() async throws {
         let client = StubGitLabAuthHTTPClient(responses: [
             .json(
@@ -155,6 +190,7 @@ final class GitLabProviderAuthServiceTests: XCTestCase {
         XCTAssertEqual(account.username, "tanuki")
         XCTAssertEqual(account.displayName, "GitLab User")
         XCTAssertEqual(account.avatarURL?.absoluteString, "https://gitlab.com/uploads/-/system/user/avatar/42/avatar.png")
+        XCTAssertEqual(account.scopes, ["api", "read_user", "write_repository"])
         XCTAssertEqual(account.tokenStatus, .valid)
         XCTAssertEqual(account.connectedAt, Date(timeIntervalSince1970: 1_700_000_000))
         XCTAssertEqual(account.lastValidatedAt, Date(timeIntervalSince1970: 1_700_000_000))
@@ -206,7 +242,7 @@ final class GitLabProviderAuthServiceTests: XCTestCase {
             configuration: GitLabProviderAuthConfiguration(
                 clientID: "gitlab-client-id",
                 redirectURI: URL(string: "macgit://git-provider/oauth/callback")!,
-                scopes: ["api", "read_user"]
+                scopes: ["api", "read_user", "write_repository"]
             ),
             httpClient: httpClient,
             now: { Date(timeIntervalSince1970: 1_700_000_000) }

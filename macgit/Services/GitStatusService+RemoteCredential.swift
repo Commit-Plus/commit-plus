@@ -54,7 +54,7 @@ extension GitStatusService {
         } else {
             remoteURLString = await remoteURL(remote: remote, in: repositoryURL)
         }
-        guard let credential = try remoteCredential(
+        guard let credential = try await remoteCredential(
             for: remoteURLString,
             credentialResolver: credentialResolver
         ) else {
@@ -75,8 +75,8 @@ extension GitStatusService {
     func remoteCredential(
         for remoteURLString: String,
         credentialResolver: GitProviderCredentialResolver
-    ) throws -> RemoteGitCredential? {
-        if let credential = try credentialResolver.credential(for: remoteURLString) {
+    ) async throws -> RemoteGitCredential? {
+        if let credential = try await credentialResolver.credential(for: remoteURLString) {
             return .https(credential)
         }
         if let credential = try credentialResolver.sshCredential(for: remoteURLString) {

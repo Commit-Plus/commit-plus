@@ -77,6 +77,16 @@ struct GitProviderAccountRow: View {
                             .foregroundStyle(.secondary)
                         Text(protocolDescription)
                     }
+
+                    if let statusDescription {
+                        GridRow {
+                            Text("Status")
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.secondary)
+                            Label(statusDescription, systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                        }
+                    }
                 }
 
             }
@@ -115,6 +125,17 @@ struct GitProviderAccountRow: View {
             account.provider == .bitbucket ? "HTTPS (API Token)" : "HTTPS (OAuth)"
         case .ssh:
             "SSH"
+        }
+    }
+
+    private var statusDescription: String? {
+        switch account.tokenStatus {
+        case .valid:
+            nil
+        case .expired, .revoked, .reauthorizationRequired:
+            "Reconnect required"
+        case .unavailableOnThisDevice:
+            "Credentials unavailable on this Mac"
         }
     }
 

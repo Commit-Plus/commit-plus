@@ -45,24 +45,29 @@ enum GitProviderCredentialError: LocalizedError, Equatable {
 }
 
 struct GitProviderCredentialResolver {
+    typealias TokenProvider = @MainActor (GitProviderAccount) async throws -> GitProviderToken?
+
     var accounts: [GitProviderAccount]
     var tokenVault: GitProviderTokenVault
     var sshKeyStore: GitProviderSSHKeyStore?
     var preferredAccountIDsByRemoteIdentity: [String: String]
+    var tokenProvider: TokenProvider?
 
     init(
         accounts: [GitProviderAccount],
         tokenVault: GitProviderTokenVault,
         sshKeyStore: GitProviderSSHKeyStore? = nil,
-        preferredAccountIDsByRemoteIdentity: [String: String] = [:]
+        preferredAccountIDsByRemoteIdentity: [String: String] = [:],
+        tokenProvider: TokenProvider? = nil
     ) {
         self.accounts = accounts
         self.tokenVault = tokenVault
         self.sshKeyStore = sshKeyStore
         self.preferredAccountIDsByRemoteIdentity = preferredAccountIDsByRemoteIdentity
+        self.tokenProvider = tokenProvider
     }
 
-    func credential(for remoteURLString: String, preferredAccountID: String? = nil) throws -> GitCredential? {
+    func credential(for remoteURLString: String, preferredAccountID: String? = nil) async throws -> GitCredential? {
         guard isHTTPSRemote(remoteURLString) else { return nil }
         guard let identity = GitRemoteIdentityResolver.identity(
             from: remoteURLString,
@@ -87,7 +92,12 @@ struct GitProviderCredentialResolver {
             account = onlyAccount
         }
 
-        guard let token = try tokenVault.readToken(for: account), !token.accessToken.isEmpty else {
+        let token = if let tokenProvider {
+            try await tokenProvider(account)
+        } else {
+            try tokenVault.readToken(for: account)
+        }
+        guard let token, !token.accessToken.isEmpty else {
             throw GitProviderCredentialError.tokenUnavailable(username: account.username)
         }
         return GitCredential(username: account.username, token: token.accessToken)

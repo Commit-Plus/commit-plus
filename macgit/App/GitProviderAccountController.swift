@@ -39,6 +39,7 @@ final class GitProviderAccountController: ObservableObject {
     private let accountAccessPolicy = GitProviderAccountAccessPolicy()
     private var cacheOwnerUID: String?
     private var pendingOAuthSession: GitProviderOAuthSession?
+    private var gitLabRefreshTasks: [String: Task<GitProviderToken, Error>] = [:]
 
     private var accountOwnerID: String { store.accountOwnerID }
 
@@ -206,6 +207,13 @@ final class GitProviderAccountController: ObservableObject {
                     unavailableAccount.tokenStatus = .unavailableOnThisDevice
                     return unavailableAccount
                 }
+                if account.provider == .gitlab,
+                   account.transportProtocol == .https,
+                   !account.scopes.contains("write_repository") {
+                    var accountRequiringAuthorization = account
+                    accountRequiringAuthorization.tokenStatus = .reauthorizationRequired
+                    return accountRequiringAuthorization
+                }
                 return account
             }
         } catch {
@@ -280,8 +288,68 @@ final class GitProviderAccountController: ObservableObject {
             accounts: accounts,
             tokenVault: tokenVault,
             sshKeyStore: sshKeyStore,
-            preferredAccountIDsByRemoteIdentity: preferredAccountIDsByRemoteIdentity
+            preferredAccountIDsByRemoteIdentity: preferredAccountIDsByRemoteIdentity,
+            tokenProvider: { [weak self] account in
+                try await self?.validToken(for: account)
+            }
         )
+    }
+
+    private func validToken(for account: GitProviderAccount) async throws -> GitProviderToken? {
+        guard let token = try tokenVault.readToken(for: account) else { return nil }
+        guard account.provider == .gitlab, account.transportProtocol == .https else {
+            return token
+        }
+
+        guard account.scopes.contains("write_repository") else {
+            await markReauthorizationRequired(account)
+            throw GitProviderAuthError.reauthorizationRequired
+        }
+
+        guard let expiresAt = token.expiresAt,
+              expiresAt <= Date.now.addingTimeInterval(60) else {
+            return token
+        }
+        guard let refreshToken = token.refreshToken, !refreshToken.isEmpty else {
+            await markReauthorizationRequired(account)
+            throw GitProviderAuthError.reauthorizationRequired
+        }
+        guard let gitLabAuthService else {
+            throw GitProviderAuthError.invalidConfiguration
+        }
+
+        if let existingTask = gitLabRefreshTasks[account.id] {
+            return try await existingTask.value
+        }
+
+        let task = Task {
+            try await gitLabAuthService.refreshToken(
+                refreshToken,
+                host: GitProviderHost(kind: .gitlab, baseURL: account.hostURL)
+            )
+        }
+        gitLabRefreshTasks[account.id] = task
+        defer { gitLabRefreshTasks[account.id] = nil }
+
+        do {
+            let refreshedToken = try await task.value
+            try tokenVault.saveToken(refreshedToken, for: account)
+            return refreshedToken
+        } catch GitProviderAuthError.reauthorizationRequired {
+            await markReauthorizationRequired(account)
+            throw GitProviderAuthError.reauthorizationRequired
+        }
+    }
+
+    private func markReauthorizationRequired(_ account: GitProviderAccount) async {
+        var updatedAccount = account
+        updatedAccount.tokenStatus = .reauthorizationRequired
+        publish(updatedAccount)
+        do {
+            try await store.save(updatedAccount)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func sshKey(for account: GitProviderAccount) throws -> GitProviderSSHKey? {

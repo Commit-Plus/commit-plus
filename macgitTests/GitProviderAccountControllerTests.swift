@@ -87,6 +87,56 @@ final class GitProviderAccountControllerTests: XCTestCase {
         XCTAssertEqual(controller.accounts.first?.tokenStatus, .valid)
     }
 
+    func testLegacyGitLabOAuthAccountRequiresReauthorizationForPushScope() async {
+        let account = makeProviderAccount(macgitUID: "macgit-user-1", provider: .gitlab)
+        let store = FakeGitProviderAccountStore(accountsByUID: ["macgit-user-1": [account]])
+        let vault = FakeGitProviderTokenVault(tokensByAccountID: [
+            account.id: GitProviderToken(
+                accessToken: "token",
+                refreshToken: "refresh-token",
+                expiresAt: .now.addingTimeInterval(7_200),
+                tokenType: "Bearer"
+            )
+        ])
+        let controller = GitProviderAccountController(store: store, tokenVault: vault)
+
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+
+        XCTAssertEqual(controller.accounts.first?.tokenStatus, .reauthorizationRequired)
+    }
+
+    func testExpiredGitLabOAuthTokenRefreshesBeforeHTTPSCredentialUse() async throws {
+        let account = makeProviderAccount(
+            macgitUID: "macgit-user-1",
+            provider: .gitlab,
+            scopes: ["api", "read_user", "write_repository"]
+        )
+        let store = FakeGitProviderAccountStore(accountsByUID: ["macgit-user-1": [account]])
+        let vault = FakeGitProviderTokenVault(tokensByAccountID: [
+            account.id: GitProviderToken(
+                accessToken: "expired-token",
+                refreshToken: "refresh-token",
+                expiresAt: .now.addingTimeInterval(-60),
+                tokenType: "Bearer"
+            )
+        ])
+        let authService = FakeGitLabProviderAuthService(account: account)
+        let controller = GitProviderAccountController(
+            store: store,
+            tokenVault: vault,
+            gitLabAuthService: authService
+        )
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+
+        let credential = try await controller.credentialResolver().credential(
+            for: "https://gitlab.com/group/project.git"
+        )
+
+        XCTAssertEqual(credential?.token, "refreshed-gitlab-token")
+        XCTAssertEqual(authService.refreshTokens, ["refresh-token"])
+        XCTAssertEqual(try vault.readToken(for: account)?.refreshToken, "rotated-refresh-token")
+    }
+
     func testDisconnectDeletesLocalTokenBeforeMetadata() async {
         let events = EventRecorder()
         let account = makeProviderAccount(macgitUID: "macgit-user-1")
@@ -300,10 +350,11 @@ final class GitProviderAccountControllerTests: XCTestCase {
         XCTAssertEqual(account.username, "Trantienthanh2412")
         XCTAssertEqual(account.transportProtocol, .https)
         XCTAssertEqual(events.values, ["save-token", "save-metadata"])
+        let credential = try await controller.credentialResolver().credential(
+            for: "https://Trantienthanh2412@bitbucket.org/workspace/project.git"
+        )
         XCTAssertEqual(
-            try controller.credentialResolver().credential(
-                for: "https://Trantienthanh2412@bitbucket.org/workspace/project.git"
-            ),
+            credential,
             GitCredential(username: "Trantienthanh2412", token: "bitbucket-api-token")
         )
     }
@@ -488,7 +539,8 @@ final class GitProviderAccountControllerTests: XCTestCase {
         provider: GitProviderKind = .github,
         providerUserID: String = "provider-user-42",
         tokenStatus: GitProviderTokenStatus = .valid,
-        transportProtocol: GitProviderTransportProtocol = .https
+        transportProtocol: GitProviderTransportProtocol = .https,
+        scopes: [String] = []
     ) -> GitProviderAccount {
         GitProviderAccount(
             id: id,
@@ -499,7 +551,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
             username: username(for: provider),
             displayName: nil,
             avatarURL: nil,
-            scopes: [],
+            scopes: scopes,
             permissions: [:],
             tokenStatus: tokenStatus,
             transportProtocol: transportProtocol,
@@ -537,6 +589,7 @@ private final class FakeGitLabProviderAuthService: GitLabProviderOAuthAuthentica
     private let account: GitProviderAccount
     private let devicePollInterval: Int
     private(set) var deviceAuthorizationHosts: [GitProviderHost] = []
+    private(set) var refreshTokens: [String] = []
 
     init(account: GitProviderAccount, devicePollInterval: Int = 0) {
         self.account = account
@@ -584,6 +637,19 @@ private final class FakeGitLabProviderAuthService: GitLabProviderOAuthAuthentica
             accessToken: "gitlab-token",
             refreshToken: nil,
             expiresAt: nil,
+            tokenType: "Bearer"
+        )
+    }
+
+    func refreshToken(
+        _ refreshToken: String,
+        host: GitProviderHost
+    ) async throws -> GitProviderToken {
+        refreshTokens.append(refreshToken)
+        return GitProviderToken(
+            accessToken: "refreshed-gitlab-token",
+            refreshToken: "rotated-refresh-token",
+            expiresAt: .now.addingTimeInterval(7_200),
             tokenType: "Bearer"
         )
     }

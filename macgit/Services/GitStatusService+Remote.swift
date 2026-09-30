@@ -445,7 +445,7 @@ extension GitStatusService {
         let remoteNames = await remotes(in: repositoryURL)
         let credentials = try await remoteNames.asyncCompactMap { remote -> RemoteGitCredential? in
             let remoteURLString = await remoteURL(remote: remote, in: repositoryURL)
-            return try remoteCredential(for: remoteURLString, credentialResolver: credentialResolver)
+            return try await remoteCredential(for: remoteURLString, credentialResolver: credentialResolver)
         }
         let uniqueCredentials = credentials.reduce(into: [RemoteGitCredential]()) { result, credential in
             if !result.contains(credential) {

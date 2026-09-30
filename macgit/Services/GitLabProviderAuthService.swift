@@ -29,7 +29,7 @@ struct GitLabProviderAuthConfiguration: Equatable {
         return GitLabProviderAuthConfiguration(
             clientID: configuredClientID,
             redirectURI: URL(string: "macgit://git-provider/oauth/callback")!,
-            scopes: ["api", "read_user"]
+            scopes: ["api", "read_user", "write_repository"]
         )
     }
 }
@@ -44,6 +44,10 @@ protocol GitLabProviderOAuthAuthenticating {
     func exchangeCallback(
         _ callback: GitProviderOAuthCallback,
         session: GitProviderOAuthSession
+    ) async throws -> GitProviderToken
+    func refreshToken(
+        _ refreshToken: String,
+        host: GitProviderHost
     ) async throws -> GitProviderToken
     func fetchAccount(
         token: GitProviderToken,
@@ -206,6 +210,44 @@ struct GitLabProviderAuthService: GitLabProviderOAuthAuthenticating {
         )
     }
 
+    func refreshToken(
+        _ refreshToken: String,
+        host: GitProviderHost
+    ) async throws -> GitProviderToken {
+        guard !configuration.clientID.isEmpty else {
+            throw GitProviderAuthError.invalidConfiguration
+        }
+
+        var request = URLRequest(
+            url: host.normalized.baseURL
+                .appendingPathComponent("oauth")
+                .appendingPathComponent("token")
+        )
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = formEncoded([
+            URLQueryItem(name: "client_id", value: configuration.clientID),
+            URLQueryItem(name: "grant_type", value: "refresh_token"),
+            URLQueryItem(name: "refresh_token", value: refreshToken),
+            URLQueryItem(name: "redirect_uri", value: configuration.redirectURI.absoluteString),
+        ])
+
+        let (data, response) = try await httpClient.data(for: request)
+        if let payload = try? JSONDecoder().decode(ErrorResponse.self, from: data),
+           payload.error == "invalid_grant" {
+            throw GitProviderAuthError.reauthorizationRequired
+        }
+        try validate(response: response, data: data, unauthorizedMeansReauthorization: true)
+        let payload = try decode(TokenResponse.self, from: data)
+        return GitProviderToken(
+            accessToken: payload.accessToken,
+            refreshToken: payload.refreshToken,
+            expiresAt: payload.expiresIn.map { now().addingTimeInterval(TimeInterval($0)) },
+            tokenType: payload.tokenType
+        )
+    }
+
     func fetchAccount(
         token: GitProviderToken,
         macgitUID: String,
@@ -237,7 +279,7 @@ struct GitLabProviderAuthService: GitLabProviderOAuthAuthenticating {
             username: profile.username,
             displayName: profile.name,
             avatarURL: profile.avatarURL,
-            scopes: [],
+            scopes: configuration.scopes,
             permissions: [:],
             tokenStatus: .valid,
             connectedAt: timestamp,

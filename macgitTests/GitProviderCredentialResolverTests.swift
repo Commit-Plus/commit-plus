@@ -20,39 +20,40 @@ import XCTest
 @testable import macgit
 
 final class GitProviderCredentialResolverTests: XCTestCase {
-    func testReturnsCredentialForMatchingProviderAccount() throws {
+    func testReturnsCredentialForMatchingProviderAccount() async throws {
         let account = makeProviderAccount()
         let resolver = GitProviderCredentialResolver(
             accounts: [account],
             tokenVault: FakeCredentialTokenVault(tokensByAccountID: [account.id: makeToken("secret")])
         )
 
-        let credential = try resolver.credential(for: "https://github.com/octocat/Hello-World.git")
+        let credential = try await resolver.credential(for: "https://github.com/octocat/Hello-World.git")
 
         XCTAssertEqual(credential, GitCredential(username: "octocat", token: "secret"))
     }
 
-    func testReturnsCredentialForMatchingBitbucketAccount() throws {
+    func testReturnsCredentialForMatchingBitbucketAccount() async throws {
         let account = makeProviderAccount(provider: .bitbucket, username: "Trantienthanh2412")
         let resolver = GitProviderCredentialResolver(
             accounts: [account],
             tokenVault: FakeCredentialTokenVault(tokensByAccountID: [account.id: makeToken("api-token")])
         )
 
-        let credential = try resolver.credential(
+        let credential = try await resolver.credential(
             for: "https://Trantienthanh2412@bitbucket.org/workspace/project.git"
         )
 
         XCTAssertEqual(credential, GitCredential(username: "Trantienthanh2412", token: "api-token"))
     }
 
-    func testUnsupportedRemoteReturnsNil() throws {
+    func testUnsupportedRemoteReturnsNil() async throws {
         let resolver = GitProviderCredentialResolver(
             accounts: [makeProviderAccount()],
             tokenVault: FakeCredentialTokenVault()
         )
 
-        XCTAssertNil(try resolver.credential(for: "https://example.com/octocat/Hello-World.git"))
+        let credential = try await resolver.credential(for: "https://example.com/octocat/Hello-World.git")
+        XCTAssertNil(credential)
     }
 
     func testReturnsSSHCredentialForMatchingSSHRemote() throws {
@@ -83,7 +84,7 @@ final class GitProviderCredentialResolverTests: XCTestCase {
         }
     }
 
-    func testHTTPSRemoteStillReturnsTokenCredential() throws {
+    func testHTTPSRemoteStillReturnsTokenCredential() async throws {
         let account = makeProviderAccount(transportProtocol: .ssh)
         let resolver = GitProviderCredentialResolver(
             accounts: [account],
@@ -93,21 +94,22 @@ final class GitProviderCredentialResolverTests: XCTestCase {
             ])
         )
 
-        let credential = try resolver.credential(for: "https://github.com/octocat/Hello-World.git")
+        let credential = try await resolver.credential(for: "https://github.com/octocat/Hello-World.git")
 
         XCTAssertEqual(credential, GitCredential(username: "octocat", token: "secret"))
     }
 
-    func testNoProviderAccountKeepsExistingBehavior() throws {
+    func testNoProviderAccountKeepsExistingBehavior() async throws {
         let resolver = GitProviderCredentialResolver(
             accounts: [],
             tokenVault: FakeCredentialTokenVault()
         )
 
-        XCTAssertNil(try resolver.credential(for: "https://github.com/octocat/Hello-World.git"))
+        let credential = try await resolver.credential(for: "https://github.com/octocat/Hello-World.git")
+        XCTAssertNil(credential)
     }
 
-    func testMultipleMatchingAccountsThrows() {
+    func testMultipleMatchingAccountsThrows() async {
         let first = makeProviderAccount(id: "connection-1", username: "octocat")
         let second = makeProviderAccount(id: "connection-2", username: "monalisa")
         let resolver = GitProviderCredentialResolver(
@@ -115,12 +117,15 @@ final class GitProviderCredentialResolverTests: XCTestCase {
             tokenVault: FakeCredentialTokenVault()
         )
 
-        XCTAssertThrowsError(try resolver.credential(for: "https://github.com/octocat/Hello-World.git")) { error in
+        do {
+            _ = try await resolver.credential(for: "https://github.com/octocat/Hello-World.git")
+            XCTFail("Expected multiple matching accounts to throw")
+        } catch {
             XCTAssertEqual(error as? GitProviderCredentialError, .multipleMatchingAccounts(host: "github.com"))
         }
     }
 
-    func testSavedRemotePreferenceChoosesMatchingAccount() throws {
+    func testSavedRemotePreferenceChoosesMatchingAccount() async throws {
         let first = makeProviderAccount(id: "connection-1", username: "octocat")
         let second = makeProviderAccount(id: "connection-2", username: "monalisa")
         let remoteURL = "https://github.com/octocat/Hello-World.git"
@@ -136,19 +141,22 @@ final class GitProviderCredentialResolverTests: XCTestCase {
             ]
         )
 
-        let credential = try resolver.credential(for: remoteURL)
+        let credential = try await resolver.credential(for: remoteURL)
 
         XCTAssertEqual(credential, GitCredential(username: "monalisa", token: "second-token"))
     }
 
-    func testMissingTokenReturnsUserFacingAuthenticationError() {
+    func testMissingTokenReturnsUserFacingAuthenticationError() async {
         let account = makeProviderAccount()
         let resolver = GitProviderCredentialResolver(
             accounts: [account],
             tokenVault: FakeCredentialTokenVault()
         )
 
-        XCTAssertThrowsError(try resolver.credential(for: "https://github.com/octocat/Hello-World.git")) { error in
+        do {
+            _ = try await resolver.credential(for: "https://github.com/octocat/Hello-World.git")
+            XCTFail("Expected missing token to throw")
+        } catch {
             XCTAssertEqual(error as? GitProviderCredentialError, .tokenUnavailable(username: "octocat"))
         }
     }
