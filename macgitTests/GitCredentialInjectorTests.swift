@@ -28,6 +28,14 @@ final class GitCredentialInjectorTests: XCTestCase {
         XCTAssertNotNil(injection.environment["GIT_ASKPASS"])
     }
 
+    func testConfiguredGitHelpersDisableTerminalPromptWithoutDisablingHelpers() {
+        let injection = GitCredentialInjection.configuredGitHelpers(environment: [:])
+
+        XCTAssertEqual(injection.environment["GIT_TERMINAL_PROMPT"], "0")
+        XCTAssertNil(injection.environment["GIT_ASKPASS"])
+        XCTAssertNil(injection.environment["GIT_CONFIG_COUNT"])
+    }
+
     func testEnvironmentDisablesConfiguredCredentialHelpers() throws {
         let injection = try makeInjection()
         defer { injection.cleanup() }

@@ -32,11 +32,15 @@ extension GitStatusService {
             pruneOnFetch: await globalConfigBool("fetch.prune", in: directory),
             autoSetupRemote: await globalConfigBool("push.autoSetupRemote", in: directory),
             excludesFilePath: await globalConfigValue("core.excludesFile", in: directory)
-                ?? "~/.config/git/ignore"
+                ?? "~/.config/git/ignore",
+            credentialHelperValues: await globalConfigValues("credential.helper", in: directory)
         )
     }
 
-    func updateGlobalGitSettings(_ settings: GlobalGitSettings) async throws {
+    func updateGlobalGitSettings(
+        _ settings: GlobalGitSettings,
+        credentialHelperMode: GitCredentialHelperMode? = nil
+    ) async throws {
         let directory = FileManager.default.homeDirectoryForCurrentUser
         let name = settings.userName.trimmingCharacters(in: .whitespacesAndNewlines)
         let email = settings.userEmail.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -54,6 +58,9 @@ extension GitStatusService {
         }
 
         _ = try await runGit(arguments: ["check-ref-format", "--branch", branch], in: directory)
+        if let credentialHelperMode {
+            try await updateGlobalCredentialHelper(credentialHelperMode, in: directory)
+        }
         try await setGlobalConfig("user.name", value: name, in: directory)
         try await setGlobalConfig("user.email", value: email, in: directory)
         try await setGlobalConfig("init.defaultBranch", value: branch, in: directory)
@@ -74,6 +81,28 @@ extension GitStatusService {
         }
     }
 
+    func availableCredentialHelpers() async -> [String] {
+        let directory = FileManager.default.homeDirectoryForCurrentUser
+        guard let output = try? await runGit(arguments: ["help", "-a"], in: directory) else {
+            return []
+        }
+
+        let helpers = Set(output.split(whereSeparator: \Character.isWhitespace).compactMap { token -> String? in
+            let command = String(token)
+            let prefix = "credential-"
+            guard command.hasPrefix(prefix) else { return nil }
+            let name = String(command.dropFirst(prefix.count))
+            guard !name.isEmpty, !name.contains("--"), name != "store" else { return nil }
+            return name
+        })
+
+        return helpers.sorted { lhs, rhs in
+            if lhs == "osxkeychain" { return true }
+            if rhs == "osxkeychain" { return false }
+            return lhs.localizedStandardCompare(rhs) == .orderedAscending
+        }
+    }
+
     private func globalConfigValue(_ key: String, in directory: URL) async -> String? {
         let value = try? await runGit(
             arguments: ["config", "--global", "--get", key],
@@ -82,6 +111,21 @@ extension GitStatusService {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let trimmed, !trimmed.isEmpty else { return nil }
         return trimmed
+    }
+
+    private func globalConfigValues(_ key: String, in directory: URL) async -> [String] {
+        guard let output = try? await runGit(
+            arguments: ["config", "--global", "--get-all", key],
+            in: directory
+        ), !output.isEmpty else {
+            return []
+        }
+
+        var values = output.components(separatedBy: "\n")
+        if values.last == "" {
+            values.removeLast()
+        }
+        return values
     }
 
     private func globalConfigBool(_ key: String, in directory: URL) async -> Bool {
@@ -96,5 +140,45 @@ extension GitStatusService {
             arguments: ["config", "--global", key, value],
             in: directory
         )
+    }
+
+    private func updateGlobalCredentialHelper(
+        _ mode: GitCredentialHelperMode,
+        in directory: URL
+    ) async throws {
+        switch mode {
+        case .preserveExisting:
+            return
+        case .helper(let helper):
+            let availableHelpers = await availableCredentialHelpers()
+            guard availableHelpers.contains(helper) else {
+                throw GitError.commandFailed(
+                    "The credential helper '\(helper)' is not available to the active Git runtime."
+                )
+            }
+        case .commitPlusAccountsOnly:
+            break
+        }
+
+        _ = try? await runGit(
+            arguments: ["config", "--global", "--unset-all", "credential.helper"],
+            in: directory
+        )
+        _ = try await runGit(
+            arguments: ["config", "--global", "--add", "credential.helper", ""],
+            in: directory
+        )
+
+        if case .helper(let helper) = mode {
+            _ = try await runGit(
+                arguments: ["config", "--global", "--add", "credential.helper", helper],
+                in: directory
+            )
+        }
+
+        let savedValues = await globalConfigValues("credential.helper", in: directory)
+        guard GitCredentialHelperMode.resolve(configuredValues: savedValues) == mode else {
+            throw GitError.commandFailed("Git did not save the selected credential helper configuration.")
+        }
     }
 }

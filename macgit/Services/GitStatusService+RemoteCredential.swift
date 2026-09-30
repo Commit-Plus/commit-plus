@@ -41,7 +41,7 @@ extension GitStatusService {
         credentialInjector: GitCredentialInjecting,
         sshCredentialInjector: GitSSHCredentialInjecting
     ) async throws -> GitCredentialInjection? {
-        guard let credentialResolver else { return nil }
+        guard let credentialResolver else { return .configuredGitHelpers() }
         let remoteURLString: String
         if GitRemoteIdentityResolver.identity(
             from: remote,
@@ -58,7 +58,7 @@ extension GitStatusService {
             for: remoteURLString,
             credentialResolver: credentialResolver
         ) else {
-            return nil
+            return .configuredGitHelpers()
         }
         var result = try injection(
             for: credential,
