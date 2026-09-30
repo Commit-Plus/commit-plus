@@ -95,7 +95,7 @@ extension SidebarView {
 
         let loadID = UUID()
         activeSubmoduleLoadID = loadID
-        isLoadingSubmodules = true
+        isLoadingSubmodules = !hasLoadedSubmodules
 
         do {
             let entries = try await GitStatusService.shared.submodules(in: repositoryURL)

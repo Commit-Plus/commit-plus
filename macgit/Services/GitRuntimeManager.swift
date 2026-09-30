@@ -83,6 +83,7 @@ actor GitRuntimeManager {
     private let fileManager: FileManager
 
     private var cachedActiveRuntime: GitRuntimeInstallation?
+    private var statusTask: Task<GitRuntimeStatus, Never>?
     private var isInstalling = false
 
     init(
@@ -100,6 +101,18 @@ actor GitRuntimeManager {
     }
 
     func status() async -> GitRuntimeStatus {
+        if let statusTask {
+            return await statusTask.value
+        }
+
+        let task = Task { await discoverStatus() }
+        statusTask = task
+        let status = await task.value
+        statusTask = nil
+        return status
+    }
+
+    private func discoverStatus() async -> GitRuntimeStatus {
         async let systemRuntime = findSystemRuntime()
         async let embeddedRuntime = findEmbeddedRuntime()
         let runtimes = await (systemRuntime, embeddedRuntime)

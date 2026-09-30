@@ -866,41 +866,15 @@ struct RepoPickerView: View {
             return
         }
 
-        await withTaskGroup(of: RepoPickerRowPresentationUpdate.self) { group in
-            group.addTask {
-                .branch(await GitStatusService.shared.currentBranch(in: repo.url))
-            }
-            group.addTask {
-                .changedFiles(await GitStatusService.shared.uncommittedChangeCount(in: repo.url))
-            }
-            group.addTask {
-                let counts = await GitStatusService.shared.aheadBehindCount(in: repo.url)
-                return .aheadBehind(ahead: counts.ahead, behind: counts.behind)
-            }
-
-            for await update in group {
-                guard !Task.isCancelled else {
-                    group.cancelAll()
-                    return
-                }
-
-                await MainActor.run {
-                    switch update {
-                    case .branch(let branch):
-                        rowStates[repo.url]?.currentBranch = branch
-                    case .changedFiles(let count):
-                        rowStates[repo.url]?.changedFileCount = count
-                    case .aheadBehind(let ahead, let behind):
-                        rowStates[repo.url]?.aheadCount = ahead
-                        rowStates[repo.url]?.behindCount = behind
-                    }
-                }
-            }
-        }
+        let snapshot = await GitStatusService.shared.repoPickerStatus(in: repo.url)
 
         guard !Task.isCancelled else { return }
 
         await MainActor.run {
+            rowStates[repo.url]?.currentBranch = snapshot.currentBranch
+            rowStates[repo.url]?.changedFileCount = snapshot.changedFileCount
+            rowStates[repo.url]?.aheadCount = snapshot.aheadCount
+            rowStates[repo.url]?.behindCount = snapshot.behindCount
             rowStates[repo.url]?.isLoading = false
         }
     }

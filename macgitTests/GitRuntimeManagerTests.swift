@@ -40,6 +40,31 @@ final class GitRuntimeManagerTests: XCTestCase {
         XCTAssertEqual(executableURL, fixture.systemGitURL)
     }
 
+    func testConcurrentStatusRequestsShareRuntimeDiscovery() async throws {
+        let fixture = try makeFixture()
+        try createExecutable(at: fixture.systemGitURL)
+        try createExecutable(at: fixture.embeddedGitURL)
+        let runner = CountingGitRuntimeRunner(
+            versions: [
+                fixture.systemGitURL: "git version 2.50.0",
+                fixture.embeddedGitURL: "git version 2.53.0"
+            ]
+        )
+        let manager = fixture.manager(runner: runner)
+
+        async let firstStatus = manager.status()
+        async let secondStatus = manager.status()
+        async let executableURL = manager.executableURL()
+        let (first, second, executable) = try await (firstStatus, secondStatus, executableURL)
+        let systemCallCount = await runner.callCount(for: fixture.systemGitURL)
+        let embeddedCallCount = await runner.callCount(for: fixture.embeddedGitURL)
+
+        XCTAssertEqual(first.activeRuntime, second.activeRuntime)
+        XCTAssertEqual(executable, fixture.systemGitURL)
+        XCTAssertEqual(systemCallCount, 1)
+        XCTAssertEqual(embeddedCallCount, 1)
+    }
+
     func testEmbeddedPreferenceOverridesAvailableSystemGit() async throws {
         let fixture = try makeFixture()
         try createExecutable(at: fixture.systemGitURL)
@@ -211,6 +236,28 @@ private struct TestGitRuntimeRunner: GitRuntimeProcessRunning {
             throw GitRuntimeError.validationFailed(executableURL.path)
         }
         return version
+    }
+}
+
+private actor CountingGitRuntimeRunner: GitRuntimeProcessRunning {
+    let versions: [URL: String]
+    private var callCounts: [URL: Int] = [:]
+
+    init(versions: [URL: String]) {
+        self.versions = versions
+    }
+
+    func version(at executableURL: URL) async throws -> String {
+        callCounts[executableURL, default: 0] += 1
+        try await Task.sleep(for: .milliseconds(50))
+        guard let version = versions[executableURL] else {
+            throw GitRuntimeError.validationFailed(executableURL.path)
+        }
+        return version
+    }
+
+    func callCount(for executableURL: URL) -> Int {
+        callCounts[executableURL, default: 0]
     }
 }
 

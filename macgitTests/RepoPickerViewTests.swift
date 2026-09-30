@@ -19,6 +19,42 @@ import XCTest
 @testable import macgit
 
 final class RepoPickerViewTests: XCTestCase {
+    func testStatusSnapshotParsesBranchCountsAndChangedEntries() {
+        let output = """
+        # branch.oid abcdef
+        # branch.head feature/repo-picker
+        # branch.upstream origin/feature/repo-picker
+        # branch.ab +3 -2
+        1 .M N... 100644 100644 100644 abcdef abcdef tracked.txt
+        2 R. N... 100644 100644 100644 abcdef abcdef R100 renamed.txt\toriginal.txt
+        u UU N... 100644 100644 100644 100644 abcdef abcdef abcdef conflict.txt
+        ? untracked.txt
+        """
+
+        let snapshot = GitStatusService.parseRepoPickerStatus(output)
+
+        XCTAssertEqual(snapshot.currentBranch, "feature/repo-picker")
+        XCTAssertEqual(snapshot.changedFileCount, 4)
+        XCTAssertEqual(snapshot.aheadCount, 3)
+        XCTAssertEqual(snapshot.behindCount, 2)
+        XCTAssertTrue(snapshot.includesAheadBehind)
+    }
+
+    func testStatusSnapshotLeavesFallbackAvailableWithoutUpstream() {
+        let snapshot = GitStatusService.parseRepoPickerStatus("# branch.head main\n? new.txt\n")
+
+        XCTAssertEqual(snapshot.currentBranch, "main")
+        XCTAssertEqual(snapshot.changedFileCount, 1)
+        XCTAssertFalse(snapshot.includesAheadBehind)
+    }
+
+    func testStatusSnapshotTreatsDetachedHeadAsNoCurrentBranch() {
+        let snapshot = GitStatusService.parseRepoPickerStatus("# branch.head (detached)\n# branch.ab +0 -0\n")
+
+        XCTAssertNil(snapshot.currentBranch)
+        XCTAssertTrue(snapshot.includesAheadBehind)
+    }
+
     func testMultipleBookmarksForOneLocalFolderProduceOneRow() {
         let github = makeRepository(name: "client", path: "/tmp/client", lastOpened: .distantPast)
         let gitlab = makeRepository(name: "client-mirror", path: "/tmp/client", lastOpened: .distantPast)

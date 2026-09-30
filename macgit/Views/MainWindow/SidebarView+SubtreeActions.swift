@@ -23,7 +23,7 @@ extension SidebarView {
             return
         }
 
-        isLoadingSubtrees = true
+        isLoadingSubtrees = !hasLoadedSubtrees
         defer { isLoadingSubtrees = false }
 
         do {

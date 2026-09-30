@@ -30,6 +30,15 @@ extension SidebarView {
         hasLoadedBranches = false
         isLoadingBranches = false
 
+        hasLoadedTags = false
+        isLoadingTags = false
+
+        hasLoadedRemotes = false
+        isLoadingRemotes = false
+
+        hasLoadedStashes = false
+        isLoadingStashes = false
+
         worktreeEntries = []
         hasLoadedWorktrees = false
         isLoadingWorktrees = false
@@ -150,7 +159,7 @@ extension SidebarView {
             return
         }
 
-        isLoadingBranches = true
+        isLoadingBranches = !hasLoadedBranches
         defer { isLoadingBranches = false }
 
         let (locals, current) = await (
@@ -266,7 +275,7 @@ extension SidebarView {
     }
 
     func loadTags() async {
-        isLoadingTags = true
+        isLoadingTags = !hasLoadedTags
         defer { isLoadingTags = false }
 
         let tags = await GitStatusService.shared.tags(in: repositoryURL)
@@ -275,6 +284,7 @@ extension SidebarView {
 
         await MainActor.run {
             tagNodes = tree
+            hasLoadedTags = true
             if expandedTagFolders.isEmpty {
                 expandedTagFolders = allFolders
             }
@@ -282,7 +292,7 @@ extension SidebarView {
     }
 
     func loadRemotes() async {
-        isLoadingRemotes = true
+        isLoadingRemotes = !hasLoadedRemotes
         defer { isLoadingRemotes = false }
 
         let remotes = await GitStatusService.shared.remotes(in: repositoryURL)
@@ -314,6 +324,7 @@ extension SidebarView {
             remoteNames = remotes
             branchesByRemote = fetchedBranchesByRemote
             upstreamByBranch = upstreams
+            hasLoadedRemotes = true
             if expandedRemoteFolders.isEmpty {
                 expandedRemoteFolders = []
             }
@@ -321,12 +332,13 @@ extension SidebarView {
     }
 
     func loadStashes() async {
-        isLoadingStashes = true
+        isLoadingStashes = !hasLoadedStashes
         defer { isLoadingStashes = false }
 
         let stashes = await GitStatusService.shared.stashes(in: repositoryURL)
         await MainActor.run {
             stashEntries = stashes
+            hasLoadedStashes = true
         }
     }
 

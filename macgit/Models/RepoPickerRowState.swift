@@ -25,9 +25,3 @@ struct RepoPickerRowState {
     var isMissing: Bool
     var isLoading: Bool
 }
-
-enum RepoPickerRowPresentationUpdate: Sendable {
-    case branch(String?)
-    case changedFiles(Int)
-    case aheadBehind(ahead: Int, behind: Int)
-}

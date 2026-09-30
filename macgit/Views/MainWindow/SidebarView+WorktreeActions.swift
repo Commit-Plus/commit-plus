@@ -74,7 +74,7 @@ extension SidebarView {
             return
         }
 
-        isLoadingWorktrees = true
+        isLoadingWorktrees = !hasLoadedWorktrees
         defer { isLoadingWorktrees = false }
 
         let entries = await GitStatusService.shared.worktreesWithLabels(in: repositoryURL)

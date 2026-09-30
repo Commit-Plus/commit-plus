@@ -1695,7 +1695,29 @@ struct MainWindowView: View {
             }
             gitFlowWorktreeRootURL = gitCommonDirectory?.deletingLastPathComponent()
         }
+        var didFetchRemoteRefs = false
+        if loadedSettings.resolvedRefreshOnAppActive(
+            globalValue: appState.refreshOnAppActive
+        ), let credentialResolver = await credentialResolverForFetch(
+            options: GitStatusService.FetchOptions()
+        ) {
+            didFetchRemoteRefs = await syncState.performAutomaticFetch(
+                options: GitStatusService.FetchOptions(),
+                repositoryURL: repositoryURL,
+                credentialResolver: credentialResolver,
+                force: true
+            )
+        }
         await syncState.refresh(repositoryURL: repositoryURL)
+        if didFetchRemoteRefs {
+            await MainActor.run {
+                NotificationCenter.default.post(
+                    name: .repositoryRemoteRefsDidRefresh,
+                    object: nil,
+                    userInfo: ["repositoryURL": repositoryURL]
+                )
+            }
+        }
         await MainActor.run {
             didPerformInitialLoad = true
         }
