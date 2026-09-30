@@ -41,8 +41,13 @@ final class BranchSyncStatusTests: XCTestCase {
         let repoURL = try makeRepoWithTrackedBranch(aheadCommits: 1)
 
         let status = await GitStatusService.shared.branchSyncStatus(for: "main", in: repoURL)
+        let statuses = await GitStatusService.shared.branchSyncStatuses(
+            for: ["main", "missing"],
+            in: repoURL
+        )
 
         XCTAssertEqual(status, BranchSyncStatus(ahead: 1, behind: 0))
+        XCTAssertEqual(statuses, ["main": BranchSyncStatus(ahead: 1, behind: 0)])
     }
 
     func testCurrentBranchAheadBehindUsesMatchingRemoteTrackingBranchWhenUpstreamIsUnset() async throws {
@@ -51,10 +56,20 @@ final class BranchSyncStatusTests: XCTestCase {
 
         let counts = await GitStatusService.shared.aheadBehindCount(in: repoURL)
         let status = await GitStatusService.shared.branchSyncStatus(for: branch, in: repoURL)
+        let statuses = await GitStatusService.shared.branchSyncStatuses(for: [branch], in: repoURL)
 
         XCTAssertEqual(counts.ahead, 1)
         XCTAssertEqual(counts.behind, 0)
         XCTAssertEqual(status, BranchSyncStatus(ahead: 1, behind: 0))
+        XCTAssertEqual(statuses[branch], BranchSyncStatus(ahead: 1, behind: 0))
+    }
+
+    func testBatchBranchSyncStatusReportsDivergedCounts() async throws {
+        let repoURL = try makeRepoWithDivergentTrackedBranch()
+
+        let statuses = await GitStatusService.shared.branchSyncStatuses(for: ["main"], in: repoURL)
+
+        XCTAssertEqual(statuses["main"], BranchSyncStatus(ahead: 1, behind: 1))
     }
 
     // MARK: - Helpers
@@ -114,6 +129,25 @@ final class BranchSyncStatusTests: XCTestCase {
         try "local ahead\n".write(to: trackedFile, atomically: true, encoding: .utf8)
         try runGit(["add", "tracked.txt"], in: localURL)
         try runGit(["commit", "-m", "local ahead"], in: localURL)
+
+        return localURL
+    }
+
+    private func makeRepoWithDivergentTrackedBranch() throws -> URL {
+        let localURL = try makeRepoWithTrackedBranch(aheadCommits: 1)
+        let rootURL = localURL.deletingLastPathComponent()
+        let originURL = rootURL.appendingPathComponent("origin.git", isDirectory: true)
+        let updaterURL = rootURL.appendingPathComponent("updater", isDirectory: true)
+
+        try runGit(["clone", originURL.path, updaterURL.path], in: rootURL)
+        try configureGit(in: updaterURL)
+
+        let remoteFile = updaterURL.appendingPathComponent("remote.txt")
+        try "remote\n".write(to: remoteFile, atomically: true, encoding: .utf8)
+        try runGit(["add", "remote.txt"], in: updaterURL)
+        try runGit(["commit", "-m", "remote ahead"], in: updaterURL)
+        try runGit(["push", "origin", "main"], in: updaterURL)
+        try runGit(["fetch", "origin"], in: localURL)
 
         return localURL
     }

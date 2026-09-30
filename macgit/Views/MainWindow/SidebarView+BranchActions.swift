@@ -24,7 +24,10 @@ extension SidebarView {
         } else {
             expandedFolders.insert(path)
             if let loadID = activeBranchSyncLoadID {
-                startBranchSync(for: branchesUnderPrefix(path), loadID: loadID)
+                let newlyVisibleBranches = visibleBranchRows
+                    .filter { !$0.isFolder && $0.fullPath.hasPrefix(path + "/") }
+                    .map(\.fullPath)
+                startBranchSync(for: newlyVisibleBranches, loadID: loadID)
             }
         }
     }

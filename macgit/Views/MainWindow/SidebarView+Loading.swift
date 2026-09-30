@@ -205,13 +205,12 @@ extension SidebarView {
             }
         }
 
-        let initiallyVisibleBranches = filteredLocals.filter { branch in
-            branch == current
-                || !branch.contains("/")
-                || expandedFoldersForLoad.contains { folder in
-                    branch.hasPrefix(folder + "/")
-                }
-        }
+        let initiallyVisibleBranches = SidebarTreeBuilder.visibleRows(
+            from: tree,
+            expandedFolders: expandedFoldersForLoad
+        )
+        .filter { !$0.isFolder }
+        .map(\.fullPath)
         startBranchSync(for: initiallyVisibleBranches, loadID: loadID)
         if !current.isEmpty {
             let integrationStatus = await GitStatusService.shared.currentBranchIntegrationStatus(
@@ -229,7 +228,8 @@ extension SidebarView {
 
     func startBranchSync(for branches: [String], loadID: UUID) {
         let pendingBranches = branches.filter {
-            !loadedBranchSyncBranches.contains($0)
+            $0 != currentBranch
+                && !loadedBranchSyncBranches.contains($0)
                 && !syncingBranchSyncBranches.contains($0)
         }
         guard !pendingBranches.isEmpty else { return }
@@ -241,35 +241,21 @@ extension SidebarView {
     }
 
     private func loadBranchSyncStatuses(for branches: [String], loadID: UUID) async {
-        await withTaskGroup(of: (String, BranchSyncStatus?).self) { group in
-            for branch in branches {
-                group.addTask {
-                    let status = await GitStatusService.shared.branchSyncStatus(
-                        for: branch,
-                        in: repositoryURL
-                    )
-                    return (branch, status)
-                }
-            }
-
-            for await result in group {
-                await MainActor.run {
-                    guard activeBranchSyncLoadID == loadID else { return }
-                    let (branch, status) = result
-                    if let status {
-                        branchSyncStatus[branch] = status
-                    }
-                    loadedBranchSyncBranches.insert(branch)
-                    syncingBranchSyncBranches.remove(branch)
-                }
-            }
-        }
+        let statuses = await GitStatusService.shared.branchSyncStatuses(
+            for: branches,
+            in: repositoryURL
+        )
 
         await MainActor.run {
-            if activeBranchSyncLoadID == loadID {
-                for branch in branches {
-                    syncingBranchSyncBranches.remove(branch)
+            guard activeBranchSyncLoadID == loadID else { return }
+            for branch in branches {
+                if let status = statuses[branch] {
+                    branchSyncStatus[branch] = status
+                } else {
+                    branchSyncStatus.removeValue(forKey: branch)
                 }
+                loadedBranchSyncBranches.insert(branch)
+                syncingBranchSyncBranches.remove(branch)
             }
         }
     }

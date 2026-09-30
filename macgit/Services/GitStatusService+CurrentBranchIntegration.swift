@@ -78,7 +78,16 @@ extension GitStatusService {
         )
         guard let remote else { return nil }
 
-        let upstreamStatus = await branchSyncStatus(for: branch, in: repositoryURL)
+        let upstreamStatus: BranchSyncStatus?
+        if let upstreamRef {
+            upstreamStatus = await branchSyncStatus(
+                for: branch,
+                comparedTo: upstreamRef,
+                in: repositoryURL
+            )
+        } else {
+            upstreamStatus = nil
+        }
         let upstreamBehindCount = upstreamRef == nil ? 0 : (upstreamStatus?.behind ?? 0)
         let baseBranch = await currentBranchBaseBranch(
             branch: branch,

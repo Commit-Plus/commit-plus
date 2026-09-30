@@ -146,6 +146,81 @@ extension GitStatusService {
             return nil
         }
 
+        return await branchSyncStatus(
+            for: branch,
+            comparedTo: comparisonRef,
+            in: repositoryURL
+        )
+    }
+
+    func branchSyncStatuses(
+        for branches: [String],
+        in repositoryURL: URL
+    ) async -> [String: BranchSyncStatus] {
+        let requestedBranches = Set(branches.filter { !$0.isEmpty })
+        guard !requestedBranches.isEmpty else { return [:] }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["LC_ALL"] = "C"
+        environment["LANG"] = "C"
+        let format = "%00%(refname:short)%00%(upstream:short)%00%(upstream:track,nobracket)%00"
+
+        guard let output = try? await runGit(
+            arguments: ["for-each-ref", "refs/heads/", "--format=\(format)"],
+            in: repositoryURL,
+            environment: environment
+        ) else {
+            return await branchSyncStatusesIndividually(
+                for: Array(requestedBranches),
+                in: repositoryURL
+            )
+        }
+
+        let trackingRecords = parseBranchTrackingRecords(output)
+        var statuses: [String: BranchSyncStatus] = [:]
+        var branchesWithoutUpstream: [String] = []
+        var unresolvedBranches: [String] = []
+
+        for branch in requestedBranches {
+            guard let record = trackingRecords[branch] else {
+                unresolvedBranches.append(branch)
+                continue
+            }
+
+            if record.upstream.isEmpty {
+                branchesWithoutUpstream.append(branch)
+            } else if let status = Self.parseTrackingStatus(record.tracking) {
+                statuses[branch] = status
+            }
+        }
+
+        let fallbackComparisonRefs = await matchingRemoteTrackingBranches(
+            for: branchesWithoutUpstream,
+            in: repositoryURL
+        )
+        let fallbackStatuses = await branchSyncStatuses(
+            for: fallbackComparisonRefs.map { (branch: $0.key, comparisonRef: $0.value) },
+            in: repositoryURL
+        )
+        statuses.merge(fallbackStatuses) { _, new in new }
+
+        if !unresolvedBranches.isEmpty {
+            let unresolvedStatuses = await branchSyncStatusesIndividually(
+                for: unresolvedBranches,
+                in: repositoryURL
+            )
+            statuses.merge(unresolvedStatuses) { _, new in new }
+        }
+
+        return statuses
+    }
+
+    func branchSyncStatus(
+        for branch: String,
+        comparedTo comparisonRef: String,
+        in repositoryURL: URL
+    ) async -> BranchSyncStatus? {
+
         // Use a single symmetric-difference command to get both counts atomically
         // Output format: "behind\tahead"
         let output = (try? await runGit(
@@ -214,6 +289,144 @@ extension GitStatusService {
         }
 
         return matches.count == 1 ? matches[0] : nil
+    }
+
+    private func parseBranchTrackingRecords(_ output: String) -> [String: (upstream: String, tracking: String)] {
+        var records: [String: (upstream: String, tracking: String)] = [:]
+
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+            let fields = line.split(separator: "\0", omittingEmptySubsequences: false).map(String.init)
+            guard fields.count >= 5 else { continue }
+
+            let branch = fields[1]
+            guard !branch.isEmpty else { continue }
+            records[branch] = (upstream: fields[2], tracking: fields[3])
+        }
+
+        return records
+    }
+
+    private static func parseTrackingStatus(_ tracking: String) -> BranchSyncStatus? {
+        var ahead = 0
+        var behind = 0
+
+        for component in tracking.split(separator: ",") {
+            let fields = component
+                .trimmingCharacters(in: .whitespaces)
+                .split(separator: " ", maxSplits: 1)
+            guard fields.count == 2, let count = Int(fields[1]) else { continue }
+
+            switch fields[0] {
+            case "ahead":
+                ahead = count
+            case "behind":
+                behind = count
+            default:
+                continue
+            }
+        }
+
+        guard ahead > 0 || behind > 0 else { return nil }
+        return BranchSyncStatus(ahead: ahead, behind: behind)
+    }
+
+    private func matchingRemoteTrackingBranches(
+        for branches: [String],
+        in repositoryURL: URL
+    ) async -> [String: String] {
+        guard !branches.isEmpty else { return [:] }
+
+        async let remoteNames = remotes(in: repositoryURL)
+        async let remoteRefsOutput = try? runGit(
+            arguments: ["for-each-ref", "refs/remotes/", "--format=%(refname:short)"],
+            in: repositoryURL
+        )
+        let (remotes, output) = await (remoteNames, remoteRefsOutput)
+        let remoteRefs = Set((output ?? "").split(separator: "\n").map(String.init))
+
+        var result: [String: String] = [:]
+        for branch in branches {
+            let matches = remotes
+                .map { "\($0)/\(branch)" }
+                .filter(remoteRefs.contains)
+
+            if matches.contains("origin/\(branch)") {
+                result[branch] = "origin/\(branch)"
+            } else if matches.count == 1 {
+                result[branch] = matches[0]
+            }
+        }
+        return result
+    }
+
+    private func branchSyncStatusesIndividually(
+        for branches: [String],
+        in repositoryURL: URL
+    ) async -> [String: BranchSyncStatus] {
+        await withTaskGroup(of: (String, BranchSyncStatus?).self, returning: [String: BranchSyncStatus].self) { group in
+            var iterator = branches.makeIterator()
+            let concurrencyLimit = min(4, branches.count)
+
+            for _ in 0..<concurrencyLimit {
+                guard let branch = iterator.next() else { break }
+                group.addTask {
+                    (branch, await self.branchSyncStatus(for: branch, in: repositoryURL))
+                }
+            }
+
+            var statuses: [String: BranchSyncStatus] = [:]
+            while let (branch, status) = await group.next() {
+                if let status {
+                    statuses[branch] = status
+                }
+                if let nextBranch = iterator.next() {
+                    group.addTask {
+                        (nextBranch, await self.branchSyncStatus(for: nextBranch, in: repositoryURL))
+                    }
+                }
+            }
+            return statuses
+        }
+    }
+
+    private func branchSyncStatuses(
+        for comparisons: [(branch: String, comparisonRef: String)],
+        in repositoryURL: URL
+    ) async -> [String: BranchSyncStatus] {
+        await withTaskGroup(of: (String, BranchSyncStatus?).self, returning: [String: BranchSyncStatus].self) { group in
+            var iterator = comparisons.makeIterator()
+            let concurrencyLimit = min(4, comparisons.count)
+
+            for _ in 0..<concurrencyLimit {
+                guard let comparison = iterator.next() else { break }
+                group.addTask {
+                    let status = await self.branchSyncStatus(
+                        for: comparison.branch,
+                        comparedTo: comparison.comparisonRef,
+                        in: repositoryURL
+                    )
+                    return (comparison.branch, status)
+                }
+            }
+
+            var statuses: [String: BranchSyncStatus] = [:]
+            while let (branch, status) = await group.next() {
+                if let status {
+                    statuses[branch] = status
+                }
+                if let comparison = iterator.next() {
+                    group.addTask {
+                        let status = await self.branchSyncStatus(
+                            for: comparison.branch,
+                            comparedTo: comparison.comparisonRef,
+                            in: repositoryURL
+                        )
+                        return (comparison.branch, status)
+                    }
+                }
+            }
+            return statuses
+        }
     }
 
 }
