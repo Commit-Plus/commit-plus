@@ -30,13 +30,18 @@ final class RepositoryWindowRequestTests: XCTestCase {
         XCTAssertNil(first.repositoryURL)
         XCTAssertEqual(first.initialPresentation, .repositoryPicker)
         XCTAssertFalse(first.shouldFitVisibleScreen)
+        XCTAssertNil(first.initialWindowFrame)
     }
 
     func testRepositoryRequestRoundTripsThroughWindowGroupCoding() throws {
         let repositoryURL = URL(fileURLWithPath: "/tmp/example-repository")
+        let initialWindowFrame = RepositoryWindowRequest.InitialWindowFrame(
+            CGRect(x: 120, y: 80, width: 1040, height: 720)
+        )
         let request = RepositoryWindowRequest.repository(
             repositoryURL,
-            shouldFitVisibleScreen: true
+            shouldFitVisibleScreen: true,
+            initialWindowFrame: initialWindowFrame
         )
 
         let encoded = try JSONEncoder().encode(request)

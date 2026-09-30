@@ -42,7 +42,8 @@ struct ContentView: View {
     @State private var showingCloneSheet = false
     @State private var showingKeepCurrentAlert = false
     @State private var pendingAction: FileMenuAction?
-    @State private var shouldFitScreenWhenRepositoryOpens = false
+    @State private var initialRepositoryWindowShouldFitVisibleScreen: Bool?
+    @State private var initialRepositoryWindowFrame: RepositoryWindowRequest.InitialWindowFrame?
     @State private var webOpeningProgressID: UUID?
     @State private var windowContext = RepositoryWindowContext()
     @State private var windowLifecycleID = UUID()
@@ -68,16 +69,17 @@ struct ContentView: View {
         _showingCloneSheet = State(
             initialValue: request?.initialPresentation == .cloneRepository
         )
-        _shouldFitScreenWhenRepositoryOpens = State(
-            initialValue: request?.shouldFitVisibleScreen == true
+        _initialRepositoryWindowShouldFitVisibleScreen = State(
+            initialValue: request?.repositoryURL == nil ? nil : request?.shouldFitVisibleScreen
         )
+        _initialRepositoryWindowFrame = State(initialValue: request?.initialWindowFrame)
     }
 
     var body: some View {
         Group {
             if isWelcomeWindow {
-                WelcomeView(accountDisplayName: accountController.account?.displayLabel, onOpenAccount: openWelcomeAccount, onRepositoryOpened: { url in
-                    openRepository(url, inNewWindow: true)
+                WelcomeView(accountDisplayName: accountController.account?.displayLabel, onOpenAccount: openWelcomeAccount, onRepositoryOpened: { url, showsHistory in
+                    openRepository(url, inNewWindow: true, showsHistory: showsHistory)
                 })
             } else if let url = repositoryURL {
                 MainWindowView(
@@ -92,7 +94,8 @@ struct ContentView: View {
                 .environmentObject(accountController)
                 .background(
                     WindowInitialScreenFitModifier(
-                        isEnabled: shouldFitScreenWhenRepositoryOpens
+                        shouldFitVisibleScreen: initialRepositoryWindowShouldFitVisibleScreen,
+                        initialWindowFrame: initialRepositoryWindowFrame?.rect
                     )
                 )
             } else {
@@ -385,7 +388,11 @@ struct ContentView: View {
         }
     }
 
-    private func openRepository(_ url: URL, inNewWindow: Bool) {
+    private func openRepository(
+        _ url: URL,
+        inNewWindow: Bool,
+        showsHistory: Bool? = nil
+    ) {
         showingRepoPickerSheet = false
         showingCloneSheet = false
         if isWelcomeWindow || inNewWindow {
@@ -393,11 +400,18 @@ struct ContentView: View {
                 id: "main",
                 value: RepositoryWindowRequest.repository(
                     url,
-                    shouldFitVisibleScreen: appState.fitRepositoryWindowsToScreen
+                    shouldFitVisibleScreen: appState.fitRepositoryWindowsToScreen,
+                    initialWindowFrame: windowContext.window.map {
+                        RepositoryWindowRequest.InitialWindowFrame($0.frame)
+                    },
+                    showsHistory: showsHistory
                 )
             )
         } else {
-            shouldFitScreenWhenRepositoryOpens = appState.fitRepositoryWindowsToScreen
+            initialRepositoryWindowShouldFitVisibleScreen = appState.fitRepositoryWindowsToScreen
+                ? true
+                : nil
+            initialRepositoryWindowFrame = nil
             repositoryURL = url
         }
     }

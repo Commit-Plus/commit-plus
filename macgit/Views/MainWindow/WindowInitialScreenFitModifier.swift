@@ -19,7 +19,8 @@ import SwiftUI
 
 struct WindowInitialScreenFitModifier: NSViewRepresentable {
     static let defaultContentSize = NSSize(width: 1180, height: 780)
-    let isEnabled: Bool
+    let shouldFitVisibleScreen: Bool?
+    let initialWindowFrame: CGRect?
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
@@ -29,12 +30,16 @@ struct WindowInitialScreenFitModifier: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        context.coordinator.isEnabled = isEnabled
+        context.coordinator.shouldFitVisibleScreen = shouldFitVisibleScreen
+        context.coordinator.initialWindowFrame = initialWindowFrame
         scheduleInitialSize(for: nsView, coordinator: context.coordinator)
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(isEnabled: isEnabled)
+        Coordinator(
+            shouldFitVisibleScreen: shouldFitVisibleScreen,
+            initialWindowFrame: initialWindowFrame
+        )
     }
 
     private func scheduleInitialSize(for view: NSView, coordinator: Coordinator) {
@@ -44,11 +49,13 @@ struct WindowInitialScreenFitModifier: NSViewRepresentable {
     }
 
     final class Coordinator {
-        var isEnabled: Bool
+        var shouldFitVisibleScreen: Bool?
+        var initialWindowFrame: CGRect?
         private var didApplyInitialSize = false
 
-        init(isEnabled: Bool) {
-            self.isEnabled = isEnabled
+        init(shouldFitVisibleScreen: Bool?, initialWindowFrame: CGRect?) {
+            self.shouldFitVisibleScreen = shouldFitVisibleScreen
+            self.initialWindowFrame = initialWindowFrame
         }
 
         func applyInitialSizeIfNeeded(window: NSWindow?) {
@@ -59,8 +66,15 @@ struct WindowInitialScreenFitModifier: NSViewRepresentable {
             }
 
             didApplyInitialSize = true
-            if isEnabled {
+            guard let shouldFitVisibleScreen else { return }
+
+            if shouldFitVisibleScreen {
                 window.setFrame(screen.visibleFrame, display: true)
+                return
+            }
+
+            if let initialWindowFrame {
+                window.setFrame(initialWindowFrame, display: true)
                 return
             }
 

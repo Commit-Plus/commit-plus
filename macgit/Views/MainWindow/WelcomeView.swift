@@ -18,9 +18,7 @@
 import SwiftUI
 
 struct WelcomeView: View {
-    @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var bookmarkController: RepositoryBookmarkController
-    @EnvironmentObject private var appState: AppState
     @State private var locationError: String?
     @ObservedObject private var store = RecentRepositoriesStore.shared
     @State private var model = WelcomeDashboardModel()
@@ -29,14 +27,16 @@ struct WelcomeView: View {
     @State private var refreshID = UUID()
     let accountDisplayName: String?
     let onOpenAccount: () -> Void
-    let onRepositoryOpened: (URL) -> Void
+    let onRepositoryOpened: (URL, Bool?) -> Void
 
     var body: some View {
         PersistentHSplit(
             autosaveName: "WelcomeDashboardMainSplit",
             left: {
-                RepoPickerView(isDashboardSidebar: true, onRepositoryOpened: onRepositoryOpened)
-                    .frame(minWidth: 340, idealWidth: 420, maxWidth: 600)
+                RepoPickerView(isDashboardSidebar: true) { url in
+                    onRepositoryOpened(url, nil)
+                }
+                .frame(minWidth: 340, idealWidth: 420, maxWidth: 600)
             },
             right: {
                 WelcomeDashboardContent(
@@ -85,11 +85,7 @@ struct WelcomeView: View {
             return
         }
         store.add(repository.url)
-        openWindow(id: "main", value: RepositoryWindowRequest.repository(
-            repository.url,
-            shouldFitVisibleScreen: appState.fitRepositoryWindowsToScreen,
-            showsHistory: repository.showsHistory
-        ))
+        onRepositoryOpened(repository.url, repository.showsHistory)
     }
 
     private func locateRepository(_ repository: WelcomeRepositoryAttention) {
@@ -115,7 +111,7 @@ struct WelcomeView: View {
                         store.remove(old)
                     }
                     store.add(url)
-                    onRepositoryOpened(url)
+                    onRepositoryOpened(url, nil)
                 } catch {
                     locationError = "Could not use this repository folder. \(error.localizedDescription)"
                     showingUnavailableRepository = true
@@ -149,6 +145,6 @@ struct WelcomeView: View {
             return
         }
         store.add(url)
-        onRepositoryOpened(url)
+        onRepositoryOpened(url, nil)
     }
 }

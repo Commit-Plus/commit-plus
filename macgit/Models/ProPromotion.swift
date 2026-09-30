@@ -46,11 +46,9 @@ struct ProPromotion: Identifiable {
     func isEligible(
         defaults: UserDefaults,
         now: Date,
-        version: String,
-        ignoresFrequency: Bool = false
+        version: String
     ) -> Bool {
         guard endAt.map({ $0 > now }) ?? true else { return false }
-        if ignoresFrequency { return true }
 
         let key = "proPromotion.\(id)"
         switch frequency {

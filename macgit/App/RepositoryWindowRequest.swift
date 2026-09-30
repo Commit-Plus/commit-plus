@@ -16,9 +16,33 @@
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 
+import CoreGraphics
 import Foundation
 
 struct RepositoryWindowRequest: Codable, Hashable {
+    struct InitialWindowFrame: Codable, Hashable {
+        let x: Double
+        let y: Double
+        let width: Double
+        let height: Double
+
+        init(_ frame: CGRect) {
+            x = Double(frame.origin.x)
+            y = Double(frame.origin.y)
+            width = Double(frame.width)
+            height = Double(frame.height)
+        }
+
+        var rect: CGRect {
+            CGRect(
+                x: CGFloat(x),
+                y: CGFloat(y),
+                width: CGFloat(width),
+                height: CGFloat(height)
+            )
+        }
+    }
+
     enum InitialPresentation: String, Codable {
         case repositoryPicker
         case cloneRepository
@@ -28,6 +52,7 @@ struct RepositoryWindowRequest: Codable, Hashable {
     let repositoryURL: URL?
     let initialPresentation: InitialPresentation
     let shouldFitVisibleScreen: Bool
+    let initialWindowFrame: InitialWindowFrame?
     var showsHistory: Bool? = nil
 
     static func repositoryPicker(id: UUID = UUID()) -> Self {
@@ -35,7 +60,8 @@ struct RepositoryWindowRequest: Codable, Hashable {
             id: id,
             repositoryURL: nil,
             initialPresentation: .repositoryPicker,
-            shouldFitVisibleScreen: false
+            shouldFitVisibleScreen: false,
+            initialWindowFrame: nil
         )
     }
 
@@ -44,13 +70,15 @@ struct RepositoryWindowRequest: Codable, Hashable {
             id: id,
             repositoryURL: nil,
             initialPresentation: .cloneRepository,
-            shouldFitVisibleScreen: false
+            shouldFitVisibleScreen: false,
+            initialWindowFrame: nil
         )
     }
 
     static func repository(
         _ repositoryURL: URL,
         shouldFitVisibleScreen: Bool,
+        initialWindowFrame: InitialWindowFrame? = nil,
         showsHistory: Bool? = nil,
         id: UUID = UUID()
     ) -> Self {
@@ -59,6 +87,7 @@ struct RepositoryWindowRequest: Codable, Hashable {
             repositoryURL: repositoryURL,
             initialPresentation: .repositoryPicker,
             shouldFitVisibleScreen: shouldFitVisibleScreen,
+            initialWindowFrame: initialWindowFrame,
             showsHistory: showsHistory
         )
     }

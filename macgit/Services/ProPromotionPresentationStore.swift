@@ -13,14 +13,6 @@ final class ProPromotionPresentationStore {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
     }
 
-    private var ignoresFrequency: Bool {
-#if DEBUG
-        true
-#else
-        false
-#endif
-    }
-
     func claimPresentation() async -> ProPromotion? {
         guard !loading, reservedID == nil, !FirebaseBootstrap.isRunningUnitTests,
               FirebaseApp.app() != nil else { return nil }
@@ -36,8 +28,7 @@ final class ProPromotionPresentationStore {
                   promotion.isEligible(
                     defaults: defaults,
                     now: Date(),
-                    version: version,
-                    ignoresFrequency: ignoresFrequency
+                    version: version
                   )
             else { return nil }
             reservedID = promotion.id
