@@ -60,6 +60,12 @@ final class GitGlobalSettingsServiceTests: XCTestCase {
             GitCredentialHelperMode.resolve(configuredValues: [""]),
             .commitPlusAccountsOnly
         )
+        XCTAssertEqual(
+            GitCredentialHelperMode.effectiveValues(
+                configuredValues: ["store", "", "osxkeychain"]
+            ),
+            ["osxkeychain"]
+        )
     }
 
     func testAvailableCredentialHelpersUsesActiveGitCommandList() async {
@@ -89,11 +95,33 @@ final class GitGlobalSettingsServiceTests: XCTestCase {
         )
 
         let calls = await runner.recordedArguments()
-        XCTAssertTrue(calls.contains(["config", "--global", "--unset-all", "credential.helper"]))
-        XCTAssertTrue(calls.contains(["config", "--global", "--add", "credential.helper", ""]))
+        XCTAssertTrue(calls.contains(["config", "--global", "--replace-all", "credential.helper", ""]))
         XCTAssertTrue(calls.contains(["config", "--global", "--add", "credential.helper", "osxkeychain"]))
         let credentialHelpers = await runner.currentCredentialHelpers()
         XCTAssertEqual(credentialHelpers, ["", "osxkeychain"])
+    }
+
+    func testUpdateRestoresPreviousHelpersWhenAddingReplacementFails() async {
+        let failingArguments = ["config", "--global", "--add", "credential.helper", "osxkeychain"]
+        let runner = GlobalSettingsRecordingRunner(
+            responses: [["help", "-a"]: "credential-osxkeychain\n"],
+            credentialHelpers: ["cache", "custom"],
+            failOnceOnArguments: failingArguments
+        )
+        let service = GitStatusService(runner: runner)
+
+        do {
+            try await service.updateGlobalGitSettings(
+                makeValidSettings(),
+                credentialHelperMode: .helper("osxkeychain")
+            )
+            XCTFail("Expected replacement to fail.")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Simulated failure"))
+        }
+
+        let credentialHelpers = await runner.currentCredentialHelpers()
+        XCTAssertEqual(credentialHelpers, ["cache", "custom"])
     }
 
     func testUpdateRejectsHelperMissingFromActiveRuntimeBeforeChangingConfiguration() async {
@@ -211,18 +239,33 @@ private actor GlobalSettingsRecordingRunner: GitCommandRunning {
     private let responses: [[String]: String]
     private var calls: [[String]] = []
     private var credentialHelpers: [String]?
+    private var failOnceOnArguments: [String]?
 
-    init(responses: [[String]: String] = [:], credentialHelpers: [String]? = nil) {
+    init(
+        responses: [[String]: String] = [:],
+        credentialHelpers: [String]? = nil,
+        failOnceOnArguments: [String]? = nil
+    ) {
         self.responses = responses
         self.credentialHelpers = credentialHelpers
+        self.failOnceOnArguments = failOnceOnArguments
     }
 
     func runGit(arguments: [String], in directory: URL) async throws -> String {
         calls.append(arguments)
+        if arguments == failOnceOnArguments {
+            failOnceOnArguments = nil
+            throw GitError.commandFailed("Simulated failure")
+        }
         if arguments == ["config", "--global", "--get-all", "credential.helper"],
            let credentialHelpers {
             guard !credentialHelpers.isEmpty else { return "" }
             return credentialHelpers.joined(separator: "\n") + "\n"
+        }
+        if arguments.starts(with: ["config", "--global", "--replace-all", "credential.helper"]),
+           let helper = arguments.last {
+            credentialHelpers = [helper]
+            return ""
         }
         if arguments == ["config", "--global", "--unset-all", "credential.helper"] {
             credentialHelpers = []

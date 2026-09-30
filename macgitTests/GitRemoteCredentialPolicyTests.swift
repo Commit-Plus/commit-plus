@@ -29,7 +29,8 @@ final class GitRemoteCredentialPolicyTests: XCTestCase {
         for call in remoteCalls {
             let environment = try XCTUnwrap(call.environment)
             XCTAssertEqual(environment["GIT_TERMINAL_PROMPT"], "0")
-            XCTAssertNil(environment["GIT_ASKPASS"])
+            XCTAssertEqual(environment["GIT_ASKPASS"], "")
+            XCTAssertNil(environment["SSH_ASKPASS"])
             XCTAssertNil(environment["GIT_CONFIG_COUNT"])
         }
     }

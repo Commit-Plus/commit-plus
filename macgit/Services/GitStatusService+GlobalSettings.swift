@@ -121,6 +121,23 @@ extension GitStatusService {
             return []
         }
 
+        return configValues(from: output)
+    }
+
+    private func requiredGlobalConfigValues(_ key: String, in directory: URL) async throws -> [String] {
+        do {
+            let output = try await runGit(
+                arguments: ["config", "--global", "--get-all", key],
+                in: directory
+            )
+            return configValues(from: output)
+        } catch GitError.commandFailed(let message) where message.isEmpty {
+            return []
+        }
+    }
+
+    private func configValues(from output: String) -> [String] {
+        guard !output.isEmpty else { return [] }
         var values = output.components(separatedBy: "\n")
         if values.last == "" {
             values.removeLast()
@@ -160,25 +177,55 @@ extension GitStatusService {
             break
         }
 
-        _ = try? await runGit(
-            arguments: ["config", "--global", "--unset-all", "credential.helper"],
-            in: directory
-        )
+        let previousValues = try await requiredGlobalConfigValues("credential.helper", in: directory)
         _ = try await runGit(
-            arguments: ["config", "--global", "--add", "credential.helper", ""],
+            arguments: ["config", "--global", "--replace-all", "credential.helper", ""],
             in: directory
         )
 
-        if case .helper(let helper) = mode {
+        do {
+            if case .helper(let helper) = mode {
+                _ = try await runGit(
+                    arguments: ["config", "--global", "--add", "credential.helper", helper],
+                    in: directory
+                )
+            }
+
+            let savedValues = try await requiredGlobalConfigValues("credential.helper", in: directory)
+            guard GitCredentialHelperMode.resolve(configuredValues: savedValues) == mode else {
+                throw GitError.commandFailed("Git did not save the selected credential helper configuration.")
+            }
+        } catch {
+            let replacementError = error
+            do {
+                try await restoreGlobalCredentialHelpers(previousValues, in: directory)
+            } catch {
+                throw GitError.commandFailed(
+                    "\(replacementError.localizedDescription) Restoring the previous credential helpers also failed: \(error.localizedDescription)"
+                )
+            }
+            throw replacementError
+        }
+    }
+
+    private func restoreGlobalCredentialHelpers(_ values: [String], in directory: URL) async throws {
+        guard let first = values.first else {
             _ = try await runGit(
-                arguments: ["config", "--global", "--add", "credential.helper", helper],
+                arguments: ["config", "--global", "--unset-all", "credential.helper"],
                 in: directory
             )
+            return
         }
 
-        let savedValues = await globalConfigValues("credential.helper", in: directory)
-        guard GitCredentialHelperMode.resolve(configuredValues: savedValues) == mode else {
-            throw GitError.commandFailed("Git did not save the selected credential helper configuration.")
+        _ = try await runGit(
+            arguments: ["config", "--global", "--replace-all", "credential.helper", first],
+            in: directory
+        )
+        for value in values.dropFirst() {
+            _ = try await runGit(
+                arguments: ["config", "--global", "--add", "credential.helper", value],
+                in: directory
+            )
         }
     }
 }

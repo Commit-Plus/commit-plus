@@ -125,7 +125,8 @@ final class GitProviderCredentialResolverTests: XCTestCase {
         defer { injection?.cleanup() }
 
         XCTAssertEqual(injection?.environment["GIT_TERMINAL_PROMPT"], "0")
-        XCTAssertNil(injection?.environment["GIT_ASKPASS"])
+        XCTAssertEqual(injection?.environment["GIT_ASKPASS"], "")
+        XCTAssertNil(injection?.environment["SSH_ASKPASS"])
         XCTAssertNil(injection?.environment["GIT_CONFIG_COUNT"])
     }
 

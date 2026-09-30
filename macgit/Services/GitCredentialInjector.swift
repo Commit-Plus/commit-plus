@@ -37,6 +37,8 @@ struct GitCredentialInjection {
     ) -> Self {
         var environment = environment
         environment["GIT_TERMINAL_PROMPT"] = "0"
+        environment["GIT_ASKPASS"] = ""
+        environment["SSH_ASKPASS"] = nil
         return GitCredentialInjection(environment: environment, cleanup: {})
     }
 }

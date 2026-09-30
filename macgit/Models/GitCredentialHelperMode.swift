@@ -19,13 +19,7 @@ enum GitCredentialHelperMode: Hashable, Identifiable, Sendable {
     }
 
     static func resolve(configuredValues: [String]) -> Self {
-        let effectiveValues = configuredValues.reduce(into: [String]()) { result, value in
-            if value.isEmpty {
-                result.removeAll()
-            } else {
-                result.append(value)
-            }
-        }
+        let effectiveValues = effectiveValues(configuredValues: configuredValues)
 
         switch effectiveValues.count {
         case 0:
@@ -34,6 +28,16 @@ enum GitCredentialHelperMode: Hashable, Identifiable, Sendable {
             return .helper(effectiveValues[0])
         default:
             return .preserveExisting
+        }
+    }
+
+    static func effectiveValues(configuredValues: [String]) -> [String] {
+        configuredValues.reduce(into: [String]()) { result, value in
+            if value.isEmpty {
+                result.removeAll()
+            } else {
+                result.append(value)
+            }
         }
     }
 }

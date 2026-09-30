@@ -123,7 +123,9 @@ final class GitSettingsViewModel {
 
     var configuredCredentialsUseInsecureStore: Bool {
         selectedCredentialHelperIsInsecure
-            || settings.credentialHelperValues.contains(where: isInsecureCredentialStore)
+            || GitCredentialHelperMode.effectiveValues(
+                configuredValues: settings.credentialHelperValues
+            ).contains(where: isInsecureCredentialStore)
     }
 
     var credentialHelperAvailability: (title: String, systemImage: String, isAvailable: Bool)? {
