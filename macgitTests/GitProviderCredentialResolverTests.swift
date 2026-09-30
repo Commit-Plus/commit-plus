@@ -109,6 +109,49 @@ final class GitProviderCredentialResolverTests: XCTestCase {
         XCTAssertNil(credential)
     }
 
+    func testRemoteWithoutMatchingAccountAllowsConfiguredHelpersWithoutTerminalPrompt() async throws {
+        let resolver = GitProviderCredentialResolver(
+            accounts: [],
+            tokenVault: FakeCredentialTokenVault()
+        )
+
+        let injection = try await GitStatusService.shared.credentialInjection(
+            for: "https://github.com/octocat/Hello-World.git",
+            in: FileManager.default.temporaryDirectory,
+            credentialResolver: resolver,
+            credentialInjector: TemporaryGitCredentialInjector(),
+            sshCredentialInjector: TemporaryGitSSHCredentialInjector()
+        )
+        defer { injection?.cleanup() }
+
+        XCTAssertEqual(injection?.environment["GIT_TERMINAL_PROMPT"], "0")
+        XCTAssertEqual(injection?.environment["GIT_ASKPASS"], "")
+        XCTAssertNil(injection?.environment["SSH_ASKPASS"])
+        XCTAssertNil(injection?.environment["GIT_CONFIG_COUNT"])
+    }
+
+    func testRemoteWithMatchingAccountUsesAppCredentialAndDisablesConfiguredHelpers() async throws {
+        let account = makeProviderAccount()
+        let resolver = GitProviderCredentialResolver(
+            accounts: [account],
+            tokenVault: FakeCredentialTokenVault(tokensByAccountID: [account.id: makeToken("secret")])
+        )
+
+        let injection = try await GitStatusService.shared.credentialInjection(
+            for: "https://github.com/octocat/Hello-World.git",
+            in: FileManager.default.temporaryDirectory,
+            credentialResolver: resolver,
+            credentialInjector: TemporaryGitCredentialInjector(),
+            sshCredentialInjector: TemporaryGitSSHCredentialInjector()
+        )
+        defer { injection?.cleanup() }
+
+        XCTAssertNotNil(injection?.environment["GIT_ASKPASS"])
+        let count = try XCTUnwrap(Int(try XCTUnwrap(injection?.environment["GIT_CONFIG_COUNT"])))
+        XCTAssertEqual(injection?.environment["GIT_CONFIG_KEY_\(count - 1)"], "credential.helper")
+        XCTAssertEqual(injection?.environment["GIT_CONFIG_VALUE_\(count - 1)"], "")
+    }
+
     func testMultipleMatchingAccountsThrows() async {
         let first = makeProviderAccount(id: "connection-1", username: "octocat")
         let second = makeProviderAccount(id: "connection-2", username: "monalisa")

@@ -31,6 +31,16 @@ struct GitSSHCredential: Equatable {
 struct GitCredentialInjection {
     var environment: [String: String]
     var cleanup: () -> Void
+
+    static func configuredGitHelpers(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Self {
+        var environment = environment
+        environment["GIT_TERMINAL_PROMPT"] = "0"
+        environment["GIT_ASKPASS"] = ""
+        environment["SSH_ASKPASS"] = nil
+        return GitCredentialInjection(environment: environment, cleanup: {})
+    }
 }
 
 protocol GitCredentialInjecting {

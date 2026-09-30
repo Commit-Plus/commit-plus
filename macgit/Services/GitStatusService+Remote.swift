@@ -441,7 +441,7 @@ extension GitStatusService {
         credentialInjector: GitCredentialInjecting,
         sshCredentialInjector: GitSSHCredentialInjecting
     ) async throws -> GitCredentialInjection? {
-        guard let credentialResolver else { return nil }
+        guard let credentialResolver else { return .configuredGitHelpers() }
         let remoteNames = await remotes(in: repositoryURL)
         let credentials = try await remoteNames.asyncCompactMap { remote -> RemoteGitCredential? in
             let remoteURLString = await remoteURL(remote: remote, in: repositoryURL)
@@ -452,7 +452,7 @@ extension GitStatusService {
                 result.append(credential)
             }
         }
-        guard let credential = uniqueCredentials.first else { return nil }
+        guard let credential = uniqueCredentials.first else { return .configuredGitHelpers() }
         guard uniqueCredentials.count == 1 else {
             throw GitProviderCredentialError.multipleMatchingAccounts(host: "configured remotes")
         }

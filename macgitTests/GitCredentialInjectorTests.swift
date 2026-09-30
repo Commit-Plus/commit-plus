@@ -28,6 +28,17 @@ final class GitCredentialInjectorTests: XCTestCase {
         XCTAssertNotNil(injection.environment["GIT_ASKPASS"])
     }
 
+    func testConfiguredGitHelpersDisablePromptsWithoutDisablingHelpers() {
+        let injection = GitCredentialInjection.configuredGitHelpers(
+            environment: ["GIT_ASKPASS": "/tmp/git-askpass", "SSH_ASKPASS": "/tmp/ssh-askpass"]
+        )
+
+        XCTAssertEqual(injection.environment["GIT_TERMINAL_PROMPT"], "0")
+        XCTAssertEqual(injection.environment["GIT_ASKPASS"], "")
+        XCTAssertNil(injection.environment["SSH_ASKPASS"])
+        XCTAssertNil(injection.environment["GIT_CONFIG_COUNT"])
+    }
+
     func testEnvironmentDisablesConfiguredCredentialHelpers() throws {
         let injection = try makeInjection()
         defer { injection.cleanup() }

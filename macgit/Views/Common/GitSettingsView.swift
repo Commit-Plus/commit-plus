@@ -26,6 +26,7 @@ struct GitSettingsView: View {
         Form {
             GitRuntimeSettingsSection(viewModel: viewModel)
             GitLFSRuntimeSection()
+            GitCredentialHelperSettingsSection(viewModel: viewModel)
 
             Section {
                 TextField("Full Name", text: $viewModel.settings.userName)
@@ -80,9 +81,7 @@ struct GitSettingsView: View {
                             .controlSize(.small)
                     }
 
-                    Button("Save Git Settings") {
-                        Task { await viewModel.save() }
-                    }
+                    Button("Save Git Settings", action: save)
                     .buttonStyle(.borderedProminent)
                     .disabled(!viewModel.canSave)
                 }
@@ -111,5 +110,25 @@ struct GitSettingsView: View {
         } message: {
             Text(viewModel.errorMessage ?? "An unknown error occurred.")
         }
+        .confirmationDialog(
+            "Replace existing credential helpers?",
+            isPresented: $viewModel.showingCredentialHelperReplacementConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Replace Helpers", role: .destructive, action: replaceCredentialHelpers)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "This global Git configuration contains multiple credential helpers. Commit+ will replace the helper chain, but it will not delete credentials stored by those helpers."
+            )
+        }
+    }
+
+    private func save() {
+        Task { await viewModel.save() }
+    }
+
+    private func replaceCredentialHelpers() {
+        Task { await viewModel.save(allowCredentialHelperReplacement: true) }
     }
 }

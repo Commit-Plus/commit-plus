@@ -24,6 +24,7 @@ import Observation
 final class GitSettingsViewModel {
     var settings = GlobalGitSettings.empty
     var selectedRuntimePreference = GitRuntimePreference.automatic
+    var credentialHelperMode = GitCredentialHelperMode.commitPlusAccountsOnly
     private(set) var isLoading = false
     private(set) var isSaving = false
     private(set) var isDownloadingEmbeddedGit = false
@@ -34,8 +35,11 @@ final class GitSettingsViewModel {
     private(set) var activeRuntime: GitRuntimeInstallation?
     private(set) var embeddedVersion = ""
     private(set) var embeddedDownloadSize = 0
+    private(set) var availableCredentialHelpers: [String] = []
+    private(set) var savedCredentialHelperMode = GitCredentialHelperMode.commitPlusAccountsOnly
     var errorMessage: String?
     var showingError = false
+    var showingCredentialHelperReplacementConfirmation = false
 
     @ObservationIgnored private let service: GitStatusService
     @ObservationIgnored private let runtimeManager: GitRuntimeManager
@@ -52,7 +56,7 @@ final class GitSettingsViewModel {
     }
 
     var canSave: Bool {
-        settings != savedSettings && !isBusy
+        (settings != savedSettings || credentialHelperMode != savedCredentialHelperMode) && !isBusy
     }
 
     var isBusy: Bool {
@@ -100,6 +104,45 @@ final class GitSettingsViewModel {
             && (selectedRuntimePreference == .embedded || activeRuntime == nil)
     }
 
+    var credentialHelperChoices: [String] {
+        var choices = availableCredentialHelpers
+        if case .helper(let helper) = credentialHelperMode, !choices.contains(helper) {
+            choices.append(helper)
+        }
+        return choices
+    }
+
+    var hasMultipleCredentialHelpers: Bool {
+        savedCredentialHelperMode == .preserveExisting
+    }
+
+    var selectedCredentialHelperIsInsecure: Bool {
+        guard case .helper(let helper) = credentialHelperMode else { return false }
+        return isInsecureCredentialStore(helper)
+    }
+
+    var configuredCredentialsUseInsecureStore: Bool {
+        selectedCredentialHelperIsInsecure
+            || GitCredentialHelperMode.effectiveValues(
+                configuredValues: settings.credentialHelperValues
+            ).contains(where: isInsecureCredentialStore)
+    }
+
+    var credentialHelperAvailability: (title: String, systemImage: String, isAvailable: Bool)? {
+        guard case .helper(let helper) = credentialHelperMode else { return nil }
+        return availability(for: helper)
+    }
+
+    func availability(for helper: String) -> (title: String, systemImage: String, isAvailable: Bool) {
+        if availableCredentialHelpers.contains(helper) {
+            return ("Available to \(visibleRuntimeTitle)", "checkmark.circle.fill", true)
+        }
+        if helper.hasPrefix("!") || helper.hasPrefix("/") || helper.contains(where: \Character.isWhitespace) {
+            return ("Custom helper; availability is not verified", "questionmark.circle", false)
+        }
+        return ("Not available to \(visibleRuntimeTitle)", "exclamationmark.triangle.fill", false)
+    }
+
     func load() async {
         isLoading = true
         statusMessage = nil
@@ -111,20 +154,45 @@ final class GitSettingsViewModel {
             let loaded = try await service.loadGlobalGitSettings()
             settings = loaded
             savedSettings = loaded
+            credentialHelperMode = GitCredentialHelperMode.resolve(
+                configuredValues: loaded.credentialHelperValues
+            )
+            savedCredentialHelperMode = credentialHelperMode
+            availableCredentialHelpers = await service.availableCredentialHelpers()
         } catch {
             present(error)
         }
     }
 
-    func save() async {
+    func save(allowCredentialHelperReplacement: Bool = false) async {
         guard canSave else { return }
+        if hasMultipleCredentialHelpers,
+           credentialHelperMode != .preserveExisting,
+           !allowCredentialHelperReplacement {
+            showingCredentialHelperReplacementConfirmation = true
+            return
+        }
         isSaving = true
         statusMessage = nil
         defer { isSaving = false }
 
         do {
-            try await service.updateGlobalGitSettings(settings)
-            savedSettings = settings
+            let changedCredentialHelperMode = credentialHelperMode == savedCredentialHelperMode
+                ? nil
+                : credentialHelperMode
+            try await service.updateGlobalGitSettings(
+                settings,
+                credentialHelperMode: changedCredentialHelperMode
+            )
+            let loaded = try await service.loadGlobalGitSettings()
+            settings = loaded
+            savedSettings = loaded
+            credentialHelperMode = GitCredentialHelperMode.resolve(
+                configuredValues: loaded.credentialHelperValues
+            )
+            savedCredentialHelperMode = credentialHelperMode
+            availableCredentialHelpers = await service.availableCredentialHelpers()
+            showingCredentialHelperReplacementConfirmation = false
             statusMessage = "Global Git settings saved."
         } catch {
             present(error)
@@ -143,6 +211,7 @@ final class GitSettingsViewModel {
             try await runtimeManager.setPreference(preference)
             await refreshRuntimeStatus()
             applyActiveRuntimeToSettings()
+            availableCredentialHelpers = await service.availableCredentialHelpers()
             statusMessage = "\(preference.title) is now active."
         } catch {
             await refreshRuntimeStatus()
@@ -161,6 +230,7 @@ final class GitSettingsViewModel {
             try await runtimeManager.setPreference(.embedded)
             await refreshRuntimeStatus()
             applyActiveRuntimeToSettings()
+            availableCredentialHelpers = await service.availableCredentialHelpers()
             statusMessage = "Embedded Git \(embeddedVersion) installed and selected."
         } catch {
             await refreshRuntimeStatus()
@@ -233,6 +303,10 @@ final class GitSettingsViewModel {
     private func present(_ error: Error) {
         errorMessage = error.localizedDescription
         showingError = true
+    }
+
+    private func isInsecureCredentialStore(_ helper: String) -> Bool {
+        helper.split(whereSeparator: \Character.isWhitespace).first == "store"
     }
 
     private func refreshRuntimeStatus() async {

@@ -358,7 +358,7 @@ extension GitStatusService {
         in repositoryURL: URL,
         credentialResolver: GitProviderCredentialResolver?
     ) async throws -> GitCredentialInjection? {
-        guard credentialResolver != nil else { return nil }
+        guard credentialResolver != nil else { return .configuredGitHelpers() }
         let pathOutput = try await runGit(
             arguments: ["config", "--file", ".gitmodules", "--get-regexp", #"^submodule\..*\.path$"#],
             in: repositoryURL
@@ -368,7 +368,7 @@ extension GitStatusService {
             guard fields.count == 2, fields[1] == Substring(path) else { return nil }
             return String(fields[0].dropLast(".path".count))
         }).first else {
-            return nil
+            return .configuredGitHelpers()
         }
         let remoteURL = try await runGit(
             arguments: ["config", "--file", ".gitmodules", "--get", "\(key).url"],

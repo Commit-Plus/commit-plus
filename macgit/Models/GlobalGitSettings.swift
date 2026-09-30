@@ -26,6 +26,7 @@ struct GlobalGitSettings: Equatable, Sendable {
     var pruneOnFetch: Bool
     var autoSetupRemote: Bool
     var excludesFilePath: String
+    var credentialHelperValues: [String] = []
 
     static let empty = GlobalGitSettings(
         executablePath: "",
@@ -35,6 +36,7 @@ struct GlobalGitSettings: Equatable, Sendable {
         defaultBranchName: "main",
         pruneOnFetch: false,
         autoSetupRemote: false,
-        excludesFilePath: "~/.config/git/ignore"
+        excludesFilePath: "~/.config/git/ignore",
+        credentialHelperValues: []
     )
 }
