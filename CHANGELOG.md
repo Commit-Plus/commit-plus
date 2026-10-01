@@ -2,25 +2,24 @@
 
 Changes in the latest Commit+ release compared with the previous release.
 
-## v1.1.8
+## v1.1.9
 
-Changes since `v1.1.7`.
+Changes since `v1.1.8`.
 
 ### Added
 
-- **Drag-and-drop staging** — Stage or unstage one or multiple selected files by dragging them between File Status sections, with Shift and Command selection support.
-- **Customizable repository sidebar** — Choose whether Tags, Worktrees, Reflog, Pull Requests, Git LFS, and Git Flow appear in the sidebar. These preferences participate in settings sync.
+- **Configurable credential helpers** — Choose a fallback Git credential helper in Settings while Commit+ connected accounts remain the first choice, with safeguards for existing helper chains and insecure stores.
+- **GitLab token recovery** — GitLab accounts now refresh expiring OAuth tokens automatically and clearly prompt for reauthorization when required.
+- **Account email visibility** — View the signed-in account email from the toolbar menu and Manage Account sheet.
 
 ### Improved
 
-- **Dedicated Settings window** — Settings now opens in its own resizable macOS window instead of a sheet attached to a repository window.
-- **Faster repository and diff presentation** — Repository details no longer wait for icon loading, while diffs display plain text sooner and cache deferred syntax highlighting.
-- **Cleaner commit dragging** — Dragging commits from History now shows one preview with the selected commit count.
+- **Faster History browsing** — Large histories load and scroll more efficiently with incremental commit graph generation and bounded page retention.
+- **Faster repository status loading** — The repository picker consolidates status checks, and the sidebar batches branch synchronization lookups.
+- **More consistent repository windows** — Opening a repository from the welcome window preserves its initial frame and presentation context.
 
 ### Fixed
 
-- Discard and undo snapshots now work correctly in linked Git worktrees.
-- The command-line setup tip waits until the terms have been accepted.
-- Repository toolbar button labels no longer clip on macOS 27.
+- Command-line setup now recognizes an existing Commit+ CLI symlink after the app moves or updates.
 
-[Compare v1.1.7 to v1.1.8](https://github.com/Commit-Plus/commit-plus/compare/v1.1.7...v1.1.8)
+[Compare v1.1.8 to v1.1.9](https://github.com/Commit-Plus/commit-plus/compare/v1.1.8...v1.1.9)
