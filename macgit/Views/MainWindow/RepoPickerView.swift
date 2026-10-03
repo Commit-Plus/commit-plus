@@ -1076,6 +1076,7 @@ private struct RepoPickerCountBadge: View {
 struct CloneSheetView: View {
     @Environment(\.gitLFSCredentialResolver) private var lfsCredentialResolver
     @Environment(\.dismiss) private var dismiss
+    @State private var discoveredAccountID: String?
     @State private var remoteURL: String
     @State private var destinationPath = ""
     @State private var repositoryName: String
@@ -1120,6 +1121,14 @@ struct CloneSheetView: View {
             Text("Clone a repository")
                 .font(.largeTitle)
                 .bold()
+
+            if let resolver = lfsCredentialResolver {
+                GitProviderRepositoryBrowser(resolver: resolver) { url, accountID in
+                    discoveredAccountID = accountID
+                    remoteURL = url
+                }
+                    .disabled(isCloning)
+            }
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .center, spacing: 12) {
@@ -1285,6 +1294,15 @@ struct CloneSheetView: View {
         }
     }
 
+    private var cloneCredentialResolver: GitProviderCredentialResolver? {
+        guard var resolver = lfsCredentialResolver else { return nil }
+        if let discoveredAccountID, let identity = resolver.remoteIdentity(for: remoteURL),
+           resolver.matchingAccounts(for: remoteURL).contains(where: { $0.id == discoveredAccountID }) {
+            resolver.preferredAccountIDsByRemoteIdentity[GitProviderAccountPreferenceKey.make(for: identity)] = discoveredAccountID
+        }
+        return resolver
+    }
+
     private var canClone: Bool {
         !isCloning
             && !remoteURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1359,7 +1377,7 @@ struct CloneSheetView: View {
 
         do {
             try await Task.sleep(nanoseconds: 500_000_000)
-            let branches = try await GitStatusService.shared.remoteBranches(remoteURL: sourceURL)
+            let branches = try await GitStatusService.shared.remoteBranches(remoteURL: sourceURL, credentialResolver: cloneCredentialResolver)
             guard !Task.isCancelled else { return }
             remoteBranches = branches
             remoteBranchLoadError = nil
@@ -1408,7 +1426,7 @@ struct CloneSheetView: View {
                     checkoutBranch: checkoutBranch,
                     recurseSubmodules: recurseSubmodules,
                     downloadLFSContent: downloadLFSContent,
-                    credentialResolver: lfsCredentialResolver
+                    credentialResolver: cloneCredentialResolver
                 )
 
                 await MainActor.run {
@@ -1437,7 +1455,7 @@ struct CloneSheetView: View {
                 guard lfsRuntime.status?.activeRuntime != nil else {
                     throw GitError.commandFailed(lfsRuntime.error ?? "Git LFS installation was cancelled.")
                 }
-                try await GitStatusService.shared.finishLFSClone(in: repository, credentialResolver: lfsCredentialResolver)
+                try await GitStatusService.shared.finishLFSClone(in: repository, credentialResolver: cloneCredentialResolver)
                 onClone(repository)
                 dismiss()
             } catch {

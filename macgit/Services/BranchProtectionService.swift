@@ -22,7 +22,7 @@ struct BranchProtectionService {
         let endpoint: String
         switch identity.provider {
         case .github:
-            endpoint = "https://api.github.com/repos/\(encode(identity.ownerPath))/\(encode(identity.repositoryName))/branches/\(encode(branch))"
+            endpoint = "\(GitProviderHost(kind: .github, baseURL: identity.hostURL).apiURL.absoluteString)/repos/\(encode(identity.ownerPath))/\(encode(identity.repositoryName))/branches/\(encode(branch))"
         case .gitlab:
             endpoint = "\(identity.hostURL.absoluteString)/api/v4/projects/\(encode(identity.ownerPath + "/" + identity.repositoryName))/repository/branches/\(encode(branch))"
         case .bitbucket:

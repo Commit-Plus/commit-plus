@@ -312,7 +312,8 @@ final class PullRequestController: ObservableObject {
 
         guard let remoteIdentity = GitRemoteIdentityResolver.identity(
             from: remoteURLString,
-            knownGitLabHosts: connectedGitLabHosts
+            knownGitLabHosts: connectedGitLabHosts,
+            knownHosts: providerAccountController.accounts.map { GitProviderHost(kind: $0.provider, baseURL: $0.hostURL) }
         ) else {
             items = []
             resetPagination()
@@ -994,7 +995,7 @@ final class PullRequestController: ObservableObject {
     }
 
     private func supportsProviderAPI(_ account: GitProviderAccount) -> Bool {
-        account.transportProtocol == .https || !account.scopes.isEmpty
+        account.transportProtocol == .https || account.permissions["authentication"] == "personalAccessToken" || !account.scopes.isEmpty
     }
 
     private func resetPagination() {
@@ -1011,7 +1012,7 @@ final class PullRequestController: ObservableObject {
     }
 
     private func normalizedHost(_ url: URL) -> String {
-        (url.host(percentEncoded: false) ?? url.absoluteString).lowercased()
+        GitProviderHost.identityKey(url)
     }
 
     private func suggestedTitle(for branch: String) -> String {

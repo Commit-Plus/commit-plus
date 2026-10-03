@@ -46,7 +46,7 @@ final class GitProviderTokenVaultTests: XCTestCase {
 
         XCTAssertEqual(
             GitProviderTokenVaultKey.key(for: account),
-            "macgit-user-1:github:github.com:provider-user-42"
+            "macgit-user-1:github:github.com/path:provider-user-42"
         )
     }
 

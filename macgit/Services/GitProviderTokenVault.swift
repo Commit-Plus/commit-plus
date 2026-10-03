@@ -27,7 +27,7 @@ protocol GitProviderTokenVault {
 
 enum GitProviderTokenVaultKey {
     static func key(for account: GitProviderAccount) -> String {
-        let host = account.hostURL.host(percentEncoded: false) ?? account.hostURL.absoluteString
+        let host = GitProviderHost.identityKey(account.hostURL)
         return [
             account.macgitUID,
             account.provider.rawValue,

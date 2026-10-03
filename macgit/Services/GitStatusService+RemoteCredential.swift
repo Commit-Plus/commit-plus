@@ -43,13 +43,7 @@ extension GitStatusService {
     ) async throws -> GitCredentialInjection? {
         guard let credentialResolver else { return .configuredGitHelpers() }
         let remoteURLString: String
-        if GitRemoteIdentityResolver.identity(
-            from: remote,
-            knownGitLabHosts: Set(credentialResolver.accounts.compactMap { account in
-                guard account.provider == .gitlab else { return nil }
-                return account.hostURL.host(percentEncoded: false)?.lowercased()
-            })
-        ) != nil {
+        if credentialResolver.remoteIdentity(for: remote) != nil {
             remoteURLString = remote
         } else {
             remoteURLString = await remoteURL(remote: remote, in: repositoryURL)

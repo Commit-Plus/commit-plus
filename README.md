@@ -100,3 +100,5 @@ For security issues, please refer to [SECURITY.md](SECURITY.md).
 ## License
 
 This project is licensed under the [GNU Affero General Public License v3.0 (AGPLv3)](LICENSE).
+
+For GitHub Enterprise Server and GitLab Self-Managed setup, see [Self-hosted Git providers](docs/self-hosted-git-providers.md).

@@ -90,6 +90,7 @@ struct macgitApp: App {
             gitLabAuthService: GitLabProviderAuthService(configuration: gitLabProviderConfiguration),
             gitLabRedirectURI: gitLabProviderConfiguration.redirectURI,
             openURL: NSWorkspace.shared.open,
+            hasProAccess: { accountController.entitlement.hasProAccess },
             multipleAccountAccess: {
                 featureAccessController.decision(
                     for: .multipleProviderAccounts,
@@ -253,6 +254,7 @@ struct macgitApp: App {
                     aiProviderController.invalidateAvailability()
                 }
                 .onChange(of: accountController.entitlement) { _, _ in
+                    providerAccountController.refreshConnectionAccess()
                     aiProviderController.invalidateAvailability()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in

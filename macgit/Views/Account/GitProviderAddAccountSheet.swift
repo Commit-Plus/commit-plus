@@ -28,6 +28,10 @@ struct GitProviderAddAccountSheet: View {
     @State private var selectedHost: GitProviderAddAccountHost = .github
     @State private var selectedAuthType: GitProviderAddAccountAuthType = .oauth
     @State private var selectedProtocol: GitProviderAddAccountProtocol = .https
+    @State private var isSelfHosted = false
+    @State private var serverURL = ""
+    @State private var personalAccessToken = ""
+    @State private var connectedAccountID: String?
     @State private var connectedUsername = ""
     @State private var bitbucketUsername = ""
     @State private var bitbucketAPIToken = ""
@@ -42,9 +46,15 @@ struct GitProviderAddAccountSheet: View {
         self.controller = controller
         self.editingAccount = editingAccount
         self.accountCreationDecision = accountCreationDecision
+        if let account = editingAccount {
+            let publicHost = account.provider == .github ? GitProviderHost.githubDotCom : GitProviderHost.gitlabDotCom
+            _isSelfHosted = State(initialValue: account.provider != .bitbucket && account.hostURL != publicHost.baseURL)
+            _serverURL = State(initialValue: account.hostURL.absoluteString)
+        }
         _selectedHost = State(initialValue: editingAccount.map(GitProviderAddAccountPresentationPolicy.host(for:)) ?? .github)
         _selectedAuthType = State(initialValue: editingAccount?.provider == .bitbucket ? .personalAccessToken : .oauth)
         _selectedProtocol = State(initialValue: editingAccount?.transportProtocol == .ssh ? .ssh : .https)
+        _connectedAccountID = State(initialValue: editingAccount?.id)
         _connectedUsername = State(initialValue: editingAccount?.username ?? "")
         _bitbucketUsername = State(initialValue: editingAccount?.provider == .bitbucket ? editingAccount?.username ?? "" : "")
     }
@@ -66,19 +76,57 @@ struct GitProviderAddAccountSheet: View {
                 .disabled(editingAccount != nil)
                 .onChange(of: selectedHost) { _, _ in
                     connectedUsername = ""
+                    connectedAccountID = nil
+                    isSelfHosted = false
+                    serverURL = ""
+                    personalAccessToken = ""
                     bitbucketUsername = ""
                     bitbucketAPIToken = ""
                     selectedAuthType = selectedHost == .bitbucket ? .personalAccessToken : .oauth
                 }
 
-                Picker("Auth Type", selection: $selectedAuthType) {
-                    ForEach(GitProviderAddAccountPresentationPolicy.authTypeOptions(for: selectedHost), id: \.id) { option in
-                        Text(option.title)
-                            .tag(option.id)
-                            .disabled(!option.isEnabled)
+                if selectedHost != .bitbucket {
+                    Toggle("Self-hosted server (Pro)", isOn: $isSelfHosted)
+                        .disabled(editingAccount != nil || !controller.canConnectSelfHosted)
+                        .onChange(of: isSelfHosted) { _, _ in
+                            connectedUsername = ""
+                            connectedAccountID = nil
+                            personalAccessToken = ""
+                        }
+                    if !controller.canConnectSelfHosted {
+                        Text("Connecting self-managed Git servers requires an active Pro plan.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if isSelfHosted {
+                        TextField("Server URL", text: $serverURL, prompt: Text("https://git.company.com"))
+                            .disabled(editingAccount != nil)
+                            .onChange(of: serverURL) { _, _ in
+                                connectedUsername = ""
+                                connectedAccountID = nil
+                                personalAccessToken = ""
+                            }
+                        if selectedProtocol == .https {
+                            SecureField("Personal Access Token", text: $personalAccessToken)
+                            Text(selectedHost == .github
+                                 ? "Use a token with access to the repository and required pull request permissions."
+                                 : "Use a personal access token with api scope for API access and Git operations.")
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
-                .disabled(!GitProviderAddAccountPresentationPolicy.canSelectAuthType(for: selectedHost))
+
+                if !isSelfHosted {
+                    Picker("Auth Type", selection: $selectedAuthType) {
+                        ForEach(GitProviderAddAccountPresentationPolicy.authTypeOptions(for: selectedHost), id: \.id) { option in
+                            Text(option.title)
+                                .tag(option.id)
+                                .disabled(!option.isEnabled)
+                        }
+                    }
+                    .disabled(!GitProviderAddAccountPresentationPolicy.canSelectAuthType(for: selectedHost))
+                }
 
                 if selectedHost == .bitbucket {
                     TextField("Username", text: $bitbucketUsername)
@@ -128,6 +176,7 @@ struct GitProviderAddAccountSheet: View {
                 }
             }
             .formStyle(.grouped)
+            .disabled(controller.isLoading)
 
             if let authorization = controller.pendingDeviceAuthorization {
                 GitProviderDeviceAuthorizationView(
@@ -181,7 +230,22 @@ struct GitProviderAddAccountSheet: View {
         .onDisappear(perform: cancelConnection)
     }
 
+    private var configuredHost: GitProviderHost? {
+        let kind: GitProviderKind = selectedHost == .github ? .github : selectedHost == .gitlab ? .gitlab : .bitbucket
+        if isSelfHosted { return GitProviderHost.configured(kind: kind, value: serverURL) }
+        switch kind {
+        case .github: return .githubDotCom
+        case .gitlab: return .gitlabDotCom
+        case .bitbucket: return .bitbucketDotOrg
+        }
+    }
+
     private var canConnect: Bool {
+        if isSelfHosted {
+            return controller.canConnectSelfHosted && (editingAccount != nil || accountCreationDecision.isAllowed) && configuredHost != nil
+                && (selectedProtocol == .ssh ? !sshKeyPath.isEmpty : !personalAccessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+
         guard (editingAccount != nil || accountCreationDecision.isAllowed),
               GitProviderAddAccountPresentationPolicy.canConnect(
             host: selectedHost,
@@ -224,43 +288,52 @@ struct GitProviderAddAccountSheet: View {
         guard canConnect else { return }
         connectionTask?.cancel()
         connectionTask = Task { @MainActor in
-            switch selectedHost {
-            case .github:
-                if let editingAccount {
-                    await controller.reconnect(editingAccount)
-                } else {
-                    if selectedProtocol == .ssh {
-                        await controller.connectSSH(host: .githubDotCom, key: GitProviderSSHKey(path: sshKeyPath))
-                    } else {
-                        await controller.connectGitHub()
-                    }
-                }
-            case .gitlab:
-                if let editingAccount {
-                    await controller.reconnect(editingAccount)
-                } else {
-                    if selectedProtocol == .ssh {
-                        await controller.connectSSH(host: .gitlabDotCom, key: GitProviderSSHKey(path: sshKeyPath))
-                    } else {
-                        await controller.connectGitLabDotCom()
-                    }
-                }
-            case .bitbucket:
+            if isSelfHosted, let host = configuredHost {
                 if selectedProtocol == .ssh {
-                    await controller.connectSSH(
-                        host: .bitbucketDotOrg,
-                        key: GitProviderSSHKey(path: sshKeyPath),
-                        username: bitbucketUsername,
-                        replacing: editingAccount
-                    )
+                    await controller.connectSSH(host: host, key: GitProviderSSHKey(path: sshKeyPath), replacing: editingAccount)
                 } else {
-                    await controller.connectBitbucket(
-                        username: bitbucketUsername,
-                        apiToken: bitbucketAPIToken,
-                        replacing: editingAccount
-                    )
-                    if controller.errorMessage == nil {
-                        bitbucketAPIToken = ""
+                    await controller.connectPersonalAccessToken(host: host, accessToken: personalAccessToken, replacing: editingAccount)
+                    if controller.errorMessage == nil { personalAccessToken = "" }
+                }
+            } else {
+                switch selectedHost {
+                case .github:
+                    if let editingAccount {
+                        await controller.reconnect(editingAccount)
+                    } else {
+                        if selectedProtocol == .ssh {
+                            await controller.connectSSH(host: .githubDotCom, key: GitProviderSSHKey(path: sshKeyPath))
+                        } else {
+                            await controller.connectGitHub()
+                        }
+                    }
+                case .gitlab:
+                    if let editingAccount {
+                        await controller.reconnect(editingAccount)
+                    } else {
+                        if selectedProtocol == .ssh {
+                            await controller.connectSSH(host: .gitlabDotCom, key: GitProviderSSHKey(path: sshKeyPath))
+                        } else {
+                            await controller.connectGitLabDotCom()
+                        }
+                    }
+                case .bitbucket:
+                    if selectedProtocol == .ssh {
+                        await controller.connectSSH(
+                            host: .bitbucketDotOrg,
+                            key: GitProviderSSHKey(path: sshKeyPath),
+                            username: bitbucketUsername,
+                            replacing: editingAccount
+                        )
+                    } else {
+                        await controller.connectBitbucket(
+                            username: bitbucketUsername,
+                            apiToken: bitbucketAPIToken,
+                            replacing: editingAccount
+                        )
+                        if controller.errorMessage == nil {
+                            bitbucketAPIToken = ""
+                        }
                     }
                 }
             }
@@ -270,19 +343,17 @@ struct GitProviderAddAccountSheet: View {
     }
 
     private func refreshConnectedUsername() {
-        connectedUsername = matchingAccount()?.username ?? ""
+        guard controller.errorMessage == nil, let host = configuredHost else { return }
+        let account = controller.accounts.last { $0.provider == host.kind && GitProviderHost.identityKey($0.hostURL) == GitProviderHost.identityKey(host.baseURL) }
+        connectedAccountID = account?.id
+        connectedUsername = account?.username ?? ""
     }
 
     private func matchingAccount() -> GitProviderAccount? {
-        controller.accounts.first { account in
-            switch selectedHost {
-            case .github:
-                return account.provider == .github
-            case .gitlab:
-                return account.provider == .gitlab && account.hostURL.host(percentEncoded: false) == "gitlab.com"
-            case .bitbucket:
-                return account.provider == .bitbucket
-            }
+        guard let host = configuredHost else { return nil }
+        return controller.accounts.first { account in
+            account.id == connectedAccountID && account.provider == host.kind && GitProviderHost.identityKey(account.hostURL) == GitProviderHost.identityKey(host.baseURL)
+                && (editingAccount == nil || account.providerUserID == editingAccount?.providerUserID)
         }
     }
 

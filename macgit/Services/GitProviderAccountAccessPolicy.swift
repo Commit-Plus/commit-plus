@@ -55,11 +55,14 @@ struct GitProviderAccountAccessPolicy {
 }
 
 enum GitProviderAccountAccessError: LocalizedError, Equatable {
+    case selfHostedRequiresPro
     case freeAccountLimitReached(limit: Int)
     case featureDisabled
 
     var errorDescription: String? {
         switch self {
+        case .selfHostedRequiresPro:
+            "Connecting self-managed Git servers requires an active Pro plan."
         case .freeAccountLimitReached(let limit):
             "Free plan includes \(limit) Git provider account. Upgrade to Pro to add more."
         case .featureDisabled:
