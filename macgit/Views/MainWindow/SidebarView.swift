@@ -371,7 +371,7 @@ struct SidebarView: View {
         SidebarBranchSectionActions(
             toggleSection: { toggleSection(.branches) },
             toggleFolder: toggleFolder,
-            select: { selection = $0 },
+            select: selectBranch,
             checkout: { onRequestCheckout($0, false) },
             fetch: onRequestFetchBranch,
             pullTracked: onRequestPullTracked,
@@ -428,7 +428,7 @@ struct SidebarView: View {
         SidebarTagSectionActions(
             toggleSection: { toggleSection(.tags) },
             toggleFolder: toggleTagFolder,
-            select: { selection = $0 },
+            select: selectHistoryReference,
             checkout: { onRequestCheckout($0, true) },
             showDetails: onRequestTagDetails,
             diffAgainstCurrent: onRequestDiffTagAgainstCurrent,
@@ -446,7 +446,7 @@ struct SidebarView: View {
         SidebarRemoteSectionActions(
             toggleSection: { toggleSection(.remotes) },
             toggleFolder: toggleRemoteFolder,
-            select: { selection = $0 },
+            select: selectHistoryReference,
             checkoutFromRow: requestRemoteBranchCheckout,
             checkoutFromContextMenu: requestRemoteBranchCheckout,
             pullIntoCurrent: onRequestPullRemoteBranch,
@@ -458,6 +458,42 @@ struct SidebarView: View {
             drop: dropActions,
             compare: { onRequestCompareBranches("refs/remotes/\($0)", currentBranch) }
         )
+    }
+
+    private func selectBranch(_ newSelection: SidebarSelection) {
+        guard case .branch(let branch) = newSelection else {
+            selection = newSelection
+            return
+        }
+
+        let nextFilter = Self.historyFilter(
+            afterSelecting: branch,
+            currentBranch: currentBranch,
+            currentFilter: appState.historyBranchFilter
+        )
+        selection = newSelection
+        appState.historyBranchFilter = nextFilter
+    }
+
+    private func selectHistoryReference(_ newSelection: SidebarSelection) {
+        selection = newSelection
+        if appState.historyBranchFilter != .all {
+            switch newSelection {
+            case .tag(let name), .remoteBranch(let name):
+                appState.historyBranchFilter = .branch(name)
+            default:
+                break
+            }
+        }
+    }
+
+    static func historyFilter(
+        afterSelecting branch: String,
+        currentBranch: String,
+        currentFilter: HistoryBranchFilter
+    ) -> HistoryBranchFilter {
+        guard currentFilter != .all else { return .all }
+        return branch == currentBranch ? .current : .all
     }
 
     var stashSectionActions: SidebarStashSectionActions {

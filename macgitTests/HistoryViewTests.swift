@@ -71,6 +71,45 @@ final class HistoryViewTests: XCTestCase {
         }
     }
 
+    func testTipCommitFindsBranchInLoadedAllBranchesSnapshot() {
+        let commits = [
+            makeCommit(hash: "main-tip", refs: ["HEAD -> main", "origin/main"]),
+            makeCommit(hash: "feature-tip", refs: ["feature/login"]),
+            makeCommit(hash: "base")
+        ]
+
+        XCTAssertEqual(HistoryView.tipCommit(for: "main", in: commits)?.hash, "main-tip")
+        XCTAssertEqual(HistoryView.tipCommit(for: "feature/login", in: commits)?.hash, "feature-tip")
+        XCTAssertNil(HistoryView.tipCommit(for: "missing", in: commits))
+    }
+
+    func testSidebarBranchSelectionUsesCurrentOnlyForCheckedOutBranch() {
+        XCTAssertEqual(
+            SidebarView.historyFilter(
+                afterSelecting: "main",
+                currentBranch: "main",
+                currentFilter: .current
+            ),
+            .current
+        )
+        XCTAssertEqual(
+            SidebarView.historyFilter(
+                afterSelecting: "feature/login",
+                currentBranch: "main",
+                currentFilter: .current
+            ),
+            .all
+        )
+        XCTAssertEqual(
+            SidebarView.historyFilter(
+                afterSelecting: "main",
+                currentBranch: "main",
+                currentFilter: .all
+            ),
+            .all
+        )
+    }
+
     func testHistorySearchRequiresAtLeastThreeCharacters() {
         XCTAssertEqual(HistoryView.normalizedSearchQuery("ab"), "")
         XCTAssertEqual(HistoryView.normalizedSearchQuery("  ab "), "")
@@ -363,7 +402,8 @@ final class HistoryViewTests: XCTestCase {
     private func makeCommit(
         hash: String,
         message: String = "",
-        parents: [String] = []
+        parents: [String] = [],
+        refs: [String] = []
     ) -> Commit {
         Commit(
             hash: hash,
@@ -372,7 +412,7 @@ final class HistoryViewTests: XCTestCase {
             author: "Test",
             email: "test@example.com",
             date: Date(timeIntervalSince1970: 0),
-            refs: []
+            refs: refs
         )
     }
 }

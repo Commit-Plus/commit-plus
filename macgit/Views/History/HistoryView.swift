@@ -206,8 +206,10 @@ struct HistoryView: View {
             }
         }
         .onChange(of: selectedBranch) { _, newBranch in
-            if appState.historyBranchFilter != .all {
-                appState.historyBranchFilter = newBranch.map(HistoryBranchFilter.branch) ?? .current
+            guard appState.historyBranchFilter == .all, let newBranch else { return }
+            selectBranchTip(newBranch)
+            Task {
+                await tableScrollCoordinator.focusTableWhenReady()
             }
         }
         .onChange(of: historySearchText) { _, newValue in
@@ -730,7 +732,6 @@ struct HistoryView: View {
                 }
             }
         }
-        .id(historyLoadKey)
     }
 
     // MARK: - Bottom Panel
@@ -1202,8 +1203,7 @@ struct HistoryView: View {
         case .allBranches:
             if searchQuery.isEmpty,
                let selectedBranch,
-               let tipHash = await GitStatusService.shared.tipHash(for: selectedBranch, in: repositoryURL),
-               let tipCommit = newCommits.first(where: { $0.hash == tipHash }) {
+               let tipCommit = Self.tipCommit(for: selectedBranch, in: newCommits) {
                 newSelectedCommit = tipCommit
                 newScrollTarget = tipCommit.hash
             } else {
@@ -1417,14 +1417,19 @@ struct HistoryView: View {
         graphResult cachedGraphResult: CommitGraphGenerationResult,
         headHash: String?
     ) {
+        let preferredCommit = appState.historyBranchFilter == .all
+            ? selectedBranch.flatMap { Self.tipCommit(for: $0, in: snapshot.commits) }
+            : nil
+        let snapshotSelection = preferredCommit ?? snapshot.selectedCommit
+
         cancelHistoryRefreshIndicator()
         paging.replaceWindow(
             startIndex: snapshot.startIndex,
             count: snapshot.commits.count,
             hasMore: snapshot.hasMore
         )
-        scrollTarget = snapshot.commits.contains(where: { $0.hash == snapshot.selectedCommit?.hash })
-            ? snapshot.selectedCommit?.hash
+        scrollTarget = snapshot.commits.contains(where: { $0.hash == snapshotSelection?.hash })
+            ? snapshotSelection?.hash
             : nil
         currentHeadHash = headHash
 
@@ -1433,10 +1438,10 @@ struct HistoryView: View {
         graphGenerationState = cachedGraphResult.state
 
         let visibleHashes = snapshot.commits.map(\.hash)
-        if let cachedHash = snapshot.selectedCommit?.hash,
+        if let cachedHash = snapshotSelection?.hash,
            snapshot.commits.contains(where: { $0.hash == cachedHash }) {
             commitSelection.select(cachedHash, modifiers: [], visibleHashes: visibleHashes)
-        } else if let cachedCommit = snapshot.selectedCommit {
+        } else if let cachedCommit = snapshotSelection {
             commitSelection = HistoryCommitSelection(
                 selectedHashes: [cachedCommit.hash],
                 primaryHash: cachedCommit.hash,
@@ -1446,7 +1451,7 @@ struct HistoryView: View {
             commitSelection.select(first.hash, modifiers: [], visibleHashes: visibleHashes)
         }
         selectedCommit = Self.commit(withHash: commitSelection.primaryHash, in: snapshot.commits)
-            ?? snapshot.selectedCommit
+            ?? snapshotSelection
         tableSelection = Set(commitSelection.selectedHashes).intersection(visibleHashes)
 
         isLoading = false
@@ -2452,6 +2457,27 @@ struct HistoryView: View {
                 $0 == "HEAD" || $0.hasPrefix("HEAD -> ")
             }
         })?.hash
+    }
+
+    static func tipCommit(for branch: String, in commits: [Commit]) -> Commit? {
+        commits.first { commit in
+            commit.refs.contains { ref in
+                ref == branch || ref == "HEAD -> \(branch)"
+            }
+        }
+    }
+
+    private func selectBranchTip(_ branch: String) {
+        guard activeHistorySearchQuery.isEmpty,
+              let commit = Self.tipCommit(for: branch, in: commits) else {
+            return
+        }
+
+        let visibleHashes = commits.map(\.hash)
+        commitSelection.select(commit.hash, modifiers: [], visibleHashes: visibleHashes)
+        selectedCommit = commit
+        tableSelection = [commit.hash]
+        scrollTarget = commit.hash
     }
 
     static func commit(withHash hash: String?, in commits: [Commit]) -> Commit? {

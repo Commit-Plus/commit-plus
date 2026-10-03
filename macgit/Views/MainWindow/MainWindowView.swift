@@ -1245,7 +1245,7 @@ struct MainWindowView: View {
                     onRequestPushAfterCommit: pushAfterCommit,
                     onRunRepositoryOperation: runRepositoryOperation
                 )
-            case .item(.history):
+            case .item(.history), .branch, .worktree, .tag, .remoteBranch, .head:
                 if let branchComparison {
                     ReferenceDiffView(controller: branchComparison, onClose: {
                         isOpeningReferenceDiff = false
@@ -1276,17 +1276,6 @@ struct MainWindowView: View {
                         onRequestBrowseRevision: { revisionBrowserWindow.show(revision: $0.hash, in: repositoryURL, credentialResolver: providerCredentialResolver) }
                     )
                 }
-            case .branch, .worktree, .tag, .remoteBranch, .head:
-                HistoryView(
-                    repositoryURL: repositoryURL,
-                    selectedBranch: selectedBranchName,
-                    undoManager: undoManager,
-                    syncState: syncState,
-                    onRunRepositoryOperation: runRepositoryOperation,
-                    onRequestCheckout: checkoutRequest,
-                    onRequestExplainCommit: explainCommitWithRepositoryAI,
-                    onRequestBrowseRevision: { revisionBrowserWindow.show(revision: $0.hash, in: repositoryURL, credentialResolver: providerCredentialResolver) }
-                )
             case .item(.reflog):
                 ReflogView(
                     repositoryURL: repositoryURL,

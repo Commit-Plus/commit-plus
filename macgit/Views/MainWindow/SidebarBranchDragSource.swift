@@ -60,6 +60,7 @@ struct SidebarBranchDragSource: NSViewRepresentable {
 
         private var dragStartEvent: NSEvent?
         private var activeDragPayload: GitDragPayload?
+        private var pendingDoubleTap = false
 
         init(
             onTap: @escaping () -> Void,
@@ -83,12 +84,9 @@ struct SidebarBranchDragSource: NSViewRepresentable {
 
         override func mouseDown(with event: NSEvent) {
             dragStartEvent = event
+            pendingDoubleTap = event.clickCount == 2
             // AppKit owns double-click timing; selection never waits for a tap recognizer.
             onTap()
-            if event.clickCount == 2 {
-                dragStartEvent = nil
-                onDoubleTap()
-            }
         }
 
         override func mouseDragged(with event: NSEvent) {
@@ -100,6 +98,7 @@ struct SidebarBranchDragSource: NSViewRepresentable {
             guard hypot(location.x - start.x, location.y - start.y) >= 4 else {
                 return
             }
+            pendingDoubleTap = false
 
             let payload = dragPayload()
             guard let item = SidebarBranchDropTarget.DropTargetView.pasteboardItem(for: payload) else {
@@ -123,7 +122,12 @@ struct SidebarBranchDragSource: NSViewRepresentable {
         }
 
         override func mouseUp(with event: NSEvent) {
+            let shouldDoubleTap = pendingDoubleTap && activeDragPayload == nil
             dragStartEvent = nil
+            pendingDoubleTap = false
+            if shouldDoubleTap {
+                onDoubleTap()
+            }
         }
 
         func draggingSession(
@@ -139,6 +143,7 @@ struct SidebarBranchDragSource: NSViewRepresentable {
             operation: NSDragOperation
         ) {
             dragStartEvent = nil
+            pendingDoubleTap = false
             if let activeDragPayload {
                 onDragEnded(activeDragPayload)
             }

@@ -382,6 +382,19 @@ final class HistoryTableScrollCoordinator {
         }
     }
 
+    func focusTableWhenReady() async {
+        await Task.yield()
+        for _ in 0..<30 {
+            if let tableView,
+               let window = tableView.window,
+               window.makeFirstResponder(tableView) {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+            guard !Task.isCancelled else { return }
+        }
+    }
+
     func viewportAnchor(commitHashes: [String]) -> HistoryTableViewportAnchor? {
         guard let tableView,
               let clipView = tableView.enclosingScrollView?.contentView else {

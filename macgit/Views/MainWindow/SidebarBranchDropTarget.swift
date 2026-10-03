@@ -132,10 +132,16 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
 
         override func mouseDragged(with event: NSEvent) {
             guard activeDragPayload == nil,
-                  dragStartEvent != nil,
+                  let dragStartEvent,
                   let payload = dragPayload(),
                   let item = Self.pasteboardItem(for: payload)
             else {
+                return
+            }
+
+            let start = dragStartEvent.locationInWindow
+            let location = event.locationInWindow
+            guard hypot(location.x - start.x, location.y - start.y) >= 4 else {
                 return
             }
 
