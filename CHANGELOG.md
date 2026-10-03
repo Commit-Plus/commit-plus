@@ -2,24 +2,25 @@
 
 Changes in the latest Commit+ release compared with the previous release.
 
-## v1.1.9
+## v1.1.10
 
-Changes since `v1.1.8`.
+Changes since `v1.1.9`.
 
 ### Added
 
-- **Configurable credential helpers** — Choose a fallback Git credential helper in Settings while Commit+ connected accounts remain the first choice, with safeguards for existing helper chains and insecure stores.
-- **GitLab token recovery** — GitLab accounts now refresh expiring OAuth tokens automatically and clearly prompt for reauthorization when required.
-- **Account email visibility** — View the signed-in account email from the toolbar menu and Manage Account sheet.
+- **Self-hosted Git providers** — Pro users can connect GitHub Enterprise Server and GitLab Self-Managed accounts with personal access tokens, browse available repositories, and use their configured server for Git and pull request operations.
+- **Adjustable app text size** — Choose Default, Large, or Extra Large text in Appearance settings, with the selection applied throughout the app and saved between launches.
+- **Branch-only History filtering** — Show commits unique to the selected branch by choosing a comparison base, including local or remote branches.
 
 ### Improved
 
-- **Faster History browsing** — Large histories load and scroll more efficiently with incremental commit graph generation and bounded page retention.
-- **Faster repository status loading** — The repository picker consolidates status checks, and the sidebar batches branch synchronization lookups.
-- **More consistent repository windows** — Opening a repository from the welcome window preserves its initial frame and presentation context.
+- **Clearer History graphs** — Expanded graph colors and larger reference labels make busy branch histories easier to read.
+- **More reliable History navigation** — Selecting a branch now focuses its tip commit while preserving table focus, and column widths remain fixed when the window changes size.
+- **Smoother branch drag and drop** — Sidebar branch dragging no longer triggers selection or double-click actions while a drag is in progress.
 
 ### Fixed
 
-- Command-line setup now recognizes an existing Commit+ CLI symlink after the app moves or updates.
+- History loads now discard stale results when branch filters or searches change quickly.
+- The final History column width is now captured reliably when resizing ends.
 
-[Compare v1.1.8 to v1.1.9](https://github.com/Commit-Plus/commit-plus/compare/v1.1.8...v1.1.9)
+[Compare v1.1.9 to v1.1.10](https://github.com/Commit-Plus/commit-plus/compare/v1.1.9...v1.1.10)
