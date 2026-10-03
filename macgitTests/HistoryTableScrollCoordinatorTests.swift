@@ -84,9 +84,11 @@ final class HistoryTableScrollCoordinatorTests: XCTestCase {
 
         for width in [CGFloat(600), CGFloat(1_400)] {
             clipView.setFrameSize(NSSize(width: width, height: 280))
-            let tileCount = fixture.table.tileCount
             NotificationCenter.default.post(name: NSView.frameDidChangeNotification, object: clipView)
             NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: clipView)
+            // AppKit may tile in response to resize notifications. Measure only
+            // whether attaching the coordinator again causes another tile.
+            let tileCount = fixture.table.tileCount
             XCTAssertTrue(fixture.coordinator.attach(from: marker))
 
             XCTAssertEqual(fixture.table.tableColumns.map(\.width), widths)
