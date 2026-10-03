@@ -1135,7 +1135,7 @@ struct CloneSheetView: View {
                     Text("Source URL:")
                         .frame(width: Self.labelWidth, alignment: .trailing)
 
-                    TextField("https://github.com/user/repo.git", text: $remoteURL)
+                    TextField("https://github.com/user/repo.git", text: remoteURLBinding)
                         .textFieldStyle(.roundedBorder)
                         .frame(height: Self.controlHeight)
 
@@ -1257,7 +1257,7 @@ struct CloneSheetView: View {
         }
         .padding(30)
         .frame(minWidth: 680)
-        .task(id: trimmedRemoteURL) {
+        .task(id: [trimmedRemoteURL, discoveredAccountID ?? ""]) {
             await loadRemoteBranches(for: trimmedRemoteURL)
         }
         .alert("Error", isPresented: $showingError, actions: {
@@ -1347,6 +1347,16 @@ struct CloneSheetView: View {
             || remoteBranchLoadError != nil
             || remoteBranches.isEmpty
             || isCloning
+    }
+
+    private var remoteURLBinding: Binding<String> {
+        Binding(
+            get: { remoteURL },
+            set: { newValue in
+                discoveredAccountID = nil
+                remoteURL = newValue
+            }
+        )
     }
 
     private var repositoryNameBinding: Binding<String> {

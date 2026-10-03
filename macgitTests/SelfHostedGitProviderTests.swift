@@ -41,12 +41,24 @@ final class SelfHostedGitProviderTests: XCTestCase {
         let root = account(.gitlab, "https://source.test")
         let subpath = account(.gitlab, "https://source.test/gitlab")
         let port = account(.gitlab, "https://source.test:8443")
-        XCTAssertEqual(Set([root, subpath, port].map(GitProviderTokenVaultKey.key)).count, 3)
+        let caseSensitivePath = account(.gitlab, "https://source.test/GitLab")
+        XCTAssertEqual(Set([root, subpath, port, caseSensitivePath].map(GitProviderTokenVaultKey.key)).count, 4)
         let resolver = GitProviderCredentialResolver(accounts: [root, subpath, port], tokenVault: TestVault())
         XCTAssertEqual(resolver.matchingAccounts(for: "https://source.test:8443/team/project.git").map(\.id), [port.id])
         XCTAssertEqual(resolver.matchingAccounts(for: "https://source.test/gitlab/team/project.git").map(\.id), [subpath.id])
         let credential = try await resolver.credential(for: "https://source.test:9443/team/project.git")
         XCTAssertNil(credential)
+    }
+
+    func testLegacyMigrationRequiresUniqueOwnerAndLeavesSSHAndPATAlone() throws {
+        var legacy = account(.gitlab, "https://source.test:8443")
+        legacy.permissions = [:]
+        let migrated = try XCTUnwrap(GitProviderTokenVaultKey.legacyAccountToMigrate(for: legacy, among: [legacy]))
+        XCTAssertEqual(GitProviderTokenVaultKey.key(for: migrated), "local:gitlab:source.test:42")
+        XCTAssertNil(GitProviderTokenVaultKey.legacyAccountToMigrate(for: legacy, among: [legacy, account(.gitlab, "https://source.test")]))
+        XCTAssertNil(GitProviderTokenVaultKey.legacyAccountToMigrate(for: account(.gitlab, "https://source.test:8443"), among: [legacy]))
+        legacy.transportProtocol = .ssh
+        XCTAssertNil(GitProviderTokenVaultKey.legacyAccountToMigrate(for: legacy, among: [legacy]))
     }
 
     func testEnterpriseProfileValidationUsesConfiguredAPI() async throws {

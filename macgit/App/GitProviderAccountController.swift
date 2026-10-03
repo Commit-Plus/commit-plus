@@ -252,6 +252,7 @@ final class GitProviderAccountController: ObservableObject {
                     }
                     return account
                 }
+                try tokenVault.migrateLegacyToken(for: account, among: storedAccounts)
                 guard try tokenVault.readToken(for: account) != nil else {
                     var unavailableAccount = account
                     unavailableAccount.tokenStatus = .unavailableOnThisDevice
@@ -259,6 +260,7 @@ final class GitProviderAccountController: ObservableObject {
                 }
                 if account.provider == .gitlab,
                    account.transportProtocol == .https,
+                   account.permissions["authentication"] != "personalAccessToken",
                    !account.scopes.contains("write_repository") {
                     var accountRequiringAuthorization = account
                     accountRequiringAuthorization.tokenStatus = .reauthorizationRequired

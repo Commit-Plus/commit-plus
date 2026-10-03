@@ -127,6 +127,20 @@ final class GitProviderAccountControllerTests: XCTestCase {
         XCTAssertEqual(controller.accounts.first?.tokenStatus, .valid)
     }
 
+    func testGitLabPersonalAccessTokenRemainsValidAfterReload() async {
+        var account = makeProviderAccount(macgitUID: "macgit-user-1", provider: .gitlab)
+        account.permissions["authentication"] = "personalAccessToken"
+        let store = FakeGitProviderAccountStore(accountsByUID: ["macgit-user-1": [account]])
+        let vault = FakeGitProviderTokenVault(tokensByAccountID: [
+            account.id: GitProviderToken(accessToken: "token", tokenType: "Bearer")
+        ])
+        let controller = GitProviderAccountController(store: store, tokenVault: vault)
+
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+
+        XCTAssertEqual(controller.accounts.first?.tokenStatus, .valid)
+    }
+
     func testLegacyGitLabOAuthAccountRequiresReauthorizationForPushScope() async {
         let account = makeProviderAccount(macgitUID: "macgit-user-1", provider: .gitlab)
         let store = FakeGitProviderAccountStore(accountsByUID: ["macgit-user-1": [account]])
