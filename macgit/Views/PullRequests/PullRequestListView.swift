@@ -20,6 +20,7 @@ import MarkdownUI
 import SwiftUI
 
 struct PullRequestListView: View {
+    @Environment(\.appTextScale) private var textScale
     @ObservedObject var controller: PullRequestController
     let repositoryURL: URL
     var accountConnectionErrorMessage: String? = nil
@@ -78,10 +79,10 @@ struct PullRequestListView: View {
                     } else if let errorMessage = controller.errorMessage {
                         VStack(spacing: 12) {
                             Text(errorMessage)
-                                .font(.headline)
+                                .font(.headline.scaled(by: textScale))
                             if controller.needsAccountConnectionAction {
                                 Text("Pull requests require an OAuth account over HTTPS. SSH keys are only used for Git fetch and push.")
-                                    .font(.callout)
+                                    .font(.callout.scaled(by: textScale))
                                     .multilineTextAlignment(.center)
                                     .foregroundStyle(.tertiary)
                                     .frame(maxWidth: 440)
@@ -96,9 +97,10 @@ struct PullRequestListView: View {
                                     }
                                     .disabled(controller.isLoading)
                                 }
+                                .font(.body.scaled(by: textScale))
                                 if let accountConnectionErrorMessage {
                                     Text(accountConnectionErrorMessage)
-                                        .font(.callout)
+                                        .font(.callout.scaled(by: textScale))
                                         .multilineTextAlignment(.center)
                                 }
                             }
@@ -107,6 +109,7 @@ struct PullRequestListView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if controller.visibleItems.isEmpty {
                         Text(emptyStateMessage)
+                            .font(.body.scaled(by: textScale))
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if selectedPullRequestID != nil {
@@ -225,6 +228,7 @@ struct PullRequestListView: View {
         if controller.isLoadingDetail,
            controller.selectedDetail?.id != selectedPullRequestID {
             ProgressView("Loading pull request…")
+                .font(.body.scaled(by: textScale))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let detail = controller.selectedDetail,
                   detail.id == selectedPullRequestID {
@@ -276,6 +280,7 @@ struct PullRequestListView: View {
             )
         } else {
             ProgressView("Loading pull request…")
+                .font(.body.scaled(by: textScale))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -299,18 +304,21 @@ struct PullRequestListView: View {
     private var header: some View {
         HStack {
             Text("Pull Requests")
-                .font(.headline)
+                .font(.headline.scaled(by: textScale))
             Spacer()
             Picker("Filter", selection: $controller.stateFilter) {
                 ForEach(PullRequestListFilter.allCases) { filter in
                     Text(filter.rawValue).tag(filter)
                 }
             }
+            .font(.body.scaled(by: textScale))
             .pickerStyle(.menu)
-            .frame(width: 110)
+            .frame(width: 110 * textScale)
             Toggle("Created by me", isOn: $controller.createdByMeOnly)
+                .font(.body.scaled(by: textScale))
                 .disabled(controller.selectedProviderAccountUsername == nil)
             Button("Create Pull Request", action: onRequestCreatePullRequest)
+            .font(.body.scaled(by: textScale))
             .disabled(controller.isLoading || controller.errorMessage != nil)
             Button("Refresh pull requests", systemImage: "arrow.clockwise") {
                 Task {
@@ -342,7 +350,7 @@ struct PullRequestListView: View {
             .help("Previous page")
 
             Text("Page \(controller.currentPage)")
-                .font(.caption.monospacedDigit())
+                .font(.caption.monospacedDigit().scaled(by: textScale))
                 .foregroundStyle(.secondary)
                 .frame(minWidth: 54)
 
@@ -381,6 +389,7 @@ struct PullRequestListView: View {
 }
 
 private struct PullRequestRow: View {
+    @Environment(\.appTextScale) private var textScale
     let summary: PullRequestSummary
     let isBusy: Bool
     let onOpen: () -> Void
@@ -389,11 +398,6 @@ private struct PullRequestRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
-            Text("#\(summary.number)")
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 18, alignment: .leading)
-
             Image(systemName: pullRequestIcon)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(pullRequestTint)
@@ -403,7 +407,7 @@ private struct PullRequestRow: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(summary.title)
-                        .font(.headline)
+                        .font(.headline.scaled(by: textScale))
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .layoutPriority(1)
@@ -415,7 +419,7 @@ private struct PullRequestRow: View {
                 }
 
                 Text("\(summary.source.ref) -> \(summary.target.ref)")
-                    .font(.subheadline)
+                    .font(.subheadline.scaled(by: textScale))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -427,7 +431,7 @@ private struct PullRequestRow: View {
                         Text("merged \(relativeString(for: mergedAt))")
                     }
                 }
-                .font(.caption)
+                .font(.caption.scaled(by: textScale))
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
             }
@@ -536,6 +540,7 @@ private struct PullRequestRow: View {
 }
 
 private struct PullRequestDetailPane: View {
+    @Environment(\.appTextScale) private var textScale
     let detail: PullRequestDetail
     let onClose: () -> Void
     let onOpenPullRequest: () -> Void
@@ -615,11 +620,13 @@ private struct PullRequestDetailPane: View {
                         ) {
                             if detail.body.isEmpty {
                                 Text("No description provided.")
+                                    .font(.body.scaled(by: textScale))
                                     .italic()
                                     .foregroundStyle(.secondary)
                             } else {
                                 Markdown(detail.body)
                                     .markdownTheme(.gitHub)
+                                    .markdownTextStyle { FontSize(.em(textScale)) }
                                     .textSelection(.enabled)
                             }
                         }
@@ -632,13 +639,14 @@ private struct PullRequestDetailPane: View {
                             ) {
                                 Markdown(comment.body)
                                     .markdownTheme(.gitHub)
+                                    .markdownTextStyle { FontSize(.em(textScale)) }
                                     .textSelection(.enabled)
                             }
                         }
 
                         if detail.comments.isEmpty {
                             Text("No comments yet")
-                                .font(.subheadline)
+                                .font(.subheadline.scaled(by: textScale))
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.vertical, 8)
@@ -653,6 +661,7 @@ private struct PullRequestDetailPane: View {
                             }
                         }
                         .buttonStyle(.borderless)
+                        .font(.body.scaled(by: textScale))
                         .foregroundStyle(.secondary)
                         .disabled(isRefreshingDetail)
                         .frame(maxWidth: .infinity, alignment: .center)
@@ -690,6 +699,7 @@ private struct PullRequestDetailPane: View {
             Button("Close", action: onClose)
                 .keyboardShortcut(.cancelAction)
         }
+        .font(.body.scaled(by: textScale))
         .padding(16)
         .background(Color(nsColor: .controlBackgroundColor))
         .overlay(alignment: .top) {
@@ -743,7 +753,7 @@ private struct PullRequestDetailPane: View {
 
                 TextField("Add a comment", text: $commentText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .font(.system(size: 13).scaled(by: textScale))
                     .disabled(true)
 
                 Spacer()
@@ -777,14 +787,14 @@ private struct PullRequestDetailPane: View {
                     .foregroundStyle(.secondary)
 
                 Text("Comment on #\(detail.summary.number)")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold).scaled(by: textScale))
 
                 Spacer()
             }
 
             TextEditor(text: $commentText)
                 .focused($isCommentFocused)
-                .font(.system(size: 13))
+                .font(.system(size: 13).scaled(by: textScale))
                 .lineSpacing(2)
                 .frame(minHeight: 48, maxHeight: 100)
                 .padding(6)
@@ -820,6 +830,7 @@ private struct PullRequestDetailPane: View {
                         || commentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 )
             }
+            .font(.body.scaled(by: textScale))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

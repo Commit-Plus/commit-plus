@@ -19,6 +19,7 @@ import SwiftUI
 
 struct HistoryCommitMessageCell: View {
     private static let emptyMessagePlaceholder = "<empty message>"
+    @Environment(\.appTextScale) private var textScale
 
     let commit: Commit
     let graphModel: CommitGraphModel
@@ -44,7 +45,7 @@ struct HistoryCommitMessageCell: View {
 
                     if commit.refs.count > 3 {
                         Text("+\(commit.refs.count - 3)")
-                            .font(.caption)
+                            .font(.caption.scaled(by: textScale))
                             .foregroundStyle(.secondary)
                             .help(commit.refs.dropFirst(3).joined(separator: "\n"))
                     }
@@ -53,13 +54,13 @@ struct HistoryCommitMessageCell: View {
             }
 
             Text(displayMessage)
-                .font(.callout)
+                .font(.callout.scaled(by: textScale))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .help(displayMessage)
         }
-        .frame(height: 16)
+        .frame(height: 16 * textScale)
         .opacity(isDragActive ? 0.4 : 1)
         .background {
             HistoryTableIntrospectionView(

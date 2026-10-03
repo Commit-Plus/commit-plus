@@ -208,6 +208,21 @@ final class AppSettingsSnapshotTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: "settingsSyncEnabled") as? Bool, true)
     }
 
+    func testTextSizeDefaultsAndPersistsLocally() {
+        let suiteName = "AppSettingsSnapshotTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let state = AppState(userDefaults: defaults)
+        XCTAssertEqual(state.textSize, .default)
+
+        state.textSize = .extraLarge
+
+        XCTAssertEqual(AppState(userDefaults: defaults).textSize, .extraLarge)
+        XCTAssertEqual(defaults.string(forKey: "textSize"), AppTextSize.extraLarge.rawValue)
+        XCTAssertEqual(state.snapshot.appearance, .system)
+    }
+
     func testGitFlowVisibilityDefaultsOnAndPersistsLocally() {
         let suiteName = "AppSettingsSnapshotTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

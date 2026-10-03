@@ -30,6 +30,7 @@ struct BadgeToolbarButton: View {
     let disabled: Bool
     var showText: Bool = true
     let action: () -> Void
+    @Environment(\.appTextScale) private var textScale
 
     private var badgeText: String {
         return String(badgeCount)
@@ -43,7 +44,7 @@ struct BadgeToolbarButton: View {
 
                 if badgeCount > 0 && !isLoading {
                     Text(badgeText)
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: 9, weight: .bold).scaled(by: textScale))
                         .foregroundColor(.white)
                         .padding(.horizontal, 3)
                         .padding(.vertical, 1)

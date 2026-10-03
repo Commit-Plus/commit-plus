@@ -38,6 +38,7 @@ struct BranchRowContent: View, Equatable {
     let folderIsExpanded: Bool
     let isCurrentBranchPrefix: Bool
     let gitFlowRole: GitFlowBranchRole?
+    @Environment(\.appTextScale) private var textScale
 
     static func == (lhs: BranchRowContent, rhs: BranchRowContent) -> Bool {
         lhs.row == rhs.row
@@ -66,7 +67,7 @@ struct BranchRowContent: View, Equatable {
             leadingIcon
 
             Text(row.name)
-                .font(.system(size: 12))
+                .font(.system(size: 12).scaled(by: textScale))
                 .fontWeight(isCurrentBranch && !row.isFolder || isCurrentBranchPrefix ? .semibold : .regular)
                 .foregroundStyle(isCurrentBranchPrefix ? Color.accentColor : .primary)
                 .lineLimit(1)
@@ -127,10 +128,11 @@ struct BranchRowContent: View, Equatable {
 
 struct BranchDropLabel: View {
     let text: String
+    @Environment(\.appTextScale) private var textScale
 
     var body: some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold))
+            .font(.system(size: 10, weight: .semibold).scaled(by: textScale))
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -139,9 +141,11 @@ struct BranchDropLabel: View {
 }
 
 private struct BranchHeadBadge: View {
+    @Environment(\.appTextScale) private var textScale
+
     var body: some View {
         Text("HEAD")
-            .font(.system(size: 10, weight: .semibold))
+            .font(.system(size: 10, weight: .semibold).scaled(by: textScale))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -152,6 +156,7 @@ private struct BranchHeadBadge: View {
 private struct BranchSyncBadge: View {
     let isSyncing: Bool
     let status: BranchSyncStatus?
+    @Environment(\.appTextScale) private var textScale
 
     var body: some View {
         if isSyncing {
@@ -171,7 +176,7 @@ private struct BranchSyncBadge: View {
                         Text("\(status.ahead)")
                         Text("\u{2191}")
                     }
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 10, weight: .medium).scaled(by: textScale))
                     .foregroundColor(.white)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
@@ -184,7 +189,7 @@ private struct BranchSyncBadge: View {
                         Text("\(status.behind)")
                         Text("\u{2193}")
                     }
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 10, weight: .medium).scaled(by: textScale))
                     .foregroundColor(.white)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)

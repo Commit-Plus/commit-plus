@@ -19,6 +19,7 @@
 import SwiftUI
 
 struct PullRequestConversationBlock<Content: View>: View {
+    @Environment(\.appTextScale) private var textScale
     let author: PullRequestAuthor
     let date: Date
     let action: String
@@ -36,7 +37,7 @@ struct PullRequestConversationBlock<Content: View>: View {
                     .foregroundStyle(.secondary)
                 Spacer()
             }
-            .font(.subheadline)
+            .font(.subheadline.scaled(by: textScale))
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(Color(nsColor: .controlBackgroundColor))
@@ -44,6 +45,7 @@ struct PullRequestConversationBlock<Content: View>: View {
             Divider()
 
             content
+                .font(.body.scaled(by: textScale))
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(nsColor: .textBackgroundColor))

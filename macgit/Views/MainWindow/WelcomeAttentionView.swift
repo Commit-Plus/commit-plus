@@ -19,6 +19,7 @@ import SwiftUI
 
 struct WelcomeAttentionView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appTextScale) private var textScale
     let repositories: [WelcomeRepositoryAttention]
     let isLoading: Bool
     let hasRepositories: Bool
@@ -28,36 +29,38 @@ struct WelcomeAttentionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("Needs your attention").font(.title3.bold())
+                Text("Needs your attention").font(.title3.bold().scaled(by: textScale))
                 Spacer()
                 if isLoading { ProgressView().controlSize(.small) }
             }
             if repositories.isEmpty {
                 Label(isLoading ? "Checking local repositories…" : hasRepositories ? "All caught up" : "Open a repository to see tasks here",
                       systemImage: isLoading ? "clock" : "checkmark.circle")
+                    .font(.body.scaled(by: textScale))
                     .foregroundStyle(.secondary)
             } else {
                 Text("Current branches · Ahead / behind reflects the last fetch. No automatic fetch.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption.scaled(by: textScale)).foregroundStyle(.secondary)
                 ForEach(repositories) { repository in
                     HStack(alignment: .center, spacing: 12) {
                         Image(systemName: repository.priority == 0 ? "exclamationmark.triangle.fill" : "arrow.triangle.branch")
                             .foregroundStyle(repository.priority == 0 ? Color.orange : Color.accentColor)
                             .frame(width: 22)
                         VStack(alignment: .leading, spacing: 5) {
-                            Text(repository.name).font(.subheadline.bold())
+                            Text(repository.name).font(.subheadline.bold().scaled(by: textScale))
                             if !repository.unavailable {
-                                Text(repository.branch).font(.caption).foregroundStyle(.secondary)
+                                Text(repository.branch).font(.caption.scaled(by: textScale)).foregroundStyle(.secondary)
                             }
-                            Text(repository.summary).font(.caption).foregroundStyle(.secondary)
+                            Text(repository.summary).font(.caption.scaled(by: textScale)).foregroundStyle(.secondary)
                             if let error = repository.error, repository.priority < 5 {
-                                Text(error).font(.caption).foregroundStyle(.secondary)
+                                Text(error).font(.caption.scaled(by: textScale)).foregroundStyle(.secondary)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         Button(repository.unavailable ? "Locate Folder" : repository.showsHistory ? "View History" : "Review") {
                             onReview(repository)
                         }
+                        .font(.body.scaled(by: textScale))
                         .buttonStyle(.bordered)
                     }
                     .padding(12)
@@ -66,7 +69,7 @@ struct WelcomeAttentionView: View {
             }
             if let updatedAt, !repositories.isEmpty {
                 Text("Checked \(updatedAt.formatted(date: .omitted, time: .shortened))")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.caption2.scaled(by: textScale)).foregroundStyle(.secondary)
             }
         }
         .padding(20)

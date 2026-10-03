@@ -19,6 +19,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SidebarBranchesSection: View {
+    @Environment(\.appTextScale) private var textScale
     let rows: [BranchRowItem]
     let isExpanded: Bool
     let isLoading: Bool
@@ -55,7 +56,7 @@ struct SidebarBranchesSection: View {
                         .padding(.leading, 4)
                 } else if rows.isEmpty {
                     Text("No branches")
-                        .font(.caption)
+                        .font(.caption.scaled(by: textScale))
                         .foregroundStyle(.secondary)
                 } else {
                     if currentBranch.isEmpty && !headHash.isEmpty {
@@ -71,12 +72,12 @@ struct SidebarBranchesSection: View {
                                 .frame(width: 16, alignment: .center)
 
                             Text("HEAD")
-                                .font(.system(size: 12, weight: .bold))
+                                .font(.system(size: 12, weight: .bold).scaled(by: textScale))
                                 .lineLimit(1)
 
                             if !headHash.isEmpty {
                                 Text(headHash)
-                                    .font(.system(size: 11))
+                                    .font(.system(size: 11).scaled(by: textScale))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                             }

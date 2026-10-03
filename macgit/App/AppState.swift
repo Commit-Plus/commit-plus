@@ -21,6 +21,7 @@ import Combine
 final class AppState: ObservableObject {
     static let shared = AppState()
     private static let appearanceKey = "appearance"
+    private static let textSizeKey = "textSize"
     private static let showToolbarButtonTextKey = "showToolbarButtonText"
     private static let showGitFlowKey = "showGitFlow"
     private static let showWorkspaceReflogKey = "showWorkspaceReflog"
@@ -59,6 +60,11 @@ final class AppState: ObservableObject {
             if !isApplyingSnapshot {
                 currentSettingsSnapshot = snapshot
             }
+        }
+    }
+    @Published var textSize: AppTextSize {
+        didSet {
+            userDefaults.set(textSize.rawValue, forKey: Self.textSizeKey)
         }
     }
     @Published var showToolbarButtonText: Bool {
@@ -275,6 +281,8 @@ final class AppState: ObservableObject {
         self.userDefaults = userDefaults
         let appearance = userDefaults.string(forKey: Self.appearanceKey)
             .flatMap(AppAppearance.init(rawValue:)) ?? .system
+        let textSize = userDefaults.string(forKey: Self.textSizeKey)
+            .flatMap(AppTextSize.init(rawValue:)) ?? .default
         let showToolbarButtonText = userDefaults.object(forKey: Self.showToolbarButtonTextKey) as? Bool ?? true
         let showGitFlow = userDefaults.object(forKey: Self.showGitFlowKey) as? Bool ?? true
         let showWorkspaceReflog = userDefaults.object(forKey: Self.showWorkspaceReflogKey) as? Bool ?? true
@@ -334,6 +342,7 @@ final class AppState: ObservableObject {
         ).normalizedRepositoryToolbarShortcuts()
 
         self.appearance = appearance
+        self.textSize = textSize
         self.showToolbarButtonText = showToolbarButtonText
         self.showGitFlow = showGitFlow
         self.showWorkspaceReflog = showWorkspaceReflog

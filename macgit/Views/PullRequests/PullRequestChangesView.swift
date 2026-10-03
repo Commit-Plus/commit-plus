@@ -19,6 +19,7 @@
 import SwiftUI
 
 struct PullRequestChangesView: View {
+    @Environment(\.appTextScale) private var textScale
     let files: [PullRequestChangedFile]
     let isLoading: Bool
     let errorMessage: String?
@@ -31,6 +32,7 @@ struct PullRequestChangesView: View {
         Group {
             if isLoading && files.isEmpty {
                 ProgressView("Loading changes…")
+                    .font(.body.scaled(by: textScale))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorMessage, files.isEmpty {
                 unavailableState(
@@ -86,7 +88,7 @@ struct PullRequestChangesView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Text("\(files.count) file\(files.count == 1 ? "" : "s")")
-                    .font(.subheadline)
+                    .font(.subheadline.scaled(by: textScale))
                     .bold()
                 Spacer()
                 Button("Refresh changes", systemImage: "arrow.clockwise", action: onRefresh)
@@ -111,10 +113,10 @@ struct PullRequestChangesView: View {
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(URL(fileURLWithPath: file.path).lastPathComponent)
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: 12, weight: .medium).scaled(by: textScale))
                                 .lineLimit(1)
                             Text(directory(for: file.path))
-                                .font(.system(size: 10))
+                                .font(.system(size: 10).scaled(by: textScale))
                                 .foregroundStyle(.tertiary)
                                 .lineLimit(1)
                         }
@@ -124,7 +126,7 @@ struct PullRequestChangesView: View {
                         if let additions = file.additions,
                            let deletions = file.deletions {
                             Text("+\(additions) −\(deletions)")
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.system(size: 10, design: .monospaced).scaled(by: textScale))
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -142,12 +144,12 @@ struct PullRequestChangesView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
                     Text(selectedFile.path)
-                        .font(.subheadline.monospaced())
+                        .font(.subheadline.monospaced().scaled(by: textScale))
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer()
                     Text(selectedFile.status.displayText)
-                        .font(.caption)
+                        .font(.caption.scaled(by: textScale))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 12)
@@ -194,6 +196,7 @@ struct PullRequestChangesView: View {
             HStack(spacing: 8) {
                 if showsRefresh {
                     Button("Try Again", systemImage: "arrow.clockwise", action: onRefresh)
+                        .font(.body.scaled(by: textScale))
                 }
             }
         }

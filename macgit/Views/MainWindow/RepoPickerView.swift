@@ -62,6 +62,7 @@ enum RepoPickerFilterType: String, CaseIterable, Identifiable {
 
 struct RepoPickerView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appTextScale) private var textScale
     @EnvironmentObject private var bookmarkController: RepositoryBookmarkController
     @ObservedObject private var store = RecentRepositoriesStore.shared
     @State private var showingCloneSheet = false
@@ -180,7 +181,7 @@ struct RepoPickerView: View {
                     Text(bookmarkController.canSyncPendingChanges
                          ? "Bookmark changes are saved locally and waiting to sync."
                          : "Bookmark changes are saved locally. Sign in to sync them.")
-                        .font(.caption)
+                        .font(.caption.scaled(by: textScale))
                         .foregroundStyle(.secondary)
                     Spacer()
                     if bookmarkController.canSyncPendingChanges {
@@ -333,7 +334,7 @@ struct RepoPickerView: View {
                         .accessibilityHidden(true)
                 }
                 Text("Commit+")
-                    .font(.title2.bold())
+                    .font(.title2.bold().scaled(by: textScale))
                     .foregroundStyle(.blue)
             }
             .padding(.bottom, 8)
@@ -353,6 +354,7 @@ struct RepoPickerView: View {
     private var dashboardActionButtons: some View {
         Button(action: openExistingRepository) {
             Label("Open", systemImage: "folder")
+                .font(.body.scaled(by: textScale))
                 .fixedSize()
                 .frame(maxWidth: .infinity)
         }
@@ -361,6 +363,7 @@ struct RepoPickerView: View {
         .help("Open Repository")
         Button { showingCloneSheet = true } label: {
             Label("Clone", systemImage: "arrow.down.circle")
+                .font(.body.scaled(by: textScale))
                 .fixedSize()
                 .frame(maxWidth: .infinity)
         }
@@ -369,6 +372,7 @@ struct RepoPickerView: View {
         .help("Clone Repository")
         Button(action: createRepository) {
             Label("Create Repository", systemImage: "plus.rectangle.on.folder")
+                .font(.body.scaled(by: textScale))
                 .fixedSize()
                 .frame(maxWidth: .infinity)
         }
@@ -413,10 +417,10 @@ struct RepoPickerView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title)
-                        .font(.largeTitle)
+                        .font(.largeTitle.scaled(by: textScale))
                         .fontWeight(.semibold)
                     Text("Open an existing repository or clone a new one")
-                        .font(.title3)
+                        .font(.title3.scaled(by: textScale))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -425,7 +429,7 @@ struct RepoPickerView: View {
             HStack(spacing: 12) {
                 Button(action: openExistingRepository) {
                     Label("Open Repository", systemImage: "folder")
-                        .font(.headline)
+                        .font(.headline.scaled(by: textScale))
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -435,7 +439,7 @@ struct RepoPickerView: View {
 
                 Button(action: { showingCloneSheet = true }) {
                     Label("Clone Repository", systemImage: "arrow.down.circle")
-                        .font(.headline)
+                        .font(.headline.scaled(by: textScale))
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
@@ -450,6 +454,7 @@ struct RepoPickerView: View {
     private var controlBar: some View {
         HStack(spacing: 12) {
             TextField("Filter repositories", text: $searchText)
+                .font(.body.scaled(by: textScale))
                 .textFieldStyle(.roundedBorder)
                 .disabled(store.repositories.isEmpty && bookmarkController.bookmarks.isEmpty)
 
@@ -507,7 +512,7 @@ struct RepoPickerView: View {
     private var recentRepositoriesSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Repositories")
-                .font(.headline)
+                .font(.headline.scaled(by: textScale))
 
             if store.repositories.isEmpty && visibleUnlinkedBookmarks.isEmpty {
                 ContentUnavailableView(
@@ -590,7 +595,7 @@ struct RepoPickerView: View {
                     }
                     .buttonStyle(.borderless)
                 }
-                .font(.caption)
+                .font(.caption.scaled(by: textScale))
                 .padding(.leading, 46)
                 .padding(.bottom, 8)
             }
@@ -670,9 +675,9 @@ struct RepoPickerView: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(bookmark.name)
-                        .font(.body.weight(.medium))
+                        .font(.body.weight(.medium).scaled(by: textScale))
                     Text(bookmark.remoteURL.absoluteString)
-                        .font(.caption)
+                        .font(.caption.scaled(by: textScale))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -708,7 +713,7 @@ struct RepoPickerView: View {
                     .buttonStyle(.borderless)
                     .sidebarPointingHandCursor()
             }
-            .font(.caption)
+            .font(.caption.scaled(by: textScale))
             .padding(.leading, 46)
         }
         .padding(.vertical, 12)
@@ -763,7 +768,7 @@ struct RepoPickerView: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
                     Text(repo.name)
-                        .font(.body.weight(.medium))
+                        .font(.body.weight(.medium).scaled(by: textScale))
                         .lineLimit(1)
                         .layoutPriority(1)
 
@@ -774,7 +779,7 @@ struct RepoPickerView: View {
 
                 HStack(spacing: 8) {
                     Text(repo.url.path)
-                        .font(.caption)
+                        .font(.caption.scaled(by: textScale))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .layoutPriority(1)
@@ -782,7 +787,7 @@ struct RepoPickerView: View {
                     Spacer(minLength: 0)
 
                     Text(timeAgoString(from: repo.lastOpened))
-                        .font(.caption)
+                        .font(.caption.scaled(by: textScale))
                         .foregroundStyle(.secondary)
                         .fixedSize()
                 }
@@ -800,7 +805,7 @@ struct RepoPickerView: View {
 
         if rowState?.isMissing == true {
             Text("Repository moved or deleted")
-                .font(.caption.weight(.semibold))
+                .font(.caption.weight(.semibold).scaled(by: textScale))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
@@ -809,7 +814,7 @@ struct RepoPickerView: View {
             HStack(spacing: 6) {
                 if let branch = rowState.currentBranch, !branch.isEmpty {
                     Label(branch, systemImage: "arrow.triangle.branch")
-                        .font(.caption.weight(.medium))
+                        .font(.caption.weight(.medium).scaled(by: textScale))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .padding(.horizontal, 8)
@@ -1051,6 +1056,7 @@ struct RepoPickerView: View {
 }
 
 private struct RepoPickerCountBadge: View {
+    @Environment(\.appTextScale) private var textScale
     let icon: String
     let label: String
     let count: Int
@@ -1060,7 +1066,7 @@ private struct RepoPickerCountBadge: View {
         Group {
             if count > 0 {
                 Label(String(count), systemImage: icon)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold).scaled(by: textScale))
                     .foregroundStyle(.primary)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 3)

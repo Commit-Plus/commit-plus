@@ -23,6 +23,7 @@
 import SwiftUI
 
 struct CommitFileListView: View {
+    @Environment(\.appTextScale) private var textScale
     let changes: [CommitFileChange]
     @Binding var selectedFile: CommitFileChange?
     var onPreview: ((CommitFileChange) -> Void)? = nil
@@ -79,15 +80,15 @@ struct CommitFileListView: View {
                     
                     VStack(alignment: .leading, spacing: 1) {
                         Text(fileName(from: change.path))
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 12, weight: .medium).scaled(by: textScale))
                             .lineLimit(1)
                         Text(directory(from: change.path))
-                            .font(.system(size: 10))
+                            .font(.system(size: 10).scaled(by: textScale))
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                         if let oldPath = change.oldPath {
                             Text("From: \(oldPath)")
-                                .font(.caption2)
+                                .font(.caption2.scaled(by: textScale))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .help(oldPath)
@@ -112,7 +113,7 @@ struct CommitFileListView: View {
                         }
                     } else {
                         Text(change.status.displayText)
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 10, weight: .medium).scaled(by: textScale))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
@@ -134,7 +135,7 @@ struct CommitFileListView: View {
             }
             if visibleFileCount < changes.count {
                 Text("Loading more files… (\(visibleFileCount) of \(changes.count))")
-                    .font(.caption)
+                    .font(.caption.scaled(by: textScale))
                     .foregroundStyle(.secondary)
                     .selectionDisabled()
                     .id(visibleFileCount)

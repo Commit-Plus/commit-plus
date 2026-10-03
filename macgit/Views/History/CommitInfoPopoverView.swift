@@ -28,6 +28,8 @@ struct CommitInfoPopoverView: View {
         case hash
     }
 
+    @Environment(\.appTextScale) private var textScale
+
     let commit: Commit
     let fullMessage: String?
     let isLoadingMessage: Bool
@@ -42,10 +44,10 @@ struct CommitInfoPopoverView: View {
                 Image(systemName: "info.circle.fill")
                     .foregroundStyle(.tint)
                 Text("Commit details")
-                    .font(.headline)
+                    .font(.headline.scaled(by: textScale))
                 Spacer()
                 Text(commit.shortHash)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(.caption, design: .monospaced).scaled(by: textScale))
                     .foregroundStyle(.secondary)
             }
 
@@ -61,14 +63,14 @@ struct CommitInfoPopoverView: View {
 
                 LabeledContent("Commit") {
                     Text(commit.hash)
-                        .font(.system(.body, design: .monospaced))
+                        .font(.system(.body, design: .monospaced).scaled(by: textScale))
                         .textSelection(.enabled)
                 }
 
                 if !commit.parents.isEmpty {
                     LabeledContent(commit.parents.count == 1 ? "Parent" : "Parents") {
                         Text(commit.parents.map { String($0.prefix(12)) }.joined(separator: ", "))
-                            .font(.system(.body, design: .monospaced))
+                            .font(.system(.body, design: .monospaced).scaled(by: textScale))
                             .textSelection(.enabled)
                     }
                 }
@@ -81,13 +83,14 @@ struct CommitInfoPopoverView: View {
                     }
                 }
             }
+            .font(.body.scaled(by: textScale))
 
             Divider()
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text("Commit message")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.subheadline.weight(.semibold).scaled(by: textScale))
                     Spacer()
                     if isLoadingMessage {
                         ProgressView()
@@ -111,7 +114,7 @@ struct CommitInfoPopoverView: View {
                             .frame(maxWidth: .infinity, minHeight: 90, alignment: .center)
                     }
                 }
-                .font(.body)
+                .font(.body.scaled(by: textScale))
                 .padding(10)
                 .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
                 .frame(maxWidth: .infinity, minHeight: 90, maxHeight: 220)
@@ -137,6 +140,7 @@ struct CommitInfoPopoverView: View {
                 .foregroundStyle(copiedTarget == .hash ? .green : .primary)
                 .onContinuousHover(perform: updateCopyCursor)
             }
+            .font(.body.scaled(by: textScale))
             .buttonStyle(.borderless)
         }
         .padding(16)

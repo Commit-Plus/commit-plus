@@ -19,6 +19,7 @@ import SwiftUI
 
 struct WelcomeDashboardContent: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appTextScale) private var textScale
     let model: WelcomeDashboardModel
     let accountDisplayName: String?
     let repositoryCount: Int
@@ -34,8 +35,9 @@ struct WelcomeDashboardContent: View {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(accountDisplayName.map { "Welcome back, 👋 \($0)" } ?? "Welcome back")
-                                .font(.largeTitle.bold())
+                                .font(.largeTitle.bold().scaled(by: textScale))
                             Text("A little perspective on your local work.")
+                                .font(.body.scaled(by: textScale))
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -57,7 +59,7 @@ struct WelcomeDashboardContent: View {
                     WelcomeAttentionView(repositories: model.attention, isLoading: model.isCheckingAttention, hasRepositories: repositoryCount > 0, updatedAt: model.attentionUpdatedAt, onReview: onReviewAttention)
                     if let date = model.updatedAt {
                         Text("Updated \(date.formatted(date: .omitted, time: .shortened)) · Dashboard reads local Git only")
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .font(.caption2.scaled(by: textScale)).foregroundStyle(.secondary)
                     }
                 }
                 .padding(24)

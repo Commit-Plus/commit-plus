@@ -18,6 +18,7 @@
 import SwiftUI
 
 struct SidebarWorktreesSection: View {
+    @Environment(\.appTextScale) private var textScale
     let currentRepositoryURL: URL
     let entries: [WorktreeEntry]
     let isExpanded: Bool
@@ -37,7 +38,7 @@ struct SidebarWorktreesSection: View {
                         .padding(.leading, 4)
                 } else if entries.isEmpty {
                     Text("No worktrees")
-                        .font(.caption)
+                        .font(.caption.scaled(by: textScale))
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(entries) { entry in

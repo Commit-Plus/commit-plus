@@ -240,6 +240,8 @@ struct macgitApp: App {
                 .environmentObject(repositoryBookmarkController)
                 .environmentObject(gitFlowConfigurationSyncController)
                 .preferredColorScheme(appState.appearance.colorScheme)
+                .font(appState.textSize.font)
+                .environment(\.appTextScale, appState.textSize.scale)
                 .task {
                     appUpdateController.start()
                 }
@@ -459,6 +461,8 @@ struct macgitApp: App {
             )
             .environmentObject(featureAccessController)
             .preferredColorScheme(appState.appearance.colorScheme)
+            .font(appState.textSize.font)
+            .environment(\.appTextScale, appState.textSize.scale)
         }
         .defaultSize(width: 920, height: 640)
         .defaultLaunchBehavior(.suppressed)

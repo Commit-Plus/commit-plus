@@ -19,6 +19,7 @@ import SwiftUI
 
 /// Explicit rows keep every repository's cells together, including repeated day IDs.
 struct WelcomeActivityGrid: View {
+    @Environment(\.appTextScale) private var textScale
     let snapshot: WelcomeDashboardSnapshot
     let onRepositoryOpened: (URL) -> Void
 
@@ -45,7 +46,7 @@ struct WelcomeActivityGrid: View {
                 }
                 Text("Total").frame(width: 32, alignment: .trailing)
             }
-            .font(.system(size: 10))
+            .font(.system(size: 10).scaled(by: textScale))
             .foregroundStyle(.secondary)
             .padding(.bottom, 4)
 
@@ -53,7 +54,7 @@ struct WelcomeActivityGrid: View {
                 HStack(spacing: 12) {
                     Button { onRepositoryOpened(repository.url) } label: {
                         Text(repository.name)
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 10, weight: .medium).scaled(by: textScale))
                             .lineLimit(1)
                             .frame(width: nameWidth, alignment: .leading)
                             .contentShape(Rectangle())
@@ -67,7 +68,7 @@ struct WelcomeActivityGrid: View {
                                 .frame(width: cellSize, height: cellSize)
                                 .overlay {
                                     if repository.activityNote != nil && count == 0 {
-                                        Text("–").font(.system(size: 8)).foregroundStyle(.secondary)
+                                        Text("–").font(.system(size: 8).scaled(by: textScale)).foregroundStyle(.secondary)
                                     }
                                 }
                                 .help(cellDescription(repository: repository, index: index))
@@ -75,7 +76,7 @@ struct WelcomeActivityGrid: View {
                         }
                     }
                     Text(repository.activityNote != nil && repository.commitCount == 0 ? "–" : "\(repository.commitCount)")
-                        .font(.system(size: 10).monospacedDigit())
+                        .font(.system(size: 10).monospacedDigit().scaled(by: textScale))
                         .foregroundStyle(.secondary)
                         .frame(width: 32, alignment: .trailing)
                 }

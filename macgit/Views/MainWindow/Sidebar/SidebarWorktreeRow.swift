@@ -18,6 +18,7 @@
 import SwiftUI
 
 struct SidebarWorktreeRow: View {
+    @Environment(\.appTextScale) private var textScale
     let entry: WorktreeEntry
     let isCurrentRepositoryWorktree: Bool
     let onSelect: () -> Void
@@ -40,14 +41,14 @@ struct SidebarWorktreeRow: View {
                 .frame(width: 16, alignment: .center)
 
             Text(entry.displayTitle)
-                .font(.system(size: 12))
+                .font(.system(size: 12).scaled(by: textScale))
                 .fontWeight(isCurrentRepositoryWorktree ? .bold : .regular)
                 .italic(isCurrentRepositoryWorktree)
                 .lineLimit(1)
 
             if isCurrentRepositoryWorktree {
                 Text("(this)")
-                    .font(.system(size: 10))
+                    .font(.system(size: 10).scaled(by: textScale))
                     .foregroundStyle(.secondary)
             }
 
@@ -55,7 +56,7 @@ struct SidebarWorktreeRow: View {
 
             if !isCurrentRepositoryWorktree, entry.dirtyCount > 0 {
                 Text("\(entry.dirtyCount)")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 10, weight: .medium).scaled(by: textScale))
                     .foregroundColor(.white)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
@@ -63,7 +64,7 @@ struct SidebarWorktreeRow: View {
                     .cornerRadius(4)
             } else if !isCurrentRepositoryWorktree, entry.dirtyCount < 0 {
                 Text("?")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 10, weight: .medium).scaled(by: textScale))
                     .foregroundStyle(.secondary)
             }
         }

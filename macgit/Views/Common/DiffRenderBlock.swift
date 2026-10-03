@@ -15,18 +15,19 @@ nonisolated struct DiffRenderBlock: Identifiable {
     let hunk: DiffHunk
     let lineRange: Range<Int>
     let offset: CGFloat
+    let scale: CGFloat
 
     var id: String { "\(hunk.id)-\(lineRange.lowerBound)" }
     var height: CGFloat {
-        Self.headerHeight + CGFloat(lineRange.count) * Self.rowHeight + Self.scrollerHeight
+        (Self.headerHeight + CGFloat(lineRange.count) * Self.rowHeight + Self.scrollerHeight) * scale
     }
-    var endOffset: CGFloat { offset + height + Self.spacing }
+    var endOffset: CGFloat { offset + height + Self.spacing * scale }
 
-    static func layout(hunks: [DiffHunk]) -> [Self] {
+    static func layout(hunks: [DiffHunk], scale: CGFloat = 1) -> [Self] {
         var offset: CGFloat = 0
         return hunks.flatMap { hunk in
             DiffRenderBatch.ranges(lineCount: hunk.lines.count).map { range in
-                let block = Self(hunk: hunk, lineRange: range, offset: offset)
+                let block = Self(hunk: hunk, lineRange: range, offset: offset, scale: scale)
                 offset = block.endOffset
                 return block
             }

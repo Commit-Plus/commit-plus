@@ -18,6 +18,7 @@
 import SwiftUI
 
 struct SidebarRemoteRow: View {
+    @Environment(\.appTextScale) private var textScale
     let row: BranchRowItem
     let currentBranch: String
     let expandedFolders: Set<String>
@@ -105,7 +106,7 @@ struct SidebarRemoteRow: View {
             }
 
             Text(row.name)
-                .font(.system(size: 12))
+                .font(.system(size: 12).scaled(by: textScale))
                 .lineLimit(1)
         }
         .padding(.vertical, 2)

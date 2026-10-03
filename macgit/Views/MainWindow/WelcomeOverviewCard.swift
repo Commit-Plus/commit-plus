@@ -19,6 +19,7 @@ import SwiftUI
 
 struct WelcomeOverviewCard: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appTextScale) private var textScale
     let title: String
     let value: String
     let detail: String
@@ -28,14 +29,14 @@ struct WelcomeOverviewCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(title, systemImage: icon)
-                .font(.subheadline.weight(.medium))
+                .font(.subheadline.weight(.medium).scaled(by: textScale))
                 .foregroundStyle(tint)
                 .lineLimit(1)
             Text(value)
-                .font(.system(size: 30, weight: .semibold, design: .rounded))
+                .font(.system(size: 30, weight: .semibold, design: .rounded).scaled(by: textScale))
                 .monospacedDigit()
             Text(detail)
-                .font(.caption)
+                .font(.caption.scaled(by: textScale))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

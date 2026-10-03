@@ -19,6 +19,7 @@
 import SwiftUI
 
 struct PullRequestDetailTabBar: View {
+    @Environment(\.appTextScale) private var textScale
     @Binding var selection: PullRequestDetailTab
 
     var body: some View {
@@ -28,6 +29,7 @@ struct PullRequestDetailTabBar: View {
                     selection = tab
                 } label: {
                     Label(tab.rawValue, systemImage: tab.systemImage)
+                        .font(.body.scaled(by: textScale))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 9)
                         .contentShape(Rectangle())

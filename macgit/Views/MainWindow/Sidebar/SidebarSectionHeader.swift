@@ -24,6 +24,7 @@ struct SidebarSectionHeader<Trailing: View>: View {
     let activeDropLabel: String?
     let onToggle: () -> Void
     @ViewBuilder let trailing: Trailing
+    @Environment(\.appTextScale) private var textScale
 
     var body: some View {
         HStack {
@@ -33,7 +34,7 @@ struct SidebarSectionHeader<Trailing: View>: View {
                     .foregroundStyle(section.iconColor)
 
                 Text(section.rawValue)
-                    .font(.system(size: 11))
+                    .font(.system(size: 11).scaled(by: textScale))
                     .bold()
             }
             .foregroundStyle(.secondary)
@@ -42,7 +43,7 @@ struct SidebarSectionHeader<Trailing: View>: View {
             Spacer()
             if let activeDropLabel {
                 Text(activeDropLabel)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold).scaled(by: textScale))
                     .foregroundStyle(Color.accentColor)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)

@@ -20,10 +20,11 @@ import SwiftUI
 
 struct GitFlowBranchRoleBadge: View {
     let role: GitFlowBranchRole
+    @Environment(\.appTextScale) private var textScale
 
     var body: some View {
         Text(role.rawValue)
-            .font(.caption)
+            .font(.caption.scaled(by: textScale))
             .bold()
             .foregroundStyle(.secondary)
             .padding(.horizontal, 4)

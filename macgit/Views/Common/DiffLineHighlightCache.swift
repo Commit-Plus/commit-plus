@@ -16,11 +16,11 @@ final class DiffLineHighlightCache {
         entries[lineID]
     }
 
-    func text(for line: DiffLine, fileExtension: String) -> AttributedString {
+    func text(for line: DiffLine, fileExtension: String, fontSize: CGFloat = 12) -> AttributedString {
         if let cached = entries[line.id] { return cached }
 
         let highlighted = SyntaxHighlighter(fileExtension: fileExtension)
-            .attributedString(for: line.text, fontSize: 12)
+            .attributedString(for: line.text, fontSize: fontSize)
         if insertionOrder.count == capacity, let oldestLineID = insertionOrder.first {
             entries.removeValue(forKey: oldestLineID)
             insertionOrder.removeFirst()

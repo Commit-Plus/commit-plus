@@ -38,6 +38,25 @@ struct AppearanceSettingsView: View {
             }
 
             Section {
+                Picker("Text size", selection: $appState.textSize) {
+                    ForEach(AppTextSize.allCases) { textSize in
+                        Text(textSize.title)
+                            .tag(textSize)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text("The quick brown fox jumps over the lazy dog.")
+                    .font(.body.scaled(by: appState.textSize.scale))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
+            } header: {
+                Label("Text Size", systemImage: "textformat.size")
+            } footer: {
+                Text("Larger text is useful on high-resolution and large displays. This setting applies only to this Mac.")
+            }
+
+            Section {
                 SettingsToggleRow(
                     title: "Show button text",
                     detail: "Display labels alongside icons in the main repository toolbar.",
@@ -88,7 +107,7 @@ struct AppearanceSettingsView: View {
             Button("Restore Defaults", role: .destructive, action: restoreDefaults)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Theme, toolbar, and header preferences on this page will be reset.")
+            Text("Theme, text size, toolbar, and header preferences on this page will be reset.")
         }
     }
 
@@ -98,6 +117,7 @@ struct AppearanceSettingsView: View {
 
     private func restoreDefaults() {
         appState.appearance = .system
+        appState.textSize = .default
         appState.showToolbarButtonText = true
         appState.showHeaderBranchButton = true
         appState.showHeaderMergeButton = true
