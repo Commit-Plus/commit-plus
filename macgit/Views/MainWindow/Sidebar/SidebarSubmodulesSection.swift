@@ -18,6 +18,7 @@
 import SwiftUI
 
 struct SidebarSubmodulesSection: View {
+    @Environment(\.appTextScale) private var textScale
     let repositoryURL: URL
     let rows: [BranchRowItem]
     let entriesByPath: [String: GitSubmoduleEntry]
@@ -39,7 +40,7 @@ struct SidebarSubmodulesSection: View {
                         .padding(.leading, 4)
                 } else if rows.isEmpty {
                     Text("No submodules")
-                        .font(.caption)
+                        .font(.caption.scaled(by: textScale))
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(rows) { row in

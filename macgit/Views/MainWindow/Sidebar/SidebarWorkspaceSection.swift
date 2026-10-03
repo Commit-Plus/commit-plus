@@ -19,6 +19,7 @@
 import SwiftUI
 
 struct SidebarWorkspaceSection: View {
+    @Environment(\.appTextScale) private var textScale
     @ObservedObject var appState: AppState
     let onRequestSearch: () -> Void
     let onRequestCreatePullRequest: () -> Void
@@ -35,7 +36,7 @@ struct SidebarWorkspaceSection: View {
                         .foregroundStyle(SidebarSection.workspace.iconColor)
 
                     Text(SidebarSection.workspace.rawValue)
-                        .font(.system(size: 11))
+                        .font(.system(size: 11).scaled(by: textScale))
                         .bold()
                 }
                 .foregroundStyle(.secondary)
@@ -62,6 +63,7 @@ struct SidebarWorkspaceSection: View {
             ForEach(SidebarSection.workspace.items) { item in
                 if isVisible(item), item == .search {
                     Label(item.rawValue, systemImage: item.icon)
+                        .font(.body.scaled(by: textScale))
                         .padding(.leading, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
@@ -71,6 +73,7 @@ struct SidebarWorkspaceSection: View {
                         .sidebarPointingHandCursor()
                 } else if isVisible(item) {
                     Label(item.rawValue, systemImage: item.icon)
+                        .font(.body.scaled(by: textScale))
                         .padding(.leading, 6)
                         .tag(SidebarSelection.item(item))
                         .contextMenu {
@@ -84,6 +87,7 @@ struct SidebarWorkspaceSection: View {
 
             if appState.showGitFlow {
                 Label(SidebarItem.gitFlow.rawValue, systemImage: SidebarItem.gitFlow.icon)
+                    .font(.body.scaled(by: textScale))
                     .padding(.leading, 6)
                     .tag(SidebarSelection.item(.gitFlow))
                     .contextMenu {

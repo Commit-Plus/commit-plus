@@ -18,6 +18,7 @@
 import SwiftUI
 
 struct SidebarSubmoduleRow: View {
+    @Environment(\.appTextScale) private var textScale
     let entry: GitSubmoduleEntry
     let onOpen: () -> Void
     let onShowInFinder: () -> Void
@@ -42,9 +43,10 @@ struct SidebarSubmoduleRow: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(displayName)
+                    .font(.body.scaled(by: textScale))
                     .lineLimit(1)
                 Text(entry.path)
-                    .font(.caption)
+                    .font(.caption.scaled(by: textScale))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -54,13 +56,13 @@ struct SidebarSubmoduleRow: View {
 
             if let branch = entry.branch {
                 Text(branch)
-                    .font(.caption)
+                    .font(.caption.scaled(by: textScale))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
 
             Text(entry.state.title)
-                .font(.caption)
+                .font(.caption.scaled(by: textScale))
                 .foregroundStyle(entry.state.tint)
                 .lineLimit(1)
         }

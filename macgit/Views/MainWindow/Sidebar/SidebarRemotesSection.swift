@@ -19,6 +19,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SidebarRemotesSection: View {
+    @Environment(\.appTextScale) private var textScale
     let rows: [BranchRowItem]
     let isExpanded: Bool
     let isLoading: Bool
@@ -40,7 +41,7 @@ struct SidebarRemotesSection: View {
                         .padding(.leading, 4)
                 } else if rows.isEmpty {
                     Text("No remotes")
-                        .font(.caption)
+                        .font(.caption.scaled(by: textScale))
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(rows) { row in

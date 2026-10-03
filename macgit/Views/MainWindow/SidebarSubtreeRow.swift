@@ -18,6 +18,7 @@
 import SwiftUI
 
 struct SidebarSubtreeRow: View {
+    @Environment(\.appTextScale) private var textScale
     let entry: GitSubtreeEntry
     let onShowInFinder: () -> Void
     let onOpenInTerminal: () -> Void
@@ -38,9 +39,10 @@ struct SidebarSubtreeRow: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.name)
+                    .font(.body.scaled(by: textScale))
                     .lineLimit(1)
                 Text(entry.path)
-                    .font(.caption)
+                    .font(.caption.scaled(by: textScale))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -50,14 +52,14 @@ struct SidebarSubtreeRow: View {
 
             if entry.squash {
                 Text("Squashed")
-                    .font(.caption)
+                    .font(.caption.scaled(by: textScale))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
 
             if !entry.folderExists {
                 Text("Missing folder")
-                    .font(.caption)
+                    .font(.caption.scaled(by: textScale))
                     .foregroundStyle(.red)
                     .lineLimit(1)
             }

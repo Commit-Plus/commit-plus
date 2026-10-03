@@ -19,6 +19,7 @@
 import SwiftUI
 
 struct GitFlowRecoveryCard: View {
+    @Environment(\.appTextScale) private var textScale
     let checkpoint: GitFlowFinishCheckpoint?
     let issue: GitFlowLocalStateIssue?
     let actionsEnabled: Bool
@@ -52,7 +53,7 @@ struct GitFlowRecoveryCard: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .font(.subheadline)
+        .font(.subheadline.scaled(by: textScale))
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 7))

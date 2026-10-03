@@ -1478,7 +1478,7 @@ struct MainWindowView: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 18, height: 18)
                 Text(repositoryURL.lastPathComponent)
-                    .font(.headline)
+                    .font(.headline.scaled(by: appState.textSize.scale))
             }
             .padding(.horizontal, 12)
         }

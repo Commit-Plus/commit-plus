@@ -19,6 +19,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SidebarStashesSection: View {
+    @Environment(\.appTextScale) private var textScale
     let stashes: [StashEntry]
     let isExpanded: Bool
     let isLoading: Bool
@@ -38,7 +39,7 @@ struct SidebarStashesSection: View {
                         .padding(.leading, 4)
                 } else if stashes.isEmpty {
                     Text("No stashes")
-                        .font(.caption)
+                        .font(.caption.scaled(by: textScale))
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(stashes) { stash in

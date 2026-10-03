@@ -19,6 +19,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SidebarTagRow: View {
+    @Environment(\.appTextScale) private var textScale
     let row: BranchRowItem
     let expandedFolders: Set<String>
     let remoteNames: [String]
@@ -101,7 +102,7 @@ struct SidebarTagRow: View {
             }
 
             Text(row.name)
-                .font(.system(size: 12))
+                .font(.system(size: 12).scaled(by: textScale))
                 .lineLimit(1)
 
             Spacer()

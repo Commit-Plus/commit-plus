@@ -26,6 +26,7 @@ struct ToolbarButtonLabel: View {
     let icon: String
     let label: String
     var showText: Bool = true
+    @Environment(\.appTextScale) private var textScale
 
     var body: some View {
         VStack(spacing: 1) {
@@ -33,10 +34,10 @@ struct ToolbarButtonLabel: View {
                 .font(.system(size: 13, weight: .medium))
             if showText {
                 Text(label)
-                    .font(.system(size: 9))
+                    .font(.system(size: 9).scaled(by: textScale))
             }
         }
-        .frame(width: 40, height: 28)
+        .frame(width: 40 * textScale, height: 28)
     }
 }
 

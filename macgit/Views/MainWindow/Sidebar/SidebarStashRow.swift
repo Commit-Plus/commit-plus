@@ -18,6 +18,7 @@
 import SwiftUI
 
 struct SidebarStashRow: View {
+    @Environment(\.appTextScale) private var textScale
     let stash: StashEntry
     let actions: SidebarStashSectionActions
 
@@ -55,7 +56,7 @@ struct SidebarStashRow: View {
                 .frame(width: 16, alignment: .center)
 
             Text(stash.displayTitle)
-                .font(.system(size: 12))
+                .font(.system(size: 12).scaled(by: textScale))
                 .lineLimit(1)
 
             Spacer()

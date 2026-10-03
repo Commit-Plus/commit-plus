@@ -18,6 +18,7 @@
 import SwiftUI
 
 struct SidebarSubtreesSection: View {
+    @Environment(\.appTextScale) private var textScale
     let repositoryURL: URL
     let entries: [GitSubtreeEntry]
     let isExpanded: Bool
@@ -37,7 +38,7 @@ struct SidebarSubtreesSection: View {
                         .padding(.leading, 4)
                 } else if entries.isEmpty {
                     Text("No subtrees")
-                        .font(.caption)
+                        .font(.caption.scaled(by: textScale))
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(entries) { entry in
