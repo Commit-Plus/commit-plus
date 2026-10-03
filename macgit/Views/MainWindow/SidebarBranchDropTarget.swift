@@ -83,6 +83,7 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
         private var isTargeted = false
         private var dragStartEvent: NSEvent?
         private var activeDragPayload: GitDragPayload?
+        private var didStartDragging = false
 
         init(
             passthroughTrailingWidth: CGFloat = 0,
@@ -127,7 +128,7 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
 
         override func mouseDown(with event: NSEvent) {
             dragStartEvent = event
-            onTap()
+            didStartDragging = false
         }
 
         override func mouseDragged(with event: NSEvent) {
@@ -145,6 +146,7 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
                 return
             }
 
+            didStartDragging = true
             activeDragPayload = payload
 
             let dragItem = NSDraggingItem(pasteboardWriter: item)
@@ -160,7 +162,11 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
         }
 
         override func mouseUp(with event: NSEvent) {
+            if !didStartDragging && activeDragPayload == nil {
+                onTap()
+            }
             dragStartEvent = nil
+            didStartDragging = false
         }
 
         func draggingSession(

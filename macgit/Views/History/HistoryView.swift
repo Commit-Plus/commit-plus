@@ -2578,7 +2578,6 @@ struct HistoryView: View {
             selectionHashes = commits.map(\.hash).filter(tableSelection.contains)
         } else {
             selectionHashes = [commit.hash]
-            tableSelection = [commit.hash]
         }
 
         let dragSelection = HistoryCommitSelection(
