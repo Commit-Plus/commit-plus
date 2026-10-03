@@ -25,7 +25,7 @@ enum GitProviderAccountPreferenceKey {
     static func make(for identity: GitRemoteIdentity) -> String {
         [
             identity.provider.rawValue,
-            identity.hostURL.host(percentEncoded: false)?.lowercased() ?? "",
+            GitProviderHost.identityKey(identity.hostURL),
             identity.ownerPath,
             identity.repositoryName,
         ].joined(separator: "|")

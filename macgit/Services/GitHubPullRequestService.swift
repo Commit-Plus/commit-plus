@@ -45,7 +45,7 @@ struct GitHubPullRequestService: PullRequestProviding {
         var page = 1
         while true {
             var components = URLComponents(
-                url: apiBaseURL
+                url: apiURL(for: repository)
                     .appendingPathComponent("repos")
                     .appendingPathComponent(repository.owner)
                     .appendingPathComponent(repository.name)
@@ -95,7 +95,7 @@ struct GitHubPullRequestService: PullRequestProviding {
         let normalizedPerPage = min(max(1, perPage), 100)
 
         var components = URLComponents(
-            url: apiBaseURL
+            url: apiURL(for: repository)
                 .appendingPathComponent("repos")
                 .appendingPathComponent(repository.owner)
                 .appendingPathComponent(repository.name)
@@ -146,7 +146,7 @@ struct GitHubPullRequestService: PullRequestProviding {
             throw PullRequestProviderError.unsupportedProvider
         }
 
-        let detailURL = apiBaseURL
+        let detailURL = apiURL(for: repository)
             .appendingPathComponent("repos")
             .appendingPathComponent(repository.owner)
             .appendingPathComponent(repository.name)
@@ -186,7 +186,7 @@ struct GitHubPullRequestService: PullRequestProviding {
 
         while page <= 30 {
             var components = URLComponents(
-                url: apiBaseURL
+                url: apiURL(for: repository)
                     .appendingPathComponent("repos")
                     .appendingPathComponent(repository.owner)
                     .appendingPathComponent(repository.name)
@@ -227,7 +227,7 @@ struct GitHubPullRequestService: PullRequestProviding {
             throw PullRequestProviderError.unsupportedProvider
         }
 
-        let url = apiBaseURL
+        let url = apiURL(for: draft.repository)
             .appendingPathComponent("repos")
             .appendingPathComponent(draft.repository.owner)
             .appendingPathComponent(draft.repository.name)
@@ -276,7 +276,7 @@ struct GitHubPullRequestService: PullRequestProviding {
             }
             if !draft.assignees.isEmpty {
                 do {
-                    let assigneesURL = apiBaseURL
+                    let assigneesURL = apiURL(for: draft.repository)
                         .appendingPathComponent("repos")
                         .appendingPathComponent(draft.repository.owner)
                         .appendingPathComponent(draft.repository.name)
@@ -317,7 +317,7 @@ struct GitHubPullRequestService: PullRequestProviding {
             throw PullRequestProviderError.unsupportedProvider
         }
 
-        let url = apiBaseURL
+        let url = apiURL(for: repository)
             .appendingPathComponent("repos")
             .appendingPathComponent(repository.owner)
             .appendingPathComponent(repository.name)
@@ -341,7 +341,7 @@ struct GitHubPullRequestService: PullRequestProviding {
             throw PullRequestProviderError.unsupportedProvider
         }
 
-        let url = apiBaseURL
+        let url = apiURL(for: repository)
             .appendingPathComponent("repos")
             .appendingPathComponent(repository.owner)
             .appendingPathComponent(repository.name)
@@ -364,7 +364,7 @@ struct GitHubPullRequestService: PullRequestProviding {
         token: GitProviderToken,
         number: Int
     ) async throws -> [PullRequestComment] {
-        let commentsURL = apiBaseURL
+        let commentsURL = apiURL(for: repository)
             .appendingPathComponent("repos")
             .appendingPathComponent(repository.owner)
             .appendingPathComponent(repository.name)
@@ -395,7 +395,7 @@ struct GitHubPullRequestService: PullRequestProviding {
         token: GitProviderToken,
         number: Int
     ) async throws -> [PullRequestComment] {
-        let reviewsURL = apiBaseURL
+        let reviewsURL = apiURL(for: repository)
             .appendingPathComponent("repos")
             .appendingPathComponent(repository.owner)
             .appendingPathComponent(repository.name)
@@ -413,7 +413,7 @@ struct GitHubPullRequestService: PullRequestProviding {
         token: GitProviderToken,
         number: Int
     ) async throws -> [PullRequestComment] {
-        let commentsURL = apiBaseURL
+        let commentsURL = apiURL(for: repository)
             .appendingPathComponent("repos")
             .appendingPathComponent(repository.owner)
             .appendingPathComponent(repository.name)
@@ -453,7 +453,7 @@ struct GitHubPullRequestService: PullRequestProviding {
         guard let sha = summary.source.sha, !sha.isEmpty else {
             return .unknown
         }
-        let url = apiBaseURL
+        let url = apiURL(for: repository)
             .appendingPathComponent("repos")
             .appendingPathComponent(repository.owner)
             .appendingPathComponent(repository.name)
@@ -478,7 +478,7 @@ struct GitHubPullRequestService: PullRequestProviding {
         repository: GitRepositoryIdentity,
         token: GitProviderToken
     ) async -> PullRequestCheckState {
-        let url = apiBaseURL
+        let url = apiURL(for: repository)
             .appendingPathComponent("repos")
             .appendingPathComponent(repository.owner)
             .appendingPathComponent(repository.name)
@@ -504,7 +504,7 @@ struct GitHubPullRequestService: PullRequestProviding {
         guard summary.state == .open else {
             return .unknown
         }
-        let url = apiBaseURL
+        let url = apiURL(for: repository)
             .appendingPathComponent("repos")
             .appendingPathComponent(repository.owner)
             .appendingPathComponent(repository.name)
@@ -519,6 +519,11 @@ struct GitHubPullRequestService: PullRequestProviding {
         } catch {
             return .unknown
         }
+    }
+
+    private func apiURL(for repository: GitRepositoryIdentity) -> URL {
+        let host = GitProviderHost(kind: .github, baseURL: repository.hostURL)
+        return host.normalized.baseURL == GitProviderHost.githubDotCom.baseURL ? apiBaseURL : host.apiURL
     }
 
     private func makeRequest(url: URL, token: GitProviderToken) -> URLRequest {

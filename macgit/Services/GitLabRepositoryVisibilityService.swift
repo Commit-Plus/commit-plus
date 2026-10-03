@@ -39,7 +39,9 @@ struct GitLabRepositoryVisibilityService: RepositoryVisibilityProviding {
               var components = URLComponents(url: repository.hostURL, resolvingAgainstBaseURL: false) else {
             throw RepositoryVisibilityProviderError.invalidResponse
         }
-        components.percentEncodedPath = "/api/v4/projects/\(encodedPath)"
+        components.percentEncodedPath = components.percentEncodedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/")).isEmpty
+            ? "/api/v4/projects/\(encodedPath)"
+            : "/" + components.percentEncodedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/v4/projects/\(encodedPath)"
         guard let url = components.url else {
             throw RepositoryVisibilityProviderError.invalidResponse
         }

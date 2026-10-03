@@ -77,10 +77,14 @@ extension GitStatusService {
         }
     }
 
-    func remoteBranches(remoteURL: String) async throws -> [String] {
-        let output = try await runGit(
-            arguments: ["ls-remote", "--heads", remoteURL],
-            in: FileManager.default.temporaryDirectory
+    func remoteBranches(remoteURL: String, credentialResolver: GitProviderCredentialResolver? = nil) async throws -> [String] {
+        let directory = FileManager.default.temporaryDirectory
+        let injection = try await credentialInjection(for: remoteURL, in: directory, credentialResolver: credentialResolver,
+            credentialInjector: TemporaryGitCredentialInjector(), sshCredentialInjector: TemporaryGitSSHCredentialInjector())
+        defer { injection?.cleanup() }
+        let output = try await runRemoteGit(
+            arguments: ["ls-remote", "--heads", "--", remoteURL],
+            in: directory, injection: injection
         )
         return Self.parseRemoteBranches(from: output)
     }

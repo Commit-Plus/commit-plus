@@ -29,11 +29,37 @@ struct GitRemoteIdentity: Equatable {
 enum GitRemoteIdentityResolver {
     static func identity(
         from remoteURLString: String,
-        knownGitLabHosts: Set<String> = []
+        knownGitLabHosts: Set<String> = [],
+        knownHosts: [GitProviderHost] = []
     ) -> GitRemoteIdentity? {
         let trimmed = remoteURLString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
+        let remote: URL? = {
+            if trimmed.contains("://") { return URL(string: trimmed) }
+            guard let at = trimmed.firstIndex(of: "@"), let colon = trimmed[at...].firstIndex(of: ":") else { return nil }
+            return URL(string: "ssh://" + trimmed[..<colon] + "/" + trimmed[trimmed.index(after: colon)...])
+        }()
+        if let remote, remote.scheme == "ssh", Set(knownHosts.filter { $0.baseURL.host?.lowercased() == remote.host?.lowercased() }.map { $0.normalized }).count > 1 { return nil }
+        if let remote, let server = knownHosts.sorted(by: { $0.baseURL.path.count > $1.baseURL.path.count }).first(where: {
+            let base = $0.normalized.baseURL
+            let path = base.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            return base.host?.lowercased() == remote.host?.lowercased()
+                && (remote.scheme == "ssh" || (base.port ?? 443) == (remote.port ?? 443))
+                && (remote.scheme == "ssh" || path.isEmpty || remote.path.hasPrefix("/" + path + "/"))
+        }) {
+            let base = server.normalized.baseURL
+            let prefix = base.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let parts = remote.path.split(separator: "/").dropFirst(!prefix.isEmpty && remote.path.hasPrefix("/" + prefix + "/") ? prefix.split(separator: "/").count : 0).map(String.init)
+            guard parts.count >= 2, server.kind == .gitlab || parts.count == 2 else { return nil }
+            let name = strippingGitSuffix(parts.last!)
+            guard !name.isEmpty else { return nil }
+            return GitRemoteIdentity(provider: server.kind, hostURL: base,
+                ownerPath: parts.dropLast().joined(separator: "/"), repositoryName: name,
+                canonicalHTTPSURL: base.appending(path: parts.dropLast().joined(separator: "/") + "/" + name + ".git"))
+        }
+        // Never reinterpret a configured server with a different port/path as a root installation.
+        if let remote, knownHosts.contains(where: { $0.baseURL.host?.lowercased() == remote.host?.lowercased() }) { return nil }
         let normalizedKnownGitLabHosts = Set(knownGitLabHosts.map { $0.lowercased() })
         if let sshIdentity = identityFromScpLikeURL(trimmed, knownGitLabHosts: normalizedKnownGitLabHosts) {
             return sshIdentity

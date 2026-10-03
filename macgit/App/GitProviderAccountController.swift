@@ -35,6 +35,7 @@ final class GitProviderAccountController: ObservableObject {
     private let gitLabAuthService: (any GitLabProviderOAuthAuthenticating)?
     private let gitLabRedirectURI: URL
     private let openURL: (URL) -> Bool
+    private let hasProAccess: () -> Bool
     private let multipleAccountAccess: () -> FeatureAccessDecision
     private let accountAccessPolicy = GitProviderAccountAccessPolicy()
     private var cacheOwnerUID: String?
@@ -53,6 +54,7 @@ final class GitProviderAccountController: ObservableObject {
         gitLabAuthService: (any GitLabProviderOAuthAuthenticating)? = nil,
         gitLabRedirectURI: URL = GitLabProviderAuthConfiguration.appConfiguration().redirectURI,
         openURL: @escaping (URL) -> Bool = { _ in false },
+        hasProAccess: @escaping () -> Bool = { false },
         multipleAccountAccess: @escaping () -> FeatureAccessDecision = {
             .denied(.requiresPro)
         }
@@ -67,7 +69,12 @@ final class GitProviderAccountController: ObservableObject {
         self.gitLabRedirectURI = gitLabRedirectURI
         self.openURL = openURL
         self.multipleAccountAccess = multipleAccountAccess
+        self.hasProAccess = hasProAccess
     }
+
+    var canConnectSelfHosted: Bool { hasProAccess() }
+
+    func refreshConnectionAccess() { objectWillChange.send() }
 
     var accountCreationDecision: GitProviderAccountCreationDecision {
         accountAccessPolicy.creationDecision(
@@ -113,8 +120,43 @@ final class GitProviderAccountController: ObservableObject {
     }
 
     func connectSelfHostedGitLab(hostURL: URL) async {
+        guard authorizeConnection(to: GitProviderHost(kind: .gitlab, baseURL: hostURL)) else { return }
         guard authorizeNewAccountCreation() else { return }
         await startGitLabDeviceAuthorization(host: GitProviderHost(kind: .gitlab, baseURL: hostURL).normalized)
+    }
+
+    func connectPersonalAccessToken(host: GitProviderHost, accessToken: String, replacing existingAccount: GitProviderAccount? = nil) async {
+        errorMessage = nil
+        let accessToken = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let validatedHost = GitProviderHost.configured(kind: host.kind, value: host.baseURL.absoluteString),
+              validatedHost.kind != .bitbucket, !accessToken.isEmpty else {
+            errorMessage = "Enter a valid HTTPS server URL and personal access token."
+            return
+        }
+        guard authorizeConnection(to: validatedHost) else { return }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let token = GitProviderToken(accessToken: accessToken, tokenType: "Bearer")
+            var account: GitProviderAccount
+            switch validatedHost.kind {
+            case .github:
+                account = try await GitHubProviderAuthService(configuration: .appConfiguration()).fetchAccount(token: token, macgitUID: accountOwnerID, host: validatedHost)
+            case .gitlab:
+                account = try await GitLabProviderAuthService(configuration: .appConfiguration()).fetchAccount(token: token, macgitUID: accountOwnerID, host: validatedHost)
+            case .bitbucket: return
+            }
+            try Task.checkCancellation()
+            if let existingAccount, !hasSameProviderIdentity(existingAccount, account) {
+                throw GitProviderAuthError.providerMessage("This token belongs to a different account. Add it as a new account instead.")
+            }
+            // PAT scope validation happens on each Git/API operation; OAuth scopes are not applicable.
+            account.permissions["authentication"] = "personalAccessToken"
+            account.scopes = []
+            try await saveAuthorizedAccount(account, token: token)
+        } catch {
+            errorMessage = GitProviderAuthError.connectionMessage(error)
+        }
     }
 
     func connectBitbucket(
@@ -176,6 +218,14 @@ final class GitProviderAccountController: ObservableObject {
     }
 
     func reconnect(_ account: GitProviderAccount) async {
+        guard authorizeConnection(to: GitProviderHost(kind: account.provider, baseURL: account.hostURL)) else { return }
+        if account.provider != .bitbucket {
+            let publicHost = account.provider == .github ? GitProviderHost.githubDotCom : GitProviderHost.gitlabDotCom
+            if GitProviderHost(kind: account.provider, baseURL: account.hostURL).normalized != publicHost {
+                errorMessage = "Edit this self-hosted account and enter a new personal access token or test its SSH key."
+                return
+            }
+        }
         switch account.provider {
         case .github:
             await startGitHubDeviceAuthorization()
@@ -202,6 +252,7 @@ final class GitProviderAccountController: ObservableObject {
                     }
                     return account
                 }
+                try tokenVault.migrateLegacyToken(for: account, among: storedAccounts)
                 guard try tokenVault.readToken(for: account) != nil else {
                     var unavailableAccount = account
                     unavailableAccount.tokenStatus = .unavailableOnThisDevice
@@ -209,6 +260,7 @@ final class GitProviderAccountController: ObservableObject {
                 }
                 if account.provider == .gitlab,
                    account.transportProtocol == .https,
+                   account.permissions["authentication"] != "personalAccessToken",
                    !account.scopes.contains("write_repository") {
                     var accountRequiringAuthorization = account
                     accountRequiringAuthorization.tokenStatus = .reauthorizationRequired
@@ -301,7 +353,7 @@ final class GitProviderAccountController: ObservableObject {
             return token
         }
 
-        guard account.scopes.contains("write_repository") else {
+        guard account.permissions["authentication"] == "personalAccessToken" || account.scopes.contains("write_repository") else {
             await markReauthorizationRequired(account)
             throw GitProviderAuthError.reauthorizationRequired
         }
@@ -384,6 +436,7 @@ final class GitProviderAccountController: ObservableObject {
         username usernameOverride: String? = nil,
         replacing existingAccount: GitProviderAccount? = nil
     ) async {
+        guard authorizeConnection(to: host) else { return }
         if existingAccount == nil, !authorizeNewAccountCreation() {
             return
         }
@@ -620,17 +673,19 @@ final class GitProviderAccountController: ObservableObject {
         hostURL: URL,
         username: String
     ) -> String {
-        let hostIdentifier = (hostURL.host(percentEncoded: false) ?? hostURL.absoluteString).lowercased()
+        let hostIdentifier = GitProviderHost.accountHostIdentifier(hostURL)
         return "\(macgitUID):\(provider.rawValue):\(hostIdentifier):\(username)"
     }
 
     private func saveAuthorizedAccount(_ account: GitProviderAccount, token: GitProviderToken) async throws {
         try validateAccountCreation(for: account)
+        let previousToken = try tokenVault.readToken(for: account)
         try tokenVault.saveToken(token, for: account)
         do {
             try await store.save(account)
         } catch {
-            try? tokenVault.deleteToken(for: account)
+            if let previousToken { try? tokenVault.saveToken(previousToken, for: account) }
+            else { try? tokenVault.deleteToken(for: account) }
             throw error
         }
 
@@ -649,8 +704,7 @@ final class GitProviderAccountController: ObservableObject {
         _ rhs: GitProviderAccount
     ) -> Bool {
         lhs.provider == rhs.provider
-            && lhs.hostURL.host(percentEncoded: false)?.lowercased()
-                == rhs.hostURL.host(percentEncoded: false)?.lowercased()
+            && GitProviderHost.identityKey(lhs.hostURL) == GitProviderHost.identityKey(rhs.hostURL)
             && lhs.providerUserID == rhs.providerUserID
     }
 
@@ -665,7 +719,18 @@ final class GitProviderAccountController: ObservableObject {
         }
     }
 
+    private func authorizeConnection(to host: GitProviderHost) -> Bool {
+        guard !host.isSelfHosted || canConnectSelfHosted else {
+            errorMessage = GitProviderAccountAccessError.selfHostedRequiresPro.localizedDescription
+            return false
+        }
+        return true
+    }
+
     private func validateAccountCreation(for candidate: GitProviderAccount? = nil) throws {
+        if let candidate, GitProviderHost(kind: candidate.provider, baseURL: candidate.hostURL).isSelfHosted, !canConnectSelfHosted {
+            throw GitProviderAccountAccessError.selfHostedRequiresPro
+        }
         if let candidate,
            accounts.contains(where: { hasSameProviderIdentity($0, candidate) }) {
             return

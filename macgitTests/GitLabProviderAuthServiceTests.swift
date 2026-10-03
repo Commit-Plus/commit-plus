@@ -214,9 +214,9 @@ final class GitLabProviderAuthServiceTests: XCTestCase {
             host: host
         )
 
-        XCTAssertEqual(account.id, "macgit-user-1:gitlab:gitlab.example.com:99")
-        XCTAssertEqual(account.hostURL.absoluteString, "https://gitlab.example.com")
-        XCTAssertEqual(client.requests.first?.url?.absoluteString, "https://gitlab.example.com/api/v4/user")
+        XCTAssertEqual(account.id, "macgit-user-1:gitlab:gitlab.example.com%2Fgitlab:99")
+        XCTAssertEqual(account.hostURL.absoluteString, "https://gitlab.example.com/gitlab")
+        XCTAssertEqual(client.requests.first?.url?.absoluteString, "https://gitlab.example.com/gitlab/api/v4/user")
     }
 
     func testUnauthorizedMapsToReauthorizationRequired() async throws {
