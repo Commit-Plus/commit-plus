@@ -21,6 +21,46 @@ import XCTest
 
 @MainActor
 final class GitProviderAccountControllerTests: XCTestCase {
+    func testFreeUserCannotConnectFirstSelfManagedAccountUsingPAT() async {
+        let controller = GitProviderAccountController(store: FakeGitProviderAccountStore(), tokenVault: FakeGitProviderTokenVault())
+        await controller.connectPersonalAccessToken(host: GitProviderHost(kind: .github, baseURL: URL(string: "https://source.company.test")!), accessToken: "test-token")
+        XCTAssertFalse(controller.canConnectSelfHosted)
+        XCTAssertTrue(controller.accounts.isEmpty)
+        XCTAssertEqual(controller.errorMessage, GitProviderAccountAccessError.selfHostedRequiresPro.localizedDescription)
+    }
+
+    func testFreeUserCannotConnectSelfManagedGitLabUsingOAuth() async {
+        let controller = GitProviderAccountController(store: FakeGitProviderAccountStore(), tokenVault: FakeGitProviderTokenVault())
+        await controller.connectSelfHostedGitLab(hostURL: URL(string: "https://source.company.test")!)
+        XCTAssertEqual(controller.errorMessage, GitProviderAccountAccessError.selfHostedRequiresPro.localizedDescription)
+    }
+
+    func testFreeUserCannotConnectSelfManagedSSHBeforeAuthentication() async {
+        let ssh = FakeGitProviderSSHAuthService(username: "user")
+        let controller = GitProviderAccountController(store: FakeGitProviderAccountStore(), tokenVault: FakeGitProviderTokenVault(), sshAuthService: ssh)
+        await controller.connectSSH(host: GitProviderHost(kind: .gitlab, baseURL: URL(string: "https://source.company.test")!), key: GitProviderSSHKey(path: "/test/key"))
+        XCTAssertTrue(ssh.requests.isEmpty)
+        XCTAssertEqual(controller.errorMessage, GitProviderAccountAccessError.selfHostedRequiresPro.localizedDescription)
+    }
+
+    func testProUserCanConnectSelfManagedSSH() async {
+        let ssh = FakeGitProviderSSHAuthService(username: "user")
+        let controller = GitProviderAccountController(store: FakeGitProviderAccountStore(), tokenVault: FakeGitProviderTokenVault(), sshKeyStore: FakeGitProviderSSHKeyStore(), sshAuthService: ssh, hasProAccess: { true })
+        await controller.connectSSH(host: GitProviderHost(kind: .gitlab, baseURL: URL(string: "https://source.company.test")!), key: GitProviderSSHKey(path: "/test/key"))
+        XCTAssertEqual(ssh.requests.count, 1)
+        XCTAssertNil(controller.errorMessage)
+        XCTAssertEqual(controller.accounts.count, 1)
+    }
+
+    func testSelfManagedAccessTracksCurrentProEntitlement() {
+        var hasPro = true
+        let controller = GitProviderAccountController(store: FakeGitProviderAccountStore(), tokenVault: FakeGitProviderTokenVault(), hasProAccess: { hasPro })
+        XCTAssertTrue(controller.canConnectSelfHosted)
+        hasPro = false
+        XCTAssertFalse(controller.canConnectSelfHosted)
+    }
+
+
     func testSignedOutStateLoadsLocalProviderAccounts() async {
         let account = makeProviderAccount(macgitUID: "local-owner")
         let vault = FakeGitProviderTokenVault(tokensByAccountID: [
@@ -81,6 +121,20 @@ final class GitProviderAccountControllerTests: XCTestCase {
             tokenVault: FakeGitProviderTokenVault(),
             sshKeyStore: sshKeyStore
         )
+
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+
+        XCTAssertEqual(controller.accounts.first?.tokenStatus, .valid)
+    }
+
+    func testGitLabPersonalAccessTokenRemainsValidAfterReload() async {
+        var account = makeProviderAccount(macgitUID: "macgit-user-1", provider: .gitlab)
+        account.permissions["authentication"] = "personalAccessToken"
+        let store = FakeGitProviderAccountStore(accountsByUID: ["macgit-user-1": [account]])
+        let vault = FakeGitProviderTokenVault(tokensByAccountID: [
+            account.id: GitProviderToken(accessToken: "token", tokenType: "Bearer")
+        ])
+        let controller = GitProviderAccountController(store: store, tokenVault: vault)
 
         await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
 

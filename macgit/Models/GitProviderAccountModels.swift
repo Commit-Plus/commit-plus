@@ -53,12 +53,62 @@ struct GitProviderHost: Hashable, Codable {
         baseURL: URL(string: "https://bitbucket.org")!
     )
 
+    var isSelfHosted: Bool {
+        switch kind {
+        case .github: return normalized != Self.githubDotCom
+        case .gitlab: return normalized != Self.gitlabDotCom
+        case .bitbucket: return false
+        }
+    }
+
+    var apiURL: URL {
+        let server = normalized.baseURL
+        switch kind {
+        case .github:
+            return server == Self.githubDotCom.baseURL ? URL(string: "https://api.github.com")! : server.appending(path: "api/v3")
+        case .gitlab: return server.appending(path: "api/v4")
+        case .bitbucket: return URL(string: "https://api.bitbucket.org/2.0")!
+        }
+    }
+
+    /// Preserve existing keys for root installations, isolating ports and subpaths.
+    static func identityKey(_ url: URL) -> String {
+        let host = url.host(percentEncoded: false)?.lowercased() ?? ""
+        let port = (url.scheme?.lowercased() == "https" && url.port == 443) ? "" : (url.port.map { ":\($0)" } ?? "")
+        let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return host + port + (path.isEmpty ? "" : "/" + path)
+    }
+
+    static func accountHostIdentifier(_ url: URL) -> String {
+        identityKey(url).replacingOccurrences(of: "%", with: "%25").replacingOccurrences(of: "/", with: "%2F")
+    }
+
+    static func configured(kind: GitProviderKind, value: String) -> GitProviderHost? {
+        let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, !value.contains(where: { $0.isWhitespace }),
+              let url = URL(string: value.contains("://") ? value : "https://" + value),
+              url.scheme?.lowercased() == "https", let host = url.host, !host.isEmpty,
+              url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
+              url.port == nil || (1...65535).contains(url.port!),
+              !url.pathComponents.contains(".."),
+              kind != .github || url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).isEmpty else { return nil }
+        return GitProviderHost(kind: kind, baseURL: url).normalized
+    }
+
     var normalized: GitProviderHost {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
         if components?.scheme == nil {
             components?.scheme = "https"
         }
-        components?.path = ""
+        let scheme = components?.scheme?.lowercased()
+        let hostname = components?.host?.lowercased()
+        components?.scheme = scheme
+        components?.host = hostname
+        if scheme == "https", components?.port == 443 { components?.port = nil }
+        components?.user = nil
+        components?.password = nil
+        let path = baseURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        components?.path = path.isEmpty ? "" : "/" + path
         components?.query = nil
         components?.fragment = nil
         return GitProviderHost(kind: kind, baseURL: components?.url ?? baseURL)

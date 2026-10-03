@@ -82,6 +82,18 @@ enum GitProviderAuthError: LocalizedError, Equatable {
     case reauthorizationRequired
     case providerMessage(String)
 
+    static func connectionMessage(_ error: Error) -> String {
+        guard let error = error as? URLError else { return error.localizedDescription }
+        switch error.code {
+        case .cannotFindHost, .dnsLookupFailed, .cannotConnectToHost:
+            return "Cannot reach the Git server. Check the server URL, network connection, and company VPN."
+        case .timedOut: return "The Git server did not respond in time. Check your network or VPN and try again."
+        case .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid, .secureConnectionFailed:
+            return "Cannot establish a trusted HTTPS connection. Check the server certificate and trust your company's certificate in macOS Keychain."
+        default: return error.localizedDescription
+        }
+    }
+
     var errorDescription: String? {
         switch self {
         case .invalidConfiguration:
@@ -194,7 +206,7 @@ struct GitHubProviderAuthService: GitProviderAuthenticating {
         macgitUID: String,
         host: GitProviderHost
     ) async throws -> GitProviderAccount {
-        var request = URLRequest(url: apiBaseURL.appendingPathComponent("user"))
+        var request = URLRequest(url: (host.normalized.baseURL == GitProviderHost.githubDotCom.baseURL ? apiBaseURL : host.apiURL).appendingPathComponent("user"))
         request.setValue("Bearer \(token.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
@@ -205,7 +217,7 @@ struct GitHubProviderAuthService: GitProviderAuthenticating {
 
         let timestamp = now()
         let normalizedHost = host.normalized.baseURL
-        let hostIdentifier = normalizedHost.host?.lowercased() ?? normalizedHost.absoluteString.lowercased()
+        let hostIdentifier = GitProviderHost.accountHostIdentifier(normalizedHost)
         let scopes = response.value(forHTTPHeaderField: "X-OAuth-Scopes")?
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

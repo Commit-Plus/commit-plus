@@ -21,19 +21,51 @@ import Security
 
 protocol GitProviderTokenVault {
     func readToken(for account: GitProviderAccount) throws -> GitProviderToken?
+    func migrateLegacyToken(for account: GitProviderAccount, among accounts: [GitProviderAccount]) throws
     func saveToken(_ token: GitProviderToken, for account: GitProviderAccount) throws
     func deleteToken(for account: GitProviderAccount) throws
 }
 
+extension GitProviderTokenVault {
+    func migrateLegacyToken(for account: GitProviderAccount, among accounts: [GitProviderAccount]) throws {}
+}
+
 enum GitProviderTokenVaultKey {
     static func key(for account: GitProviderAccount) -> String {
-        let host = account.hostURL.host(percentEncoded: false) ?? account.hostURL.absoluteString
+        let host = GitProviderHost.identityKey(account.hostURL)
         return [
             account.macgitUID,
             account.provider.rawValue,
-            host.lowercased(),
+            host,
             account.providerUserID,
         ].joined(separator: ":")
+    }
+
+    static func legacyAccountToMigrate(
+        for account: GitProviderAccount,
+        among accounts: [GitProviderAccount]
+    ) -> GitProviderAccount? {
+        guard account.provider == .gitlab,
+              account.transportProtocol == .https,
+              account.permissions["authentication"] != "personalAccessToken",
+              let hostname = account.hostURL.host(percentEncoded: false),
+              var components = URLComponents(url: account.hostURL, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        // The old key omitted ports and paths. Never guess its owner when installations collide.
+        let owners = accounts.filter {
+            $0.macgitUID == account.macgitUID && $0.provider == account.provider
+                && $0.providerUserID == account.providerUserID
+                && $0.hostURL.host(percentEncoded: false)?.lowercased() == hostname.lowercased()
+        }
+        guard owners.count == 1 else { return nil }
+        components.port = nil
+        components.path = ""
+        guard let legacyURL = components.url else { return nil }
+        var legacyAccount = account
+        legacyAccount.hostURL = legacyURL
+        guard key(for: legacyAccount) != key(for: account) else { return nil }
+        return legacyAccount
     }
 }
 
@@ -52,6 +84,16 @@ final class KeychainGitProviderTokenVault: GitProviderTokenVault {
     private static var missingTokenCache: Set<String> = []
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+
+    func migrateLegacyToken(for account: GitProviderAccount, among accounts: [GitProviderAccount]) throws {
+        guard let legacyAccount = GitProviderTokenVaultKey.legacyAccountToMigrate(for: account, among: accounts) else { return }
+        if try readToken(for: account) == nil, let token = try readToken(for: legacyAccount) {
+            try saveToken(token, for: account)
+        }
+        if try readToken(for: account) != nil {
+            try deleteToken(for: legacyAccount)
+        }
+    }
 
     func readToken(for account: GitProviderAccount) throws -> GitProviderToken? {
         let cacheKey = GitProviderTokenVaultKey.key(for: account)

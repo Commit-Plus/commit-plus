@@ -271,7 +271,7 @@ private struct GitProviderAccountLocalIdentity: Hashable {
 
     init(_ account: GitProviderAccount) {
         provider = account.provider
-        host = (account.hostURL.host(percentEncoded: false) ?? account.hostURL.absoluteString).lowercased()
+        host = GitProviderHost.identityKey(account.hostURL)
         providerUserID = account.providerUserID
     }
 }

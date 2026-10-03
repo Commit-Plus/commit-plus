@@ -81,7 +81,8 @@ final class RepositoryVisibilityController: ObservableObject {
             guard let remoteURL = await remoteURLProvider(repositoryURL, remote),
                   let identity = GitRemoteIdentityResolver.identity(
                     from: remoteURL,
-                    knownGitLabHosts: knownGitLabHosts
+                    knownGitLabHosts: knownGitLabHosts,
+                    knownHosts: accounts.map { GitProviderHost(kind: $0.provider, baseURL: $0.hostURL) }
                   ) else {
                 foundUnknown = true
                 continue
@@ -203,6 +204,6 @@ final class RepositoryVisibilityController: ObservableObject {
     }
 
     private func normalizedHost(_ url: URL) -> String {
-        (url.host(percentEncoded: false) ?? url.absoluteString).lowercased()
+        GitProviderHost.identityKey(url)
     }
 }

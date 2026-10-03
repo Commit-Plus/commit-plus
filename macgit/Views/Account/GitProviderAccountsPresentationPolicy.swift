@@ -66,21 +66,8 @@ enum GitProviderAccountsPresentationPolicy {
     }
 
     static func normalizedSelfHostedGitLabHost(from value: String) -> GitProviderHost? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
-              !trimmed.contains(" ") else {
-            return nil
-        }
-
-        let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
-        guard let url = URL(string: candidate),
-              let host = url.host(percentEncoded: false),
-              !host.isEmpty,
-              host.lowercased() != "gitlab.com" else {
-            return nil
-        }
-
-        return GitProviderHost(kind: .gitlab, baseURL: url).normalized
+        guard let host = GitProviderHost.configured(kind: .gitlab, value: value), host.baseURL != GitProviderHost.gitlabDotCom.baseURL else { return nil }
+        return host
     }
 
     static func accountCreationMessage(

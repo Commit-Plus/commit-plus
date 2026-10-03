@@ -34,12 +34,12 @@ struct GitHubRepositoryVisibilityService: RepositoryVisibilityProviding {
         for repository: GitRepositoryIdentity,
         token: GitProviderToken?
     ) async throws -> RepositoryVisibility {
-        guard repository.provider == .github,
-              repository.hostURL.host(percentEncoded: false)?.lowercased() == "github.com" else {
+        guard repository.provider == .github else {
             throw RepositoryVisibilityProviderError.unsupportedProvider
         }
 
-        let url = apiBaseURL
+        let host = GitProviderHost(kind: .github, baseURL: repository.hostURL)
+        let url = (host.normalized.baseURL == GitProviderHost.githubDotCom.baseURL ? apiBaseURL : host.apiURL)
             .appendingPathComponent("repos")
             .appendingPathComponent(repository.owner)
             .appendingPathComponent(repository.name)

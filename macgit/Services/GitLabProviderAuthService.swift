@@ -267,8 +267,7 @@ struct GitLabProviderAuthService: GitLabProviderOAuthAuthenticating {
         try validate(response: response, data: data, unauthorizedMeansReauthorization: true)
         let profile = try decode(UserResponse.self, from: data)
         let timestamp = now()
-        let hostIdentifier = normalizedHost.baseURL.host(percentEncoded: false)?.lowercased()
-            ?? normalizedHost.baseURL.absoluteString.lowercased()
+        let hostIdentifier = GitProviderHost.accountHostIdentifier(normalizedHost.baseURL)
 
         return GitProviderAccount(
             id: "\(macgitUID):gitlab:\(hostIdentifier):\(profile.id)",

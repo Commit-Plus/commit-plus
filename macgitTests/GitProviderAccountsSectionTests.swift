@@ -264,7 +264,7 @@ final class GitProviderAccountsSectionTests: XCTestCase {
         )
 
         XCTAssertEqual(host.kind, .gitlab)
-        XCTAssertEqual(host.baseURL.absoluteString, "https://gitlab.example.com")
+        XCTAssertEqual(host.baseURL.absoluteString, "https://gitlab.example.com/gitlab")
     }
 
     func testGitLabAccountUsesSameDisconnectFlowAsGitHub() {

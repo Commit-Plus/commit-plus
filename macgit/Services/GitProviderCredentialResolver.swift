@@ -71,7 +71,8 @@ struct GitProviderCredentialResolver {
         guard isHTTPSRemote(remoteURLString) else { return nil }
         guard let identity = GitRemoteIdentityResolver.identity(
             from: remoteURLString,
-            knownGitLabHosts: connectedGitLabHosts
+            knownGitLabHosts: connectedGitLabHosts,
+            knownHosts: accounts.map { GitProviderHost(kind: $0.provider, baseURL: $0.hostURL) }
         ) else {
             return nil
         }
@@ -107,7 +108,8 @@ struct GitProviderCredentialResolver {
         guard isSSHRemote(remoteURLString) else { return nil }
         guard let identity = GitRemoteIdentityResolver.identity(
             from: remoteURLString,
-            knownGitLabHosts: connectedGitLabHosts
+            knownGitLabHosts: connectedGitLabHosts,
+            knownHosts: accounts.map { GitProviderHost(kind: $0.provider, baseURL: $0.hostURL) }
         ) else {
             return nil
         }
@@ -143,7 +145,8 @@ struct GitProviderCredentialResolver {
     func remoteIdentity(for remoteURLString: String) -> GitRemoteIdentity? {
         GitRemoteIdentityResolver.identity(
             from: remoteURLString,
-            knownGitLabHosts: connectedGitLabHosts
+            knownGitLabHosts: connectedGitLabHosts,
+            knownHosts: accounts.map { GitProviderHost(kind: $0.provider, baseURL: $0.hostURL) }
         )
     }
 
@@ -217,6 +220,6 @@ struct GitProviderCredentialResolver {
     }
 
     private func normalizedHost(_ url: URL) -> String {
-        (url.host(percentEncoded: false) ?? url.absoluteString).lowercased()
+        GitProviderHost.identityKey(url)
     }
 }

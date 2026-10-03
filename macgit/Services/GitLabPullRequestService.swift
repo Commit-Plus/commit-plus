@@ -299,7 +299,9 @@ struct GitLabPullRequestService: PullRequestProviding {
         }
 
         let suffix = pathComponents.map { "/\($0)" }.joined()
-        components.percentEncodedPath = "/api/v4/projects/\(encodedProjectPath)\(suffix)"
+        components.percentEncodedPath = components.percentEncodedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/")).isEmpty
+            ? "/api/v4/projects/\(encodedProjectPath)\(suffix)"
+            : "/" + components.percentEncodedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/" )) + "/api/v4/projects/\(encodedProjectPath)\(suffix)"
         components.queryItems = queryItems.isEmpty ? nil : queryItems
         guard let url = components.url else {
             throw PullRequestProviderError.repositoryUnavailable
