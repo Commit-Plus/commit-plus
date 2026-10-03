@@ -103,9 +103,15 @@ struct GraphPalette {
         Color(nsColor: .systemPink),
         Color(nsColor: .systemRed),
         Color(nsColor: .systemBrown),
-        Color(nsColor: .systemGreen),
+        Color(nsColor: .systemIndigo),
         Color(nsColor: .systemBlue),
         Color(nsColor: .systemCyan),
+        Color(nsColor: .systemPurple),
+        Color(nsColor: .systemMint),
+        Color(red: 0.82, green: 0.34, blue: 0.22),
+        Color(red: 0.48, green: 0.58, blue: 0.20),
+        Color(red: 0.58, green: 0.38, blue: 0.72),
+        Color(red: 0.20, green: 0.52, blue: 0.66),
     ]
 
     static func color(for index: Int) -> Color {

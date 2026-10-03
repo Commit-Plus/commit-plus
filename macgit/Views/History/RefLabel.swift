@@ -64,10 +64,10 @@ struct RefLabel: View {
     var body: some View {
         HStack(spacing: 3) {
             Image(systemName: isTag ? "tag" : "arrow.triangle.branch")
-                .font(.system(size: 8, weight: .semibold))
+                .font(.system(size: 10, weight: .semibold))
 
             Text(displayText)
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
         }
         .lineLimit(1)
         .foregroundStyle(
@@ -76,7 +76,7 @@ struct RefLabel: View {
                 : AnyShapeStyle(textColor)
         )
         .padding(.horizontal, 6)
-        .padding(.vertical, 3)
+        .padding(.vertical, 1)
         .background(
             backgroundProminence == .increased
                 ? Color.primary.opacity(0.12)

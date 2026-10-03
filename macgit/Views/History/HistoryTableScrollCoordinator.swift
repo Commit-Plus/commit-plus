@@ -123,16 +123,27 @@ final class HistoryTableScrollCoordinator {
                 : NSTableView.columnDidResizeNotification,
             object: tableView,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
             MainActor.assumeIsolated {
                 guard let self,
                       !self.isRestoringWidths,
-                      let tableView = self.tableView,
-                      let headerView = tableView.headerView,
-                      headerView.resizedColumn >= 0 else { return }
+                      let tableView = self.tableView else { return }
+
+                // The final resize notification can arrive after header tracking
+                // ends. Its column remains authoritative even when resizedColumn
+                // has already returned to -1.
+                let index: Int
+                if let column = notification.userInfo?["NSTableColumn"] as? NSTableColumn {
+                    guard let columnIndex = tableView.tableColumns.firstIndex(where: { $0 === column }) else { return }
+                    index = columnIndex
+                } else {
+                    guard let headerView = tableView.headerView,
+                          headerView.resizedColumn >= 0 else { return }
+                    index = headerView.resizedColumn
+                }
 
                 self.restoreWidthsTask?.cancel()
-                self.captureColumnResize(in: tableView, index: headerView.resizedColumn)
+                self.captureColumnResize(in: tableView, index: index)
             }
         }
     }

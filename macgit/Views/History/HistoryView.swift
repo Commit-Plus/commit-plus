@@ -672,7 +672,7 @@ struct HistoryView: View {
                         TableColumn("Commit") { commit in
                             commitInteractionCell(for: commit) {
                                 Text(commit.shortHash)
-                                    .font(.caption.monospaced())
+                                    .font(.callout.monospaced())
                                     .foregroundStyle(.tertiary)
                                     .lineLimit(1)
                                     .help(commit.hash)

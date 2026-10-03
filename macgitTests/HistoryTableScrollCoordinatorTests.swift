@@ -42,6 +42,40 @@ final class HistoryTableScrollCoordinatorTests: XCTestCase {
         withExtendedLifetime(fixture.coordinator) {}
     }
 
+    func testFinalResizeNotificationAfterHeaderTrackingPreservesMessageWidth() async throws {
+        let fixture = makeFixture()
+        let message = fixture.table.tableColumns[1]
+        let viewportWidth = fixture.scrollView.contentView.bounds.width
+        let resizedWidth = message.width + 120
+        message.width = resizedWidth
+        fixture.header.testResizedColumn = -1
+        let tileCount = fixture.table.tileCount
+
+        NotificationCenter.default.post(
+            name: NSTableView.columnDidResizeNotification,
+            object: fixture.table,
+            userInfo: ["NSTableColumn": message]
+        )
+
+        XCTAssertEqual(fixture.table.tileCount, tileCount)
+        let data = try XCTUnwrap(fixture.defaults.data(forKey: "history.tableColumnLayout"))
+        let saved = try JSONDecoder().decode(HistoryTableColumnLayout.self, from: data)
+        XCTAssertEqual(try XCTUnwrap(saved.widths["message"]), Double(resizedWidth), accuracy: 0.01)
+
+        // A later viewport change must scale the latest user width, rather
+        // than restoring the layout from before the drag.
+        let clipView = fixture.scrollView.contentView
+        clipView.setFrameSize(NSSize(width: viewportWidth + 100, height: 280))
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: clipView)
+
+        XCTAssertEqual(
+            message.width,
+            resizedWidth * clipView.bounds.width / viewportWidth,
+            accuracy: 0.01
+        )
+        withExtendedLifetime(fixture.coordinator) {}
+    }
+
     private func makeFixture() -> (
         coordinator: HistoryTableScrollCoordinator,
         scrollView: NSScrollView,
