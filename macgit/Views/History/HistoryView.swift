@@ -24,6 +24,7 @@ import Combine
 import SwiftUI
 
 struct HistoryView: View {
+    @Environment(\.appTextScale) private var textScale
     private enum HistoryWindowTrimEdge {
         case newer
         case older
@@ -637,7 +638,7 @@ struct HistoryView: View {
                         TableColumn("Author") { commit in
                             commitInteractionCell(for: commit) {
                                 Text("\(commit.author) <\(commit.email)>")
-                                    .font(.callout)
+                                    .font(.callout.scaled(by: textScale))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .help("\(commit.author) <\(commit.email)>")
@@ -661,7 +662,7 @@ struct HistoryView: View {
                                         .month(.abbreviated)
                                         .year()
                                 )
-                                .font(.callout)
+                                .font(.callout.scaled(by: textScale))
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
                                 .lineLimit(1)
@@ -678,7 +679,7 @@ struct HistoryView: View {
                         TableColumn("Commit") { commit in
                             commitInteractionCell(for: commit) {
                                 Text(commit.shortHash)
-                                    .font(.callout.monospaced())
+                                    .font(.callout.monospaced().scaled(by: textScale))
                                     .foregroundStyle(.tertiary)
                                     .lineLimit(1)
                                     .help(commit.hash)
@@ -723,7 +724,7 @@ struct HistoryView: View {
 
                     if paging.isLoadingMore {
                         ProgressView("Loading older commits…")
-                            .font(.caption)
+                            .font(.caption.scaled(by: textScale))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .background(.regularMaterial, in: Capsule())
@@ -745,7 +746,7 @@ struct HistoryView: View {
                     if commitPatchController.isPreparing {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
-                            Text("Checking and merging selected changes…").font(.callout)
+                            Text("Checking and merging selected changes…").font(.callout.scaled(by: textScale))
                             Spacer()
                             Button("Cancel") { commitPatchController.cancelPreparation() }
                         }
@@ -792,32 +793,32 @@ struct HistoryView: View {
             
             VStack(alignment: .leading, spacing: 1) {
                 Text(displayCommitMessage(commit.message))
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold).scaled(by: textScale))
                     .lineLimit(1)
                 HStack(spacing: 8) {
                     Text(commit.author)
-                        .font(.system(size: 11))
+                        .font(.system(size: 11).scaled(by: textScale))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Text("•")
-                        .font(.system(size: 11))
+                        .font(.system(size: 11).scaled(by: textScale))
                         .foregroundStyle(.tertiary)
                     Text(commit.email)
-                        .font(.system(size: 11))
+                        .font(.system(size: 11).scaled(by: textScale))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Text("•")
-                        .font(.system(size: 11))
+                        .font(.system(size: 11).scaled(by: textScale))
                         .foregroundStyle(.tertiary)
                     Text(commit.date, format: .dateTime.year().month().day().hour().minute())
-                        .font(.system(size: 11))
+                        .font(.system(size: 11).scaled(by: textScale))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Text("•")
-                        .font(.system(size: 11))
+                        .font(.system(size: 11).scaled(by: textScale))
                         .foregroundStyle(.tertiary)
                     Text(commit.hash)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced).scaled(by: textScale))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
@@ -892,7 +893,7 @@ struct HistoryView: View {
                             .foregroundStyle(.primary)
                             .font(.system(size: 14, weight: .medium))
                         Text(file.path)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold).scaled(by: textScale))
                             .lineLimit(1)
                         Spacer()
                     }

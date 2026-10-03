@@ -21,6 +21,7 @@ struct RefLabel: View {
     let text: String
     let graphColorIndex: Int?
     @Environment(\.backgroundProminence) private var backgroundProminence
+    @Environment(\.appTextScale) private var textScale
 
     init(text: String, graphColorIndex: Int? = nil) {
         self.text = text
@@ -67,7 +68,7 @@ struct RefLabel: View {
                 .font(.system(size: 10, weight: .semibold))
 
             Text(displayText)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold).scaled(by: textScale))
         }
         .lineLimit(1)
         .foregroundStyle(
