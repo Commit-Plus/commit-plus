@@ -26,6 +26,8 @@ struct GitProviderAccountsSection: View {
     let onUpgrade: () -> Void
     let multipleAccountAccess: FeatureAccessDecision
     var showsTitle = true
+    var showsAddButton = true
+    var addAccountPresentation: Binding<Bool>? = nil
     @State private var connectionTask: Task<Void, Never>?
     @State private var showingAddAccountSheet = false
     @State private var editingAccount: GitProviderAccount?
@@ -62,10 +64,12 @@ struct GitProviderAccountsSection: View {
                 }
             }
 
-            Button("Add", systemImage: "plus") {
-                showingAddAccountSheet = true
+            if showsAddButton {
+                Button("Add", systemImage: "plus") {
+                    showingAddAccountSheet = true
+                }
+                .disabled(controller.isLoading || !accountCreationDecision.isAllowed)
             }
-            .disabled(controller.isLoading || !accountCreationDecision.isAllowed)
 
             if let message = GitProviderAccountsPresentationPolicy.accountCreationMessage(
                 for: accountCreationDecision
@@ -122,7 +126,7 @@ struct GitProviderAccountsSection: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onDisappear(perform: cancelConnection)
-        .replacingSheet(isPresented: $showingAddAccountSheet) {
+        .replacingSheet(isPresented: addAccountPresentation ?? $showingAddAccountSheet) {
             GitProviderAddAccountSheet(
                 controller: controller,
                 accountCreationDecision: accountCreationDecision

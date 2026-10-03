@@ -22,6 +22,21 @@ struct ConnectionsSheet: View {
     @EnvironmentObject private var featureAccessController: FeatureAccessController
     @ObservedObject var accountController: AccountSessionController
     @ObservedObject var providerAccountController: GitProviderAccountController
+    @State private var showingAddAccountSheet = false
+
+    private var multipleAccountAccess: FeatureAccessDecision {
+        featureAccessController.decision(
+            for: .multipleProviderAccounts,
+            entitlement: accountController.entitlement
+        )
+    }
+
+    private var accountCreationDecision: GitProviderAccountCreationDecision {
+        GitProviderAccountAccessPolicy().creationDecision(
+            existingAccountCount: providerAccountController.accounts.count,
+            multipleAccountAccess: multipleAccountAccess
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -29,30 +44,47 @@ struct ConnectionsSheet: View {
                 .font(.title2)
                 .bold()
 
-            GitProviderAccountsSection(
-                controller: providerAccountController,
-                isSignedIn: accountController.account != nil,
-                onSignIn: { accountController.presentAuthentication(.signIn) },
-                onUpgrade: {
-                    Task { await accountController.openPricingOnWeb() }
-                },
-                multipleAccountAccess: featureAccessController.decision(
-                    for: .multipleProviderAccounts,
-                    entitlement: accountController.entitlement
+            ScrollView {
+                GitProviderAccountsSection(
+                    controller: providerAccountController,
+                    isSignedIn: accountController.account != nil,
+                    onSignIn: { accountController.presentAuthentication(.signIn) },
+                    onUpgrade: {
+                        Task { await accountController.openPricingOnWeb() }
+                    },
+                    multipleAccountAccess: multipleAccountAccess,
+                    showsAddButton: false,
+                    addAccountPresentation: $showingAddAccountSheet
                 )
-            )
+                .padding(.trailing, 8)
+            }
 
             HStack {
+                Button("Add", systemImage: "plus", action: presentAddAccount)
+                    .disabled(
+                        providerAccountController.isLoading || !accountCreationDecision.isAllowed
+                    )
+
                 Spacer()
+
                 Button("Done", action: dismiss)
                     .keyboardShortcut(.defaultAction)
             }
         }
         .padding()
-        .frame(minWidth: 480, minHeight: 420)
+        .frame(
+            minWidth: 480,
+            minHeight: 420,
+            idealHeight: 560,
+            maxHeight: 640
+        )
     }
 
     private func dismiss() {
         accountController.presentedSheet = nil
+    }
+
+    private func presentAddAccount() {
+        showingAddAccountSheet = true
     }
 }
