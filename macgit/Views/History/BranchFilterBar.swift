@@ -26,6 +26,8 @@ struct BranchFilterBar: View {
     let repositoryURL: URL
     @Binding var selectedFilter: HistoryBranchFilter
     @Binding var includeRemotes: Bool
+    @Binding var onlyThisBranch: Bool
+    @Binding var baseBranch: String?
     @Binding var searchText: String
 
     @State private var localBranches: [String] = []
@@ -33,39 +35,63 @@ struct BranchFilterBar: View {
     @State private var isShowingBranchList = false
     @State private var isLoadingLocalBranches = false
     @State private var isLoadingRemoteBranches = false
+    @State private var currentBranchName: String?
 
     var body: some View {
-        HStack(spacing: 10) {
-            Button(action: toggleBranchList) {
-                HStack(spacing: 6) {
-                    Text(selectedFilterTitle)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Button(action: toggleBranchList) {
+                    HStack(spacing: 6) {
+                        Text(selectedFilterTitle)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
 
-                    Spacer(minLength: 4)
+                        Spacer(minLength: 4)
 
-                    Image(systemName: "chevron.down")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.bordered)
+                .frame(width: 220)
+                .padding(.leading, 8)
+                .popover(isPresented: $isShowingBranchList, arrowEdge: .bottom) {
+                    branchList
+                }
+
+                Toggle("Include Remotes", isOn: $includeRemotes)
+                    .toggleStyle(.checkbox)
+
+                Toggle("Only this branch", isOn: $onlyThisBranch)
+                    .toggleStyle(.checkbox)
+                    .disabled(selectedFilter == .all)
+                    .help("Show commits in the selected branch that are not in the comparison base.")
+
+                Spacer(minLength: 12)
+
+                HistoryFilterSearchField(searchText: $searchText)
             }
-            .buttonStyle(.bordered)
-            .frame(width: 220)
-            .padding(.leading, 8)
-            .popover(isPresented: $isShowingBranchList, arrowEdge: .bottom) {
-                branchList
+            .frame(height: 28)
+
+            if onlyThisBranch && selectedFilter != .all {
+                HStack(spacing: 10) {
+                    Picker("Compared with", selection: $baseBranch) {
+                        Text("Choose base…").tag(nil as String?)
+                        ForEach(comparisonBranches, id: \.self) { branch in
+                            Text(branch).tag(Optional(branch))
+                        }
+                    }
+                    .frame(width: 300)
+                    .help("The suggested base is a comparison target; Git does not record the original parent branch.")
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, 8)
+                .frame(height: 28)
             }
-
-            Toggle("Include Remotes", isOn: $includeRemotes)
-                .toggleStyle(.checkbox)
-
-            Spacer(minLength: 12)
-
-            HistoryFilterSearchField(searchText: $searchText)
         }
         .padding(.trailing, 16)
-        .frame(height: 28)
         .background(.thinMaterial)
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -83,6 +109,12 @@ struct BranchFilterBar: View {
             guard includeRemotes else { return }
             await loadRemoteBranches()
         }
+        .onChange(of: selectedFilter) { _, _ in
+            updateComparisonBase()
+        }
+        .onChange(of: onlyThisBranch) { _, _ in
+            updateComparisonBase()
+        }
         .onChange(of: includeRemotes) { _, isIncluded in
             guard !isIncluded else { return }
 
@@ -91,6 +123,7 @@ struct BranchFilterBar: View {
                !localBranches.contains(branch) {
                 selectedFilter = .current
             }
+            updateComparisonBase()
 
             Task {
                 await loadLocalBranches()
@@ -257,7 +290,9 @@ struct BranchFilterBar: View {
         }
 
         let branches = await GitStatusService.shared.cachedLocalBranches(in: repositoryURL)
+        currentBranchName = await GitStatusService.shared.currentBranch(in: repositoryURL)
         localBranches = branches.sorted(by: Self.compareBranchNames)
+        updateComparisonBase()
     }
 
     private func loadRemoteBranches() async {
@@ -293,6 +328,7 @@ struct BranchFilterBar: View {
 
         guard includeRemotes else { return }
         remoteBranches = Array(Set(branches)).sorted(by: Self.compareBranchNames)
+        updateComparisonBase()
     }
 
     private func reloadBranches() async {
@@ -316,6 +352,30 @@ struct BranchFilterBar: View {
         if !isAvailable {
             selectedFilter = .current
         }
+    }
+
+    private var targetBranch: String? {
+        switch selectedFilter {
+        case .all: nil
+        case .current: currentBranchName
+        case .branch(let branch): branch
+        }
+    }
+
+    private var comparisonBranches: [String] {
+        Array(Set(localBranches + (includeRemotes ? remoteBranches : [])))
+            .filter { $0 != targetBranch }
+            .sorted(by: Self.compareBranchNames)
+    }
+
+    private func updateComparisonBase() {
+        guard selectedFilter != .all else { return }
+        let available = comparisonBranches
+        if let baseBranch, available.contains(baseBranch) { return }
+        // Offer familiar integration branches, without claiming to infer the
+        // branch's creation point. Other repositories require an explicit choice.
+        baseBranch = ["main", "master", "develop", "origin/main", "origin/master"]
+            .first { available.contains($0) }
     }
 }
 

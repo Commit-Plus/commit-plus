@@ -88,6 +88,8 @@ struct HistoryView: View {
     @State private var historyCache = BoundedMemoryCache<String, HistorySnapshot>(capacity: 3)
     @State private var historySearchText = ""
     @State private var debouncedHistorySearchText = ""
+    @State private var historyOnlyThisBranch = false
+    @State private var historyBaseBranch: String?
     @State private var historySearchDebounceTask: Task<Void, Never>? = nil
     
     // MARK: - Context menu confirmation / sheet state
@@ -150,6 +152,8 @@ struct HistoryView: View {
                 repositoryURL: repositoryURL,
                 selectedFilter: $appState.historyBranchFilter,
                 includeRemotes: $appState.historyIncludeRemotes,
+                onlyThisBranch: $historyOnlyThisBranch,
+                baseBranch: $historyBaseBranch,
                 searchText: $historySearchText
             )
             
@@ -160,7 +164,7 @@ struct HistoryView: View {
                 EmptyStateView(
                     icon: "clock.arrow.circlepath",
                     message: activeHistorySearchQuery.isEmpty ? "No commits to display" : "No matching commits",
-                    detail: activeHistorySearchQuery.isEmpty ? "Repository may be empty" : "Try author name, email, or commit ID"
+                    detail: historyEmptyDetail
                 )
             } else {
                 ZStack(alignment: .top) {
@@ -1187,6 +1191,7 @@ struct HistoryView: View {
             limit: loadLimit,
             skip: skip
         )
+        guard !Task.isCancelled, historyLoadKey == cacheKey else { return }
 
         let newSelectedCommit: Commit?
         let newScrollTarget: String?
@@ -1266,6 +1271,7 @@ struct HistoryView: View {
                 : nil
         }
         await MainActor.run {
+            guard !Task.isCancelled, historyLoadKey == cacheKey else { return }
             let pinnedSelectedCommit = selectedCommit
             let shouldPreserveTableSelection =
                 (preservingSelectionAndScroll || !reset)
@@ -1457,6 +1463,7 @@ struct HistoryView: View {
     }
 
     private func loadNewerHistoryIfNeeded() async {
+        let loadKey = historyLoadKey
         let request = await MainActor.run { () -> (startIndex: Int, count: Int, hadOlderCommits: Bool)? in
             guard !isLoading, paging.beginLoadingNewer() else { return nil }
             isLoading = true
@@ -1481,7 +1488,7 @@ struct HistoryView: View {
             limit: request.count,
             skip: request.startIndex
         )
-        guard !newerCommits.isEmpty else { return }
+        guard !Task.isCancelled, historyLoadKey == loadKey, !newerCommits.isEmpty else { return }
 
         let currentCommits = await MainActor.run { commits }
         var seenHashes = Set<String>()
@@ -1511,6 +1518,7 @@ struct HistoryView: View {
         }
 
         await MainActor.run {
+            guard !Task.isCancelled, historyLoadKey == loadKey else { return }
             let pinnedSelectedCommit = selectedCommit
             commits = loadedCommits
             graphModel = newGraphResult.model
@@ -1651,6 +1659,19 @@ struct HistoryView: View {
         limit: Int,
         skip: Int
     ) async -> [Commit] {
+        let comparisonTarget: String?
+        switch scope {
+        case .allBranches: comparisonTarget = nil
+        case .currentBranch: comparisonTarget = "HEAD"
+        case .ref(let ref): comparisonTarget = ref
+        }
+        if historyOnlyThisBranch, let branch = comparisonTarget {
+            guard let base = historyBaseBranch else { return [] }
+            return await GitStatusService.shared.branchOnlyCommitHistory(
+                branch: branch, base: base, query: searchQuery,
+                limit: limit, skip: skip, in: repositoryURL
+            )
+        }
         if searchQuery.isEmpty {
             switch scope {
             case .allBranches:
@@ -2256,7 +2277,22 @@ struct HistoryView: View {
     }
 
     private var historyLoadKey: String {
-        "\(appState.historyBranchFilter.storageValue)|\(activeHistorySearchQuery)|\(historyLoadSizeRaw)"
+        let isComparing = historyOnlyThisBranch && appState.historyBranchFilter != .all
+        let comparisonKey = isComparing ? "only:\(historyBaseBranch ?? "")" : "full"
+        return "\(appState.historyBranchFilter.storageValue)|\(activeHistorySearchQuery)|\(historyLoadSizeRaw)|\(comparisonKey)"
+    }
+
+    private var historyEmptyDetail: String {
+        if historyOnlyThisBranch && appState.historyBranchFilter != .all {
+            guard let base = historyBaseBranch else {
+                return "Choose a base branch to compare against"
+            }
+            return activeHistorySearchQuery.isEmpty
+                ? "No commits ahead of \(base)"
+                : "No matching commits ahead of \(base). Try author name, email, or commit ID"
+        }
+        return activeHistorySearchQuery.isEmpty
+            ? "Repository may be empty" : "Try author name, email, or commit ID"
     }
 
     private var activeHistorySearchQuery: String {

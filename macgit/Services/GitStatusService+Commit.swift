@@ -219,6 +219,25 @@ extension GitStatusService {
         return parseCommitLog(output)
     }
 
+    func branchOnlyCommitHistory(
+        branch: String,
+        base: String,
+        query: String = "",
+        limit: Int,
+        skip: Int = 0,
+        in repositoryURL: URL
+    ) async -> [Commit] {
+        // Resolve both endpoints before constructing the range. Reuse the same
+        // search ordering and pagination as the regular branch history.
+        guard let branchHash = await tipHash(for: branch, in: repositoryURL),
+              let baseHash = await tipHash(for: base, in: repositoryURL) else { return [] }
+        let range = "\(baseHash)..\(branchHash)"
+        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return await commitHistory(branch: range, limit: limit, skip: skip, in: repositoryURL)
+        }
+        return await searchCommitHistory(branch: range, query: query, limit: limit, skip: skip, in: repositoryURL)
+    }
+
     func fullCommitMessage(for hash: String, in repositoryURL: URL) async -> String? {
         let trimmedHash = hash.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedHash.isEmpty else { return nil }

@@ -213,6 +213,43 @@ final class HistoryPaginationTests: XCTestCase {
         }
     }
 
+    func testBranchOnlyHistoryExcludesBaseAndPaginatesSearch() async throws {
+        let url = try makeRepoWithFeatureBranch()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let service = GitStatusService.shared
+        let first = await service.branchOnlyCommitHistory(branch: "feature", base: "main", limit: 1, in: url)
+        let second = await service.branchOnlyCommitHistory(branch: "feature", base: "main", limit: 1, skip: 1, in: url)
+        XCTAssertEqual(first.map(\.message), ["feature 2"])
+        XCTAssertEqual(second.map(\.message), ["feature 1"])
+
+        let authorPage = await service.branchOnlyCommitHistory(
+            branch: "feature", base: "main", query: "tests@example.com", limit: 1, skip: 1, in: url
+        )
+        XCTAssertEqual(authorPage.map(\.message), ["feature 1"])
+        let feature = try XCTUnwrap(first.first)
+        let hashMatches = await service.branchOnlyCommitHistory(
+            branch: "feature", base: "main", query: String(feature.hash.prefix(8)), limit: 10, in: url
+        )
+        XCTAssertEqual(hashMatches.map(\.hash), [feature.hash])
+        let base = await service.commitHistory(branch: "main", limit: 100, in: url)
+        let baseCommit = try XCTUnwrap(base.last)
+        let excluded = await service.branchOnlyCommitHistory(
+            branch: "feature", base: "main", query: String(baseCommit.hash.prefix(8)), limit: 10, in: url
+        )
+        XCTAssertTrue(excluded.isEmpty)
+    }
+
+    func testBranchOnlyHistoryIsEmptyAfterMergeIntoBase() async throws {
+        let url = try makeRepoWithMergeTopology()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let commits = await GitStatusService.shared.branchOnlyCommitHistory(
+            branch: "feature", base: "main", limit: 100, in: url
+        )
+        XCTAssertTrue(commits.isEmpty)
+        let regular = await GitStatusService.shared.commitHistory(branch: "feature", limit: 100, in: url)
+        XCTAssertFalse(regular.isEmpty)
+    }
+
     // MARK: - Helpers
 
     private func makeRepoWithLinearHistory(commitCount: Int) throws -> URL {
