@@ -39,106 +39,111 @@ struct AuthenticationSheet: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            Text(title)
-                .font(.title2.bold())
-                .multilineTextAlignment(.center)
-                .padding(.top, 12)
+            ScrollView {
+                VStack(spacing: 20) {
+                    Text(title)
+                        .font(.title2.bold())
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 12)
 
-            if controller.pendingLinkEmail == nil {
-                Picker("Account action", selection: $mode) {
-                    Text("Login").tag(AuthenticationMode.signIn)
-                    Text("Sign Up").tag(AuthenticationMode.createAccount)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .onContinuousHover { updateCursor($0, enabled: !controller.isLoading) }
-                .disabled(controller.isLoading)
-                .onChange(of: mode) {
-                    controller.errorMessage = nil
-                    emailValidationMessage = nil
-                    showingPassword = false
-                    password = ""
-                }
-            } else {
-                Text("Enter the password for your existing Commit+ account. Google will be linked to the same account.")
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Email")
-                    .font(.headline)
-                TextField("Your email address", text: $email)
-                    .textContentType(.emailAddress)
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.large)
-                    .focused($emailFocused)
-                    .disabled(controller.pendingLinkEmail != nil || controller.isLoading)
-                    .onSubmit(submit)
-                    .onChange(of: emailFocused) { _, isFocused in
-                        if !isFocused, controller.pendingLinkEmail == nil {
-                            validateEmail()
+                    if controller.pendingLinkEmail == nil {
+                        Picker("Account action", selection: $mode) {
+                            Text("Login").tag(AuthenticationMode.signIn)
+                            Text("Sign Up").tag(AuthenticationMode.createAccount)
                         }
-                    }
-                    .onChange(of: email) {
-                        emailValidationMessage = nil
-                        isEmailValid = false
-                        if controller.pendingLinkEmail == nil {
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .onContinuousHover { updateCursor($0, enabled: !controller.isLoading) }
+                        .disabled(controller.isLoading)
+                        .onChange(of: mode) {
+                            controller.errorMessage = nil
+                            emailValidationMessage = nil
                             showingPassword = false
                             password = ""
-                            // Avoid publishing a shared account update on every keystroke.
-                            if controller.errorMessage != nil {
-                                controller.errorMessage = nil
+                        }
+                    } else {
+                        Text("Enter the password for your existing Commit+ account. Google will be linked to the same account.")
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Email")
+                            .font(.headline)
+                        TextField("Your email address", text: $email)
+                            .textContentType(.emailAddress)
+                            .textFieldStyle(.roundedBorder)
+                            .controlSize(.large)
+                            .focused($emailFocused)
+                            .disabled(controller.pendingLinkEmail != nil || controller.isLoading)
+                            .onSubmit(submit)
+                            .onChange(of: emailFocused) { _, isFocused in
+                                if !isFocused, controller.pendingLinkEmail == nil {
+                                    validateEmail()
+                                }
+                            }
+                            .onChange(of: email) {
+                                emailValidationMessage = nil
+                                isEmailValid = false
+                                if controller.pendingLinkEmail == nil {
+                                    showingPassword = false
+                                    password = ""
+                                    // Avoid publishing a shared account update on every keystroke.
+                                    if controller.errorMessage != nil {
+                                        controller.errorMessage = nil
+                                    }
+                                }
+                            }
+
+                        if let emailValidationMessage {
+                            Text(emailValidationMessage)
+                                .font(.callout)
+                                .foregroundStyle(.red)
+                                .accessibilityLabel("Error: \(emailValidationMessage)")
+                        }
+
+                        if showingPassword || controller.pendingLinkEmail != nil {
+                            Text("Password")
+                                .font(.headline)
+                                .padding(.top, 6)
+                            SecureField("Your password", text: $password)
+                                .textContentType(mode == .createAccount && controller.pendingLinkEmail == nil ? .newPassword : .password)
+                                .textFieldStyle(.roundedBorder)
+                                .controlSize(.large)
+                                .focused($passwordFocused)
+                                .disabled(controller.isLoading)
+                                .onSubmit(submit)
+
+                            if mode == .signIn, controller.pendingLinkEmail == nil {
+                                Button("Forgot Password?", action: sendPasswordReset)
+                                    .buttonStyle(.link)
+                                    .onContinuousHover {
+                                        updateCursor($0, enabled: isEmailValid && !controller.isLoading)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                                    .disabled(!isEmailValid || controller.isLoading)
+                            } else if controller.pendingLinkEmail == nil {
+                                Text("Use at least 6 characters.")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
 
-                if let emailValidationMessage {
-                    Text(emailValidationMessage)
-                        .font(.callout)
-                        .foregroundStyle(.red)
-                        .accessibilityLabel("Error: \(emailValidationMessage)")
-                }
+                    if let errorMessage = controller.errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.center)
+                            .accessibilityLabel("Error: \(errorMessage)")
+                    }
 
-                if showingPassword || controller.pendingLinkEmail != nil {
-                    Text("Password")
-                        .font(.headline)
-                        .padding(.top, 6)
-                    SecureField("Your password", text: $password)
-                        .textContentType(mode == .createAccount && controller.pendingLinkEmail == nil ? .newPassword : .password)
-                        .textFieldStyle(.roundedBorder)
-                        .controlSize(.large)
-                        .focused($passwordFocused)
-                        .disabled(controller.isLoading)
-                        .onSubmit(submit)
-
-                    if mode == .signIn, controller.pendingLinkEmail == nil {
-                        Button("Forgot Password?", action: sendPasswordReset)
-                            .buttonStyle(.link)
-                            .onContinuousHover {
-                                updateCursor($0, enabled: isEmailValid && !controller.isLoading)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .disabled(!isEmailValid || controller.isLoading)
-                    } else if controller.pendingLinkEmail == nil {
-                        Text("Use at least 6 characters.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
+                    if mode == .signIn, let passwordResetMessage = controller.passwordResetMessage {
+                        Label(passwordResetMessage, systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .multilineTextAlignment(.center)
                     }
                 }
-            }
-
-            if let errorMessage = controller.errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-                    .multilineTextAlignment(.center)
-                    .accessibilityLabel("Error: \(errorMessage)")
-            }
-
-            if mode == .signIn, let passwordResetMessage = controller.passwordResetMessage {
-                Label(passwordResetMessage, systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                    .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
             }
 
             Button(action: submit) {
@@ -212,6 +217,7 @@ struct AuthenticationSheet: View {
         }
         .padding(32)
         .frame(width: 440)
+        .frame(minHeight: 440, idealHeight: 620, maxHeight: 680)
         .overlay(alignment: .topTrailing) {
             Button(action: cancel) {
                 Label("Close", systemImage: "xmark")

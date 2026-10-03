@@ -45,13 +45,17 @@ struct GitProviderAccountSelectionSheet: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            Picker("Account", selection: $selectedAccountID) {
-                ForEach(selection.accounts) { account in
-                    Text(accountDisplayName(account)).tag(account.id)
+            ScrollView {
+                Picker("Account", selection: $selectedAccountID) {
+                    ForEach(selection.accounts) { account in
+                        Text(accountDisplayName(account)).tag(account.id)
+                    }
                 }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .pickerStyle(.radioGroup)
-            .labelsHidden()
+            .frame(minHeight: 80, maxHeight: 320)
 
             HStack(spacing: 12) {
                 Spacer()
@@ -71,7 +75,7 @@ struct GitProviderAccountSelectionSheet: View {
         }
         .padding(24)
         .frame(minWidth: 460, idealWidth: 500, maxWidth: 540)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(minHeight: 240, idealHeight: 360, maxHeight: 560)
         .onDisappear {
             if !didComplete {
                 onCancel()

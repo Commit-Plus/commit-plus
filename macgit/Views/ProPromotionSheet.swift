@@ -48,89 +48,95 @@ struct ProPromotionSheet: View {
             }
             .foregroundStyle(isDark ? .white.opacity(0.85) : Color.accentColor)
 
-            VStack(spacing: 8) {
-                Image(systemName: "gift.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(.white)
-                    .frame(width: 64, height: 64)
-                    .background(accent, in: RoundedRectangle(cornerRadius: 20))
-                    .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.white.opacity(0.3)))
-                    .shadow(color: (isDark ? Color.indigo : Color.accentColor).opacity(isDark ? 0.5 : 0.25), radius: 24, y: 8)
-                    .accessibilityHidden(true)
-                Text("SAVE")
-                    .font(.callout.bold())
-                    .tracking(5)
-                    .foregroundStyle(isDark ? .white.opacity(0.75) : Color.accentColor.opacity(0.8))
-                    .padding(.top, 12)
-                Text("\(promotion.save)%")
-                    .font(.system(size: 88, weight: .bold, design: .rounded))
-                    .tracking(-4)
-                    .foregroundStyle(LinearGradient(
-                        colors: isDark
-                            ? [.white, Color(red: 0.65, green: 0.85, blue: 1)]
-                            : [Color(red: 0.10, green: 0.38, blue: 0.70), Color(red: 0.27, green: 0.65, blue: 0.90)],
-                        startPoint: .top, endPoint: .bottom
-                    ))
-                    .shadow(color: Color.accentColor.opacity(isDark ? 0.25 : 0.12), radius: 20)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Save \(promotion.save) percent")
+            ScrollView {
+                VStack(spacing: 24) {
+                    VStack(spacing: 8) {
+                        Image(systemName: "gift.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.white)
+                            .frame(width: 64, height: 64)
+                            .background(accent, in: RoundedRectangle(cornerRadius: 20))
+                            .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.white.opacity(0.3)))
+                            .shadow(color: (isDark ? Color.indigo : Color.accentColor).opacity(isDark ? 0.5 : 0.25), radius: 24, y: 8)
+                            .accessibilityHidden(true)
+                        Text("SAVE")
+                            .font(.callout.bold())
+                            .tracking(5)
+                            .foregroundStyle(isDark ? .white.opacity(0.75) : Color.accentColor.opacity(0.8))
+                            .padding(.top, 12)
+                        Text("\(promotion.save)%")
+                            .font(.system(size: 88, weight: .bold, design: .rounded))
+                            .tracking(-4)
+                            .foregroundStyle(LinearGradient(
+                                colors: isDark
+                                    ? [.white, Color(red: 0.65, green: 0.85, blue: 1)]
+                                    : [Color(red: 0.10, green: 0.38, blue: 0.70), Color(red: 0.27, green: 0.65, blue: 0.90)],
+                                startPoint: .top, endPoint: .bottom
+                            ))
+                            .shadow(color: Color.accentColor.opacity(isDark ? 0.25 : 0.12), radius: 20)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Save \(promotion.save) percent")
 
-            VStack(spacing: 10) {
-                Text(promotion.title)
-                    .font(.title2.bold())
-                    .foregroundStyle(primaryForeground)
-                Text(promotion.description)
-                    .font(.body)
-                    .foregroundStyle(secondaryForeground)
-            }
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
+                    VStack(spacing: 10) {
+                        Text(promotion.title)
+                            .font(.title2.bold())
+                            .foregroundStyle(primaryForeground)
+                        Text(promotion.description)
+                            .font(.body)
+                            .foregroundStyle(secondaryForeground)
+                    }
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("YOUR PROMO CODE")
-                        .font(.caption.bold())
-                        .tracking(1.5)
-                        .foregroundStyle(secondaryForeground.opacity(0.85))
-                    Text(promotion.code)
-                        .font(.title3.monospaced().bold())
-                        .foregroundStyle(primaryForeground)
-                        .textSelection(.enabled)
-                }
-                Spacer(minLength: 0)
-                Button {
-                    NSPasteboard.general.clearContents()
-                    copied = NSPasteboard.general.setString(promotion.code, forType: .string)
-                } label: {
-                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-                        .font(.callout.bold())
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(
-                            isDark ? Color.white.opacity(0.12) : Color.accentColor.opacity(0.12),
-                            in: Capsule()
+                    HStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("YOUR PROMO CODE")
+                                .font(.caption.bold())
+                                .tracking(1.5)
+                                .foregroundStyle(secondaryForeground.opacity(0.85))
+                            Text(promotion.code)
+                                .font(.title3.monospaced().bold())
+                                .foregroundStyle(primaryForeground)
+                                .textSelection(.enabled)
+                        }
+                        Spacer(minLength: 0)
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            copied = NSPasteboard.general.setString(promotion.code, forType: .string)
+                        } label: {
+                            Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                                .font(.callout.bold())
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .background(
+                                    isDark ? Color.white.opacity(0.12) : Color.accentColor.opacity(0.12),
+                                    in: Capsule()
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(isDark ? .white : Color.accentColor)
+                        .accessibilityLabel(copied ? "Code copied" : "Copy promotion code")
+                    }
+                    .padding(18)
+                    .background {
+                        RoundedRectangle(cornerRadius: 18)
+                            .fill(
+                                isDark
+                                    ? .white.opacity(reduceTransparency ? 0.15 : 0.07)
+                                    : .white.opacity(reduceTransparency ? 0.90 : 0.56)
+                            )
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18).strokeBorder(
+                            isDark ? .white.opacity(0.18) : Color.accentColor.opacity(0.22),
+                            style: StrokeStyle(lineWidth: 1, dash: [5, 4])
                         )
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(isDark ? .white : Color.accentColor)
-                .accessibilityLabel(copied ? "Code copied" : "Copy promotion code")
-            }
-            .padding(18)
-            .background {
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(
-                        isDark
-                            ? .white.opacity(reduceTransparency ? 0.15 : 0.07)
-                            : .white.opacity(reduceTransparency ? 0.90 : 0.56)
                     )
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
             }
-            .overlay(
-                RoundedRectangle(cornerRadius: 18).strokeBorder(
-                    isDark ? .white.opacity(0.18) : Color.accentColor.opacity(0.22),
-                    style: StrokeStyle(lineWidth: 1, dash: [5, 4])
-                )
-            )
 
             VStack(spacing: 14) {
                 Button {
@@ -163,6 +169,7 @@ struct ProPromotionSheet: View {
         }
         .padding(32)
         .frame(width: 500)
+        .frame(minHeight: 400, idealHeight: 640, maxHeight: 680)
         .background {
             promotionBackground
         }

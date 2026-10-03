@@ -55,64 +55,69 @@ struct ProUpgradeSheet: View {
             .ignoresSafeArea()
 
             VStack(spacing: 22) {
-                VStack(spacing: 10) {
-                    Image(systemName: "sparkles")
-                        .font(.largeTitle)
-                        .foregroundStyle(.white)
-                        .padding(14)
-                        .background(Color.accentColor.gradient, in: Circle())
-                        .accessibilityHidden(true)
+                ScrollView {
+                    VStack(spacing: 22) {
+                        VStack(spacing: 10) {
+                            Image(systemName: "sparkles")
+                                .font(.largeTitle)
+                                .foregroundStyle(.white)
+                                .padding(14)
+                                .background(Color.accentColor.gradient, in: Circle())
+                                .accessibilityHidden(true)
 
-                    Text("Unlock \(feature.displayName)")
-                        .font(.title)
-                        .bold()
+                            Text("Unlock \(feature.displayName)")
+                                .font(.title)
+                                .bold()
 
-                    Text(upgradeDescription)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 500)
-                }
+                            Text(upgradeDescription)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: 500)
+                        }
 
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("From")
-                        .foregroundStyle(.secondary)
-                    Text("$3.25")
-                        .font(.largeTitle)
-                        .bold()
-                    Text("/ month")
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityElement(children: .combine)
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text("From")
+                                .foregroundStyle(.secondary)
+                            Text("$3.25")
+                                .font(.largeTitle)
+                                .bold()
+                            Text("/ month")
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityElement(children: .combine)
 
-                VStack(spacing: 0) {
-                    comparisonHeader
+                        VStack(spacing: 0) {
+                            comparisonHeader
 
-                    ForEach(Self.comparisonRows.indices, id: \.self) { index in
-                        comparisonRow(at: index)
+                            ForEach(Self.comparisonRows.indices, id: \.self) { index in
+                                comparisonRow(at: index)
+                            }
+
+                            Divider()
+
+                            Text("And more…")
+                                .font(.callout)
+                                .bold()
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 11)
+                                .padding(.horizontal, 14)
+                        }
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(.separator, lineWidth: 1)
+                        }
+
+                        if let errorMessage {
+                            Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                                .font(.callout)
+                                .foregroundStyle(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
-
-                    Divider()
-
-                    Text("And more…")
-                        .font(.callout)
-                        .bold()
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 11)
-                        .padding(.horizontal, 14)
-                }
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(.separator, lineWidth: 1)
-                }
-
-                if let errorMessage {
-                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout)
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity)
                 }
 
                 HStack {
@@ -140,6 +145,7 @@ struct ProUpgradeSheet: View {
             .padding(28)
         }
         .frame(minWidth: 620, idealWidth: 660, maxWidth: 700)
+        .frame(minHeight: 360, idealHeight: 620, maxHeight: 680)
         .interactiveDismissDisabled(isOpening)
     }
 
