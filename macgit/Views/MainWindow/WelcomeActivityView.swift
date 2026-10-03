@@ -19,6 +19,7 @@ import SwiftUI
 
 struct WelcomeActivityView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appTextScale) private var textScale
     let snapshot: WelcomeDashboardSnapshot
     let isLoading: Bool
     let onRepositoryOpened: (URL) -> Void
@@ -27,9 +28,9 @@ struct WelcomeActivityView: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("Your commit activity").font(.title3.bold())
+                    Text("Your commit activity").font(.title3.bold().scaled(by: textScale))
                     Text("Last 30 days · 7 most recent repositories")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption.scaled(by: textScale)).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Image(systemName: "lock.shield")
@@ -38,6 +39,7 @@ struct WelcomeActivityView: View {
             }
             if isLoading && snapshot.repositories.isEmpty {
                 ProgressView("Reading local history…")
+                    .font(.body.scaled(by: textScale))
                     .frame(maxWidth: .infinity, minHeight: 120)
             } else if snapshot.repositories.isEmpty {
                 ContentUnavailableView("Your activity starts here", systemImage: "square.grid.3x3",
@@ -62,7 +64,7 @@ struct WelcomeActivityView: View {
                 Spacer()
                 Text("Local only").foregroundStyle(.secondary)
             }
-            .font(.caption2)
+            .font(.caption2.scaled(by: textScale))
         }
         .padding(20)
         .background(.background, in: RoundedRectangle(cornerRadius: 18))
