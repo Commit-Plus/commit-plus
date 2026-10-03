@@ -19,6 +19,7 @@
 import SwiftUI
 
 struct PullRequestMetadataSidebar: View {
+    @Environment(\.appTextScale) private var textScale
     let reviewers: [PullRequestAuthor]
     let assignees: [PullRequestAuthor]
 
@@ -40,12 +41,12 @@ struct PullRequestMetadataSidebar: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.subheadline)
+                .font(.subheadline.scaled(by: textScale))
                 .bold()
 
             if people.isEmpty {
                 Text("None")
-                    .font(.subheadline)
+                    .font(.subheadline.scaled(by: textScale))
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(people, id: \.username) { person in
@@ -53,7 +54,7 @@ struct PullRequestMetadataSidebar: View {
                         PullRequestAuthorAvatar(author: person, size: 22)
                         Text(person.username)
                     }
-                        .font(.subheadline)
+                        .font(.subheadline.scaled(by: textScale))
                         .lineLimit(1)
                 }
             }

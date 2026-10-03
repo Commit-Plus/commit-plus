@@ -19,6 +19,7 @@
 import SwiftUI
 
 struct PullRequestDetailHeader: View {
+    @Environment(\.appTextScale) private var textScale
     let summary: PullRequestSummary
     let onClose: () -> Void
 
@@ -26,11 +27,11 @@ struct PullRequestDetailHeader: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(summary.title)
-                    .font(.title2)
+                    .font(.title2.scaled(by: textScale))
                     .bold()
                     .lineLimit(2)
                 Text("#\(summary.number)")
-                    .font(.title2)
+                    .font(.title2.scaled(by: textScale))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 12)
                 Button("Close detail", systemImage: "xmark", action: onClose)
@@ -41,7 +42,7 @@ struct PullRequestDetailHeader: View {
 
             HStack(spacing: 8) {
                 Label(stateTitle, systemImage: stateIcon)
-                    .font(.subheadline)
+                    .font(.subheadline.scaled(by: textScale))
                     .bold()
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10)
@@ -50,23 +51,23 @@ struct PullRequestDetailHeader: View {
 
                 PullRequestAuthorAvatar(author: summary.author)
                 Text(summary.author.username)
-                    .font(.subheadline)
+                    .font(.subheadline.scaled(by: textScale))
                     .bold()
                 Text("opened this pull request on \(summary.createdAt.formatted(date: .abbreviated, time: .omitted))")
-                    .font(.subheadline)
+                    .font(.subheadline.scaled(by: textScale))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
 
             HStack(spacing: 7) {
                 Text(summary.source.ref)
-                    .branchBadge()
+                    .branchBadge(scale: textScale)
                 Image(systemName: "arrow.right")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .accessibilityLabel("into")
                 Text(summary.target.ref)
-                    .branchBadge()
+                    .branchBadge(scale: textScale)
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("From \(summary.source.ref) into \(summary.target.ref)")
@@ -105,8 +106,8 @@ struct PullRequestDetailHeader: View {
 }
 
 private extension View {
-    func branchBadge() -> some View {
-        font(.subheadline.monospaced())
+    func branchBadge(scale: CGFloat) -> some View {
+        font(.subheadline.monospaced().scaled(by: scale))
             .foregroundStyle(.blue)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)

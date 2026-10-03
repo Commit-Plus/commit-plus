@@ -24,6 +24,7 @@ import SwiftUI
 
 struct CommitSheetView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appTextScale) private var textScale
     @AppStorage("commit.allChanges") private var commitAllChanges = false
     @ObservedObject var aiProviderController: AIProviderController
     @Binding var message: String
@@ -38,14 +39,14 @@ struct CommitSheetView: View {
     var body: some View {
         VStack(spacing: 20) {
             Text("Commit Changes")
-                .font(.title2)
+                .font(.title2.scaled(by: textScale))
                 .fontWeight(.semibold)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Commit Message")
-                    .font(.headline)
+                    .font(.headline.scaled(by: textScale))
                 Text("Leave this empty to create a commit without a message.")
-                    .font(.caption)
+                    .font(.caption.scaled(by: textScale))
                     .foregroundStyle(.secondary)
                 ZStack(alignment: .topTrailing) {
                     TextField(
@@ -54,6 +55,7 @@ struct CommitSheetView: View {
                         selection: $messageSelection,
                         axis: .vertical
                     )
+                        .font(.body.scaled(by: textScale))
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 400)
                         .lineLimit(3...6)
@@ -71,12 +73,12 @@ struct CommitSheetView: View {
                 if !hasStagedChanges {
                     HStack(spacing: 8) {
                         Label("No files staged", systemImage: "exclamationmark.triangle")
-                            .font(.caption)
+                            .font(.caption.scaled(by: textScale))
                             .foregroundStyle(.orange)
                         Spacer()
                         Toggle("Commit all changes", isOn: $commitAllChanges)
                             .toggleStyle(.checkbox)
-                            .font(.system(size: 12))
+                            .font(.system(size: 12).scaled(by: textScale))
                     }
                     .frame(width: 400, alignment: .leading)
                 }
@@ -86,12 +88,14 @@ struct CommitSheetView: View {
                 Button("Cancel", role: .cancel) {
                     dismiss()
                 }
+                .font(.body.scaled(by: textScale))
                 .keyboardShortcut(.cancelAction)
 
                 Button(message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Commit Without Message" : "Commit") {
                     onCommit(message, !hasStagedChanges && commitAllChanges)
                     dismiss()
                 }
+                .font(.body.scaled(by: textScale))
                 .keyboardShortcut(.defaultAction)
                 .disabled(!hasStagedChanges && !commitAllChanges)
             }
