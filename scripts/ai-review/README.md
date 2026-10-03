@@ -25,7 +25,8 @@ Groq usage depends on your account plan. DeepSeek is a paid final fallback;
 omit its secret to keep it disabled. Configure billing limits at the providers.
 
 Uses `pull_request_target` to support fork PRs with repository secrets. Only
-the trusted base commit is checked out, credentials are not persisted, and PR
+the trusted workflow commit (`github.workflow_sha`) is checked out, credentials
+are not persisted, and PR
 code is never executed. The PR diff is sent to external providers, including
 for fork PRs; consider their data policies for private code. No tools or repository
 write operations are available to the model. Reviews only the first 24,000

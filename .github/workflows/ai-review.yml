@@ -19,10 +19,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      # Never checkout the PR head: this job has access to provider secrets.
+      # Match the trusted workflow revision, even when the PR base SHA predates
+      # installation of the review script. Never checkout the PR head.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.workflow_sha }}
           persist-credentials: false
       - name: Review PR
         env:
