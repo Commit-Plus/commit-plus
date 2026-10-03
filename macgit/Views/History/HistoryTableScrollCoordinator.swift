@@ -33,7 +33,6 @@ final class HistoryTableScrollCoordinator {
     private var columnLayout: HistoryTableColumnLayout?
     private let initialColumnRatios: [String: Double]
     private var viewportObservers: [NSObjectProtocol] = []
-    private var lastViewportWidth: CGFloat = 0
     private var lastVisibleColumns: [String] = []
     private var appliedWidths: [String: CGFloat] = [:]
     private var columnResizeObserver: NSObjectProtocol?
@@ -96,7 +95,6 @@ final class HistoryTableScrollCoordinator {
             if let tableView = current as? NSTableView {
                 if self.tableView !== tableView {
                     self.tableView = tableView
-                    lastViewportWidth = 0
                     lastVisibleColumns = []
                     appliedWidths = [:]
                     tableView.columnAutoresizingStyle = .noColumnAutoresizing
@@ -105,7 +103,7 @@ final class HistoryTableScrollCoordinator {
                 }
                 observeViewport(of: tableView)
                 installDragPreviewDataSource(on: tableView)
-                resizeForViewportIfNeeded()
+                restoreVisibleColumnsIfNeeded()
                 return true
             }
             candidate = current.superview
@@ -165,7 +163,6 @@ final class HistoryTableScrollCoordinator {
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.recordScrollActivityIfNeeded(in: clipView)
-                    self?.resizeForViewportIfNeeded()
                 }
             })
         }
@@ -199,12 +196,12 @@ final class HistoryTableScrollCoordinator {
         return max(0, clipView.bounds.width - CGFloat(columns.count) * tableView.intercellSpacing.width)
     }
 
-    private func resizeForViewportIfNeeded() {
+    private func restoreVisibleColumnsIfNeeded() {
         guard !isRestoringWidths, let tableView,
               let clipView = tableView.enclosingScrollView?.contentView,
               clipView.bounds.width > 0 else { return }
         let keys = visibleColumns.compactMap(Self.columnKey)
-        guard abs(lastViewportWidth - clipView.bounds.width) > 0.01 || keys != lastVisibleColumns else { return }
+        guard keys != lastVisibleColumns else { return }
         applyColumnWidths()
     }
 
@@ -229,7 +226,6 @@ final class HistoryTableScrollCoordinator {
         let widths = columns.map { column in
             CGFloat(columnLayout.width(
                 for: Self.columnKey(column)!,
-                viewportWidth: Double(viewportWidth),
                 minimumWidth: Double(column.minWidth)
             ))
         }
@@ -256,7 +252,6 @@ final class HistoryTableScrollCoordinator {
         for (column, width) in zip(columns, widths) {
             appliedWidths[Self.columnKey(column)!] = width
         }
-        lastViewportWidth = viewportWidth
         lastVisibleColumns = columns.compactMap(Self.columnKey)
         saveColumnLayout()
     }
@@ -274,8 +269,7 @@ final class HistoryTableScrollCoordinator {
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.enclosingScrollView?.hasHorizontalScroller = true
         for (column, width) in zip(columns, widths) {
-            // The coordinator handles window scaling. Native size-to-fit must
-            // not shrink columns when the horizontal scroller first appears.
+            // Keep absolute widths during viewport and scroller changes.
             column.resizingMask = .userResizingMask
             if abs(column.width - width) > 0.01 {
                 column.width = width
@@ -283,7 +277,6 @@ final class HistoryTableScrollCoordinator {
             appliedWidths[Self.columnKey(column)!] = column.width
         }
         tableView.tile()
-        lastViewportWidth = tableView.enclosingScrollView?.contentView.bounds.width ?? 0
         lastVisibleColumns = columns.compactMap(Self.columnKey)
     }
 
@@ -297,7 +290,11 @@ final class HistoryTableScrollCoordinator {
                 guard tableView.window != nil else { continue }
                 tableView.layoutSubtreeIfNeeded()
                 self.observeViewport(of: tableView)
+                guard !self.visibleColumns.isEmpty,
+                      (tableView.headerView?.resizedColumn ?? -1) < 0,
+                      self.availableWidth(for: self.visibleColumns) > 0 else { continue }
                 self.applyColumnWidths()
+                return
             }
         }
     }

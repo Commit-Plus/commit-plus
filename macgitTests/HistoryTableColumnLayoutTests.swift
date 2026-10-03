@@ -18,26 +18,26 @@ final class HistoryTableColumnLayoutTests: XCTestCase {
 
         XCTAssertEqual(layout.widths["message"], 400)
         XCTAssertEqual(layout.widths.values.reduce(0, +), 1_400)
-        XCTAssertEqual(layout.width(for: "graph", viewportWidth: 1_200, minimumWidth: 60), 720)
-        XCTAssertEqual(layout.width(for: "message", viewportWidth: 1_200, minimumWidth: 120), 480)
+        XCTAssertEqual(layout.width(for: "graph", minimumWidth: 60), 600)
+        XCTAssertEqual(layout.width(for: "message", minimumWidth: 120), 400)
     }
 
-    func testMinimumWidthDoesNotAlterSavedLayoutWhenWindowGrowsAgain() async {
+    func testMinimumWidthDoesNotAlterSavedAbsoluteWidth() async {
         let layout = makeLayout()
-        XCTAssertEqual(layout.width(for: "author", viewportWidth: 500, minimumWidth: 140), 140)
-        XCTAssertEqual(layout.width(for: "author", viewportWidth: 1_000, minimumWidth: 140), 180)
+        XCTAssertEqual(layout.width(for: "author", minimumWidth: 200), 200)
+        XCTAssertEqual(layout.width(for: "author", minimumWidth: 140), 180)
         XCTAssertEqual(layout.viewportWidth, 1_000)
     }
 
-    func testDraggingAfterWindowResizeRebasesHiddenAndMinimumConstrainedColumns() async {
+    func testDraggingAfterWindowResizePreservesOtherColumns() async {
         var layout = makeLayout()
         layout.resizeColumn("graph", to: 300, viewportWidth: 500)
 
         XCTAssertEqual(layout.viewportWidth, 500)
-        XCTAssertEqual(layout.widths["message"], 200)
-        XCTAssertEqual(layout.widths["author"], 90)
-        XCTAssertEqual(layout.width(for: "author", viewportWidth: 1_000, minimumWidth: 140), 180)
-        XCTAssertEqual(layout.width(for: "graph", viewportWidth: 1_000, minimumWidth: 60), 600)
+        XCTAssertEqual(layout.widths["message"], 400)
+        XCTAssertEqual(layout.widths["author"], 180)
+        XCTAssertEqual(layout.width(for: "author", minimumWidth: 140), 180)
+        XCTAssertEqual(layout.width(for: "graph", minimumWidth: 60), 300)
     }
 
     func testSavedLayoutRoundTripPreservesOverflowAndReferenceViewport() async throws {
@@ -51,7 +51,7 @@ final class HistoryTableColumnLayoutTests: XCTestCase {
         XCTAssertTrue(restored.isValid)
         XCTAssertEqual(restored.widths, layout.widths)
         XCTAssertEqual(restored.viewportWidth, 1_000)
-        XCTAssertEqual(restored.width(for: "graph", viewportWidth: 1_500, minimumWidth: 60), 1_200)
+        XCTAssertEqual(restored.width(for: "graph", minimumWidth: 60), 800)
     }
 
     func testInvalidPersistedLayoutIsRejected() async {

@@ -587,7 +587,7 @@ struct HistoryView: View {
         Group {
             if let graphModel {
                 // Fixed initial hints only; the native coordinator owns all
-                // subsequent sizing, including window and scroller changes.
+                // saved widths; viewport changes leave column widths unchanged.
                 ZStack(alignment: .bottom) {
                     Table(
                         of: Commit.self,

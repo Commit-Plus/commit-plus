@@ -62,17 +62,36 @@ final class HistoryTableScrollCoordinatorTests: XCTestCase {
         let saved = try JSONDecoder().decode(HistoryTableColumnLayout.self, from: data)
         XCTAssertEqual(try XCTUnwrap(saved.widths["message"]), Double(resizedWidth), accuracy: 0.01)
 
-        // A later viewport change must scale the latest user width, rather
-        // than restoring the layout from before the drag.
+        // A later viewport change must preserve the latest absolute user width.
         let clipView = fixture.scrollView.contentView
         clipView.setFrameSize(NSSize(width: viewportWidth + 100, height: 280))
         NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: clipView)
 
         XCTAssertEqual(
             message.width,
-            resizedWidth * clipView.bounds.width / viewportWidth,
+            resizedWidth,
             accuracy: 0.01
         )
+        withExtendedLifetime(fixture.coordinator) {}
+    }
+
+    func testExternalResizeAndRepeatedAttachmentPreserveAllColumnWidths() async {
+        let fixture = makeFixture()
+        let widths = fixture.table.tableColumns.map(\.width)
+        let marker = NSView()
+        fixture.table.addSubview(marker)
+        let clipView = fixture.scrollView.contentView
+
+        for width in [CGFloat(600), CGFloat(1_400)] {
+            clipView.setFrameSize(NSSize(width: width, height: 280))
+            let tileCount = fixture.table.tileCount
+            NotificationCenter.default.post(name: NSView.frameDidChangeNotification, object: clipView)
+            NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: clipView)
+            XCTAssertTrue(fixture.coordinator.attach(from: marker))
+
+            XCTAssertEqual(fixture.table.tableColumns.map(\.width), widths)
+            XCTAssertEqual(fixture.table.tileCount, tileCount)
+        }
         withExtendedLifetime(fixture.coordinator) {}
     }
 

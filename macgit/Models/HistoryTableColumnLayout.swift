@@ -14,15 +14,13 @@ struct HistoryTableColumnLayout: Codable {
             }
     }
 
-    func width(for column: String, viewportWidth: Double, minimumWidth: Double) -> Double {
-        max(minimumWidth, (widths[column] ?? minimumWidth) * viewportWidth / self.viewportWidth)
+    func width(for column: String, minimumWidth: Double) -> Double {
+        max(minimumWidth, widths[column] ?? minimumWidth)
     }
 
     mutating func resizeColumn(_ column: String, to width: Double, viewportWidth: Double) {
-        // Rebase all columns, including hidden ones, without baking temporary
-        // minimum-width constraints into the user's saved proportions.
-        let scale = viewportWidth / self.viewportWidth
-        widths = widths.mapValues { $0 * scale }
+        // Persist only the column the user resized. Other columns, including
+        // hidden ones, retain their absolute widths.
         widths[column] = width
         self.viewportWidth = viewportWidth
     }
