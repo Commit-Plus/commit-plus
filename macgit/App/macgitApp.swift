@@ -141,11 +141,11 @@ struct macgitApp: App {
                 : nil
         )
         _repositoryBookmarkController = StateObject(wrappedValue: repositoryBookmarkController)
-        _customActionStore = StateObject(
-            wrappedValue: CustomActionStore(
-                cloudStore: cloudFeaturesEnabled ? FirestoreCustomActionStore() : nil
-            )
+        let customActionStore = CustomActionStore(
+            cloudStore: cloudFeaturesEnabled ? FirestoreCustomActionStore() : nil
         )
+        customActionStore.observeSession(accountController: accountController, appState: appState)
+        _customActionStore = StateObject(wrappedValue: customActionStore)
         _gitFlowConfigurationSyncController = StateObject(
             wrappedValue: GitFlowConfigurationSyncController(
                 cloudStore: cloudFeaturesEnabled
@@ -256,12 +256,6 @@ struct macgitApp: App {
                 .task(id: accountController.account?.uid) {
                     cloudLifecycleController.start()
                     await cloudLifecycleController.updateAccount(accountController.account)
-                }
-                .task(id: customActionSyncTaskID) {
-                    await customActionStore.updateCloudSession(
-                        uid: accountController.account?.uid,
-                        enabled: appState.syncEnabled
-                    )
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
                     Task { await customActionStore.syncNow() }
@@ -511,7 +505,4 @@ struct macgitApp: App {
         .windowResizability(.contentMinSize)
     }
 
-    private var customActionSyncTaskID: String {
-        "\(accountController.account?.uid ?? "guest"):\(appState.syncEnabled)"
-    }
 }

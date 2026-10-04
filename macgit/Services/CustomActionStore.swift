@@ -22,6 +22,7 @@ final class CustomActionStore: ObservableObject {
     private var mutationVersions: [String: Int] = [:]
     private var periodicSyncTask: Task<Void, Never>?
     private var isSyncing = false
+    private var sessionObservation: AnyCancellable?
     private var trustedFingerprints: [String: String]
     private var executableOverrides: [String: String]
     private var pendingUpserts: Set<String>
@@ -41,7 +42,30 @@ final class CustomActionStore: ObservableObject {
         normalizeAndSave()
     }
 
+    func observeSession(accountController: AccountSessionController, appState: AppState) {
+        let accountUID = accountController.$state.map { state -> String? in
+            guard case .authenticated(let account) = state else { return nil }
+            return account.uid
+        }
+        let session = accountUID.combineLatest(appState.$syncEnabled)
+            .removeDuplicates { previous, current in
+                previous.0 == current.0 && previous.1 == current.1
+            }
+        sessionObservation = session.sink { [weak self] value in
+            guard let self else { return }
+            let generation = self.beginCloudSession(uid: value.0, enabled: value.1)
+            Task { @MainActor [weak self] in
+                await self?.startCloudSession(generation: generation)
+            }
+        }
+    }
+
     func updateCloudSession(uid: String?, enabled: Bool) async {
+        let generation = beginCloudSession(uid: uid, enabled: enabled)
+        await startCloudSession(generation: generation)
+    }
+
+    private func beginCloudSession(uid: String?, enabled: Bool) -> Int {
         sessionGeneration &+= 1
         let generation = sessionGeneration
         periodicSyncTask?.cancel()
@@ -57,7 +81,11 @@ final class CustomActionStore: ObservableObject {
             pendingDeletions = Self.decode(Set<String>.self, from: userDefaults.data(forKey: scopedKey(Self.pendingDeletionsKey))) ?? []
             mutationVersions = [:]
         }
-        guard enabled, uid != nil, cloudStore != nil else { return }
+        return generation
+    }
+
+    private func startCloudSession(generation: Int) async {
+        guard generation == sessionGeneration, activeUID != nil, cloudStore != nil else { return }
         await syncNow()
         guard generation == sessionGeneration else { return }
         periodicSyncTask = Task { @MainActor [weak self] in
@@ -161,6 +189,18 @@ final class CustomActionStore: ObservableObject {
         normalizeAndSave()
         if trustOnThisMac { trust(normalized) }
         markPendingUpsert(normalized.id)
+    }
+
+    func saveEditedAction(_ action: CustomActionDefinition, original: CustomActionDefinition?) {
+        var definition = action
+        if let original, let stored = actions.first(where: { $0.id == action.id }),
+           action.executablePath == original.executablePath,
+           action.sourceKind == original.sourceKind {
+            definition.executablePath = stored.executablePath
+        } else {
+            setExecutableOverride(nil, for: action)
+        }
+        upsert(definition)
     }
 
     func delete(_ action: CustomActionDefinition) {

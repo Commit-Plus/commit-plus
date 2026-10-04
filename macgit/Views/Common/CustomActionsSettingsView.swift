@@ -66,8 +66,7 @@ struct CustomActionsSettingsView: View {
         .padding(24)
         .sheet(item: $editor) { presentation in
             CustomActionEditorSheet(action: presentation.action) { action in
-                store.setExecutableOverride(nil, for: action)
-                store.upsert(action)
+                store.saveEditedAction(action, original: presentation.action)
             }
         }
     }

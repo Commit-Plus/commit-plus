@@ -4,6 +4,34 @@ import XCTest
 @testable import macgit
 
 final class CustomActionTests: XCTestCase {
+    func testUnrelatedEditPreservesLocalExecutableOverrideAndStoredPath() {
+        let suite = "CustomActionTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = CustomActionStore(userDefaults: defaults)
+        let action = CustomActionDefinition(name: "Original", executablePath: "/remote/tool")
+        store.upsert(action, trustOnThisMac: false)
+        store.setExecutableOverride("/usr/bin/env", for: action)
+        let original = store.action(id: action.id)!
+        var edited = original
+        edited.name = "Renamed"
+        edited.arguments = ["$REPO"]
+        store.saveEditedAction(edited, original: original)
+        XCTAssertEqual(store.actions[0].executablePath, "/remote/tool")
+        XCTAssertEqual(store.action(id: action.id)?.executablePath, "/usr/bin/env")
+        XCTAssertTrue(store.isTrusted(store.actions[0]))
+        let restored = CustomActionStore(userDefaults: defaults)
+        XCTAssertEqual(restored.actions[0].executablePath, "/remote/tool")
+        XCTAssertEqual(restored.action(id: action.id)?.executablePath, "/usr/bin/env")
+
+        var changedPath = store.action(id: action.id)!
+        changedPath.executablePath = "/usr/bin/printf"
+        store.saveEditedAction(changedPath, original: store.action(id: action.id))
+        XCTAssertEqual(store.actions[0].executablePath, "/usr/bin/printf")
+        XCTAssertEqual(store.action(id: action.id)?.executablePath, "/usr/bin/printf")
+        XCTAssertTrue(store.isTrusted(store.actions[0]))
+    }
+
     func testStorePersistsCatalogAndTrustSeparately() {
         let suiteName = "CustomActionTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
