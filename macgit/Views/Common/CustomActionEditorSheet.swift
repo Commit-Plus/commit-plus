@@ -79,21 +79,9 @@ struct CustomActionEditorSheet: View {
     private var sourceFields: some View {
         switch draft.sourceKind {
         case .executable:
-            LabeledContent("Executable") {
-                HStack {
-                    TextField("/absolute/path/to/executable", text: $draft.executablePath)
-                        .font(.body.monospaced())
-                    Button("Choose…", action: chooseSource)
-                }
-            }
+            sourcePathField(title: "Executable", prompt: "Choose an executable or enter its full path")
         case .localScript:
-            LabeledContent("Script") {
-                HStack {
-                    TextField("/absolute/path/to/script", text: $draft.executablePath)
-                        .font(.body.monospaced())
-                    Button("Choose…", action: chooseSource)
-                }
-            }
+            sourcePathField(title: "Script", prompt: "Choose a script or enter its full path")
             scriptLanguagePicker
         case .syncedScript:
             LabeledContent("Imported File") {
@@ -109,6 +97,23 @@ struct CustomActionEditorSheet: View {
                 .frame(minHeight: 220)
                 .border(.separator)
                 .accessibilityLabel("Script source")
+        }
+    }
+
+    private func sourcePathField(title: String, prompt: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                Spacer()
+                Button("Choose…", action: chooseSource)
+            }
+            TextField("File path", text: $draft.executablePath, prompt: Text(prompt), axis: .vertical)
+                .labelsHidden()
+                .font(.body.monospaced())
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(2...5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help(draft.executablePath.isEmpty ? prompt : draft.executablePath)
         }
     }
 

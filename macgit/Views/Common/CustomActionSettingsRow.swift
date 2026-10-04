@@ -6,35 +6,29 @@ struct CustomActionSettingsRow: View {
     let action: CustomActionDefinition
     let effectiveAction: CustomActionDefinition
     let isTrusted: Bool
-    let onToggle: (Bool) -> Void
+    let onRemove: () -> Void
+    let onDuplicate: () -> Void
+    let onEdit: () -> Void
     let onReview: () -> Void
     let onLocate: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            Toggle(action.name, isOn: Binding(
-                get: { action.isEnabled },
-                set: onToggle
-            ))
-            .labelsHidden()
-
-            Button {
-                onToggle(!action.isEnabled)
-            } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(action.name)
-                        Text(detail)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                }
-                .contentShape(Rectangle())
+            VStack(alignment: .leading, spacing: 3) {
+                Text(action.name)
+                Text(detail)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(detail)
             }
-            .buttonStyle(.plain)
 
+            Spacer()
+
+            if !action.isEnabled {
+                Text("Disabled").foregroundStyle(.secondary)
+            }
             if needsExecutable {
                 Button("Locate…", action: onLocate)
             } else if !isTrusted {
@@ -44,6 +38,17 @@ struct CustomActionSettingsRow: View {
                     .foregroundStyle(.green)
                     .labelStyle(.titleAndIcon)
             }
+
+            HStack(spacing: 8) {
+                Button("Remove", systemImage: "trash", action: onRemove)
+                    .help("Remove \(action.name)")
+                Button("Duplicate", systemImage: "plus.square.on.square", action: onDuplicate)
+                    .help("Duplicate \(action.name)")
+                Button("Edit", systemImage: "pencil", action: onEdit)
+                    .help("Edit \(action.name)")
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
         }
         .padding(.vertical, 4)
     }

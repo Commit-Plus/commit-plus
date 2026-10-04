@@ -5,7 +5,6 @@ import SwiftUI
 
 struct CustomActionsSettingsView: View {
     @ObservedObject var store: CustomActionStore
-    @State private var selection: UUID?
     @State private var editor: EditorPresentation?
 
     private struct EditorPresentation: Identifiable {
@@ -39,15 +38,12 @@ struct CustomActionsSettingsView: View {
                                 action: action,
                                 effectiveAction: store.effectiveAction(action),
                                 isTrusted: store.isTrusted(action),
-                                onToggle: {
-                                    selection = action.id
-                                    store.setEnabled($0, for: action)
-                                },
+                                onRemove: { store.delete(action) },
+                                onDuplicate: { store.duplicate(action) },
+                                onEdit: { edit(action) },
                                 onReview: { edit(action) },
                                 onLocate: { locate(action) }
                             )
-                            .listRowBackground(action.isEnabled ? Color.accentColor.opacity(0.18) : Color.clear)
-                            .simultaneousGesture(TapGesture(count: 2).onEnded { edit(action) })
                         }
                         .onMove(perform: store.move)
                     }
@@ -57,12 +53,6 @@ struct CustomActionsSettingsView: View {
 
             HStack {
                 Button("Add", systemImage: "plus", action: add)
-                Button("Remove", systemImage: "minus", action: remove)
-                    .disabled(selectedAction == nil)
-                Button("Duplicate", systemImage: "plus.square.on.square", action: duplicate)
-                    .disabled(selectedAction == nil)
-                Button("Edit…", action: editSelected)
-                    .disabled(selectedAction == nil)
                 Spacer()
                 if let syncError = store.syncError {
                     Text(syncError)
@@ -71,20 +61,15 @@ struct CustomActionsSettingsView: View {
                         .lineLimit(2)
                 }
             }
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(24)
         .sheet(item: $editor) { presentation in
             CustomActionEditorSheet(action: presentation.action) { action in
                 store.setExecutableOverride(nil, for: action)
                 store.upsert(action)
-                selection = action.id
             }
         }
-    }
-
-    private var selectedAction: CustomActionDefinition? {
-        guard let selection else { return nil }
-        return store.actions.first { $0.id == selection }
     }
 
     private func add() {
@@ -94,22 +79,6 @@ struct CustomActionsSettingsView: View {
     private func edit(_ action: CustomActionDefinition) {
         guard let current = store.action(id: action.id) else { return }
         editor = EditorPresentation(action: current)
-    }
-
-    private func editSelected() {
-        guard let selectedAction else { return }
-        edit(selectedAction)
-    }
-
-    private func remove() {
-        guard let selectedAction else { return }
-        store.delete(selectedAction)
-        selection = nil
-    }
-
-    private func duplicate() {
-        guard let selectedAction else { return }
-        store.duplicate(selectedAction)
     }
 
     private func locate(_ action: CustomActionDefinition) {
