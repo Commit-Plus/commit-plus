@@ -263,6 +263,9 @@ struct macgitApp: App {
                         enabled: appState.syncEnabled
                     )
                 }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+                    Task { await customActionStore.syncNow() }
+                }
                 .onChange(of: accountController.account?.uid, initial: true) { _, uid in
                     aiProviderController.managedUsageController?.setSession(uid: uid)
                 }
@@ -417,7 +420,12 @@ struct macgitApp: App {
                             context: state.context,
                             hasActiveOperation: state.hasActiveOperation,
                             includesRepositoryActions: true,
-                            onRun: state.run
+                            onRun: { id, surface in
+                                WindowScopedNotification.post(
+                                    name: .customActionMenuAction,
+                                    userInfo: ["id": id, "surface": surface]
+                                )
+                            }
                         )
                     } else {
                         Text("No Repository Open")

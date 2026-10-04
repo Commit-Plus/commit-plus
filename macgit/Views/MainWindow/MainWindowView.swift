@@ -742,6 +742,12 @@ struct MainWindowView: View {
                   let action = notification.userInfo?["action"] as? GitFlowMenuAction else { return }
             handleGitFlowMenuAction(action)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .customActionMenuAction)) { notification in
+            guard windowContext.owns(notification),
+                  let id = notification.userInfo?["id"] as? UUID,
+                  let surface = notification.userInfo?["surface"] as? CustomActionInvocationSurface else { return }
+            runCustomAction(id: id, context: customActionCommandState.context, surface: surface)
+        }
         .onChange(of: repositoryAIChatController.workflowAccessNotice) { _, notice in
             guard let notice else { return }
             if notice.denial == .requiresPro {
@@ -824,10 +830,7 @@ struct MainWindowView: View {
         return CustomActionCommandState(
             context: context,
             surface: surface,
-            hasActiveOperation: operationProgress.activeOperation != nil,
-            run: { id, invocationSurface in
-                runCustomAction(id: id, context: context, surface: invocationSurface)
-            }
+            hasActiveOperation: operationProgress.activeOperation != nil
         )
     }
 

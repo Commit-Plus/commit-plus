@@ -108,27 +108,6 @@ final class FirestoreCustomActionStore: CustomActionCloudStore {
         try await batch.commit()
     }
 
-    func observe(
-        uid: String,
-        onChange: @escaping (Result<[CustomActionDefinition], Error>) -> Void
-    ) -> ObservationToken {
-        let registration = collection(uid: uid).addSnapshotListener { snapshot, error in
-            if let error {
-                onChange(.failure(error))
-                return
-            }
-            do {
-                let actions = try (snapshot?.documents ?? [])
-                    .map { try FirestoreCustomActionDocument.decode(id: $0.documentID, data: $0.data()) }
-                    .sorted(by: Self.order)
-                onChange(.success(actions))
-            } catch {
-                onChange(.failure(error))
-            }
-        }
-        return CustomActionFirestoreObservationToken(registration: registration)
-    }
-
     private func collection(uid: String) -> CollectionReference {
         firestore.collection("users").document(uid).collection("customActions")
     }
@@ -137,19 +116,4 @@ final class FirestoreCustomActionStore: CustomActionCloudStore {
         if lhs.sortIndex == rhs.sortIndex { return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending }
         return lhs.sortIndex < rhs.sortIndex
     }
-}
-
-private final class CustomActionFirestoreObservationToken: ObservationToken {
-    private var registration: ListenerRegistration?
-
-    init(registration: ListenerRegistration) {
-        self.registration = registration
-    }
-
-    func cancel() {
-        registration?.remove()
-        registration = nil
-    }
-
-    deinit { registration?.remove() }
 }

@@ -112,7 +112,7 @@ struct CustomActionInvocationContext: Equatable, Sendable {
     var commitHashes: [String]
 }
 
-enum CustomActionInvocationSurface: Sendable {
+enum CustomActionInvocationSurface: Equatable, Sendable {
     case repository
     case selectedFiles
     case selectedCommits

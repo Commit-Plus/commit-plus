@@ -18,6 +18,23 @@ final class CustomActionTests: XCTestCase {
         XCTAssertTrue(restored.isTrusted(action))
     }
 
+    func testStoreDefersCloudWriteUntilScheduledSync() async {
+        let suiteName = "CustomActionTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let cloudStore = RecordingCustomActionCloudStore()
+        let store = CustomActionStore(userDefaults: defaults, cloudStore: cloudStore)
+        await store.updateCloudSession(uid: "user", enabled: true)
+        cloudStore.events = []
+
+        let action = CustomActionDefinition(name: "Environment", executablePath: "/usr/bin/env")
+        store.upsert(action)
+
+        XCTAssertTrue(cloudStore.events.isEmpty)
+        await store.syncNow()
+        XCTAssertEqual(cloudStore.events, ["upsert", "load"])
+    }
+
     func testArgumentParserPreservesQuotedArguments() throws {
         XCTAssertEqual(
             try CustomActionArgumentParser.parse(#"--flag "two words" 'three words' empty\ value"#),
@@ -121,5 +138,32 @@ final class CustomActionTests: XCTestCase {
 
         let result = await task.value
         XCTAssertEqual(result.status, .cancelled)
+    }
+}
+
+@MainActor
+private final class RecordingCustomActionCloudStore: CustomActionCloudStore {
+    var events: [String] = []
+    private var actions: [CustomActionDefinition] = []
+
+    func load(uid: String) async throws -> [CustomActionDefinition] {
+        events.append("load")
+        return actions
+    }
+
+    func upsert(_ action: CustomActionDefinition, uid: String) async throws {
+        events.append("upsert")
+        actions.removeAll { $0.id == action.id }
+        actions.append(action)
+    }
+
+    func delete(id: UUID, uid: String) async throws {
+        events.append("delete")
+        actions.removeAll { $0.id == id }
+    }
+
+    func updateOrder(_ actions: [CustomActionDefinition], uid: String) async throws {
+        events.append("order")
+        self.actions = actions
     }
 }

@@ -8,8 +8,4 @@ protocol CustomActionCloudStore {
     func upsert(_ action: CustomActionDefinition, uid: String) async throws
     func delete(id: UUID, uid: String) async throws
     func updateOrder(_ actions: [CustomActionDefinition], uid: String) async throws
-    func observe(
-        uid: String,
-        onChange: @escaping (Result<[CustomActionDefinition], Error>) -> Void
-    ) -> ObservationToken
 }

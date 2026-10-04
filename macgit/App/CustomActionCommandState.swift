@@ -2,11 +2,10 @@
 
 import SwiftUI
 
-struct CustomActionCommandState {
+struct CustomActionCommandState: Equatable {
     let context: CustomActionInvocationContext
     let surface: CustomActionInvocationSurface
     let hasActiveOperation: Bool
-    let run: (UUID, CustomActionInvocationSurface) -> Void
 }
 
 struct CustomActionCommandStateKey: FocusedValueKey {
@@ -18,4 +17,8 @@ extension FocusedValues {
         get { self[CustomActionCommandStateKey.self] }
         set { self[CustomActionCommandStateKey.self] = newValue }
     }
+}
+
+extension Notification.Name {
+    static let customActionMenuAction = Notification.Name("macgit.customActionMenuAction")
 }

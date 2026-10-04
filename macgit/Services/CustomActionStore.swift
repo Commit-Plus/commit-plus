@@ -8,16 +8,23 @@ final class CustomActionStore: ObservableObject {
     static let actionsKey = "customActions.catalog.v1"
     static let trustKey = "customActions.trust.v1"
     static let executableOverridesKey = "customActions.executableOverrides.v1"
+    static let pendingUpsertsKey = "customActions.pendingUpserts.v1"
+    static let pendingDeletionsKey = "customActions.pendingDeletions.v1"
+    static let initializedCloudUIDsKey = "customActions.initializedCloudUIDs.v1"
 
     @Published private(set) var actions: [CustomActionDefinition]
     @Published private(set) var syncError: String?
 
     private let userDefaults: UserDefaults
     private let cloudStore: CustomActionCloudStore?
-    private var cloudObservation: ObservationToken?
     private var activeUID: String?
+    private var periodicSyncTask: Task<Void, Never>?
+    private var isSyncing = false
     private var trustedFingerprints: [String: String]
     private var executableOverrides: [String: String]
+    private var pendingUpserts: Set<String>
+    private var pendingDeletions: Set<String>
+    private var initializedCloudUIDs: Set<String>
 
     init(
         userDefaults: UserDefaults = .standard,
@@ -28,36 +35,69 @@ final class CustomActionStore: ObservableObject {
         actions = Self.decode([CustomActionDefinition].self, from: userDefaults.data(forKey: Self.actionsKey)) ?? []
         trustedFingerprints = Self.decode([String: String].self, from: userDefaults.data(forKey: Self.trustKey)) ?? [:]
         executableOverrides = Self.decode([String: String].self, from: userDefaults.data(forKey: Self.executableOverridesKey)) ?? [:]
+        pendingUpserts = Self.decode(Set<String>.self, from: userDefaults.data(forKey: Self.pendingUpsertsKey)) ?? []
+        pendingDeletions = Self.decode(Set<String>.self, from: userDefaults.data(forKey: Self.pendingDeletionsKey)) ?? []
+        initializedCloudUIDs = Self.decode(Set<String>.self, from: userDefaults.data(forKey: Self.initializedCloudUIDsKey)) ?? []
         normalizeAndSave()
     }
 
     func updateCloudSession(uid: String?, enabled: Bool) async {
-        if enabled, let uid, activeUID == uid, cloudObservation != nil { return }
-        cloudObservation?.cancel()
-        cloudObservation = nil
+        if enabled, let uid, activeUID == uid, periodicSyncTask != nil { return }
+        periodicSyncTask?.cancel()
+        periodicSyncTask = nil
         activeUID = nil
         syncError = nil
 
-        guard enabled, let uid, let cloudStore else { return }
+        guard enabled, let uid, cloudStore != nil else { return }
         activeUID = uid
-        do {
-            let remote = try await cloudStore.load(uid: uid)
-            guard activeUID == uid else { return }
-            if remote.isEmpty, !actions.isEmpty {
-                for action in actions {
-                    try await cloudStore.upsert(action, uid: uid)
-                }
-            } else {
-                let localByID = Dictionary(uniqueKeysWithValues: actions.map { ($0.id, $0) })
-                let remoteIDs = Set(remote.map(\.id))
-                var merged = remote
-                merged.append(contentsOf: actions.filter { !remoteIDs.contains($0.id) })
-                applyRemote(merged)
-                for action in localByID.values where !remoteIDs.contains(action.id) {
-                    try await cloudStore.upsert(action, uid: uid)
-                }
+        await syncNow()
+        periodicSyncTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(300))
+                guard !Task.isCancelled else { return }
+                await self?.syncNow()
             }
-            beginObserving(uid: uid)
+        }
+    }
+
+    func syncNow() async {
+        guard !isSyncing, let uid = activeUID, let cloudStore else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+
+        do {
+            for idString in Array(pendingDeletions) {
+                guard let id = UUID(uuidString: idString) else { continue }
+                try await cloudStore.delete(id: id, uid: uid)
+                pendingDeletions.remove(idString)
+                savePendingMutations()
+            }
+
+            for idString in Array(pendingUpserts) {
+                guard let id = UUID(uuidString: idString),
+                      let action = actions.first(where: { $0.id == id }) else {
+                    pendingUpserts.remove(idString)
+                    continue
+                }
+                try await cloudStore.upsert(action, uid: uid)
+                pendingUpserts.remove(idString)
+                savePendingMutations()
+            }
+
+            var remote = try await cloudStore.load(uid: uid)
+            guard activeUID == uid else { return }
+            if !initializedCloudUIDs.contains(uid) {
+                let remoteIDs = Set(remote.map(\.id))
+                let localOnly = actions.filter { !remoteIDs.contains($0.id) }
+                for action in localOnly {
+                    try await cloudStore.upsert(action, uid: uid)
+                }
+                remote.append(contentsOf: localOnly)
+                initializedCloudUIDs.insert(uid)
+                saveInitializedCloudUIDs()
+            }
+            applyRemote(remote)
+            syncError = nil
         } catch {
             guard activeUID == uid else { return }
             syncError = error.localizedDescription
@@ -108,11 +148,7 @@ final class CustomActionStore: ObservableObject {
         }
         normalizeAndSave()
         if trustOnThisMac { trust(normalized) }
-        guard let uid = activeUID, let cloudStore else { return }
-        Task { @MainActor in
-            do { try await cloudStore.upsert(normalized, uid: uid) }
-            catch { self.syncError = error.localizedDescription }
-        }
+        markPendingUpsert(normalized.id)
     }
 
     func delete(_ action: CustomActionDefinition) {
@@ -122,11 +158,9 @@ final class CustomActionStore: ObservableObject {
         normalizeAndSave()
         saveTrustedFingerprints()
         saveExecutableOverrides()
-        guard let uid = activeUID, let cloudStore else { return }
-        Task { @MainActor in
-            do { try await cloudStore.delete(id: action.id, uid: uid) }
-            catch { self.syncError = error.localizedDescription }
-        }
+        pendingUpserts.remove(action.id.uuidString)
+        pendingDeletions.insert(action.id.uuidString)
+        savePendingMutations()
     }
 
     func duplicate(_ action: CustomActionDefinition) {
@@ -149,41 +183,34 @@ final class CustomActionStore: ObservableObject {
         let insertionIndex = min(max(0, toOffset - removedBeforeDestination), actions.count)
         actions.insert(contentsOf: movingActions, at: insertionIndex)
         normalizeAndSave()
-        guard let uid = activeUID, let cloudStore else { return }
-        let snapshot = actions
-        Task { @MainActor in
-            do { try await cloudStore.updateOrder(snapshot, uid: uid) }
-            catch { self.syncError = error.localizedDescription }
-        }
-    }
-
-    private func beginObserving(uid: String) {
-        guard let cloudStore else { return }
-        cloudObservation = cloudStore.observe(uid: uid) { [weak self] result in
-            Task { @MainActor in
-                guard let self, self.activeUID == uid else { return }
-                switch result {
-                case .success(let actions):
-                    self.syncError = nil
-                    self.applyRemote(actions)
-                case .failure(let error):
-                    self.syncError = error.localizedDescription
-                }
-            }
-        }
+        pendingUpserts.formUnion(actions.map { $0.id.uuidString })
+        savePendingMutations()
     }
 
     private func applyRemote(_ remote: [CustomActionDefinition]) {
-        actions = remote
-        normalizeAndSave()
+        let normalizedActions = normalized(remote)
+        guard normalizedActions != actions else { return }
+        actions = normalizedActions
+        saveActions()
     }
 
     private func normalizeAndSave() {
-        actions = actions.enumerated().map { index, action in
+        let normalizedActions = normalized(actions)
+        if normalizedActions != actions {
+            actions = normalizedActions
+        }
+        saveActions()
+    }
+
+    private func normalized(_ actions: [CustomActionDefinition]) -> [CustomActionDefinition] {
+        actions.enumerated().map { index, action in
             var normalized = action
             normalized.sortIndex = index
             return normalized
         }
+    }
+
+    private func saveActions() {
         if let data = try? JSONEncoder().encode(actions) {
             userDefaults.set(data, forKey: Self.actionsKey)
         }
@@ -198,6 +225,27 @@ final class CustomActionStore: ObservableObject {
     private func saveExecutableOverrides() {
         if let data = try? JSONEncoder().encode(executableOverrides) {
             userDefaults.set(data, forKey: Self.executableOverridesKey)
+        }
+    }
+
+    private func markPendingUpsert(_ id: UUID) {
+        pendingDeletions.remove(id.uuidString)
+        pendingUpserts.insert(id.uuidString)
+        savePendingMutations()
+    }
+
+    private func savePendingMutations() {
+        if let data = try? JSONEncoder().encode(pendingUpserts) {
+            userDefaults.set(data, forKey: Self.pendingUpsertsKey)
+        }
+        if let data = try? JSONEncoder().encode(pendingDeletions) {
+            userDefaults.set(data, forKey: Self.pendingDeletionsKey)
+        }
+    }
+
+    private func saveInitializedCloudUIDs() {
+        if let data = try? JSONEncoder().encode(initializedCloudUIDs) {
+            userDefaults.set(data, forKey: Self.initializedCloudUIDsKey)
         }
     }
 
