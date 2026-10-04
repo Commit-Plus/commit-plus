@@ -194,23 +194,23 @@ final class ScrollViewIndicatorBridgeView: NSView {
             > contentView.bounds.height + Self.overflowTolerance
         let shouldShowIndicator = hasVerticalOverflow && showsIndicators
 
-        // Keep an overflowing list's overlay scroller installed at all times so
-        // hover changes never alter the List's available content width.
+        // Keep the overlay scroller installed even during intermediate List
+        // layouts. Refreshes can temporarily change documentRect; adding/removing
+        // or hiding the scroller makes AppKit retile the content viewport.
         if scrollView.scrollerStyle != .overlay {
             scrollView.scrollerStyle = .overlay
         }
         if scrollView.autohidesScrollers {
             scrollView.autohidesScrollers = false
         }
-        if scrollView.hasVerticalScroller != hasVerticalOverflow {
-            scrollView.hasVerticalScroller = hasVerticalOverflow
+        if !scrollView.hasVerticalScroller {
+            scrollView.hasVerticalScroller = true
         }
         if let controlSize, scrollView.verticalScroller?.controlSize != controlSize {
             scrollView.verticalScroller?.controlSize = controlSize
         }
-        let hidesIndicator = !shouldShowIndicator
-        if scrollView.verticalScroller?.isHidden != hidesIndicator {
-            scrollView.verticalScroller?.isHidden = hidesIndicator
+        if scrollView.verticalScroller?.isHidden == true {
+            scrollView.verticalScroller?.isHidden = false
         }
 
         let indicatorAlpha: CGFloat = shouldShowIndicator ? 1 : 0
@@ -231,4 +231,3 @@ private extension NSView {
         }
     }
 }
-
