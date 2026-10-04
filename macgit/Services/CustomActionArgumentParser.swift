@@ -148,12 +148,16 @@ enum CustomActionValidator {
         }
 
         for argument in action.arguments {
-            let placeholders = argument.split(whereSeparator: { $0.isWhitespace || $0 == "=" || $0 == ":" })
-                .map(String.init)
-                .filter { $0.hasPrefix("$") }
-            for placeholder in placeholders {
-                if Self.supportedPlaceholders.contains(placeholder), argument != placeholder {
-                    throw CustomActionValidationError.embeddedPlaceholder(placeholder)
+            for index in argument.indices where argument[index] == "$" {
+                let suffix = argument[index...]
+                for placeholder in Self.supportedPlaceholders where suffix.hasPrefix(placeholder) {
+                    let remainder = suffix.dropFirst(placeholder.count)
+                    if let next = remainder.first, next.isLetter || next.isNumber || next == "_" {
+                        continue
+                    }
+                    if argument != placeholder {
+                        throw CustomActionValidationError.embeddedPlaceholder(placeholder)
+                    }
                 }
             }
         }

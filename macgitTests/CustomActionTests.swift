@@ -121,6 +121,32 @@ final class CustomActionTests: XCTestCase {
         }
     }
 
+    func testValidatorRejectsPlaceholdersAtAnyArgumentPosition() {
+        let cases: [(String, String)] = [
+            ("$REPO/subdir", "$REPO"), ("$FILE,", "$FILE"), ("--x=$SHA^", "$SHA"),
+            ("prefix/$REPO", "$REPO"), ("($FILE)", "$FILE"), ("prefix$SHA", "$SHA"),
+            ("$HOME/$FILE", "$FILE"), ("$REPOSITORY/$REPO", "$REPO"),
+            ("$REPO $FILE", "$REPO"), ("$SHA$SHA", "$SHA")
+        ]
+        for (argument, placeholder) in cases {
+            let action = CustomActionDefinition(name: "Invalid", executablePath: "/usr/bin/env", arguments: [argument])
+            XCTAssertThrowsError(try CustomActionValidator.validate(action), argument) { error in
+                XCTAssertEqual(error as? CustomActionValidationError, .embeddedPlaceholder(placeholder), argument)
+            }
+        }
+    }
+
+    func testValidatorAllowsStandalonePlaceholdersAndLiteralDollarIdentifiers() {
+        let arguments = [
+            "$REPO", "$FILE", "$SHA", "$REPOSITORY", "$REPO_ROOT", "$FILE2", "$SHADOW",
+            "$HOME/file", "price=$5", "prefix/$REPOSITORY", "$REPOé", "$REPO９"
+        ]
+        for argument in arguments {
+            let action = CustomActionDefinition(name: "Valid", executablePath: "/usr/bin/env", arguments: [argument])
+            XCTAssertNoThrow(try CustomActionValidator.validate(action), argument)
+        }
+    }
+
     func testAvailabilityRequiresSelectionAndLocalTrust() {
         let action = CustomActionDefinition(
             name: "Files",
