@@ -617,9 +617,7 @@ struct HistoryView: View {
                                         isDragActive: activeDragCommitHashes.contains(commit.hash),
                                         scrollCoordinator: tableScrollCoordinator,
                                         onAppear: {
-                                            handleHistoryCommitCellAppearance(
-                                                at: graphModel.rowIndexByHash[commit.hash] ?? 0
-                                            )
+                                            handleHistoryCommitCellAppearance()
                                         }
                                     )
                                     .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
@@ -1216,12 +1214,26 @@ struct HistoryView: View {
             newScrollTarget = newCommits.first?.hash
         }
 
-        let loadedCommits = await MainActor.run { () -> [Commit] in
-            if reset || skip == 0 {
-                return newCommits
-            }
-            return commits + newCommits
+        let loadedWindow = await MainActor.run {
+            let originalHashes = commits.map(\.hash)
+            let combinedCommits = (reset || skip == 0)
+                ? newCommits
+                : commits + newCommits
+            let newerExcessCount = reset
+                ? 0
+                : max(0, combinedCommits.count - paging.maximumLoadedCount)
+            let displayedCommits = newerExcessCount > 0
+                ? Array(combinedCommits.dropFirst(newerExcessCount))
+                : combinedCommits
+            return (
+                originalHashes: originalHashes,
+                displayedCommits: displayedCommits,
+                newerExcessCount: newerExcessCount
+            )
         }
+        let originalHashes = loadedWindow.originalHashes
+        let loadedCommits = loadedWindow.displayedCommits
+        let newerExcessCount = loadedWindow.newerExcessCount
         let headHash: String?
         if let decoratedHead = Self.resolvedHeadHash(from: loadedCommits) {
             headHash = decoratedHead
@@ -1242,7 +1254,7 @@ struct HistoryView: View {
         let highlighting = Self.highlighting(for: appState.historyBranchFilter)
         let previousGraphState = await MainActor.run { graphGenerationState }
         let incrementalGraphResult: CommitGraphGenerationResult?
-        if !reset, let previousGraphState {
+        if !reset, newerExcessCount == 0, let previousGraphState {
             incrementalGraphResult = await CommitGraphGenerator.appendAsync(
                 commits: newCommits,
                 to: previousGraphState,
@@ -1266,13 +1278,21 @@ struct HistoryView: View {
             )
         }
 
+        if newerExcessCount > 0 {
+            // Do not publish an oversized table and trim it in a second pass.
+            // Wait until momentum scrolling stops, then replace the bounded
+            // window once and restore the visible commit once.
+            await tableScrollCoordinator.waitForScrollingToSettle()
+        }
         let viewportAnchor = await MainActor.run {
-            preservingSelectionAndScroll
-                ? tableScrollCoordinator.viewportAnchor(commitHashes: commits.map(\.hash))
+            (preservingSelectionAndScroll || newerExcessCount > 0)
+                ? tableScrollCoordinator.viewportAnchor(commitHashes: originalHashes)
                 : nil
         }
         await MainActor.run {
-            guard !Task.isCancelled, historyLoadKey == cacheKey else { return }
+            guard !Task.isCancelled,
+                  historyLoadKey == cacheKey,
+                  commits.map(\.hash) == originalHashes else { return }
             let pinnedSelectedCommit = selectedCommit
             let shouldPreserveTableSelection =
                 (preservingSelectionAndScroll || !reset)
@@ -1323,6 +1343,7 @@ struct HistoryView: View {
                 )
             } else {
                 paging.finishLoadingMore(loaded: newCommits.count)
+                paging.discardNewerCommits(count: newerExcessCount)
             }
             cancelHistoryRefreshIndicator()
 
@@ -1351,10 +1372,6 @@ struct HistoryView: View {
                         commitHashes: loadedCommits.map(\.hash)
                     )
                 }
-            }
-
-            if !reset, paging.needsTrimming {
-                scheduleHistoryWindowTrim(from: .newer, loadKey: cacheKey)
             }
         }
     }
@@ -1592,9 +1609,6 @@ struct HistoryView: View {
         guard excessCount > 0 else { return }
 
         let originalHashes = commits.map(\.hash)
-        let viewportAnchor = edge == .newer
-            ? tableScrollCoordinator.viewportAnchor(commitHashes: originalHashes)
-            : nil
         let trimmedCommits: [Commit]
         switch edge {
         case .newer:
@@ -1629,6 +1643,13 @@ struct HistoryView: View {
         guard !Task.isCancelled,
               historyLoadKey == loadKey,
               commits.map(\.hash) == originalHashes else { return }
+
+        // Capture after graph generation and the final quiet interval. If the
+        // user moved while graph generation was in flight, an earlier anchor
+        // would snap the Table back to a stale position after trimming.
+        let viewportAnchor = edge == .newer
+            ? tableScrollCoordinator.viewportAnchor(commitHashes: originalHashes)
+            : nil
 
         commits = trimmedCommits
         graphModel = trimmedGraphResult.model
@@ -1897,13 +1918,14 @@ struct HistoryView: View {
         handleCommitDoubleClick(primaryCommit)
     }
 
-    private func handleHistoryCommitCellAppearance(at row: Int) {
-        let prefetchDistance = max(1, paging.pageSize / 2)
-        if row <= prefetchDistance, paging.canLoadNewer {
+    private func handleHistoryCommitCellAppearance() {
+        guard let visibleRows = tableScrollCoordinator.visibleRowRange() else { return }
+        let prefetchDistance = max(1, min(paging.pageSize / 2, visibleRows.count * 2))
+        if visibleRows.lowerBound <= prefetchDistance, paging.canLoadNewer {
             Task {
                 await loadNewerHistoryIfNeeded()
             }
-        } else if row >= max(0, commits.count - prefetchDistance - 1) {
+        } else if visibleRows.upperBound >= max(0, commits.count - prefetchDistance) {
             Task {
                 await loadOlderHistoryIfNeeded()
             }

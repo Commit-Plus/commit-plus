@@ -186,6 +186,17 @@ final class HistoryTableScrollCoordinator {
         }
     }
 
+    func visibleRowRange() -> Range<Int>? {
+        guard let tableView,
+              let clipView = tableView.enclosingScrollView?.contentView else {
+            return nil
+        }
+
+        let rows = tableView.rows(in: clipView.bounds)
+        guard rows.location != NSNotFound, rows.length > 0 else { return nil }
+        return rows.location..<(rows.location + rows.length)
+    }
+
     private var visibleColumns: [NSTableColumn] {
         tableView?.tableColumns.filter { !$0.isHidden && Self.columnKey($0) != nil } ?? []
     }
