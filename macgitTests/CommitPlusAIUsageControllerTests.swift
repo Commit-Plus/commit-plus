@@ -21,9 +21,16 @@ import XCTest
 
 @MainActor
 final class CommitPlusAIUsageControllerTests: XCTestCase {
+    private var defaults: UserDefaults!
+
+    override func setUp() {
+        super.setUp()
+        defaults = UserDefaults(suiteName: "CommitPlusAIUsageControllerTests.\(UUID().uuidString)")!
+    }
+
     func testLoadAndFailureDoNotInventBalance() async throws {
         let value = try allowance()
-        let controller = CommitPlusAIUsageController()
+        let controller = CommitPlusAIUsageController(defaults: defaults)
         controller.setSession(uid: "a")
         controller.loader = { value }
         await controller.refresh()
@@ -36,7 +43,7 @@ final class CommitPlusAIUsageControllerTests: XCTestCase {
     func testConcurrentRefreshesShareOneLoad() async throws {
         let value = try allowance()
         let gate = ManagedAllowanceGate()
-        let controller = CommitPlusAIUsageController()
+        let controller = CommitPlusAIUsageController(defaults: defaults)
         controller.setSession(uid: "a")
         controller.loader = { await gate.load() }
         let first = Task { await controller.refresh(force: true) }
@@ -55,7 +62,7 @@ final class CommitPlusAIUsageControllerTests: XCTestCase {
     func testAccountSwitchDiscardsDelayedAllowance() async throws {
         let value = try allowance()
         let gate = ManagedAllowanceGate()
-        let controller = CommitPlusAIUsageController()
+        let controller = CommitPlusAIUsageController(defaults: defaults)
         controller.setSession(uid: "a")
         controller.loader = { await gate.load() }
         let refresh = Task { await controller.refresh() }
@@ -71,7 +78,7 @@ final class CommitPlusAIUsageControllerTests: XCTestCase {
         let old = try allowance()
         let fresh = try allowance(consumed: 500_000_000)
         let gate = ManagedAllowanceGate()
-        let controller = CommitPlusAIUsageController()
+        let controller = CommitPlusAIUsageController(defaults: defaults)
         controller.setSession(uid: "a")
         controller.loader = { await gate.load() }
         let refresh = Task { await controller.refresh() }
@@ -83,11 +90,11 @@ final class CommitPlusAIUsageControllerTests: XCTestCase {
         XCTAssertFalse(controller.availability.isAvailable)
     }
 
-    func testRefreshUsesCachedAllowanceForFiveMinutes() async throws {
+    func testRefreshUsesCachedAllowanceForTwoHours() async throws {
         let value = try allowance()
         let counter = AllowanceLoadCounter(value: value)
-        var now = Date(timeIntervalSince1970: 1_800_000_000)
-        let controller = CommitPlusAIUsageController(now: { now })
+        var now = value.periodStart.addingTimeInterval(60)
+        let controller = CommitPlusAIUsageController(defaults: defaults, now: { now })
         controller.setSession(uid: "a")
         controller.loader = { await counter.load() }
 
@@ -103,8 +110,8 @@ final class CommitPlusAIUsageControllerTests: XCTestCase {
     func testRefreshReloadsAfterCacheExpires() async throws {
         let value = try allowance()
         let counter = AllowanceLoadCounter(value: value)
-        var now = Date(timeIntervalSince1970: 1_800_000_000)
-        let controller = CommitPlusAIUsageController(now: { now })
+        var now = value.periodStart.addingTimeInterval(60)
+        let controller = CommitPlusAIUsageController(defaults: defaults, now: { now })
         controller.setSession(uid: "a")
         controller.loader = { await counter.load() }
 
@@ -115,6 +122,24 @@ final class CommitPlusAIUsageControllerTests: XCTestCase {
         let loadCount = await counter.loadCount
         XCTAssertEqual(loadCount, 2)
         XCTAssertEqual(controller.state, .loaded(value))
+    }
+
+    func testNewControllerRestoresPersistedAllowanceOnlyForMatchingAccount() async throws {
+        let value = try allowance()
+        let date = value.periodStart.addingTimeInterval(60)
+        let first = CommitPlusAIUsageController(defaults: defaults, now: { date })
+        first.setSession(uid: "a")
+        first.accept(value, uid: "a")
+
+        let restored = CommitPlusAIUsageController(defaults: defaults, now: { date })
+        restored.setSession(uid: "a")
+        restored.loader = { throw CommitPlusAIError.unavailable }
+        await restored.refresh()
+        XCTAssertEqual(restored.state, .loaded(value))
+
+        restored.setSession(uid: "b")
+        await restored.refresh()
+        guard case .unavailable = restored.state else { return XCTFail("Must not reuse another account's snapshot") }
     }
 
     private func allowance(consumed: Int = 100_000) throws -> CommitPlusAIAllowance {

@@ -26,6 +26,7 @@ struct CommitPlusAIUsageView: View {
             switch controller.state {
             case .idle, .loading:
                 ProgressView("Loading AI usage…")
+                    .frame(maxWidth: .infinity, alignment: .center)
             case .unavailable:
                 LabeledContent("Usage", value: "Usage unavailable")
                 Button("Retry") { Task { await controller.refresh(force: true) } }
