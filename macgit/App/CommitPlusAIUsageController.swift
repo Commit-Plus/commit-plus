@@ -20,7 +20,7 @@ import Foundation
 
 @MainActor
 final class CommitPlusAIUsageController: ObservableObject {
-    nonisolated static let cacheDuration: TimeInterval = 5 * 60
+    nonisolated static let cacheDuration: TimeInterval = 2 * 60 * 60
 
     enum State: Equatable {
         case idle, loading
@@ -31,13 +31,15 @@ final class CommitPlusAIUsageController: ObservableObject {
     private(set) var uid: String?
     private var generation = UUID()
     private var pending: Task<CommitPlusAIAllowance, Error>?
-    private var loadedAt: Date?
+    private let cache: CommitPlusAIAllowanceCache
     private let now: () -> Date
     private let cacheDuration: TimeInterval
     var loader: (@Sendable () async throws -> CommitPlusAIAllowance)?
 
     init(cacheDuration: TimeInterval = CommitPlusAIUsageController.cacheDuration,
+         defaults: UserDefaults = .standard,
          now: @escaping () -> Date = { .now }) {
+        self.cache = CommitPlusAIAllowanceCache(defaults: defaults)
         self.cacheDuration = cacheDuration
         self.now = now
     }
@@ -48,7 +50,6 @@ final class CommitPlusAIUsageController: ObservableObject {
         generation = UUID()
         pending?.cancel()
         pending = nil
-        loadedAt = nil
         state = .idle
     }
     func accept(_ allowance: CommitPlusAIAllowance, uid: String) {
@@ -58,12 +59,14 @@ final class CommitPlusAIUsageController: ObservableObject {
         pending?.cancel()
         pending = nil
         state = .loaded(allowance)
-        loadedAt = now()
+        cache.save(allowance, for: uid, at: now())
     }
     func refresh(force: Bool = false) async {
-        guard uid != nil else { state = .unavailable(CommitPlusAIError.signedOut.localizedDescription); return }
-        if !force, case .loaded = state, let loadedAt,
-           now().timeIntervalSince(loadedAt) < cacheDuration { return }
+        guard let uid else { state = .unavailable(CommitPlusAIError.signedOut.localizedDescription); return }
+        if !force, let snapshot = cache.load(for: uid, now: now(), duration: cacheDuration) {
+            state = .loaded(snapshot.allowance)
+            return
+        }
         let epoch = generation
         let task: Task<CommitPlusAIAllowance, Error>
         if let pending { task = pending }
@@ -77,7 +80,7 @@ final class CommitPlusAIUsageController: ObservableObject {
             let allowance = try await task.value
             guard generation == epoch else { return }
             state = .loaded(allowance)
-            loadedAt = now()
+            cache.save(allowance, for: uid, at: now())
         } catch {
             guard generation == epoch else { return }
             state = .unavailable(error.localizedDescription)

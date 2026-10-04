@@ -180,21 +180,25 @@ struct BranchGraphCanvas: View {
         for graphPath: GraphPath,
         rowHeight: CGFloat,
         laneWidth: CGFloat,
-        rowOffset: Double = 0
+        rowOffset: Double = 0,
+        visibleRows: Range<Double>? = nil
     ) -> Path {
         var path = Path()
         let points = graphPath.points
         guard points.count > 1 else { return path }
+        let segments = visibleRows.map { graphPath.segmentEndIndices(intersecting: $0) }
+            ?? 1..<points.count
+        guard !segments.isEmpty else { return path }
 
         var last = position(
-            for: points[0],
+            for: points[segments.lowerBound - 1],
             rowHeight: rowHeight,
             laneWidth: laneWidth,
             rowOffset: rowOffset
         )
         path.move(to: last)
 
-        for index in 1..<points.count {
+        for index in segments {
             let current = position(
                 for: points[index],
                 rowHeight: rowHeight,

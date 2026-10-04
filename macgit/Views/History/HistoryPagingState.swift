@@ -18,21 +18,11 @@
 import Foundation
 
 struct HistoryPagingState {
-    static let retainedPageCount = 3
-
     let pageSize: Int
     private(set) var startIndex: Int = 0
     private(set) var loadedCount: Int = 0
     private(set) var hasMore: Bool = true
     private(set) var isLoadingMore: Bool = false
-
-    var maximumLoadedCount: Int {
-        pageSize * Self.retainedPageCount
-    }
-
-    var needsTrimming: Bool {
-        loadedCount > maximumLoadedCount
-    }
 
     var canLoadNewer: Bool {
         startIndex > 0
@@ -50,13 +40,13 @@ struct HistoryPagingState {
     }
 
     mutating func beginLoadingMore() -> Bool {
-        guard hasMore, !needsTrimming, !isLoadingMore else { return false }
+        guard hasMore, !isLoadingMore else { return false }
         isLoadingMore = true
         return true
     }
 
     mutating func beginLoadingNewer() -> Bool {
-        guard canLoadNewer, !needsTrimming, !isLoadingMore else { return false }
+        guard canLoadNewer, !isLoadingMore else { return false }
         isLoadingMore = true
         return true
     }
@@ -65,20 +55,6 @@ struct HistoryPagingState {
         loadedCount += pageCount
         hasMore = pageCount == pageSize
         isLoadingMore = false
-    }
-
-    mutating func discardNewerCommits(count: Int) {
-        let discardedCount = min(max(0, count), loadedCount)
-        startIndex += discardedCount
-        loadedCount -= discardedCount
-    }
-
-    mutating func discardOlderCommits(count: Int) {
-        let discardedCount = min(max(0, count), loadedCount)
-        loadedCount -= discardedCount
-        if discardedCount > 0 {
-            hasMore = true
-        }
     }
 
     mutating func replaceWindow(startIndex: Int, count: Int, hasMore: Bool) {

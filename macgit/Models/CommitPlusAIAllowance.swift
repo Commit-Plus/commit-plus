@@ -17,7 +17,7 @@
 //
 import Foundation
 
-nonisolated struct CommitPlusAIAllowance: Decodable, Equatable, Sendable {
+nonisolated struct CommitPlusAIAllowance: Codable, Equatable, Sendable {
     let periodID: String
     let periodStart: Date
     let periodEnd: Date
@@ -60,6 +60,23 @@ nonisolated struct CommitPlusAIAllowance: Decodable, Equatable, Sendable {
               unitsPerCredit == 1_000_000, ["active", "inactive"].contains(access),
               consumedUnits <= allowanceUnits, reservedUnits <= allowanceUnits - consumedUnits,
               availableUnits == allowanceUnits - consumedUnits - reservedUnits else { throw CommitPlusAIError.invalidResponse }
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        try c.encode(periodID, forKey: .periodID)
+        try c.encode(formatter.string(from: periodStart), forKey: .periodStart)
+        try c.encode(formatter.string(from: periodEnd), forKey: .periodEnd)
+        if let resetsAt { try c.encode(formatter.string(from: resetsAt), forKey: .resetsAt) }
+        else { try c.encodeNil(forKey: .resetsAt) }
+        try c.encode(allowanceUnits, forKey: .allowanceUnits)
+        try c.encode(consumedUnits, forKey: .consumedUnits)
+        try c.encode(reservedUnits, forKey: .reservedUnits)
+        try c.encode(availableUnits, forKey: .availableUnits)
+        try c.encode(unitsPerCredit, forKey: .unitsPerCredit)
+        try c.encode(access, forKey: .access)
+        try c.encode(accountingPending, forKey: .accountingPending)
     }
     var credits: Decimal { Decimal(availableUnits) / Decimal(unitsPerCredit) }
     var creditLabel: String {
