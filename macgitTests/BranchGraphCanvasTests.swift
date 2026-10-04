@@ -131,6 +131,35 @@ final class BranchGraphCanvasTests: XCTestCase {
         XCTAssertEqual(rowPath.boundingRect.maxY, fullPath.boundingRect.maxY - 20, accuracy: 0.001)
     }
 
+    func testLongBranchBuildsOnlySegmentsNearVisibleRow() {
+        let graphPath = GraphPath(
+            points: (0..<20_000).map { CGPoint(x: 10, y: Double($0) + 0.5) },
+            colorIndex: 0,
+            isHighlighted: true
+        )
+
+        XCTAssertEqual(graphPath.segmentEndIndices(intersecting: 14_999..<15_002), 14_999..<15_003)
+        let rowPath = BranchGraphCanvas.path(
+            for: graphPath,
+            rowHeight: 24,
+            laneWidth: 14,
+            rowOffset: 15_000,
+            visibleRows: 14_999..<15_002
+        )
+        XCTAssertEqual(rowPath.boundingRect.minY, -36, accuracy: 0.001)
+        XCTAssertEqual(rowPath.boundingRect.maxY, 60, accuracy: 0.001)
+    }
+
+    func testVisibleRowIncludesSegmentCrossingBothBoundaries() {
+        let graphPath = GraphPath(
+            points: [CGPoint(x: 10, y: 0.5), CGPoint(x: 10, y: 1_000.5)],
+            colorIndex: 0,
+            isHighlighted: true
+        )
+        XCTAssertEqual(graphPath.segmentEndIndices(intersecting: 499..<502), 1..<2)
+        XCTAssertTrue(graphPath.segmentEndIndices(intersecting: 1_001..<1_004).isEmpty)
+    }
+
     func testDotPathsUseSourceGitStyleSizes() {
         let center = CGPoint(x: 10, y: 0.5)
 

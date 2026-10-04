@@ -81,49 +81,42 @@ final class HistoryPaginationTests: XCTestCase {
         XCTAssertFalse(state.isLoadingMore)
     }
 
-    func testHistoryPagingStateTracksBoundedWindowInBothDirections() {
+    func testHistoryPagingStateAppendsBeyondThreePagesWithoutMovingStart() {
         var state = HistoryPagingState(pageSize: 100)
-        state.replaceWindow(startIndex: 0, count: 300, hasMore: true)
-
-        XCTAssertEqual(state.maximumLoadedCount, 300)
-        XCTAssertEqual(state.olderPageStartIndex, 300)
-        XCTAssertFalse(state.canLoadNewer)
+        for page in 0..<8 {
+            XCTAssertEqual(state.olderPageStartIndex, page * 100)
+            XCTAssertTrue(state.beginLoadingMore())
+            XCTAssertFalse(state.beginLoadingMore(), "Only one page request may run at a time")
+            state.finishLoadingMore(loaded: 100)
+            XCTAssertEqual(state.startIndex, 0)
+            XCTAssertEqual(state.loadedCount, (page + 1) * 100)
+        }
 
         XCTAssertTrue(state.beginLoadingMore())
-        state.finishLoadingMore(loaded: 100)
-
-        XCTAssertTrue(state.needsTrimming)
+        state.finishLoadingMore(loaded: 25)
+        XCTAssertEqual(state.loadedCount, 825)
+        XCTAssertFalse(state.hasMore)
         XCTAssertFalse(state.beginLoadingMore())
 
-        state.discardNewerCommits(count: 100)
-
-        XCTAssertEqual(state.startIndex, 100)
-        XCTAssertEqual(state.loadedCount, 300)
-        XCTAssertEqual(state.olderPageStartIndex, 400)
-        XCTAssertTrue(state.canLoadNewer)
-
-        XCTAssertTrue(state.beginLoadingNewer())
-        state.replaceWindow(startIndex: 0, count: 300, hasMore: true)
-
-        XCTAssertEqual(state.startIndex, 0)
-        XCTAssertEqual(state.loadedCount, 300)
-        XCTAssertFalse(state.canLoadNewer)
-        XCTAssertFalse(state.isLoadingMore)
+        state.reset()
+        XCTAssertEqual(state.loadedCount, 0)
+        XCTAssertEqual(state.olderPageStartIndex, 0)
+        XCTAssertTrue(state.beginLoadingMore())
     }
 
-    func testHistoryPagingStateTrimsOlderOverflow() {
+    func testHistoryPagingStateCanLoadNewerFromLargeCachedWindow() {
         var state = HistoryPagingState(pageSize: 100)
-        state.replaceWindow(startIndex: 100, count: 400, hasMore: false)
+        state.replaceWindow(startIndex: 100, count: 800, hasMore: false)
 
-        XCTAssertTrue(state.needsTrimming)
+        XCTAssertTrue(state.canLoadNewer)
+        XCTAssertTrue(state.beginLoadingNewer())
         XCTAssertFalse(state.beginLoadingNewer())
+        state.replaceWindow(startIndex: 0, count: 900, hasMore: false)
 
-        state.discardOlderCommits(count: 100)
-
-        XCTAssertEqual(state.startIndex, 100)
-        XCTAssertEqual(state.loadedCount, 300)
-        XCTAssertTrue(state.hasMore)
-        XCTAssertFalse(state.needsTrimming)
+        XCTAssertEqual(state.startIndex, 0)
+        XCTAssertEqual(state.loadedCount, 900)
+        XCTAssertFalse(state.canLoadNewer)
+        XCTAssertFalse(state.isLoadingMore)
     }
 
     func testCommitHistoryUsesTopoOrder() async throws {

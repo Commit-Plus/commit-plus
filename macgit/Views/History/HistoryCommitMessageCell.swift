@@ -22,7 +22,7 @@ struct HistoryCommitMessageCell: View {
     @Environment(\.appTextScale) private var textScale
 
     let commit: Commit
-    let graphModel: CommitGraphModel
+    let graphColorIndex: Int?
     let isDragActive: Bool
     let scrollCoordinator: HistoryTableScrollCoordinator
     let onAppear: () -> Void
@@ -39,7 +39,7 @@ struct HistoryCommitMessageCell: View {
                     ForEach(commit.refs.prefix(3), id: \.self) { ref in
                         RefLabel(
                             text: ref,
-                            graphColorIndex: graphModel.commitMetadata[commit.hash]?.colorIndex
+                            graphColorIndex: graphColorIndex
                         )
                     }
 

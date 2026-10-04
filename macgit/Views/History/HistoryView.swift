@@ -25,11 +25,6 @@ import SwiftUI
 
 struct HistoryView: View {
     @Environment(\.appTextScale) private var textScale
-    private enum HistoryWindowTrimEdge {
-        case newer
-        case older
-    }
-
     private struct SquashSheetPresentation: Identifiable {
         let id = UUID()
         let commits: [Commit]
@@ -73,7 +68,7 @@ struct HistoryView: View {
     @State private var diffFilePath: String?
     @State private var commitFilesLoadID = UUID()
     @State private var diffLoadID = UUID()
-    @AppStorage("history.tableColumns") private var tableColumnCustomization = TableColumnCustomization<Commit>()
+    @AppStorage("history.tableColumns") private var tableColumnCustomization = TableColumnCustomization<HistoryTableRow>()
     @State private var tableSelection: Set<String> = []
     @State private var isRestoringTableSelection = false
     @State private var tableScrollCoordinator = HistoryTableScrollCoordinator()
@@ -85,7 +80,6 @@ struct HistoryView: View {
     @State private var showingError = false
     @State private var scrollTarget: String? = nil
     @State private var paging = HistoryPagingState(pageSize: 120)
-    @State private var historyWindowTrimTask: Task<Void, Never>? = nil
     @State private var historyCache = BoundedMemoryCache<String, HistorySnapshot>(capacity: 3)
     @State private var historySearchText = ""
     @State private var debouncedHistorySearchText = ""
@@ -239,7 +233,6 @@ struct HistoryView: View {
         .onDisappear {
             tableScrollCoordinator.stopContextClickMonitoring()
             historySearchDebounceTask?.cancel()
-            historyWindowTrimTask?.cancel()
             dragClickSuppressionTask?.cancel()
             dragCompletionMonitorTask?.cancel()
             activeDragCommitHashes.removeAll()
@@ -589,146 +582,186 @@ struct HistoryView: View {
             if let graphModel {
                 // Fixed initial hints only; the native coordinator owns all
                 // saved widths; viewport changes leave column widths unchanged.
-                ZStack(alignment: .bottom) {
-                    Table(
-                        of: Commit.self,
-                        selection: commitTableSelection,
-                        columnCustomization: $tableColumnCustomization
-                    ) {
-                        TableColumn("Graph") { commit in
-                            commitInteractionCell(for: commit) {
-                                BranchGraphRowCanvas(
-                                    model: graphModel,
-                                    rowIndex: graphModel.rowIndexByHash[commit.hash] ?? 0
-                                )
-                                .opacity(activeDragCommitHashes.contains(commit.hash) ? 0.4 : 1)
-                            }
-                        }
-                        .width(min: 60, ideal: 200, max: .infinity)
-                        .customizationID("graph")
-                        .disabledCustomizationBehavior([.reorder, .visibility])
-
-                        TableColumn("Message") { commit in
-                            commitInteractionCell(for: commit) {
-                                GeometryReader { geometry in
-                                    HistoryCommitMessageCell(
-                                        commit: commit,
-                                        graphModel: graphModel,
-                                        isDragActive: activeDragCommitHashes.contains(commit.hash),
-                                        scrollCoordinator: tableScrollCoordinator,
-                                        onAppear: {
-                                            handleHistoryCommitCellAppearance()
-                                        }
-                                    )
-                                    .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
-                                }
-                                .clipped()
-                            }
-                        }
-                        .width(
-                            min: 120,
-                            ideal: 400,
-                            max: .infinity
-                        )
-                        .customizationID("message")
-                        .disabledCustomizationBehavior([.reorder, .visibility])
-
-                        TableColumn("Author") { commit in
-                            commitInteractionCell(for: commit) {
-                                Text("\(commit.author) <\(commit.email)>")
-                                    .font(.callout.scaled(by: textScale))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                    .help("\(commit.author) <\(commit.email)>")
-                            }
-                        }
-                        .width(
-                            min: 140,
-                            ideal: 180,
-                            max: .infinity
-                        )
-                        .customizationID("author")
-
-                        TableColumn("Date") { commit in
-                            commitInteractionCell(for: commit) {
-                                Text(
-                                    commit.date,
-                                    format: .dateTime
-                                        .hour()
-                                        .minute()
-                                        .day()
-                                        .month(.abbreviated)
-                                        .year()
-                                )
-                                .font(.callout.scaled(by: textScale))
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                                .lineLimit(1)
-                            }
-                        }
-                        .width(
-                            min: 100,
-                            ideal: 140,
-                            max: .infinity
-                        )
-                        .alignment(.leading)
-                        .customizationID("date")
-
-                        TableColumn("Commit") { commit in
-                            commitInteractionCell(for: commit) {
-                                Text(commit.shortHash)
-                                    .font(.callout.monospaced().scaled(by: textScale))
-                                    .foregroundStyle(.tertiary)
-                                    .lineLimit(1)
-                                    .help(commit.hash)
-                            }
-                        }
-                        .width(
-                            min: 72,
-                            ideal: 80,
-                            max: .infinity
-                        )
-                        .alignment(.leading)
-                        .customizationID("commit")
-                    } rows: {
-                        ForEach(commits) { commit in
-                            TableRow(commit)
-                                .draggable(makeCommitDragPayload(startingAt: commit))
-                        }
+                Table(
+                    of: HistoryTableRow.self,
+                    selection: commitTableSelection,
+                    columnCustomization: $tableColumnCustomization
+                ) {
+                    TableColumn("Graph") { (row: HistoryTableRow) in
+                        historyGraphTableCell(row, graphModel: graphModel)
                     }
-                    .tableStyle(.bordered)
-                    .alternatingRowBackgrounds(.enabled)
-                    .controlSize(.small)
-                    .contextMenu(forSelectionType: String.self) { selectedHashes in
-                        if !selectedHashes.isEmpty, tableScrollCoordinator.allowsContextMenu {
-                            commitContextMenu(for: selectedHashes)
-                        }
-                    } primaryAction: { selectedHashes in
-                        handleCommitTablePrimaryAction(selectedHashes)
-                    }
-                    .onChange(of: tableSelection) { oldSelection, newSelection in
-                        applyTableSelection(from: oldSelection, to: newSelection)
-                    }
-                    .task(id: scrollTarget) {
-                        guard let scrollTarget,
-                              let row = commits.firstIndex(where: { $0.hash == scrollTarget }) else {
-                            return
-                        }
-                        await tableScrollCoordinator.scrollToRowWhenReady(row)
-                        if self.scrollTarget == scrollTarget {
-                            self.scrollTarget = nil
-                        }
-                    }
+                    .width(min: 60, ideal: 200, max: .infinity)
+                    .customizationID("graph")
+                    .disabledCustomizationBehavior([.reorder, .visibility])
 
-                    if paging.isLoadingMore {
-                        ProgressView("Loading older commits…")
-                            .font(.caption.scaled(by: textScale))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(.regularMaterial, in: Capsule())
-                            .padding(.bottom, 8)
+                    TableColumn("Message") { (row: HistoryTableRow) in
+                        historyMessageTableCell(row, graphModel: graphModel)
+                    }
+                    .width(
+                        min: 120,
+                        ideal: 400,
+                        max: .infinity
+                    )
+                    .customizationID("message")
+                    .disabledCustomizationBehavior([.reorder, .visibility])
+
+                    TableColumn("Author") { (row: HistoryTableRow) in
+                        historyAuthorTableCell(row)
+                    }
+                    .width(
+                        min: 140,
+                        ideal: 180,
+                        max: .infinity
+                    )
+                    .customizationID("author")
+
+                    TableColumn("Date") { (row: HistoryTableRow) in
+                        historyDateTableCell(row)
+                    }
+                    .width(
+                        min: 100,
+                        ideal: 140,
+                        max: .infinity
+                    )
+                    .alignment(.leading)
+                    .customizationID("date")
+
+                    TableColumn("Commit") { (row: HistoryTableRow) in
+                        historyCommitTableCell(row)
+                    }
+                    .width(
+                        min: 72,
+                        ideal: 80,
+                        max: .infinity
+                    )
+                    .alignment(.leading)
+                    .customizationID("commit")
+                } rows: {
+                    ForEach(commits) { commit in
+                        TableRow(HistoryTableRow.commit(commit))
+                            .draggable(makeCommitDragPayload(startingAt: commit))
+                    }
+                    if paging.hasMore {
+                        TableRow(HistoryTableRow.loading)
                     }
                 }
+                .tableStyle(.bordered)
+                .alternatingRowBackgrounds(.enabled)
+                .controlSize(.small)
+                .contextMenu(forSelectionType: String.self) { selectedHashes in
+                    let commitHashes = selectedHashes.intersection(Set(commits.map(\.hash)))
+                    if !commitHashes.isEmpty, tableScrollCoordinator.allowsContextMenu {
+                        commitContextMenu(for: commitHashes)
+                    }
+                } primaryAction: { selectedHashes in
+                    handleCommitTablePrimaryAction(selectedHashes)
+                }
+                .onChange(of: tableSelection) { oldSelection, newSelection in
+                    applyTableSelection(from: oldSelection, to: newSelection)
+                }
+                .task(id: scrollTarget) {
+                    guard let scrollTarget,
+                          let row = commits.firstIndex(where: { $0.hash == scrollTarget }) else {
+                        return
+                    }
+                    await tableScrollCoordinator.scrollToRowWhenReady(row)
+                    if self.scrollTarget == scrollTarget {
+                        self.scrollTarget = nil
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func historyGraphTableCell(_ row: HistoryTableRow, graphModel: CommitGraphModel) -> some View {
+        if let commit = row.commit {
+            commitInteractionCell(for: commit) {
+                BranchGraphRowCanvas(
+                    model: graphModel,
+                    rowIndex: graphModel.rowIndexByHash[commit.hash] ?? 0
+                )
+                .opacity(activeDragCommitHashes.contains(commit.hash) ? 0.4 : 1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func historyMessageTableCell(_ row: HistoryTableRow, graphModel: CommitGraphModel) -> some View {
+        if let commit = row.commit {
+            commitInteractionCell(for: commit) {
+                GeometryReader { geometry in
+                    HistoryCommitMessageCell(
+                        commit: commit,
+                        graphColorIndex: graphModel.commitMetadata[commit.hash]?.colorIndex,
+                        isDragActive: activeDragCommitHashes.contains(commit.hash),
+                        scrollCoordinator: tableScrollCoordinator,
+                        onAppear: {
+                            handleHistoryCommitCellAppearance()
+                        }
+                    )
+                    .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
+                }
+                .clipped()
+            }
+        } else {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Loading older commits…")
+                    .font(.caption.scaled(by: textScale))
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+            .onAppear {
+                handleHistoryCommitCellAppearance()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func historyAuthorTableCell(_ row: HistoryTableRow) -> some View {
+        if let commit = row.commit {
+            commitInteractionCell(for: commit) {
+                Text("\(commit.author) <\(commit.email)>")
+                    .font(.callout.scaled(by: textScale))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help("\(commit.author) <\(commit.email)>")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func historyDateTableCell(_ row: HistoryTableRow) -> some View {
+        if let commit = row.commit {
+            commitInteractionCell(for: commit) {
+                Text(
+                    commit.date,
+                    format: .dateTime
+                        .hour()
+                        .minute()
+                        .day()
+                        .month(.abbreviated)
+                        .year()
+                )
+                .font(.callout.scaled(by: textScale))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .lineLimit(1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func historyCommitTableCell(_ row: HistoryTableRow) -> some View {
+        if let commit = row.commit {
+            commitInteractionCell(for: commit) {
+                Text(commit.shortHash)
+                    .font(.callout.monospaced().scaled(by: textScale))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .help(commit.hash)
             }
         }
     }
@@ -1219,21 +1252,13 @@ struct HistoryView: View {
             let combinedCommits = (reset || skip == 0)
                 ? newCommits
                 : commits + newCommits
-            let newerExcessCount = reset
-                ? 0
-                : max(0, combinedCommits.count - paging.maximumLoadedCount)
-            let displayedCommits = newerExcessCount > 0
-                ? Array(combinedCommits.dropFirst(newerExcessCount))
-                : combinedCommits
             return (
                 originalHashes: originalHashes,
-                displayedCommits: displayedCommits,
-                newerExcessCount: newerExcessCount
+                displayedCommits: combinedCommits
             )
         }
         let originalHashes = loadedWindow.originalHashes
         let loadedCommits = loadedWindow.displayedCommits
-        let newerExcessCount = loadedWindow.newerExcessCount
         let headHash: String?
         if let decoratedHead = Self.resolvedHeadHash(from: loadedCommits) {
             headHash = decoratedHead
@@ -1254,7 +1279,7 @@ struct HistoryView: View {
         let highlighting = Self.highlighting(for: appState.historyBranchFilter)
         let previousGraphState = await MainActor.run { graphGenerationState }
         let incrementalGraphResult: CommitGraphGenerationResult?
-        if !reset, newerExcessCount == 0, let previousGraphState {
+        if !reset, let previousGraphState {
             incrementalGraphResult = await CommitGraphGenerator.appendAsync(
                 commits: newCommits,
                 to: previousGraphState,
@@ -1278,14 +1303,10 @@ struct HistoryView: View {
             )
         }
 
-        if newerExcessCount > 0 {
-            // Do not publish an oversized table and trim it in a second pass.
-            // Wait until momentum scrolling stops, then replace the bounded
-            // window once and restore the visible commit once.
-            await tableScrollCoordinator.waitForScrollingToSettle()
-        }
+        // Older pages only append rows. Keep their existing indices and let
+        // the native table continue scrolling without a viewport correction.
         let viewportAnchor = await MainActor.run {
-            (preservingSelectionAndScroll || newerExcessCount > 0)
+            preservingSelectionAndScroll
                 ? tableScrollCoordinator.viewportAnchor(commitHashes: originalHashes)
                 : nil
         }
@@ -1343,7 +1364,6 @@ struct HistoryView: View {
                 )
             } else {
                 paging.finishLoadingMore(loaded: newCommits.count)
-                paging.discardNewerCommits(count: newerExcessCount)
             }
             cancelHistoryRefreshIndicator()
 
@@ -1571,7 +1591,7 @@ struct HistoryView: View {
                 hasMore: paging.hasMore
             ), for: historyLoadKey)
 
-            if let viewportAnchor, !paging.needsTrimming {
+            if let viewportAnchor {
                 Task { @MainActor in
                     await Task.yield()
                     await tableScrollCoordinator.restoreViewportAnchor(
@@ -1581,102 +1601,6 @@ struct HistoryView: View {
                 }
             }
 
-
-            if paging.needsTrimming {
-                scheduleHistoryWindowTrim(from: .older, loadKey: historyLoadKey)
-            }
-        }
-    }
-
-    private func scheduleHistoryWindowTrim(
-        from edge: HistoryWindowTrimEdge,
-        loadKey: String
-    ) {
-        historyWindowTrimTask?.cancel()
-        historyWindowTrimTask = Task { @MainActor in
-            await tableScrollCoordinator.waitForScrollingToSettle()
-            guard !Task.isCancelled else { return }
-            await trimHistoryWindowIfNeeded(from: edge, loadKey: loadKey)
-        }
-    }
-
-    private func trimHistoryWindowIfNeeded(
-        from edge: HistoryWindowTrimEdge,
-        loadKey: String
-    ) async {
-        guard historyLoadKey == loadKey else { return }
-        let excessCount = commits.count - paging.maximumLoadedCount
-        guard excessCount > 0 else { return }
-
-        let originalHashes = commits.map(\.hash)
-        let trimmedCommits: [Commit]
-        switch edge {
-        case .newer:
-            trimmedCommits = Array(commits.dropFirst(excessCount))
-        case .older:
-            trimmedCommits = Array(commits.dropLast(excessCount))
-        }
-
-        let headHash: String?
-        if let resolvedHeadHash = Self.resolvedHeadHash(from: trimmedCommits) {
-            headHash = resolvedHeadHash
-        } else {
-            headHash = await GitStatusService.shared.tipHash(for: "HEAD", in: repositoryURL)
-        }
-        let highlightRootHash = await Self.highlightRootHash(
-            for: appState.historyBranchFilter,
-            commits: trimmedCommits,
-            repositoryURL: repositoryURL
-        )
-        let trimmedGraphResult = await CommitGraphGenerator.generateIncrementalAsync(
-            commits: trimmedCommits,
-            highlighting: Self.highlighting(for: appState.historyBranchFilter),
-            headHash: headHash,
-            highlightRootHash: highlightRootHash
-        )
-
-        // Graph generation runs off the main actor and the user may start a
-        // new momentum scroll while it is in flight. Require another quiet
-        // interval before replacing rows or correcting the viewport.
-        await tableScrollCoordinator.waitForScrollingToSettle()
-
-        guard !Task.isCancelled,
-              historyLoadKey == loadKey,
-              commits.map(\.hash) == originalHashes else { return }
-
-        // Capture after graph generation and the final quiet interval. If the
-        // user moved while graph generation was in flight, an earlier anchor
-        // would snap the Table back to a stale position after trimming.
-        let viewportAnchor = edge == .newer
-            ? tableScrollCoordinator.viewportAnchor(commitHashes: originalHashes)
-            : nil
-
-        commits = trimmedCommits
-        graphModel = trimmedGraphResult.model
-        graphGenerationState = trimmedGraphResult.state
-        currentHeadHash = headHash
-        switch edge {
-        case .newer:
-            paging.discardNewerCommits(count: excessCount)
-        case .older:
-            paging.discardOlderCommits(count: excessCount)
-        }
-
-        let visibleHashes = trimmedCommits.map(\.hash)
-        tableSelection = Set(commitSelection.selectedHashes).intersection(visibleHashes)
-        historyCache.insert(HistorySnapshot(
-            commits: trimmedCommits,
-            selectedCommit: selectedCommit,
-            startIndex: paging.startIndex,
-            hasMore: paging.hasMore
-        ), for: loadKey)
-
-        if let viewportAnchor {
-            await Task.yield()
-            await tableScrollCoordinator.restoreViewportAnchor(
-                viewportAnchor,
-                commitHashes: visibleHashes
-            )
         }
     }
 
@@ -1838,7 +1762,9 @@ struct HistoryView: View {
     private var commitTableSelection: Binding<Set<String>> {
         Binding(
             get: { tableSelection },
-            set: { newSelection in
+            set: { proposedSelection in
+                let newSelection = proposedSelection.intersection(Set(commits.map(\.hash)))
+                guard proposedSelection.isEmpty || !newSelection.isEmpty else { return }
                 // A context click on an already selected row must not dismiss
                 // its detail, even if the native Table publishes an empty set.
                 // Intercept the write before onChange clears commitSelection.
@@ -1919,8 +1845,9 @@ struct HistoryView: View {
     }
 
     private func handleHistoryCommitCellAppearance() {
+        guard !isLoading, !paging.isLoadingMore else { return }
         guard let visibleRows = tableScrollCoordinator.visibleRowRange() else { return }
-        let prefetchDistance = max(1, min(paging.pageSize / 2, visibleRows.count * 2))
+        let prefetchDistance = max(paging.pageSize, visibleRows.count * 3)
         if visibleRows.lowerBound <= prefetchDistance, paging.canLoadNewer {
             Task {
                 await loadNewerHistoryIfNeeded()

@@ -60,7 +60,10 @@ struct BranchGraphRowCanvas: View {
                     for: graphPath,
                     rowHeight: Self.rowHeight,
                     laneWidth: Self.laneWidth,
-                    rowOffset: rowOffset
+                    rowOffset: rowOffset,
+                    // Keep neighboring segments for stroke caps and Bezier
+                    // control points that extend slightly beyond an endpoint.
+                    visibleRows: (rowOffset - 1)..<(rowOffset + 2)
                 ),
                 with: .color(BranchGraphCanvas.lineColor(
                     colorIndex: graphPath.colorIndex,

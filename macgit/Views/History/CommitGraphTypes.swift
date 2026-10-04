@@ -37,6 +37,28 @@ nonisolated struct GraphPath: Sendable {
     let points: [CGPoint]
     let colorIndex: Int
     let isHighlighted: Bool
+
+    /// Generated points increase in Y. Include the segments crossing either
+    /// boundary without scanning or rebuilding the rest of a long branch.
+    func segmentEndIndices(intersecting rows: Range<Double>) -> Range<Int> {
+        guard points.count > 1 else { return 0..<0 }
+        func lowerBound(_ y: Double) -> Int {
+            var lower = 0
+            var upper = points.count
+            while lower < upper {
+                let middle = lower + (upper - lower) / 2
+                if points[middle].y < y {
+                    lower = middle + 1
+                } else {
+                    upper = middle
+                }
+            }
+            return lower
+        }
+        let start = max(1, lowerBound(rows.lowerBound))
+        let end = min(points.count, lowerBound(rows.upperBound) + 1)
+        return start..<max(start, end)
+    }
 }
 
 nonisolated struct GraphLink: Sendable {
