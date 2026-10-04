@@ -29,7 +29,8 @@ enum CustomActionArgumentParser {
 
         for character in value {
             if isEscaping {
-                current.append(character)
+                if quote == .double, !"$`\"\\\n".contains(character) { current.append("\\") }
+                if character != "\n" { current.append(character) }
                 isEscaping = false
                 hasToken = true
                 continue
@@ -153,9 +154,6 @@ enum CustomActionValidator {
             for placeholder in placeholders {
                 if Self.supportedPlaceholders.contains(placeholder), argument != placeholder {
                     throw CustomActionValidationError.embeddedPlaceholder(placeholder)
-                }
-                if !Self.supportedPlaceholders.contains(placeholder) {
-                    throw CustomActionValidationError.unsupportedPlaceholder(placeholder)
                 }
             }
         }

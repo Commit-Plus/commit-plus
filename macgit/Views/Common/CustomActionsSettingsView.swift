@@ -112,6 +112,5 @@ struct CustomActionsSettingsView: View {
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
         store.setExecutableOverride(url.path, for: action)
-        store.trust(action)
     }
 }

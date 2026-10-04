@@ -35,6 +35,60 @@ final class CustomActionTests: XCTestCase {
         XCTAssertEqual(cloudStore.events, ["upsert", "load"])
     }
 
+    func testAccountCatalogsAndGuestActionsRemainSeparate() async {
+        let suite = "CustomActionTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = CustomActionStore(userDefaults: defaults)
+        let guest = CustomActionDefinition(name: "Guest", executablePath: "/usr/bin/env")
+        let account = CustomActionDefinition(name: "Account", executablePath: "/usr/bin/env")
+        store.upsert(guest)
+        await store.updateCloudSession(uid: "A", enabled: false)
+        XCTAssertTrue(store.actions.isEmpty)
+        store.upsert(account)
+        await store.updateCloudSession(uid: "B", enabled: false)
+        XCTAssertTrue(store.actions.isEmpty)
+        await store.updateCloudSession(uid: "A", enabled: false)
+        XCTAssertEqual(store.actions, [account])
+        await store.updateCloudSession(uid: nil, enabled: false)
+        XCTAssertEqual(store.actions, [guest])
+    }
+
+    func testLocalEditDuringRemoteLoadSurvives() async {
+        let suite = "CustomActionTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let cloud = RecordingCustomActionCloudStore()
+        let store = CustomActionStore(userDefaults: defaults, cloudStore: cloud)
+        await store.updateCloudSession(uid: "A", enabled: true)
+        let action = CustomActionDefinition(name: "New", executablePath: "/usr/bin/env")
+        cloud.onLoad = { store.upsert(action) }
+        await store.syncNow()
+        XCTAssertEqual(store.actions, [action])
+        cloud.onLoad = nil
+        cloud.events = []
+        await store.syncNow()
+        XCTAssertEqual(cloud.events, ["upsert", "load"])
+    }
+
+    func testDuplicateDoesNotTrustUnreviewedAction() {
+        let suite = "CustomActionTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = CustomActionStore(userDefaults: defaults)
+        let action = CustomActionDefinition(name: "Unreviewed", executablePath: "/usr/bin/env")
+        store.upsert(action, trustOnThisMac: false)
+        store.duplicate(action)
+        XCTAssertFalse(store.isTrusted(store.actions[1]))
+    }
+
+    func testQuotedLiteralBackslashesAndDollarArguments() throws {
+        XCTAssertEqual(try CustomActionArgumentParser.parse(#""C:\path" "a\qb""#), [#"C:\path"#, #"a\qb"#])
+        let action = CustomActionDefinition(name: "Literal", executablePath: "/usr/bin/env", arguments: ["price=$5", "--out=$HOME/file"])
+        XCTAssertNoThrow(try CustomActionValidator.validate(action))
+        XCTAssertEqual(try CustomActionArgumentParser.parse(CustomActionArgumentParser.joined(action.arguments)), action.arguments)
+    }
+
     func testArgumentParserPreservesQuotedArguments() throws {
         XCTAssertEqual(
             try CustomActionArgumentParser.parse(#"--flag "two words" 'three words' empty\ value"#),
@@ -144,10 +198,12 @@ final class CustomActionTests: XCTestCase {
 @MainActor
 private final class RecordingCustomActionCloudStore: CustomActionCloudStore {
     var events: [String] = []
+    var onLoad: (() -> Void)?
     private var actions: [CustomActionDefinition] = []
 
     func load(uid: String) async throws -> [CustomActionDefinition] {
         events.append("load")
+        onLoad?()
         return actions
     }
 
