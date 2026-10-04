@@ -103,6 +103,7 @@ struct MainWindowView: View {
     @EnvironmentObject var featureAccessController: FeatureAccessController
     @EnvironmentObject var repositoryVisibilityController: RepositoryVisibilityController
     @EnvironmentObject var gitFlowConfigurationSyncController: GitFlowConfigurationSyncController
+    @EnvironmentObject var customActionStore: CustomActionStore
     @Environment(\.openWindow) private var openWindow
     let repoSettingsStore = RepoSettingsStore.shared
     let gitFlowConfigurationStore = GitFlowConfigurationStore()
@@ -197,6 +198,10 @@ struct MainWindowView: View {
     @Environment(\.sheetPresentationCoordinator) private var promotionSheetCoordinator
     @StateObject private var repositoryAIChatController: RepositoryAIChatController
     @ObservedObject var operationProgress: RepositoryOperationProgress
+    private let customActionExecutor = CustomActionExecutor()
+    @State private var customActionFilePaths: [String] = []
+    @State private var customActionCommitHashes: [String] = []
+    @State private var customActionOutput: CustomActionOutputPresentation?
 
     init(
         repositoryURL: URL,
@@ -376,6 +381,20 @@ struct MainWindowView: View {
                 }
             }
             .replacingSheet(isPresented: $showingCommitSheet, onDismiss: performPendingToolbarCommit) { commitSheet }
+            .replacingSheet(item: $customActionOutput) { presentation in
+                CustomActionOutputSheet(
+                    result: presentation.result,
+                    onRunAgain: {
+                        customActionOutput = nil
+                        runCustomAction(
+                            id: presentation.result.action.id,
+                            context: presentation.result.context,
+                            surface: invocationSurface(for: presentation.result.context)
+                        )
+                    },
+                    onClose: { customActionOutput = nil }
+                )
+            }
             .replacingSheet(item: $protectedBranchCommitController.warning, onDismiss: { protectedBranchCommitController.finish(.cancel) }) { warning in
                 ProtectedBranchCommitSheet(warning: warning, skipWarnings: $repoSettings.skipProtectedBranchCommitWarnings) { decision in
                     protectedBranchCommitController.finish(decision)
@@ -661,6 +680,7 @@ struct MainWindowView: View {
             stashableCount: syncState.stashableCount
         ))
         .focusedSceneValue(\.gitFlowCommandState, gitFlowCommandState)
+        .focusedSceneValue(\.customActionCommandState, customActionCommandState)
         .frame(minWidth: 900, minHeight: 600)
             .task { await performInitialLoad() }
             .task {
@@ -773,6 +793,81 @@ struct MainWindowView: View {
 
     func runRepositoryOperation(_ message: String, _ operation: @escaping () async -> Void) {
         operationProgress.run(message: message, operation: operation)
+    }
+
+    private var customActionCommandState: CustomActionCommandState {
+        let surface: CustomActionInvocationSurface
+        let context: CustomActionInvocationContext
+        switch selectedItem {
+        case .item(.fileStatus):
+            surface = customActionFilePaths.isEmpty ? .repository : .selectedFiles
+            context = CustomActionInvocationContext(
+                repositoryURL: repositoryURL,
+                filePaths: customActionFilePaths,
+                commitHashes: []
+            )
+        case .item(.history), .branch, .worktree, .tag, .remoteBranch, .head:
+            surface = customActionCommitHashes.isEmpty ? .repository : .selectedCommits
+            context = CustomActionInvocationContext(
+                repositoryURL: repositoryURL,
+                filePaths: [],
+                commitHashes: customActionCommitHashes
+            )
+        default:
+            surface = .repository
+            context = CustomActionInvocationContext(
+                repositoryURL: repositoryURL,
+                filePaths: [],
+                commitHashes: []
+            )
+        }
+        return CustomActionCommandState(
+            context: context,
+            surface: surface,
+            hasActiveOperation: operationProgress.activeOperation != nil,
+            run: { id, invocationSurface in
+                runCustomAction(id: id, context: context, surface: invocationSurface)
+            }
+        )
+    }
+
+    private func invocationSurface(for context: CustomActionInvocationContext) -> CustomActionInvocationSurface {
+        if !context.filePaths.isEmpty { return .selectedFiles }
+        if !context.commitHashes.isEmpty { return .selectedCommits }
+        return .repository
+    }
+
+    private func runCustomAction(
+        id: UUID,
+        context: CustomActionInvocationContext,
+        surface: CustomActionInvocationSurface
+    ) {
+        guard operationProgress.activeOperation == nil,
+              let action = customActionStore.action(id: id) else { return }
+        if let reason = CustomActionValidator.unavailableReason(
+            for: action,
+            surface: surface,
+            context: context,
+            isTrusted: customActionStore.isTrusted(action)
+        ) {
+            syncState.showError(reason)
+            return
+        }
+
+        operationProgress.run(message: "Running \(action.name)...") {
+            let result = await customActionExecutor.execute(action: action, context: context)
+            await syncState.refresh(repositoryURL: repositoryURL, force: true)
+            NotificationCenter.default.post(
+                name: .repositoryDidChange,
+                object: nil,
+                userInfo: ["repositoryURL": repositoryURL]
+            )
+            if result.status != .succeeded || action.alwaysShowOutput {
+                customActionOutput = CustomActionOutputPresentation(result: result)
+            } else {
+                syncState.showInfo("\(action.name) completed successfully.")
+            }
+        }
     }
 
     private func clearReferenceDiff() {
@@ -1243,7 +1338,19 @@ struct MainWindowView: View {
                     },
                     onAuthorizeCommit: authorizeProtectedBranchCommit,
                     onRequestPushAfterCommit: pushAfterCommit,
-                    onRunRepositoryOperation: runRepositoryOperation
+                    onRunRepositoryOperation: runRepositoryOperation,
+                    onCustomActionSelectionChanged: { customActionFilePaths = $0 },
+                    onRunCustomAction: { id, paths in
+                        runCustomAction(
+                            id: id,
+                            context: CustomActionInvocationContext(
+                                repositoryURL: repositoryURL,
+                                filePaths: paths,
+                                commitHashes: []
+                            ),
+                            surface: .selectedFiles
+                        )
+                    }
                 )
             case .item(.history), .branch, .worktree, .tag, .remoteBranch, .head:
                 if let branchComparison {
@@ -1273,7 +1380,19 @@ struct MainWindowView: View {
                         onRunRepositoryOperation: runRepositoryOperation,
                         onRequestCheckout: checkoutRequest,
                         onRequestExplainCommit: explainCommitWithRepositoryAI,
-                        onRequestBrowseRevision: { revisionBrowserWindow.show(revision: $0.hash, in: repositoryURL, credentialResolver: providerCredentialResolver) }
+                        onRequestBrowseRevision: { revisionBrowserWindow.show(revision: $0.hash, in: repositoryURL, credentialResolver: providerCredentialResolver) },
+                        onCustomActionSelectionChanged: { customActionCommitHashes = $0 },
+                        onRunCustomAction: { id, hashes in
+                            runCustomAction(
+                                id: id,
+                                context: CustomActionInvocationContext(
+                                    repositoryURL: repositoryURL,
+                                    filePaths: [],
+                                    commitHashes: hashes
+                                ),
+                                surface: .selectedCommits
+                            )
+                        }
                     )
                 }
             case .item(.reflog):

@@ -30,11 +30,13 @@ struct macgitApp: App {
     @StateObject private var featureAccessController: FeatureAccessController
     @StateObject private var repositoryVisibilityController: RepositoryVisibilityController
     @StateObject private var repositoryBookmarkController: RepositoryBookmarkController
+    @StateObject private var customActionStore: CustomActionStore
     @StateObject private var gitFlowConfigurationSyncController: GitFlowConfigurationSyncController
     @StateObject private var cloudLifecycleController: AppCloudLifecycleController
     @State private var selectedAppSettingsSection: AppSettingsSection = .general
     private let repositoryWindowLifecycleController = RepositoryWindowLifecycleController()
     @FocusedValue(\.repositoryWindowCommandState) private var repositoryWindowCommandState
+    @FocusedValue(\.customActionCommandState) private var customActionCommandState
 
     init() {
         NSWindow.allowsAutomaticWindowTabbing = true
@@ -139,6 +141,11 @@ struct macgitApp: App {
                 : nil
         )
         _repositoryBookmarkController = StateObject(wrappedValue: repositoryBookmarkController)
+        _customActionStore = StateObject(
+            wrappedValue: CustomActionStore(
+                cloudStore: cloudFeaturesEnabled ? FirestoreCustomActionStore() : nil
+            )
+        )
         _gitFlowConfigurationSyncController = StateObject(
             wrappedValue: GitFlowConfigurationSyncController(
                 cloudStore: cloudFeaturesEnabled
@@ -238,6 +245,7 @@ struct macgitApp: App {
                 .environmentObject(featureAccessController)
                 .environmentObject(repositoryVisibilityController)
                 .environmentObject(repositoryBookmarkController)
+                .environmentObject(customActionStore)
                 .environmentObject(gitFlowConfigurationSyncController)
                 .preferredColorScheme(appState.appearance.colorScheme)
                 .font(appState.textSize.font)
@@ -248,6 +256,12 @@ struct macgitApp: App {
                 .task(id: accountController.account?.uid) {
                     cloudLifecycleController.start()
                     await cloudLifecycleController.updateAccount(accountController.account)
+                }
+                .task(id: customActionSyncTaskID) {
+                    await customActionStore.updateCloudSession(
+                        uid: accountController.account?.uid,
+                        enabled: appState.syncEnabled
+                    )
                 }
                 .onChange(of: accountController.account?.uid, initial: true) { _, uid in
                     aiProviderController.managedUsageController?.setSession(uid: uid)
@@ -395,6 +409,24 @@ struct macgitApp: App {
 
                 Divider()
 
+                Menu("Custom Actions") {
+                    if let state = customActionCommandState {
+                        CustomActionMenuContent(
+                            store: customActionStore,
+                            surface: state.surface,
+                            context: state.context,
+                            hasActiveOperation: state.hasActiveOperation,
+                            includesRepositoryActions: true,
+                            onRun: state.run
+                        )
+                    } else {
+                        Text("No Repository Open")
+                    }
+                }
+                .disabled(customActionCommandState == nil)
+
+                Divider()
+
                 Button("Search...") {
                     WindowScopedNotification.post(name: .showSearchModal)
                 }
@@ -457,6 +489,7 @@ struct macgitApp: App {
                 providerAccountController: providerAccountController,
                 aiProviderController: aiProviderController,
                 appUpdateController: appUpdateController,
+                customActionStore: customActionStore,
                 selectedSection: $selectedAppSettingsSection
             )
             .environmentObject(featureAccessController)
@@ -467,5 +500,9 @@ struct macgitApp: App {
         .defaultSize(width: 920, height: 640)
         .defaultLaunchBehavior(.suppressed)
         .windowResizability(.contentMinSize)
+    }
+
+    private var customActionSyncTaskID: String {
+        "\(accountController.account?.uid ?? "guest"):\(appState.syncEnabled)"
     }
 }

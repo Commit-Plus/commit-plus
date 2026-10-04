@@ -45,6 +45,9 @@ struct HistoryView: View {
     let onRequestExplainCommit: (Commit) -> Void
     let onRequestBrowseRevision: (Commit) -> Void
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var customActionStore: CustomActionStore
+    var onCustomActionSelectionChanged: ([String]) -> Void = { _ in }
+    var onRunCustomAction: (UUID, [String]) -> Void = { _, _ in }
     
     @State private var commits: [Commit] = []
     @State private var graphModel: CommitGraphModel? = nil
@@ -128,7 +131,9 @@ struct HistoryView: View {
         },
         onRequestCheckout: @escaping (String, Bool) -> Void = { _, _ in },
         onRequestExplainCommit: @escaping (Commit) -> Void = { _ in },
-        onRequestBrowseRevision: @escaping (Commit) -> Void = { _ in }
+        onRequestBrowseRevision: @escaping (Commit) -> Void = { _ in },
+        onCustomActionSelectionChanged: @escaping ([String]) -> Void = { _ in },
+        onRunCustomAction: @escaping (UUID, [String]) -> Void = { _, _ in }
     ) {
         self.repositoryURL = repositoryURL
         self.selectedBranch = selectedBranch
@@ -138,6 +143,8 @@ struct HistoryView: View {
         self.onRequestCheckout = onRequestCheckout
         self.onRequestExplainCommit = onRequestExplainCommit
         self.onRequestBrowseRevision = onRequestBrowseRevision
+        self.onCustomActionSelectionChanged = onCustomActionSelectionChanged
+        self.onRunCustomAction = onRunCustomAction
         let storedPageSize = UserDefaults.standard.integer(forKey: "advanced.historyLoadSize")
         self._paging = State(
             initialValue: HistoryPagingState(
@@ -708,6 +715,7 @@ struct HistoryView: View {
                     }
                     .onChange(of: tableSelection) { oldSelection, newSelection in
                         applyTableSelection(from: oldSelection, to: newSelection)
+                        onCustomActionSelectionChanged(commits.map(\.hash).filter(newSelection.contains))
                     }
                     .task(id: scrollTarget) {
                         guard let scrollTarget,
@@ -1085,6 +1093,22 @@ struct HistoryView: View {
                 showingRevertConfirmation = true
             }
             .disabled(singleCommit == nil)
+
+            Divider()
+
+            Menu("Custom Actions") {
+                let hashes = contextCommits.map(\.hash)
+                CustomActionMenuContent(
+                    store: customActionStore,
+                    surface: .selectedCommits,
+                    context: CustomActionInvocationContext(
+                        repositoryURL: repositoryURL,
+                        filePaths: [],
+                        commitHashes: hashes
+                    ),
+                    onRun: { id, _ in onRunCustomAction(id, hashes) }
+                )
+            }
             
             Divider()
             

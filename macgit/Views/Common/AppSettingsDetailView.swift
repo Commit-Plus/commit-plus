@@ -24,6 +24,7 @@ struct AppSettingsDetailView: View {
     @ObservedObject var providerAccountController: GitProviderAccountController
     @ObservedObject var aiProviderController: AIProviderController
     @ObservedObject var appUpdateController: AppUpdateController
+    @ObservedObject var customActionStore: CustomActionStore
     let restrictedAIProviderAccess: FeatureAccessDecision
     @Binding var aiProviderDrafts: [AIProviderConfigurationDraft]
 
@@ -42,6 +43,8 @@ struct AppSettingsDetailView: View {
             )
         case .integrations:
             IntegrationsSettingsView(appState: appState)
+        case .customActions:
+            CustomActionsSettingsView(store: customActionStore)
         case .aiProviders:
             AIProvidersSettingsView(
                 controller: aiProviderController,

@@ -33,6 +33,7 @@ struct FileStatusView: View {
     @ObservedObject var aiProviderController: AIProviderController
     @EnvironmentObject private var accountController: AccountSessionController
     @EnvironmentObject private var featureAccessController: FeatureAccessController
+    @EnvironmentObject private var customActionStore: CustomActionStore
     @ObservedObject var syncState: SyncState
     var undoManager: GitUndoManager? = nil
     var preferredRemote: String? = nil
@@ -45,6 +46,8 @@ struct FileStatusView: View {
     var onAuthorizeCommit: () async -> Bool = { true }
     var onRequestPushAfterCommit: (String, String) async throws -> Void
     var onRunRepositoryOperation: RepositoryOperationRunner
+    var onCustomActionSelectionChanged: ([String]) -> Void = { _ in }
+    var onRunCustomAction: (UUID, [String]) -> Void = { _, _ in }
 
     @ObservedObject private var integrationSettings = IntegrationSettingsStore.shared
     @State private var gitStatus: GitStatus = GitStatus(staged: [], unstaged: [], untracked: [])
@@ -305,6 +308,9 @@ struct FileStatusView: View {
         .onChange(of: selectedFileKey) { _, newSelectionKey in
             diffHunks = []
             isLoadingDiff = newSelectionKey != nil
+        }
+        .onChange(of: selectedActionFileKeys, initial: true) { _, _ in
+            onCustomActionSelectionChanged(actionSelection.selectedFiles.map(\.path))
         }
         .task(id: selectedFileKey) {
             guard let selectionKey = selectedFileKey,
@@ -689,6 +695,20 @@ struct FileStatusView: View {
         .accessibilityAddTraits(isActionSelected ? .isSelected : [])
         .contextMenu {
             fileContextMenu(file: file, isStaged: isStaged)
+            Divider()
+            Menu("Custom Actions") {
+                let paths = actionSelection.files(for: .remove, fallback: file).map(\.path)
+                CustomActionMenuContent(
+                    store: customActionStore,
+                    surface: .selectedFiles,
+                    context: CustomActionInvocationContext(
+                        repositoryURL: repositoryURL,
+                        filePaths: paths,
+                        commitHashes: []
+                    ),
+                    onRun: { id, _ in onRunCustomAction(id, paths) }
+                )
+            }
         }
     }
 
@@ -1625,6 +1645,7 @@ struct FileStatusView: View {
                !selectedActionFileKeys.contains(actionSelectionAnchorKey) {
                 self.actionSelectionAnchorKey = selectedActionFileKeys.first
             }
+            onCustomActionSelectionChanged(actionSelection.selectedFiles.map(\.path))
         } catch {
             errorMessage = error.localizedDescription
             showingError = true

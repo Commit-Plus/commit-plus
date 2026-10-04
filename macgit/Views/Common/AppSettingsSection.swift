@@ -23,6 +23,7 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
     case git
     case accounts
     case integrations
+    case customActions
     case aiProviders
     case update
     case advanced
@@ -36,6 +37,7 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         case .git: "Git"
         case .accounts: "Account"
         case .integrations: "Integrations"
+        case .customActions: "Custom Actions"
         case .aiProviders: "AI Providers"
         case .update: "Update"
         case .advanced: "Advanced"
@@ -49,6 +51,7 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         case .git: "point.3.connected.trianglepath.dotted"
         case .accounts: "person.crop.circle"
         case .integrations: "puzzlepiece.extension"
+        case .customActions: "terminal"
         case .aiProviders: "sparkles"
         case .update: "arrow.triangle.2.circlepath"
         case .advanced: "wrench.and.screwdriver"
@@ -62,6 +65,7 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         case .git: .green
         case .accounts: .indigo
         case .integrations: .teal
+        case .customActions: .mint
         case .aiProviders: .purple
         case .update: .cyan
         case .advanced: .brown
@@ -80,6 +84,8 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
             "Manage your Commit+ account and Git provider connections."
         case .integrations:
             "Connect Commit+ with external tools and services."
+        case .customActions:
+            "Configure reusable repository, file, and commit actions."
         case .aiProviders:
             "Configure AI providers for commit-message generation."
         case .update:
