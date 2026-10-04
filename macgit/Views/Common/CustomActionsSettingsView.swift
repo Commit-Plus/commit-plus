@@ -6,8 +6,12 @@ import SwiftUI
 struct CustomActionsSettingsView: View {
     @ObservedObject var store: CustomActionStore
     @State private var selection: UUID?
-    @State private var editingAction: CustomActionDefinition?
-    @State private var isPresentingEditor = false
+    @State private var editor: EditorPresentation?
+
+    private struct EditorPresentation: Identifiable {
+        let id = UUID()
+        let action: CustomActionDefinition?
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -29,18 +33,21 @@ struct CustomActionsSettingsView: View {
                         description: Text("Add an executable or import a script to get started.")
                     )
                 } else {
-                    List(selection: $selection) {
+                    List {
                         ForEach(store.actions) { action in
                             CustomActionSettingsRow(
                                 action: action,
                                 effectiveAction: store.effectiveAction(action),
                                 isTrusted: store.isTrusted(action),
-                                onToggle: { store.setEnabled($0, for: action) },
+                                onToggle: {
+                                    selection = action.id
+                                    store.setEnabled($0, for: action)
+                                },
                                 onReview: { edit(action) },
                                 onLocate: { locate(action) }
                             )
-                            .tag(action.id)
-                            .onTapGesture(count: 2) { edit(action) }
+                            .listRowBackground(action.isEnabled ? Color.accentColor.opacity(0.18) : Color.clear)
+                            .simultaneousGesture(TapGesture(count: 2).onEnded { edit(action) })
                         }
                         .onMove(perform: store.move)
                     }
@@ -66,8 +73,9 @@ struct CustomActionsSettingsView: View {
             }
         }
         .padding(24)
-        .sheet(isPresented: $isPresentingEditor) {
-            CustomActionEditorSheet(action: editingAction) { action in
+        .sheet(item: $editor) { presentation in
+            CustomActionEditorSheet(action: presentation.action) { action in
+                store.setExecutableOverride(nil, for: action)
                 store.upsert(action)
                 selection = action.id
             }
@@ -80,13 +88,12 @@ struct CustomActionsSettingsView: View {
     }
 
     private func add() {
-        editingAction = nil
-        isPresentingEditor = true
+        editor = EditorPresentation(action: nil)
     }
 
     private func edit(_ action: CustomActionDefinition) {
-        editingAction = action
-        isPresentingEditor = true
+        guard let current = store.action(id: action.id) else { return }
+        editor = EditorPresentation(action: current)
     }
 
     private func editSelected() {

@@ -429,9 +429,10 @@ struct macgitApp: App {
                         )
                     } else {
                         Text("No Repository Open")
+                        Divider()
+                        CustomActionAddMenuButton()
                     }
                 }
-                .disabled(customActionCommandState == nil)
 
                 Divider()
 

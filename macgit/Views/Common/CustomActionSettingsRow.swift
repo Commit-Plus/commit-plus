@@ -18,15 +18,22 @@ struct CustomActionSettingsRow: View {
             ))
             .labelsHidden()
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(action.name)
-                Text(detail)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+            Button {
+                onToggle(!action.isEnabled)
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(action.name)
+                        Text(detail)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                }
+                .contentShape(Rectangle())
             }
-
-            Spacer()
+            .buttonStyle(.plain)
 
             if needsExecutable {
                 Button("Locate…", action: onLocate)

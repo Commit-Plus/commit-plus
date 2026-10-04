@@ -37,5 +37,19 @@ struct CustomActionMenuContent: View {
                     .help(reason ?? "Run \(action.name)")
             }
         }
+        Divider()
+        CustomActionAddMenuButton()
+    }
+}
+
+
+struct CustomActionAddMenuButton: View {
+    var body: some View {
+        Button("Add new action", systemImage: "plus") {
+            WindowScopedNotification.post(
+                name: .showAppSettings,
+                userInfo: ["section": AppSettingsSection.customActions.rawValue]
+            )
+        }
     }
 }
