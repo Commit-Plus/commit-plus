@@ -1,9 +1,7 @@
 name: AI PR Review
 
 on:
-  pull_request_target:
-    branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,7 +13,8 @@ concurrency:
 
 jobs:
   review:
-    if: github.event.pull_request.draft == false
+    # Disabled: retain the configuration for possible future use.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
