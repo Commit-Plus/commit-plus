@@ -70,6 +70,9 @@ struct HistoryView: View {
     @State private var diffHunks: [DiffHunk] = []
     @State private var diffCommitHash: String?
     @State private var diffFilePath: String?
+    @State private var commitFilesCommitHash: String?
+    @State private var commitFilesLoaded = false
+    @State private var commitLineCountsLoaded = false
     @State private var commitFilesLoadID = UUID()
     @State private var diffLoadID = UUID()
     @State private var commitFilesLoadTask: Task<Void, Never>?
@@ -252,8 +255,9 @@ struct HistoryView: View {
             // its in-flight detail request was cancelled on disappearance.
             if commitFilesLoadTask?.isCancelled == true {
                 let commit = selectedCommit
-                commitFilesLoadTask = Task { await loadFileChanges(for: commit) }
-            } else if diffLoadTask?.isCancelled == true {
+                commitFilesLoadTask = Task { await loadFileChanges(for: commit, resuming: true) }
+            }
+            if diffLoadTask?.isCancelled == true {
                 let file = selectedFile
                 let commit = selectedCommit
                 diffLoadTask = Task { await loadDiff(for: file, in: commit) }
@@ -1739,12 +1743,16 @@ struct HistoryView: View {
         }
     }
     
-    private func loadFileChanges(for commit: Commit?) async {
+    private func loadFileChanges(for commit: Commit?, resuming: Bool = false) async {
         guard !Task.isCancelled else { return }
         let loadID = UUID()
         await MainActor.run {
             guard !Task.isCancelled else { return }
             commitFilesLoadID = loadID
+            if resuming, commitFilesCommitHash == commit?.hash { return }
+            commitFilesCommitHash = commit?.hash
+            commitFilesLoaded = false
+            commitLineCountsLoaded = false
             commitLineCounts = [:]
             commitPatchEligibilityLoaded = false
             commitPatchEligibilityError = nil
@@ -1759,22 +1767,33 @@ struct HistoryView: View {
             return
         }
 
-        async let lineCounts = try? GitStatusService.shared.commitLineChangeCounts(in: commit.hash, in: repositoryURL)
-        let changes = await GitStatusService.shared.changedFiles(
-            in: commit.hash,
-            in: repositoryURL
-        )
-        await MainActor.run {
-            guard !Task.isCancelled, commitFilesLoadID == loadID,
-                  selectedCommit?.hash == commit.hash else {
-                return
+        // Resume each unfinished stage without clearing results or file selection.
+        // Empty results are valid, so completion cannot be inferred from their contents.
+        async let lineCounts: [String: FileLineChangeCount]? = commitLineCountsLoaded
+            ? nil
+            : try? GitStatusService.shared.commitLineChangeCounts(in: commit.hash, in: repositoryURL)
+        if !commitFilesLoaded {
+            let changes = await GitStatusService.shared.changedFiles(
+                in: commit.hash,
+                in: repositoryURL
+            )
+            await MainActor.run {
+                guard !Task.isCancelled, commitFilesLoadID == loadID,
+                      selectedCommit?.hash == commit.hash else {
+                    return
+                }
+                fileChanges = changes
+                commitFilesLoaded = true
+                selectedFile = changes.first(where: { $0 == selectedFile }) ?? changes.first
             }
-            fileChanges = changes
-            selectedFile = changes.first
         }
         let loadedLineCounts = await lineCounts
         guard !Task.isCancelled, commitFilesLoadID == loadID, selectedCommit?.hash == commit.hash else { return }
-        commitLineCounts = loadedLineCounts ?? [:]
+        if !commitLineCountsLoaded {
+            commitLineCounts = loadedLineCounts ?? [:]
+            commitLineCountsLoaded = true
+        }
+        guard !commitPatchEligibilityLoaded else { return }
         do {
             let reasons = try await GitStatusService.shared.commitPatchUnavailableReasons(commit: commit.hash, in: repositoryURL)
             guard !Task.isCancelled, commitFilesLoadID == loadID, selectedCommit?.hash == commit.hash else { return }
