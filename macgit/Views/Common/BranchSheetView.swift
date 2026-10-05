@@ -144,10 +144,7 @@ struct BranchSheetView: View {
     }
 
     private var commitPickerOptions: [BranchCommitInfo] {
-        if hasResolvedStartPointCommitID, let resolvedStartPointCommit {
-            return [resolvedStartPointCommit]
-        }
-        return Self.commitPickerOptions(
+        Self.commitPickerOptions(
             selectedStartPoint: selectedStartPoint,
             recentCommits: recentCommits
         )
@@ -409,32 +406,28 @@ struct BranchSheetView: View {
                                     }
                                 }
 
-                            Picker("", selection: $selectedStartReference) {
-                                Text("Select a commit...").tag("")
-                                ForEach(commitPickerOptions) { commit in
-                                    Text(commit.display)
-                                        .tag(commit.hash)
-                                        .lineLimit(1)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .frame(width: 112, alignment: .leading)
-                            .onChange(of: selectedStartReference) { _, newValue in
-                                guard !newValue.isEmpty else {
-                                    selectedStartPoint = nil
-                                    return
-                                }
-                                if let matchingCommit = commitPickerOptions.first(where: { $0.hash == newValue }) {
-                                    selectedStartPoint = .commit(
-                                        hash: matchingCommit.hash,
-                                        message: matchingCommit.message
-                                    )
-                                    startPointCommitIDInput = matchingCommit.hash
-                                    resolvedStartPointCommit = matchingCommit
+                            SearchableReferencePicker(
+                                title: "Start commit", selection: selectedStartReference,
+                                options: commitPickerOptions.map(\.hash),
+                                searchPrompt: "Search commit SHA or message",
+                                placeholder: "Select a commit…",
+                                emptyMessage: "No matching commits",
+                                referenceLabel: { hash in
+                                    guard let commit = commitPickerOptions.first(where: { $0.hash == hash }) else { return hash }
+                                    return "\(hash.prefix(8)) \(commit.message)"
+                                },
+                                onSelect: { hash in
+                                    guard let commit = commitPickerOptions.first(where: { $0.hash == hash }) else { return }
+                                    startPointCommitValidationTask?.cancel()
+                                    selectedStartReference = hash
+                                    selectedStartPoint = .commit(hash: hash, message: commit.message)
+                                    startPointCommitIDInput = hash
+                                    resolvedStartPointCommit = commit
                                     hasResolvedStartPointCommitID = false
                                     startPointCommitIDError = nil
-                                }
-                            }
+                                })
+                            .frame(minWidth: 180, maxWidth: .infinity)
+
                         }
                         .padding(.leading, 16)
                         if isResolvingStartPointCommit {

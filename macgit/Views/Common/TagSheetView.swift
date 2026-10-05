@@ -84,7 +84,7 @@ struct TagSheetView: View {
 
     private var visibleCommitOptions: [BranchCommitInfo] {
         if hasResolvedCommitID, let resolvedCommit {
-            return [resolvedCommit]
+            return [resolvedCommit] + commitOptions.filter { $0.hash != resolvedCommit.hash }
         }
         return commitOptions
     }
@@ -142,26 +142,28 @@ struct TagSheetView: View {
                                 }
                             }
 
-                        Picker("", selection: $selectedCommit) {
-                            Text("Select a commit...").tag("")
-                            ForEach(visibleCommitOptions) { commit in
-                                Text(commit.display)
-                                    .tag(commit.hash)
-                                    .lineLimit(1)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .frame(minWidth: 300, alignment: .leading)
-                        .onChange(of: selectedCommit) { _, newValue in
-                            if let matchingCommit = visibleCommitOptions.first(where: { $0.hash == newValue }) {
-                                source = .specified(matchingCommit.hash)
-                                if !hasResolvedCommitID {
-                                    commitIDInput = matchingCommit.hash
-                                    resolvedCommit = matchingCommit
-                                    commitIDError = nil
-                                }
-                            }
-                        }
+                        SearchableReferencePicker(
+                            title: "Tag commit", selection: selectedCommit,
+                            options: visibleCommitOptions.map(\.hash),
+                            searchPrompt: "Search commit SHA or message",
+                            placeholder: "Select a commit…",
+                            emptyMessage: "No matching commits",
+                            referenceLabel: { hash in
+                                guard let commit = visibleCommitOptions.first(where: { $0.hash == hash }) else { return hash }
+                                return "\(hash.prefix(8)) \(commit.message)"
+                            },
+                            onSelect: { hash in
+                                guard let commit = visibleCommitOptions.first(where: { $0.hash == hash }) else { return }
+                                commitValidationTask?.cancel()
+                                selectedCommit = hash
+                                source = .specified(hash)
+                                commitIDInput = hash
+                                resolvedCommit = commit
+                                hasResolvedCommitID = false
+                                commitIDError = nil
+                            })
+                        .frame(minWidth: 240, maxWidth: .infinity)
+
                     }
                     if isResolvingCommitID {
                         ProgressView()

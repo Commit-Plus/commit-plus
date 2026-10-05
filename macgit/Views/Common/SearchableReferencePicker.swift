@@ -6,6 +6,8 @@ struct SearchableReferencePicker: View {
     let selection: String
     let options: [String]
     let searchPrompt: String
+    var placeholder = "Select branch…"
+    var emptyMessage = "No matching branches"
     var allowsCustomReference = false
     var referenceLabel: (String) -> String = { $0 }
     let onSelect: (String) -> Void
@@ -25,7 +27,7 @@ struct SearchableReferencePicker: View {
             isPresented = true
         } label: {
             HStack {
-                Text(selection.isEmpty ? "Select branch…" : referenceLabel(selection))
+                Text(selection.isEmpty ? placeholder : referenceLabel(selection))
                     .lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 12)
                 Image(systemName: "chevron.down").font(.caption)
@@ -59,7 +61,7 @@ struct SearchableReferencePicker: View {
                             option(ref, label: referenceLabel(ref))
                         }
                         if matches.isEmpty && !allowsCustomReference {
-                            Text(options.isEmpty ? "No branches available" : "No matching branches")
+                            Text(emptyMessage)
                                 .foregroundStyle(.secondary).padding(8)
                         }
                     }
