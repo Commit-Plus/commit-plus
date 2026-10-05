@@ -25,6 +25,7 @@ import SwiftUI
 struct CommitFileListView: View {
     @Environment(\.appTextScale) private var textScale
     let changes: [CommitFileChange]
+    var lineCounts: [String: FileLineChangeCount] = [:]
     @Binding var selectedFile: CommitFileChange?
     var onPreview: ((CommitFileChange) -> Void)? = nil
     var onPatch: (([CommitFileChange], CommitPatchRequest.Direction) -> Void)? = nil
@@ -79,13 +80,13 @@ struct CommitFileListView: View {
                         .accessibilityLabel(change.status.displayText)
                     
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(fileName(from: change.path))
-                            .font(.system(size: 12, weight: .medium).scaled(by: textScale))
-                            .lineLimit(1)
-                        Text(directory(from: change.path))
-                            .font(.system(size: 10).scaled(by: textScale))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
+                        FileChangeLabel(
+                            name: fileName(from: change.path),
+                            path: directory(from: change.path),
+                            counts: lineCounts[change.path],
+                            nameFontSize: 12,
+                            pathColor: .tertiary
+                        ) { EmptyView() }
                         if let oldPath = change.oldPath {
                             Text("From: \(oldPath)")
                                 .font(.caption2.scaled(by: textScale))

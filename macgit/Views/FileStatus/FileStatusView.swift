@@ -51,6 +51,9 @@ struct FileStatusView: View {
 
     @ObservedObject private var integrationSettings = IntegrationSettingsStore.shared
     @State private var gitStatus: GitStatus = GitStatus(staged: [], unstaged: [], untracked: [])
+    @State private var stagedLineCounts: [String: FileLineChangeCount] = [:]
+    @State private var changedLineCounts: [String: FileLineChangeCount] = [:]
+    @State private var lineCountRefreshID = UUID()
     @State private var lfsPaths = Set<String>()
     @State private var stagedLFSPaths = Set<String>()
     @State private var changedFiles: [StatusFile] = []
@@ -304,6 +307,15 @@ struct FileStatusView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .task {
             await loadStatus()
+        }
+        .task(id: lineCountRefreshID) {
+            let status = gitStatus
+            async let staged = GitStatusService.shared.lineChangeCounts(for: status.staged, staged: true, in: repositoryURL)
+            async let changed = GitStatusService.shared.lineChangeCounts(for: status.unstaged + status.untracked, staged: false, in: repositoryURL)
+            let counts = await (staged, changed)
+            guard !Task.isCancelled else { return }
+            stagedLineCounts = counts.0
+            changedLineCounts = counts.1
         }
         .onChange(of: selectedFileKey) { _, newSelectionKey in
             diffHunks = []
@@ -609,38 +621,26 @@ struct FileStatusView: View {
                         .font(.system(size: 14, weight: .medium))
                         .frame(width: 18)
 
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack(spacing: 6) {
-                            Text(file.displayName)
-                                .font(.system(size: 13, weight: .medium))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            if isLFS || isPotentialConflict {
-                                HStack(spacing: 6) {
-                                    if isLFS {
-                                        GitLFSChip()
-                                    }
-                                    if isPotentialConflict {
-                                        PotentialConflictFileIndicator(
-                                            baseRef: currentBranchIntegrationStatus?.baseRef,
-                                            onOpenDetails: { presentPotentialConflictDetails(for: file) }
-                                        )
-                                    }
+                    FileChangeLabel(
+                        name: file.displayName,
+                        path: file.originalPath.map { "\($0) → \(file.path)" } ?? file.directory,
+                        counts: (isStaged ? stagedLineCounts : changedLineCounts)[file.path],
+                        pathColor: file.originalPath == nil ? .tertiary : .secondary
+                    ) {
+                        if isLFS || isPotentialConflict {
+                            HStack(spacing: 6) {
+                                if isLFS {
+                                    GitLFSChip()
                                 }
-                                .fixedSize(horizontal: true, vertical: false)
-                                .layoutPriority(1)
+                                if isPotentialConflict {
+                                    PotentialConflictFileIndicator(
+                                        baseRef: currentBranchIntegrationStatus?.baseRef,
+                                        onOpenDetails: { presentPotentialConflictDetails(for: file) }
+                                    )
+                                }
                             }
-                        }
-                        if let original = file.originalPath {
-                            Text("\(original) → \(file.path)")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        } else {
-                            Text(file.directory)
-                                .font(.system(size: 10))
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .layoutPriority(1)
                         }
                     }
 
@@ -1622,7 +1622,10 @@ struct FileStatusView: View {
             let paths = Set((loadedStatus.staged + loadedStatus.unstaged + loadedStatus.untracked).map(\.path))
             lfsPaths = (try? await GitStatusService.shared.lfsPaths(Array(paths), in: repositoryURL)) ?? []
             stagedLFSPaths = (try? await GitStatusService.shared.lfsPaths(loadedStatus.staged.map(\.path), cached: true, in: repositoryURL)) ?? []
+            stagedLineCounts = [:]
+            changedLineCounts = [:]
             gitStatus = loadedStatus
+            lineCountRefreshID = UUID()
             changedFiles = loadedStatus.unstaged + loadedStatus.untracked
             currentBranch = loadedCurrentBranch
             currentBranchIntegrationStatus = loadedIntegrationStatus

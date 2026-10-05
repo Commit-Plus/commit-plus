@@ -252,7 +252,18 @@ struct HunkView: View {
         !selectedLineIDs.isEmpty
     }
 
+    private var lineChangeCounts: (added: Int, removed: Int) {
+        hunk.lines.reduce(into: (added: 0, removed: 0)) { counts, line in
+            switch line.type {
+            case .added: counts.added += 1
+            case .removed: counts.removed += 1
+            case .context, .header, .conflictMarker: break
+            }
+        }
+    }
+
     var body: some View {
+        let counts = lineChangeCounts
         VStack(alignment: .leading, spacing: 0) {
             // Hunk header
             HStack(spacing: 10) {
@@ -260,6 +271,17 @@ struct HunkView: View {
                     .font(.system(size: 11, weight: .medium, design: .monospaced).scaled(by: textScale))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+
+                HStack(spacing: 6) {
+                    Text("+\(counts.added)")
+                        .foregroundStyle(.green)
+                    Text("-\(counts.removed)")
+                        .foregroundStyle(.red)
+                }
+                .font(.system(size: 11, weight: .medium, design: .monospaced).scaled(by: textScale))
+                .fixedSize()
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(counts.added) lines added, \(counts.removed) lines removed")
 
                 if hunk.lines.count > DiffRenderBatch.lineLimit {
                     Text("\(lineRange.lowerBound + 1)–\(lineRange.upperBound) of \(hunk.lines.count) diff lines")

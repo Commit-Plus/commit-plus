@@ -64,6 +64,7 @@ struct HistoryView: View {
     @State private var fullCommitMessage: String?
     @State private var isLoadingFullCommitMessage = false
     @State private var fullCommitMessageLoadID = UUID()
+    @State private var commitLineCounts: [String: FileLineChangeCount] = [:]
     @State private var fileChanges: [CommitFileChange] = []
     @State private var selectedFile: CommitFileChange? = nil
     @State private var diffHunks: [DiffHunk] = []
@@ -795,7 +796,7 @@ struct HistoryView: View {
                     PersistentHSplit(
                         autosaveName: "HistoryDetailSplit",
                         left: {
-                            CommitFileListView(changes: fileChanges, selectedFile: $selectedFile,
+                            CommitFileListView(changes: fileChanges, lineCounts: commitLineCounts, selectedFile: $selectedFile,
                                 onPreview: { file in
                                     fullFilePreview = CommitFilePreviewRequest(
                                         repositoryURL: repositoryURL, commitHash: commit.hash, file: file)
@@ -1705,6 +1706,7 @@ struct HistoryView: View {
         let loadID = UUID()
         await MainActor.run {
             commitFilesLoadID = loadID
+            commitLineCounts = [:]
             commitPatchEligibilityLoaded = false
             commitPatchEligibilityError = nil
             commitPatchReasons = [:]
@@ -1718,6 +1720,7 @@ struct HistoryView: View {
             return
         }
 
+        async let lineCounts = try? GitStatusService.shared.commitLineChangeCounts(in: commit.hash, in: repositoryURL)
         let changes = await GitStatusService.shared.changedFiles(
             in: commit.hash,
             in: repositoryURL
@@ -1730,6 +1733,9 @@ struct HistoryView: View {
             fileChanges = changes
             selectedFile = changes.first
         }
+        let loadedLineCounts = await lineCounts
+        guard commitFilesLoadID == loadID, selectedCommit?.hash == commit.hash else { return }
+        commitLineCounts = loadedLineCounts ?? [:]
         do {
             let reasons = try await GitStatusService.shared.commitPatchUnavailableReasons(commit: commit.hash, in: repositoryURL)
             guard commitFilesLoadID == loadID, selectedCommit?.hash == commit.hash else { return }
