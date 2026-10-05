@@ -4,6 +4,34 @@ import XCTest
 @testable import macgit
 
 final class CustomActionTests: XCTestCase {
+    func testDuplicatePreservesLocalOverrideAndEffectiveTrust() {
+        for trusted in [false, true] {
+            let suite = "CustomActionTests.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let store = CustomActionStore(userDefaults: defaults)
+            let action = CustomActionDefinition(name: "Original", executablePath: "/remote/tool")
+            store.upsert(action, trustOnThisMac: false)
+            store.setExecutableOverride("/usr/bin/env", for: action)
+            if trusted { store.trust(action) }
+
+            // Callers may pass the effective action; its local path must never enter the catalog.
+            store.duplicate(store.action(id: action.id)!)
+            let copy = store.actions[1]
+            XCTAssertNotEqual(copy.id, action.id)
+            XCTAssertEqual(copy.executablePath, "/remote/tool")
+            XCTAssertEqual(store.action(id: copy.id)?.executablePath, "/usr/bin/env")
+            XCTAssertEqual(store.isTrusted(copy), trusted)
+
+            let restored = CustomActionStore(userDefaults: defaults)
+            XCTAssertEqual(restored.actions[1].executablePath, "/remote/tool")
+            XCTAssertEqual(restored.action(id: copy.id)?.executablePath, "/usr/bin/env")
+            XCTAssertEqual(restored.isTrusted(copy), trusted)
+            restored.setExecutableOverride(nil, for: copy)
+            XCTAssertFalse(restored.isTrusted(copy))
+        }
+    }
+
     func testUnrelatedEditPreservesLocalExecutableOverrideAndStoredPath() {
         let suite = "CustomActionTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

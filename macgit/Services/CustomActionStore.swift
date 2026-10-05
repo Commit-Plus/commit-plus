@@ -217,7 +217,14 @@ final class CustomActionStore: ObservableObject {
     }
 
     func duplicate(_ action: CustomActionDefinition) {
-        upsert(action.duplicated, trustOnThisMac: isTrusted(action))
+        guard let original = actions.first(where: { $0.id == action.id }) else { return }
+        let copy = original.duplicated
+        let trustOnThisMac = isTrusted(original)
+        if let override = executableOverrides[original.id.uuidString] {
+            executableOverrides[copy.id.uuidString] = override
+            saveExecutableOverrides()
+        }
+        upsert(copy, trustOnThisMac: trustOnThisMac)
     }
 
     func setEnabled(_ enabled: Bool, for action: CustomActionDefinition) {
