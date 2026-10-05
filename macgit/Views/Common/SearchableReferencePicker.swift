@@ -11,15 +11,18 @@ struct SearchableReferencePicker: View {
     var clearSelectionTitle: String? = nil
     var allowsCustomReference = false
     var referenceLabel: (String) -> String = { $0 }
+    var loadOptions: ((String) async -> [String])? = nil
     let onSelect: (String) -> Void
 
+    @State private var loadedOptions: [String] = []
+    @State private var isLoading = false
     @State private var search = ""
     @State private var isPresented = false
     @FocusState private var isSearchFocused: Bool
 
     private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var matches: [String] {
-        options.filter { query.isEmpty || referenceLabel($0).localizedStandardContains(query) || $0.localizedStandardContains(query) }
+        (loadOptions == nil ? options : loadedOptions).filter { query.isEmpty || referenceLabel($0).localizedStandardContains(query) || $0.localizedStandardContains(query) }
     }
 
     var body: some View {
@@ -64,13 +67,18 @@ struct SearchableReferencePicker: View {
                         ForEach(matches, id: \.self) { ref in
                             option(ref, label: referenceLabel(ref))
                         }
-                        if matches.isEmpty && !allowsCustomReference {
+                        if isLoading {
+                            ProgressView().controlSize(.small).padding(8)
+                        }
+                        if matches.isEmpty && !allowsCustomReference && !isLoading {
                             Text(emptyMessage)
                                 .foregroundStyle(.secondary).padding(8)
                         }
                     }
                 }
-                .frame(maxHeight: 280)
+                // Keep the viewport stable while asynchronous results arrive.
+                // A lazy stack cannot provide the full list's intrinsic height.
+                .frame(height: 280)
                 if allowsCustomReference {
                     Text("Select a revision, or enter a SHA or expression such as HEAD~1 and press Return.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -79,6 +87,16 @@ struct SearchableReferencePicker: View {
             .padding(12)
             .frame(width: 420)
             .onAppear { isSearchFocused = true }
+            .task(id: query) {
+                guard let loadOptions else { return }
+                isLoading = true
+                do { try await Task.sleep(for: .milliseconds(150)) }
+                catch { return }
+                let results = await loadOptions(query)
+                guard !Task.isCancelled else { return }
+                loadedOptions = results
+                isLoading = false
+            }
         }
     }
 
