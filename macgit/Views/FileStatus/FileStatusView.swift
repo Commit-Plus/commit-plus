@@ -854,14 +854,17 @@ struct FileStatusView: View {
 
     @ViewBuilder
     private func comparisonMenu(file: StatusFile) -> some View {
-        Button("Compare with Revision…") {
-            onRequestComparePath(ComparisonPath(path: file.path, isDirectory: false))
-        }
-        .disabled(file.status == .untracked || actionSelection.isSingleFileActionDisabled)
-        Button("Compare Parent Folder with Revision…") {
-            let components = file.path.split(separator: "/", omittingEmptySubsequences: false).dropLast()
-            onRequestComparePath(ComparisonPath(path: components.isEmpty ? "." : components.joined(separator: "/"),
-                                               isDirectory: true))
+        Menu("Compare with Revision") {
+            Button("File…") {
+                onRequestComparePath(ComparisonPath(path: file.path, isDirectory: false))
+            }
+            .disabled(file.status == .untracked || actionSelection.isSingleFileActionDisabled)
+            Button("Parent Folder…") {
+                let components = file.path.split(separator: "/", omittingEmptySubsequences: false).dropLast()
+                onRequestComparePath(ComparisonPath(path: components.isEmpty ? "." : components.joined(separator: "/"),
+                                                   isDirectory: true))
+            }
+            .disabled(actionSelection.isSingleFileActionDisabled)
         }
         .disabled(actionSelection.isSingleFileActionDisabled)
         Divider()

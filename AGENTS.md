@@ -63,7 +63,7 @@ See `README.md` for features and `CONTRIBUTING.md` for setup and coding conventi
 
 ## Validation
 
-For app code changes, build without launching the app:
+For app code changes, build first to verify compilation:
 
 ```bash
 rtk proxy xcodebuild -project macgit.xcodeproj -scheme macgit -destination 'platform=macOS' build
@@ -76,7 +76,9 @@ rtk proxy xcodebuild -project macgit.xcodeproj -scheme macgit -destination 'plat
 ```
 
 - Run builds and tests sequentially to avoid Xcode build database locks.
-- Do not launch or relaunch the app to verify changes. If tests crash during bootstrapping (`Early unexpected exit` / `abort() called`, including Firebase initialization), do not retry; report the limitation and use a successful build as compilation evidence.
+- Launch or relaunch the app when needed to review UI or interaction changes. Computer use is allowed for inspecting the running app, navigating to the affected UI, and checking layout and behavior. No additional permission is needed for this review within the requested task.
+- For layout changes, inspect the actual UI at relevant window sizes when needed. Review information hierarchy, spacing, alignment, and use of available space; widening a control alone does not resolve an unbalanced layout.
+- If the app crashes during Firebase initialization, report that runtime review is blocked; do not repeatedly relaunch it or treat the crash as a UI regression without evidence. If tests crash during bootstrapping (`Early unexpected exit` / `abort() called`, including Firebase initialization), do not retry; report the limitation and use a successful build as compilation evidence.
 - A successful build does not verify runtime UI behavior. State clearly when interaction has not been checked.
 - For CLI changes, run `rtk proxy bash scripts/test-command-line.sh`.
 - For documentation-only changes, review the diff; no app build is needed.
