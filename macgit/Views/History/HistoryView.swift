@@ -228,16 +228,19 @@ struct HistoryView: View {
         }
         .onAppear {
             tableScrollCoordinator.startContextClickMonitoring { row in
-                guard commits.indices.contains(row) else { return }
+                guard commits.indices.contains(row) else { return nil }
                 let commit = commits[row]
-                guard !tableSelection.contains(commit.hash) else { return }
-                commitSelection = HistoryCommitSelection(
-                    selectedHashes: [commit.hash],
-                    primaryHash: commit.hash,
-                    anchorHash: commit.hash
-                )
-                selectedCommit = commit
-                tableSelection = [commit.hash]
+                if !tableSelection.contains(commit.hash) {
+                    commitSelection = HistoryCommitSelection(
+                        selectedHashes: [commit.hash],
+                        primaryHash: commit.hash,
+                        anchorHash: commit.hash
+                    )
+                    selectedCommit = commit
+                    tableSelection = [commit.hash]
+                }
+                let contextHashes = tableSelection.intersection(Set(commits.map(\.hash)))
+                return NSHostingMenu(rootView: commitContextMenu(for: contextHashes))
             }
         }
         .onDisappear {
@@ -660,7 +663,10 @@ struct HistoryView: View {
                 .controlSize(.small)
                 .contextMenu(forSelectionType: String.self) { selectedHashes in
                     let commitHashes = selectedHashes.intersection(Set(commits.map(\.hash)))
-                    if !commitHashes.isEmpty, tableScrollCoordinator.allowsContextMenu {
+                    // The native table supplies the context-clicked row IDs.
+                    // Do not gate menu construction on NSApp.currentEvent:
+                    // SwiftUI may build it outside the original mouse event.
+                    if !commitHashes.isEmpty {
                         commitContextMenu(for: commitHashes)
                     }
                 } primaryAction: { selectedHashes in
@@ -695,7 +701,7 @@ struct HistoryView: View {
     @ViewBuilder
     private func historyGraphTableCell(_ row: HistoryTableRow, graphModel: CommitGraphModel) -> some View {
         if let commit = row.commit {
-            commitInteractionCell(for: commit) {
+            historyCellContent {
                 BranchGraphRowCanvas(
                     model: graphModel,
                     rowIndex: graphModel.rowIndexByHash[commit.hash] ?? 0
@@ -709,7 +715,7 @@ struct HistoryView: View {
     @ViewBuilder
     private func historyMessageTableCell(_ row: HistoryTableRow, graphModel: CommitGraphModel) -> some View {
         if let commit = row.commit {
-            commitInteractionCell(for: commit) {
+            historyCellContent {
                 GeometryReader { geometry in
                     HistoryCommitMessageCell(
                         commit: commit,
@@ -742,7 +748,7 @@ struct HistoryView: View {
     @ViewBuilder
     private func historyAuthorTableCell(_ row: HistoryTableRow) -> some View {
         if let commit = row.commit {
-            commitInteractionCell(for: commit) {
+            historyCellContent {
                 Text("\(commit.author) <\(commit.email)>")
                     .font(.callout.scaled(by: textScale))
                     .foregroundStyle(.secondary)
@@ -755,7 +761,7 @@ struct HistoryView: View {
     @ViewBuilder
     private func historyDateTableCell(_ row: HistoryTableRow) -> some View {
         if let commit = row.commit {
-            commitInteractionCell(for: commit) {
+            historyCellContent {
                 Text(
                     commit.date,
                     format: .dateTime
@@ -776,7 +782,7 @@ struct HistoryView: View {
     @ViewBuilder
     private func historyCommitTableCell(_ row: HistoryTableRow) -> some View {
         if let commit = row.commit {
-            commitInteractionCell(for: commit) {
+            historyCellContent {
                 Text(commit.shortHash)
                     .font(.callout.monospaced().scaled(by: textScale))
                     .foregroundStyle(.tertiary)
@@ -1857,9 +1863,8 @@ struct HistoryView: View {
             return
         }
 
-        // Cell clicks have already resolved the primary commit and range anchor.
-        // Keep that anchor for subsequent Shift-clicks; native keyboard selection
-        // still comes through the normal reconciliation below.
+        // Pointer and keyboard selection both come from the native table.
+        // Context-click monitoring can already have synchronized this selection.
         guard Set(commitSelection.selectedHashes) != newSelection else { return }
 
         let orderedHashes = visibleHashes.filter(newSelection.contains)
@@ -2514,54 +2519,12 @@ struct HistoryView: View {
             }
     }
 
-    private func commitInteractionCell<Content: View>(
-        for commit: Commit,
+    private func historyCellContent<Content: View>(
         @ViewBuilder content: () -> Content
     ) -> some View {
         content()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                selectCommitFromCell(commit)
-            }
-            .simultaneousGesture(
-                TapGesture(count: 2).onEnded {
-                    guard !consumeSuppressedCommitClick(commit.hash) else { return }
-                    handleCommitDoubleClick(commit)
-                }
-            )
-            .onContinuousHover { phase in
-                switch phase {
-                case .active:
-                    NSCursor.pointingHand.set()
-                case .ended:
-                    NSCursor.arrow.set()
-                }
-            }
-            .contextMenu {
-                // Cell gestures own pointer selection. Resolve the menu from
-                // that selection and the clicked row, rather than the native
-                // Table's contextual selection, which can include another row.
-                let contextCommits = Self.contextMenuCommits(
-                    startingAt: commit.hash,
-                    commits: commits,
-                    selection: commitSelection
-                )
-                if tableScrollCoordinator.allowsContextMenu {
-                    commitContextMenu(for: Set(contextCommits.map(\.hash)))
-                }
-            }
-    }
-
-    private func selectCommitFromCell(_ commit: Commit) {
-        guard !consumeSuppressedCommitClick(commit.hash) else { return }
-        selectedCommit = Self.selectCommitFromNativeTap(
-            commit.hash,
-            modifierFlags: NSEvent.modifierFlags,
-            commits: commits,
-            selection: &commitSelection
-        )
-        tableSelection = Set(commitSelection.selectedHashes).intersection(commits.map(\.hash))
+            .allowsHitTesting(false)
     }
 
     private func makeCommitDragPayload(startingAt commit: Commit) -> GitDragPayload {
