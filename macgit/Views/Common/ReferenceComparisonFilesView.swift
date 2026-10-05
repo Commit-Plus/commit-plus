@@ -53,14 +53,29 @@ struct ReferenceComparisonFilesView: View {
         if let file = controller.selectedFile {
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
-                    Image(systemName: "doc.text").foregroundStyle(.secondary)
+                    RevisionTreeIcon(path: file.path, isDirectory: false)
                     Text(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
                         .font(.callout.monospaced())
                         .textSelection(.enabled)
                         .lineLimit(1).truncationMode(.middle)
                         .help(file.path)
                     Spacer(minLength: 0)
-                    Text(file.status.displayText).font(.caption).foregroundStyle(.secondary)
+                    if let counts = controller.lineCounts[file.path] {
+                        HStack(spacing: 6) {
+                            Text("+\(counts.added)").foregroundStyle(.green)
+                            Text("−\(counts.removed)").foregroundStyle(.red)
+                        }
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .fixedSize()
+                        .accessibilityLabel("\(counts.added) lines added, \(counts.removed) lines removed")
+                    }
+                    Text(file.status.displayText)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(statusColor(file.status))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(statusColor(file.status).opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+                        .fixedSize()
                 }
                 .padding(controller.isBranchComparison ? 14 : 8)
                 Divider()
@@ -94,4 +109,15 @@ struct ReferenceComparisonFilesView: View {
             EmptyStateView(icon: "doc.text", message: "Select a file", detail: "Click a file to see its changes.")
         }
     }
+
+    private func statusColor(_ status: CommitFileStatus) -> Color {
+        switch status {
+        case .added: .green
+        case .modified: .orange
+        case .deleted: .red
+        case .renamed: .blue
+        case .copied: .purple
+        }
+    }
+
 }
