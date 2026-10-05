@@ -27,6 +27,7 @@ final class ScrollViewIndicatorBridgeView: NSView {
     private var showsIndicators = false
     private var onScroll: (() -> Void)?
     private var observationTokens: [NSObjectProtocol] = []
+    private var scrollerStyleObservation: NSKeyValueObservation?
     private var resolutionTask: Task<Void, Never>?
     private var indicatorRefreshTask: Task<Void, Never>?
     private var lastContentOffset: CGPoint?
@@ -46,6 +47,7 @@ final class ScrollViewIndicatorBridgeView: NSView {
         indicatorRefreshTask?.cancel()
         indicatorRefreshTask = nil
         removeObservers()
+        scrollerStyleObservation = nil
         scrollView = nil
         observedDocumentView = nil
         lastContentOffset = nil
@@ -77,7 +79,17 @@ final class ScrollViewIndicatorBridgeView: NSView {
             }
 
             removeObservers()
+            scrollerStyleObservation = nil
             scrollView = resolvedScrollView
+            // List can restore the system scroller style when selection changes.
+            // Correct it synchronously: waiting for a layout notification leaves
+            // one frame where a legacy scroller takes width from the rows.
+            scrollerStyleObservation = resolvedScrollView.observe(\.scrollerStyle, options: [.new]) { [weak self] _, _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.scrollView?.scrollerStyle != .overlay else { return }
+                    self.scrollView?.scrollerStyle = .overlay
+                }
+            }
             resolvedScrollView.scrollerStyle = .overlay
             resolvedScrollView.autohidesScrollers = false
             lastContentOffset = resolvedScrollView.contentView.bounds.origin
