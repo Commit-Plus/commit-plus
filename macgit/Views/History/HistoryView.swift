@@ -257,9 +257,10 @@ struct HistoryView: View {
                 let commit = selectedCommit
                 commitFilesLoadTask = Task { await loadFileChanges(for: commit, resuming: true) }
             }
-            if diffLoadTask?.isCancelled == true {
-                let file = selectedFile
-                let commit = selectedCommit
+            if diffLoadTask?.isCancelled == true,
+               let file = selectedFile,
+               let commit = selectedCommit,
+               diffCommitHash != commit.hash || diffFilePath != file.path {
                 diffLoadTask = Task { await loadDiff(for: file, in: commit) }
             }
         }
@@ -1789,8 +1790,8 @@ struct HistoryView: View {
         }
         let loadedLineCounts = await lineCounts
         guard !Task.isCancelled, commitFilesLoadID == loadID, selectedCommit?.hash == commit.hash else { return }
-        if !commitLineCountsLoaded {
-            commitLineCounts = loadedLineCounts ?? [:]
+        if !commitLineCountsLoaded, let loadedLineCounts {
+            commitLineCounts = loadedLineCounts
             commitLineCountsLoaded = true
         }
         guard !commitPatchEligibilityLoaded else { return }
