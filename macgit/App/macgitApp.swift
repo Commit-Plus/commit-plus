@@ -306,6 +306,10 @@ struct macgitApp: App {
                     )
                 }
                 .keyboardShortcut(",", modifiers: .command)
+
+                Button("Install Command Line Tool…") {
+                    WindowScopedNotification.post(name: .installCommandLineTool)
+                }
             }
 
             CommandGroup(replacing: .undoRedo) {

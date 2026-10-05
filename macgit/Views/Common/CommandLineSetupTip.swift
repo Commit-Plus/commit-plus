@@ -20,6 +20,7 @@ import AppKit
 import SwiftUI
 
 struct CommandLineSetupTip: View {
+    var installOnPresentation = false
     @Environment(\.dismiss) private var dismiss
     @State private var model = CommandLineSetupModel()
     @State private var copiedCommand: String?
@@ -32,7 +33,13 @@ struct CommandLineSetupTip: View {
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 10) {
-                if model.isReady {
+                if installOnPresentation && model.isInstalled {
+                    Label("Command line tool is installed", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text((model.installedCommand ?? model.destination).path)
+                        .font(.callout)
+                        .textSelection(.enabled)
+                } else if model.isReady {
                     Label("CLI and PATH are installed", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                     Text("Open a new terminal tab or window to use commit.")
@@ -54,14 +61,22 @@ struct CommandLineSetupTip: View {
             Divider()
             VStack(alignment: .leading, spacing: 14) {
                 Text("Step by step").font(.headline)
-                Text("1. Click Install CLI & Configure PATH above.")
-                Text("2. Open a new terminal. To use your current terminal immediately, run:")
+                if model.isReady {
+                    Text("PATH is configured. Open a new terminal tab or window, go to your repository folder, and run:")
+                } else if installOnPresentation && model.isInstalled {
+                    Text("The CLI is installed. Configure PATH in Settings → General → Command Line, then open a new terminal tab or window and run this from your repository folder:")
+                } else {
+                    Text("1. Click Install CLI & Configure PATH above. PATH is configured automatically and existing shell configuration is backed up.")
+                    Text("2. Open a new terminal tab or window, go to your repository folder, and run:")
+                }
+                CommandLineCodeBlock(command: "commit .", copiedCommand: $copiedCommand)
+                Text("Optional: to use commit in your current terminal tab without opening a new one, run:")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                 CommandLineCodeBlock(
                     command: model.shellConfiguration.command,
                     copiedCommand: $copiedCommand
                 )
-                Text("3. Go to your repository folder and run:")
-                CommandLineCodeBlock(command: "commit .", copiedCommand: $copiedCommand)
                 Text("You can also install it later in Settings → General → Command Line.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -71,12 +86,20 @@ struct CommandLineSetupTip: View {
                 Spacer()
                 Button("Close") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Don't remind", action: dontRemind)
-                    .buttonStyle(.borderedProminent)
+                if !installOnPresentation {
+                    Button("Don't remind", action: dontRemind)
+                        .buttonStyle(.borderedProminent)
+                }
             }
         }
         .padding(24)
         .frame(width: 540)
+        .onAppear {
+            model.refresh()
+            if installOnPresentation && !model.isInstalled {
+                model.install()
+            }
+        }
     }
 
     private func dontRemind() {

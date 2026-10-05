@@ -249,6 +249,7 @@ struct ContentView: View {
             operationProgress.activeOperation == nil ? .automatic : .disabled
         )
         .modifier(CommandLineSetupTipModifier(
+            windowContext: windowContext,
             isBlocked: showingCloneSheet || showingRepoPickerSheet
                 || showingKeepCurrentAlert || accountController.presentedSheet != nil
                 || operationProgress.activeOperation != nil

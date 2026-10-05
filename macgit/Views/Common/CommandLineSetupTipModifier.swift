@@ -19,15 +19,25 @@
 import SwiftUI
 
 struct CommandLineSetupTipModifier: ViewModifier {
+    let windowContext: RepositoryWindowContext
     let isBlocked: Bool
     @AppStorage("hasAcceptedTermsOfService") private var hasAcceptedTerms = false
     @Environment(\.scenePhase) private var scenePhase
     @State private var showingTip = false
+    @State private var installOnPresentation = false
 
     func body(content: Content) -> some View {
         content
             .replacingSheet(isPresented: $showingTip) {
-                CommandLineSetupTip()
+                CommandLineSetupTip(installOnPresentation: installOnPresentation)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .installCommandLineTool)) { notification in
+                guard windowContext.owns(notification) else { return }
+                installOnPresentation = true
+                showingTip = true
+            }
+            .onChange(of: showingTip) { _, isPresented in
+                if !isPresented { installOnPresentation = false }
             }
             .task {
                 await Task.yield()
@@ -45,4 +55,8 @@ struct CommandLineSetupTipModifier: ViewModifier {
         let model = CommandLineSetupModel()
         showingTip = showingTip || CommandLineReminderPolicy.shared.claimPresentation(isReady: model.isReady)
     }
+}
+
+extension Notification.Name {
+    static let installCommandLineTool = Notification.Name("installCommandLineTool")
 }

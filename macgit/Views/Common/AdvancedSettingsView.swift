@@ -39,7 +39,7 @@ struct AdvancedSettingsView: View {
             Section {
                 SettingsToggleRow(
                     title: "Verbose Git logging",
-                    detail: "Record Git commands, duration, and success state. Credentials and command output are excluded.",
+                    detail: "Record Git commands, duration, and success state while enabled. Logs are created after a Git command runs. Credentials and command output are excluded.",
                     isOn: $settings.verboseGitLogging
                 )
 
@@ -61,6 +61,9 @@ struct AdvancedSettingsView: View {
                     systemImage: "externaldrive",
                     action: openApplicationSupport
                 )
+                Text("Application Support contains Commit+’s managed Git tools, local data, and AI chat history.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             } header: {
                 Label("Diagnostics", systemImage: "stethoscope")
             } footer: {
@@ -198,34 +201,40 @@ struct AdvancedSettingsView: View {
 
     private func revealLogs() {
         do {
-            try FileManager.default.createDirectory(
-                at: GitCommandLogStore.logsDirectoryURL,
-                withIntermediateDirectories: true
-            )
-            if !FileManager.default.fileExists(atPath: GitCommandLogStore.logFileURL.path) {
-                FileManager.default.createFile(
-                    atPath: GitCommandLogStore.logFileURL.path,
-                    contents: nil
-                )
+            let url = GitCommandLogStore.logFileURL
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                showNoLogsMessage()
+                return
             }
-            NSWorkspace.shared.activateFileViewerSelecting([GitCommandLogStore.logFileURL])
+            let values = try url.resourceValues(forKeys: [.fileSizeKey])
+            guard (values.fileSize ?? 0) > 0 else {
+                showNoLogsMessage()
+                return
+            }
+            NSWorkspace.shared.activateFileViewerSelecting([url])
             showStatus("Logs revealed in Finder.")
         } catch {
             showError(error)
         }
     }
 
+    private func showNoLogsMessage() {
+        showStatus(settings.verboseGitLogging
+            ? "No Git logs recorded yet. Run a Git operation, then reveal the logs again."
+            : "No Git logs recorded yet. Enable Verbose Git logging, then run a Git operation.")
+    }
+
     private func openApplicationSupport() {
-        do {
-            let url = AdvancedDiagnosticsService.applicationSupportDirectoryURL
-            try FileManager.default.createDirectory(
-                at: url,
-                withIntermediateDirectories: true
-            )
-            NSWorkspace.shared.open(url)
-            showStatus("Application Support opened.")
-        } catch {
-            showError(error)
+        let url = AdvancedDiagnosticsService.applicationSupportDirectoryURL
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            showStatus("Commit+ has not created any Application Support data yet.")
+            return
+        }
+        if NSWorkspace.shared.open(url) {
+            showStatus("Opened \(url.path).")
+        } else {
+            statusMessage = nil
+            errorMessage = "Could not open Commit+’s Application Support folder."
         }
     }
 

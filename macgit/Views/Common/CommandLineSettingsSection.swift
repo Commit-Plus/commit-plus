@@ -36,13 +36,11 @@ struct CommandLineSettingsSection: View {
                 Button(model.isInstalled ? "Configure PATH" : "Install CLI & Configure PATH", action: model.install)
                     .buttonStyle(.borderedProminent)
             }
-            Text("Installation adds PATH to your shell configuration and backs up existing files. Open a new terminal afterward, or run this in your current terminal:")
+            Text(model.isReady
+                ? "PATH is configured. Open a new terminal tab or window to use commit."
+                : "Installation configures PATH automatically and backs up existing shell configuration. Open a new terminal tab or window afterward.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            CommandLineCodeBlock(
-                command: model.shellConfiguration.command,
-                copiedCommand: $copiedCommand
-            )
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("After installation, open a repository folder in Terminal and run")
                 Text("commit .")
@@ -56,6 +54,13 @@ struct CommandLineSettingsSection: View {
             .font(.callout)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+            Text("Optional: to use commit in your current terminal tab without opening a new one, run:")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            CommandLineCodeBlock(
+                command: model.shellConfiguration.command,
+                copiedCommand: $copiedCommand
+            )
             Text("Run command -v commit in Terminal to check which command your shell uses. Existing aliases and functions may take precedence.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
