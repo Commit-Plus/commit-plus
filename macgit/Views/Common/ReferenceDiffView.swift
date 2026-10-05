@@ -184,18 +184,16 @@ struct ReferenceDiffView: View {
 
     private func branchPicker(targetSide: Bool) -> some View {
         let ref = targetSide ? controller.targetRef : controller.baseRef
-        return Picker(targetSide ? "Target" : "Base", selection: Binding(
-            get: { targetSide ? controller.targetRef : controller.baseRef },
-            set: { if targetSide { controller.setTarget($0) } else { controller.setBase($0) } }
-        )) {
-            Text("Select branch…").tag("")
-            if !ref.isEmpty && !controller.branches.contains(where: { $0.ref == ref }) {
-                Text(ComparisonBranch(ref: ref).label).tag(ref)
-            }
-            ForEach(controller.branches) { branch in
-                Text(branch.label).tag(branch.ref)
-            }
-        }
+        var options = controller.branches.map(\.ref)
+        if !ref.isEmpty && !options.contains(ref) { options.insert(ref, at: 0) }
+        return SearchableReferencePicker(
+            title: targetSide ? "Target branch" : "Base branch",
+            selection: ref, options: options,
+            searchPrompt: "Search local or remote branches",
+            referenceLabel: { ComparisonBranch(ref: $0).label },
+            onSelect: { selected in
+                if targetSide { controller.setTarget(selected) } else { controller.setBase(selected) }
+            })
     }
 
     private var mergeBaseLabel: String {
