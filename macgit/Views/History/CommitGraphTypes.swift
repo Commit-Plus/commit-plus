@@ -75,7 +75,7 @@ nonisolated enum GraphDotType: Equatable, Sendable {
     case merge
 }
 
-nonisolated struct GraphDot: Sendable {
+nonisolated struct GraphDot: Equatable, Sendable {
     let center: CGPoint
     let lane: Int
     let type: GraphDotType

@@ -666,6 +666,14 @@ struct HistoryView: View {
                 } primaryAction: { selectedHashes in
                     handleCommitTablePrimaryAction(selectedHashes)
                 }
+                .onChange(of: tableColumnCustomization) { _, _ in
+                    Task { @MainActor in
+                        // Let SwiftUI apply column visibility before restoring
+                        // widths for the resulting native column set.
+                        await Task.yield()
+                        tableScrollCoordinator.restoreVisibleColumnsIfNeeded()
+                    }
+                }
                 .onChange(of: tableSelection) { oldSelection, newSelection in
                     applyTableSelection(from: oldSelection, to: newSelection)
                     onCustomActionSelectionChanged(commits.map(\.hash).filter(newSelection.contains))
@@ -692,6 +700,7 @@ struct HistoryView: View {
                     model: graphModel,
                     rowIndex: graphModel.rowIndexByHash[commit.hash] ?? 0
                 )
+                .equatable()
                 .opacity(activeDragCommitHashes.contains(commit.hash) ? 0.4 : 1)
             }
         }

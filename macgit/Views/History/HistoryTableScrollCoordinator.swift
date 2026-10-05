@@ -207,7 +207,7 @@ final class HistoryTableScrollCoordinator {
         return max(0, clipView.bounds.width - CGFloat(columns.count) * tableView.intercellSpacing.width)
     }
 
-    private func restoreVisibleColumnsIfNeeded() {
+    func restoreVisibleColumnsIfNeeded() {
         guard !isRestoringWidths, let tableView,
               let clipView = tableView.enclosingScrollView?.contentView,
               clipView.bounds.width > 0 else { return }
@@ -487,6 +487,10 @@ struct HistoryTableIntrospectionView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: HistoryTableIntrospectionNSView, context: Context) {
+        // Ordinary cell updates do not change the native table attachment.
+        // Lifecycle callbacks attach recycled cells; customization is handled
+        // once by the table rather than walking ancestors for every cell.
+        guard nsView.coordinator !== coordinator else { return }
         nsView.coordinator = coordinator
         nsView.attachIfPossible()
     }
