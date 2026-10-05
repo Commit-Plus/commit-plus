@@ -19,18 +19,8 @@ struct ReferenceDiffView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            if controller.isBranchComparison { branchHeader } else { header }
             Divider()
-            if controller.isBranchComparison {
-                Picker("Comparison content", selection: $showsCommits) {
-                    Text("Files (\(controller.files.count))").tag(false)
-                    Text("Commits").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 320)
-                .padding(8)
-            }
             if controller.isCancelled {
                 EmptyStateView(icon: "pause.circle", message: "Comparison stopped", detail: "Select Refresh to load this comparison again.")
             } else if let error = controller.error, controller.snapshot == nil {
@@ -115,6 +105,75 @@ struct ReferenceDiffView: View {
         }
         .padding(12)
         .background(.ultraThinMaterial)
+    }
+
+    private var branchHeader: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(controller.repositoryURL.lastPathComponent).font(.headline)
+                    Text("Compare Branches").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 12)
+                Picker("Comparison content", selection: $showsCommits) {
+                    Text("Files (\(controller.files.count))").tag(false)
+                    Text("Commits").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 210)
+                .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 12)
+                if controller.isLoading || controller.isLoadingPatch || controller.isLoadingBaseCommits || controller.isLoadingTargetCommits {
+                    Button("Stop", systemImage: "stop.circle") { controller.cancel() }
+                        .labelStyle(.iconOnly)
+                }
+                Button("Refresh", systemImage: "arrow.clockwise") { controller.reload() }
+                    .labelStyle(.iconOnly)
+                    .help("Reload from local references without fetching")
+            }
+            HStack(spacing: 10) {
+                compactBranchPicker(targetSide: false)
+                swapButton.labelStyle(.iconOnly)
+                compactBranchPicker(targetSide: true)
+                Picker("Diff mode", selection: Binding(get: { controller.mode }, set: controller.setMode)) {
+                    ForEach(ReferenceComparisonMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 220)
+                .help(controller.mode == .mergeBase
+                      ? "Changes introduced by Target since the common ancestor."
+                      : "Changes from the Base tree to the Target tree.")
+            }
+            HStack(spacing: 12) {
+                Label("Merge base: \(mergeBaseLabel)", systemImage: "arrow.triangle.branch")
+                    .help(controller.snapshot?.mergeBases.joined(separator: "\n") ?? "Not yet resolved")
+                Spacer()
+                if let snapshot = controller.snapshot {
+                    Text("Target: \(snapshot.targetOnlyCount) ahead · \(snapshot.baseOnlyCount) behind Base")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .textSelection(.enabled)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.bar)
+    }
+
+    private func compactBranchPicker(targetSide: Bool) -> some View {
+        HStack(spacing: 6) {
+            Text(targetSide ? "Target" : "Base")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize()
+            branchPicker(targetSide: targetSide)
+                .labelsHidden()
+                .frame(maxWidth: .infinity)
+        }
     }
 
     private var swapButton: some View {

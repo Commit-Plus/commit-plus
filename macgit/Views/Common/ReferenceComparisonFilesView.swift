@@ -19,15 +19,30 @@ struct ReferenceComparisonFilesView: View {
                 let availableWidth = max(0, geometry.size.width - 6)
                 let width = min(CGFloat(fileListWidth), max(180, availableWidth - 300))
                 HStack(spacing: 0) {
-                    CommitFileListView(changes: controller.files, selectedFile: Binding(
-                        get: { controller.selectedFile }, set: controller.selectFile))
-                        .frame(width: width)
+                    Group {
+                        if controller.isBranchComparison {
+                            BranchComparisonFileSidebar(controller: controller)
+                        } else {
+                            CommitFileListView(changes: controller.files, selectedFile: Binding(
+                                get: { controller.selectedFile }, set: controller.selectFile))
+                        }
+                    }
+                    .frame(width: width)
                     ColumnResizer(
                         leftWidth: Binding(get: { width }, set: { fileListWidth = Double($0) }),
                         rightWidth: Binding(get: { max(40, availableWidth - width) },
                             set: { fileListWidth = Double(availableWidth - $0) }), minimumLeftWidth: 180)
                     fileDetail
                         .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
+                        .background(.background)
+                        .clipShape(RoundedRectangle(cornerRadius: controller.isBranchComparison ? 10 : 0))
+                        .overlay {
+                            if controller.isBranchComparison {
+                                RoundedRectangle(cornerRadius: 10).strokeBorder(.separator.opacity(0.5))
+                            }
+                        }
+                        .padding(controller.isBranchComparison ? 12 : 0)
+                        .background(controller.isBranchComparison ? Color(nsColor: .underPageBackgroundColor) : Color.clear)
                 }
             }
         }
@@ -36,11 +51,17 @@ struct ReferenceComparisonFilesView: View {
     @ViewBuilder private var fileDetail: some View {
         if let file = controller.selectedFile {
             VStack(spacing: 0) {
-                Text(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
-                    .font(.caption.monospaced())
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
+                HStack(spacing: 12) {
+                    Image(systemName: "doc.text").foregroundStyle(.secondary)
+                    Text(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
+                        .font(.callout.monospaced())
+                        .textSelection(.enabled)
+                        .lineLimit(1).truncationMode(.middle)
+                        .help(file.path)
+                    Spacer(minLength: 0)
+                    Text(file.status.displayText).font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(controller.isBranchComparison ? 14 : 8)
                 Divider()
                 if controller.isLoadingPatch {
                     ProgressView("Loading file diff…").frame(maxWidth: .infinity, maxHeight: .infinity)

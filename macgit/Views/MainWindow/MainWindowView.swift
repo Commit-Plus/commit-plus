@@ -159,7 +159,7 @@ struct MainWindowView: View {
     @State private var referenceDiffTarget: String?
     @State private var referenceDiffTitle: String?
     @State private var isOpeningReferenceDiff = false
-    @State private var branchComparison: ReferenceComparisonController?
+    @State private var branchComparisonWindow = BranchComparisonWindowController()
     @State private var pullPreselectedBranch: String? = nil
     @State var showingSearchModal = false
     @State var showingRepositorySettings = false
@@ -769,6 +769,7 @@ struct MainWindowView: View {
             OpenRepositoryRegistry.shared.register(repositoryURL)
         }
         .onDisappear {
+            branchComparisonWindow.close()
             isPromotionHostVisible = false
             if promotionPresentation != nil {
                 ProPromotionPresentationStore.shared.releasePresentation()
@@ -874,8 +875,6 @@ struct MainWindowView: View {
     }
 
     private func clearReferenceDiff() {
-        branchComparison?.cancel()
-        branchComparison = nil
         referenceDiffBase = nil
         referenceDiffTarget = nil
         referenceDiffTitle = nil
@@ -1041,14 +1040,11 @@ struct MainWindowView: View {
                 selectedItem = .item(.history)
             },
             onRequestCompareBranches: { target, current in
-                clearReferenceDiff()
-                branchComparison = ReferenceComparisonController(
-                    repositoryURL: repositoryURL,
+                branchComparisonWindow.show(
                     baseRef: current.isEmpty || current == "HEAD" ? "" : "refs/heads/\(current)",
-                    targetRef: target
+                    targetRef: target,
+                    in: repositoryURL
                 )
-                isOpeningReferenceDiff = selectedItem != .item(.history)
-                selectedItem = .item(.history)
             },
             onRequestPushTagToRemote: { tag, remote in
                 runRemoteOperation("Pushing \(tag) to \(remote)...", remotes: [remote]) { credentialResolver in
@@ -1356,13 +1352,7 @@ struct MainWindowView: View {
                     }
                 )
             case .item(.history), .branch, .worktree, .tag, .remoteBranch, .head:
-                if let branchComparison {
-                    ReferenceDiffView(controller: branchComparison, onClose: {
-                        isOpeningReferenceDiff = false
-                        clearReferenceDiff()
-                    })
-                    .id(ObjectIdentifier(branchComparison))
-                } else if let referenceDiffBase, let referenceDiffTarget, let referenceDiffTitle {
+                if let referenceDiffBase, let referenceDiffTarget, let referenceDiffTitle {
                     ReferenceDiffView(
                         repositoryURL: repositoryURL,
                         baseRef: referenceDiffBase,
