@@ -54,4 +54,53 @@ final class PersistentSplitViewTests: XCTestCase {
         XCTAssertEqual(splitView.dividerStyle, .thin)
         XCTAssertNil(splitView.delegate)
     }
+
+    func testTopBottomSplitDoesNotInterceptContentAtMirroredDividerPosition() {
+        let parent = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 700))
+        let splitView = makeSplit(in: parent, isVertical: false)
+        let bottomPane = splitView.arrangedSubviews[1]
+
+        // NSSplitView is flipped, while this parent is not. Local y=500 maps
+        // to parent y=200, which used to be mistaken for the local divider.
+        let contentPoint = splitView.convert(NSPoint(x: 400, y: 500), to: parent)
+        XCTAssertIdentical(splitView.hitTest(contentPoint), bottomPane)
+
+        let dividerPoint = splitView.convert(NSPoint(x: 400, y: 204), to: parent)
+        XCTAssertIdentical(splitView.hitTest(dividerPoint), splitView)
+    }
+
+    func testLeftRightSplitDoesNotInterceptContentAtTranslatedDividerPosition() {
+        let parent = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 700))
+        let splitView = makeSplit(in: parent, isVertical: true)
+        let leftPane = splitView.arrangedSubviews[0]
+
+        // Local x=100 maps to parent x=200 because the split is inset by 100.
+        let contentPoint = splitView.convert(NSPoint(x: 100, y: 400), to: parent)
+        XCTAssertIdentical(splitView.hitTest(contentPoint), leftPane)
+
+        let dividerPoint = splitView.convert(NSPoint(x: 204, y: 400), to: parent)
+        XCTAssertIdentical(splitView.hitTest(dividerPoint), splitView)
+    }
+
+    private func makeSplit(in parent: NSView, isVertical: Bool) -> ResizableCursorSplitView {
+        let splitView = ResizableCursorSplitView(
+            frame: NSRect(x: 100, y: 100, width: 600, height: 600)
+        )
+        splitView.isVertical = isVertical
+        splitView.dividerStyle = .thin
+        parent.addSubview(splitView)
+        let firstPane = NSView()
+        let secondPane = NSView()
+        splitView.addArrangedSubview(firstPane)
+        splitView.addArrangedSubview(secondPane)
+        let trailingOrigin = 200 + splitView.dividerThickness
+        if isVertical {
+            firstPane.frame = NSRect(x: 0, y: 0, width: 200, height: 600)
+            secondPane.frame = NSRect(x: trailingOrigin, y: 0, width: 600 - trailingOrigin, height: 600)
+        } else {
+            firstPane.frame = NSRect(x: 0, y: 0, width: 600, height: 200)
+            secondPane.frame = NSRect(x: 0, y: trailingOrigin, width: 600, height: 600 - trailingOrigin)
+        }
+        return splitView
+    }
 }

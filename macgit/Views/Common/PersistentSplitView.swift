@@ -56,11 +56,12 @@ final class ResizableCursorSplitView: NSSplitView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if containsDividerCursorRect(point) {
-            return self
-        }
-
-        return super.hitTest(point)
+        guard let hitView = super.hitTest(point) else { return nil }
+        // hitTest receives a point in the superview's coordinates. Divider
+        // frames are local, including NSSplitView's flipped y axis. Comparing
+        // them directly creates a second, invisible divider over pane content.
+        let localPoint = convert(point, from: superview)
+        return containsDividerCursorRect(localPoint) ? self : hitView
     }
 
     private func containsDividerCursorRect(_ point: NSPoint) -> Bool {
@@ -112,6 +113,8 @@ func configurePersistentSplitView(
 
 struct PersistentVSplit<Top: View, Bottom: View>: NSViewControllerRepresentable {
     let autosaveName: String
+    var minimumTopHeight: CGFloat? = nil
+    var minimumBottomHeight: CGFloat? = nil
     @ViewBuilder let top: () -> Top
     @ViewBuilder let bottom: () -> Bottom
 
@@ -128,6 +131,11 @@ struct PersistentVSplit<Top: View, Bottom: View>: NSViewControllerRepresentable 
         let topController = NSHostingController(rootView: top())
         let bottomController = NSHostingController(rootView: bottom())
 
+        // Explicit split limits let AppKit own the viewport without asking the
+        // hosted content to recompute its fitting sizes during scrolling.
+        if minimumTopHeight != nil { topController.sizingOptions = [] }
+        if minimumBottomHeight != nil { bottomController.sizingOptions = [] }
+
         let coordinator = context.coordinator
         coordinator.topController = topController
         coordinator.bottomController = bottomController
@@ -142,6 +150,8 @@ struct PersistentVSplit<Top: View, Bottom: View>: NSViewControllerRepresentable 
 
         let topItem = NSSplitViewItem(viewController: topController)
         let bottomItem = NSSplitViewItem(viewController: bottomController)
+        if let minimumTopHeight { topItem.minimumThickness = minimumTopHeight }
+        if let minimumBottomHeight { bottomItem.minimumThickness = minimumBottomHeight }
 
         splitController.addSplitViewItem(topItem)
         splitController.addSplitViewItem(bottomItem)
@@ -159,6 +169,8 @@ struct PersistentVSplit<Top: View, Bottom: View>: NSViewControllerRepresentable 
 
 struct PersistentHSplit<Left: View, Right: View>: NSViewControllerRepresentable {
     let autosaveName: String
+    var minimumLeftWidth: CGFloat? = nil
+    var minimumRightWidth: CGFloat? = nil
     @ViewBuilder let left: () -> Left
     @ViewBuilder let right: () -> Right
 
@@ -175,6 +187,9 @@ struct PersistentHSplit<Left: View, Right: View>: NSViewControllerRepresentable 
         let leftController = NSHostingController(rootView: left())
         let rightController = NSHostingController(rootView: right())
 
+        if minimumLeftWidth != nil { leftController.sizingOptions = [] }
+        if minimumRightWidth != nil { rightController.sizingOptions = [] }
+
         let coordinator = context.coordinator
         coordinator.leftController = leftController
         coordinator.rightController = rightController
@@ -189,6 +204,8 @@ struct PersistentHSplit<Left: View, Right: View>: NSViewControllerRepresentable 
 
         let leftItem = NSSplitViewItem(viewController: leftController)
         let rightItem = NSSplitViewItem(viewController: rightController)
+        if let minimumLeftWidth { leftItem.minimumThickness = minimumLeftWidth }
+        if let minimumRightWidth { rightItem.minimumThickness = minimumRightWidth }
 
         splitController.addSplitViewItem(leftItem)
         splitController.addSplitViewItem(rightItem)

@@ -173,6 +173,8 @@ struct HistoryView: View {
                 ZStack(alignment: .top) {
                     PersistentVSplit(
                         autosaveName: "HistoryMainSplit",
+                        minimumTopHeight: 200,
+                        minimumBottomHeight: 180,
                         top: { commitGraphList.frame(minHeight: 200) },
                         bottom: { commitDetailPanel.frame(minHeight: 180) }
                     )
@@ -795,6 +797,8 @@ struct HistoryView: View {
                     
                     PersistentHSplit(
                         autosaveName: "HistoryDetailSplit",
+                        minimumLeftWidth: 220,
+                        minimumRightWidth: 300,
                         left: {
                             CommitFileListView(changes: fileChanges, lineCounts: commitLineCounts, selectedFile: $selectedFile,
                                 onPreview: { file in

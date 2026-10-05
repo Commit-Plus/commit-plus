@@ -94,46 +94,7 @@ struct DiffView: View {
             let blocks = DiffRenderBlock.layout(hunks: hunks, scale: textScale)
             let range = renderedBlockRange.clamped(to: blocks.indices)
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    if let first = range.first {
-                        Color.clear.frame(height: blocks[first].offset)
-                    }
-                    ForEach(blocks[range]) { block in
-                            HunkView(
-                                hunk: block.hunk,
-                                lineRange: block.lineRange,
-                                file: file,
-                                fileExtension: syntaxFileExtension,
-                                highlightCache: highlightCache,
-                                repositoryURL: repositoryURL,
-                                undoManager: undoManager,
-                                selectedLineIDs: $selectedLineIDs,
-                                lastSelectedLineID: $lastSelectedLineID,
-                                onRefresh: onRefresh,
-                                onError: onError,
-                                onCommitHunk: onCommitPatch.map { action in
-                                    { hunk, direction in
-                                        action(hunk.lines.filter(isChangedDiffLine), direction, "Selected hunk")
-                                    }
-                                },
-                                onCommitLines: onCommitPatch.map { action in
-                                    { ids, direction in
-                                        action(hunks.flatMap(\.lines).filter {
-                                            ids.contains($0.id) && isChangedDiffLine($0)
-                                        }, direction, "Selected lines")
-                                    }
-                                },
-                                commitPatchDisabledReason: commitPatchDisabledReason
-                            )
-                            .frame(height: block.height)
-                            .padding(.bottom, DiffRenderBlock.spacing * textScale)
-                    }
-                    if let last = range.last, let end = blocks.last {
-                        Color.clear.frame(height: end.endOffset - blocks[last].endOffset)
-                    }
-                }
-                .padding(.vertical, 12)
-                .padding(.horizontal, 12)
+                diffContent(blocks: blocks, range: range)
             }
             .onScrollGeometryChange(for: Range<Int>.self) { geometry in
                 DiffRenderBlock.renderedRange(
@@ -155,6 +116,47 @@ struct DiffView: View {
             }
             .id(hunks.first?.id)
         }
+    }
+
+    private func diffContent(blocks: [DiffRenderBlock], range: Range<Int>) -> some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(blocks[range]) { block in
+                    HunkView(
+                        hunk: block.hunk,
+                        lineRange: block.lineRange,
+                        file: file,
+                        fileExtension: syntaxFileExtension,
+                        highlightCache: highlightCache,
+                        repositoryURL: repositoryURL,
+                        undoManager: undoManager,
+                        selectedLineIDs: $selectedLineIDs,
+                        lastSelectedLineID: $lastSelectedLineID,
+                        onRefresh: onRefresh,
+                        onError: onError,
+                        onCommitHunk: onCommitPatch.map { action in
+                            { hunk, direction in
+                                action(hunk.lines.filter(isChangedDiffLine), direction, "Selected hunk")
+                            }
+                        },
+                        onCommitLines: onCommitPatch.map { action in
+                            { ids, direction in
+                                action(hunks.flatMap(\.lines).filter {
+                                    ids.contains($0.id) && isChangedDiffLine($0)
+                                }, direction, "Selected lines")
+                            }
+                        },
+                        commitPatchDisabledReason: commitPatchDisabledReason
+                    )
+                    .frame(height: block.height)
+                    .offset(y: block.offset)
+            }
+        }
+        // The document and surviving cards keep the same geometry when
+        // offscreen cards are removed or inserted during scrolling.
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(height: blocks.last?.endOffset ?? 0, alignment: .topLeading)
+        .padding(.vertical, 12)
+        .padding(.horizontal, 12)
     }
 
     private var syntaxFileExtension: String {
@@ -768,6 +770,8 @@ struct DiffLineView: View {
             attributed = cachedHighlightedText
         } else if let deferredHighlightedText {
             attributed = deferredHighlightedText
+        } else if let cached = highlightCache?.cachedText(for: line.id) {
+            attributed = cached
         } else if highlightCache != nil {
             attributed = AttributedString(line.text)
             attributed.font = Font(NSFont.monospacedSystemFont(ofSize: 12 * textScale, weight: .regular))
