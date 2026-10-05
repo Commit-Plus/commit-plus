@@ -30,11 +30,13 @@ struct macgitApp: App {
     @StateObject private var featureAccessController: FeatureAccessController
     @StateObject private var repositoryVisibilityController: RepositoryVisibilityController
     @StateObject private var repositoryBookmarkController: RepositoryBookmarkController
+    @StateObject private var customActionStore: CustomActionStore
     @StateObject private var gitFlowConfigurationSyncController: GitFlowConfigurationSyncController
     @StateObject private var cloudLifecycleController: AppCloudLifecycleController
     @State private var selectedAppSettingsSection: AppSettingsSection = .general
     private let repositoryWindowLifecycleController = RepositoryWindowLifecycleController()
     @FocusedValue(\.repositoryWindowCommandState) private var repositoryWindowCommandState
+    @FocusedValue(\.customActionCommandState) private var customActionCommandState
 
     init() {
         NSWindow.allowsAutomaticWindowTabbing = true
@@ -139,6 +141,11 @@ struct macgitApp: App {
                 : nil
         )
         _repositoryBookmarkController = StateObject(wrappedValue: repositoryBookmarkController)
+        let customActionStore = CustomActionStore(
+            cloudStore: cloudFeaturesEnabled ? FirestoreCustomActionStore() : nil
+        )
+        customActionStore.observeSession(accountController: accountController, appState: appState)
+        _customActionStore = StateObject(wrappedValue: customActionStore)
         _gitFlowConfigurationSyncController = StateObject(
             wrappedValue: GitFlowConfigurationSyncController(
                 cloudStore: cloudFeaturesEnabled
@@ -238,6 +245,7 @@ struct macgitApp: App {
                 .environmentObject(featureAccessController)
                 .environmentObject(repositoryVisibilityController)
                 .environmentObject(repositoryBookmarkController)
+                .environmentObject(customActionStore)
                 .environmentObject(gitFlowConfigurationSyncController)
                 .preferredColorScheme(appState.appearance.colorScheme)
                 .font(appState.textSize.font)
@@ -248,6 +256,9 @@ struct macgitApp: App {
                 .task(id: accountController.account?.uid) {
                     cloudLifecycleController.start()
                     await cloudLifecycleController.updateAccount(accountController.account)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+                    Task { await customActionStore.syncNow() }
                 }
                 .onChange(of: accountController.account?.uid, initial: true) { _, uid in
                     aiProviderController.managedUsageController?.setSession(uid: uid)
@@ -395,6 +406,30 @@ struct macgitApp: App {
 
                 Divider()
 
+                Menu("Custom Actions") {
+                    if let state = customActionCommandState {
+                        CustomActionMenuContent(
+                            store: customActionStore,
+                            surface: state.surface,
+                            context: state.context,
+                            hasActiveOperation: state.hasActiveOperation,
+                            includesRepositoryActions: true,
+                            onRun: { id, surface in
+                                WindowScopedNotification.post(
+                                    name: .customActionMenuAction,
+                                    userInfo: ["id": id, "surface": surface]
+                                )
+                            }
+                        )
+                    } else {
+                        Text("No Repository Open")
+                        Divider()
+                        CustomActionAddMenuButton()
+                    }
+                }
+
+                Divider()
+
                 Button("Search...") {
                     WindowScopedNotification.post(name: .showSearchModal)
                 }
@@ -457,6 +492,7 @@ struct macgitApp: App {
                 providerAccountController: providerAccountController,
                 aiProviderController: aiProviderController,
                 appUpdateController: appUpdateController,
+                customActionStore: customActionStore,
                 selectedSection: $selectedAppSettingsSection
             )
             .environmentObject(featureAccessController)
@@ -468,4 +504,5 @@ struct macgitApp: App {
         .defaultLaunchBehavior(.suppressed)
         .windowResizability(.contentMinSize)
     }
+
 }

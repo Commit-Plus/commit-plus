@@ -25,6 +25,7 @@ struct AppSettingsView: View {
     @ObservedObject var providerAccountController: GitProviderAccountController
     @ObservedObject var aiProviderController: AIProviderController
     @ObservedObject var appUpdateController: AppUpdateController
+    @ObservedObject var customActionStore: CustomActionStore
     @Binding private var selectedSection: AppSettingsSection
     @State private var aiProviderDrafts: [AIProviderConfigurationDraft]
     @State private var saveErrorMessage: String?
@@ -37,6 +38,7 @@ struct AppSettingsView: View {
         providerAccountController: GitProviderAccountController,
         aiProviderController: AIProviderController,
         appUpdateController: AppUpdateController,
+        customActionStore: CustomActionStore,
         selectedSection: Binding<AppSettingsSection>
     ) {
         self.appState = appState
@@ -45,6 +47,7 @@ struct AppSettingsView: View {
         self.providerAccountController = providerAccountController
         self.aiProviderController = aiProviderController
         self.appUpdateController = appUpdateController
+        self.customActionStore = customActionStore
         _selectedSection = selectedSection
         _aiProviderDrafts = State(initialValue: aiProviderController.configurationDrafts())
     }
@@ -71,6 +74,7 @@ struct AppSettingsView: View {
                     providerAccountController: providerAccountController,
                     aiProviderController: aiProviderController,
                     appUpdateController: appUpdateController,
+                    customActionStore: customActionStore,
                     restrictedAIProviderAccess: restrictedAIProviderAccess,
                     aiProviderDrafts: $aiProviderDrafts
                 )
