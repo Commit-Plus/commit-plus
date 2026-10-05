@@ -93,12 +93,10 @@ struct PullSheetView: View {
                             Text("Remote branch to pull:")
                                 .font(.system(size: 13))
                             HStack(spacing: 8) {
-                                Picker("", selection: $selectedBranch) {
-                                    Text("Select a branch").tag("")
-                                    ForEach(remoteBranches, id: \.self) { branch in
-                                        Text(branch).tag(branch)
-                                    }
-                                }
+                                SearchableReferencePicker(
+                                    title: "Remote branch to pull", selection: selectedBranch,
+                                    options: remoteBranches, searchPrompt: "Search remote branches",
+                                    onSelect: { selectedBranch = $0 })
                                 .pickerStyle(.menu)
 
                                 Button("Refresh") {

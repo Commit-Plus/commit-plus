@@ -38,57 +38,18 @@ struct BranchFilterBar: View {
     @State private var currentBranchName: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                Button(action: toggleBranchList) {
-                    HStack(spacing: 6) {
-                        Text(selectedFilterTitle)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-
-                        Spacer(minLength: 4)
-
-                        Image(systemName: "chevron.down")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+        ViewThatFits(in: .horizontal) {
+            filterRow(includesComparison: showsComparison)
+            VStack(alignment: .leading, spacing: 0) {
+                filterRow(includesComparison: false)
+                if showsComparison {
+                    HStack {
+                        comparisonPicker
+                        Spacer(minLength: 0)
                     }
-                    .contentShape(Rectangle())
+                    .padding(.leading, 8)
+                    .frame(height: 28)
                 }
-                .buttonStyle(.bordered)
-                .frame(width: 220)
-                .padding(.leading, 8)
-                .popover(isPresented: $isShowingBranchList, arrowEdge: .bottom) {
-                    branchList
-                }
-
-                Toggle("Include Remotes", isOn: $includeRemotes)
-                    .toggleStyle(.checkbox)
-
-                Toggle("Only this branch", isOn: $onlyThisBranch)
-                    .toggleStyle(.checkbox)
-                    .disabled(selectedFilter == .all)
-                    .help("Show commits in the selected branch that are not in the comparison base.")
-
-                Spacer(minLength: 12)
-
-                HistoryFilterSearchField(searchText: $searchText)
-            }
-            .frame(height: 28)
-
-            if onlyThisBranch && selectedFilter != .all {
-                HStack(spacing: 10) {
-                    Picker("Compared with", selection: $baseBranch) {
-                        Text("Choose base…").tag(nil as String?)
-                        ForEach(comparisonBranches, id: \.self) { branch in
-                            Text(branch).tag(Optional(branch))
-                        }
-                    }
-                    .frame(width: 300)
-                    .help("The suggested base is a comparison target; Git does not record the original parent branch.")
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, 8)
-                .frame(height: 28)
             }
         }
         .padding(.trailing, 16)
@@ -138,6 +99,66 @@ struct BranchFilterBar: View {
                 await reloadBranches()
             }
         }
+    }
+
+    private var showsComparison: Bool {
+        onlyThisBranch && selectedFilter != .all
+    }
+
+    private func filterRow(includesComparison: Bool) -> some View {
+        HStack(spacing: 10) {
+                Button(action: toggleBranchList) {
+                    HStack(spacing: 6) {
+                        Text(selectedFilterTitle)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+
+                        Spacer(minLength: 4)
+
+                        Image(systemName: "chevron.down")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.bordered)
+                .frame(width: 220)
+                .padding(.leading, 8)
+                .popover(isPresented: $isShowingBranchList, arrowEdge: .bottom) {
+                    branchList
+                }
+
+                Toggle("Include Remotes", isOn: $includeRemotes)
+                    .toggleStyle(.checkbox)
+                    .fixedSize()
+
+                Toggle("Only this branch", isOn: $onlyThisBranch)
+                    .toggleStyle(.checkbox)
+                    .fixedSize()
+                    .disabled(selectedFilter == .all)
+                    .help("Show commits in the selected branch that are not in the comparison base.")
+
+                if includesComparison { comparisonPicker }
+
+                Spacer(minLength: 12)
+
+                HistoryFilterSearchField(searchText: $searchText)
+            }
+            .frame(height: 28)
+
+    }
+
+    private var comparisonPicker: some View {
+        HStack(spacing: 6) {
+            Text("Compared with").font(.caption).foregroundStyle(.secondary).fixedSize()
+            SearchableReferencePicker(
+                title: "Compared with", selection: baseBranch ?? "",
+                options: comparisonBranches, searchPrompt: "Search branches",
+                placeholder: "Choose base…", clearSelectionTitle: "Choose base…",
+                onSelect: { baseBranch = $0.isEmpty ? nil : $0 })
+        }
+        .frame(width: 300)
+        .help("The suggested base is a comparison target; Git does not record the original parent branch.")
     }
 
     private var branchList: some View {

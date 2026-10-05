@@ -56,11 +56,10 @@ struct CreateWorktreeSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Branch:")
                         .font(.system(size: 13))
-                    Picker("", selection: $selectedExistingBranch) {
-                        ForEach(availableBranches, id: \.self) { branch in
-                            Text(branch).tag(branch)
-                        }
-                    }
+                    SearchableReferencePicker(
+                        title: "Worktree branch", selection: selectedExistingBranch,
+                        options: availableBranches, searchPrompt: "Search branches",
+                        onSelect: { selectedExistingBranch = $0 })
                     .pickerStyle(.menu)
                     .onChange(of: selectedExistingBranch) { _, _ in
                         onSelectedExistingBranchChange()
@@ -80,11 +79,10 @@ struct CreateWorktreeSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Base branch:")
                         .font(.system(size: 13))
-                    Picker("", selection: $newBaseBranch) {
-                        ForEach(availableBranches, id: \.self) { branch in
-                            Text(branch).tag(branch)
-                        }
-                    }
+                    SearchableReferencePicker(
+                        title: "Base branch", selection: newBaseBranch,
+                        options: availableBranches, searchPrompt: "Search branches",
+                        onSelect: { newBaseBranch = $0 })
                     .pickerStyle(.menu)
                 }
             }

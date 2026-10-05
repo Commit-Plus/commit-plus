@@ -53,12 +53,10 @@ struct MergeSheetView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Source branch:")
                             .font(.system(size: 13))
-                        Picker("", selection: $selectedBranch) {
-                            Text("Select a branch").tag("")
-                            ForEach(allBranches, id: \.self) { branch in
-                                Text(branch).tag(branch)
-                            }
-                        }
+                        SearchableReferencePicker(
+                            title: "Source branch", selection: selectedBranch,
+                            options: allBranches, searchPrompt: "Search branches",
+                            onSelect: { selectedBranch = $0 })
                         .pickerStyle(.menu)
                     }
 

@@ -46,11 +46,10 @@ struct WorktreeCheckoutSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Branch:")
                     .font(.system(size: 13))
-                Picker("", selection: $selection) {
-                    ForEach(branches, id: \.self) { branch in
-                        Text(branch).tag(branch)
-                    }
-                }
+                SearchableReferencePicker(
+                    title: "Worktree branch", selection: selection,
+                    options: branches, searchPrompt: "Search branches",
+                    onSelect: { selection = $0 })
                 .pickerStyle(.menu)
             }
 

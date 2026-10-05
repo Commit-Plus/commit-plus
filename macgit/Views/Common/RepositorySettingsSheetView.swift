@@ -270,12 +270,10 @@ struct RepositorySettingsSheetView: View {
                     .pickerStyle(.radioGroup)
                     .font(.system(size: 13))
 
-                    Picker("", selection: binding(\.selectedDetectedBranch)) {
-                        Text("Select a branch").tag("")
-                        ForEach(branchOptions(for: draft), id: \.self) { branch in
-                            Text(branch).tag(branch)
-                        }
-                    }
+                    SearchableReferencePicker(
+                        title: "Default pull branch", selection: draft.selectedDetectedBranch,
+                        options: branchOptions(for: draft), searchPrompt: "Search branches",
+                        onSelect: { binding(\.selectedDetectedBranch).wrappedValue = $0 })
                     .pickerStyle(.menu)
                     .disabled(draft.selectedBranchMode != .detected || branchOptions(for: draft).isEmpty)
 
@@ -611,12 +609,10 @@ struct RepositorySettingsSheetView: View {
     ) -> some View {
         LabeledContent(title) {
             HStack(spacing: 8) {
-                Picker(title, selection: selection) {
-                    Text("Select a branch").tag("")
-                    ForEach(branches, id: \.self) { branch in
-                        Text(branch).tag(branch)
-                    }
-                }
+                SearchableReferencePicker(
+                    title: title, selection: selection.wrappedValue,
+                    options: branches, searchPrompt: "Search branches",
+                    onSelect: { selection.wrappedValue = $0 })
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .frame(minWidth: 180)

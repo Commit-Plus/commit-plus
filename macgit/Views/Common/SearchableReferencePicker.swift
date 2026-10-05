@@ -8,6 +8,7 @@ struct SearchableReferencePicker: View {
     let searchPrompt: String
     var placeholder = "Select branch…"
     var emptyMessage = "No matching branches"
+    var clearSelectionTitle: String? = nil
     var allowsCustomReference = false
     var referenceLabel: (String) -> String = { $0 }
     let onSelect: (String) -> Void
@@ -56,6 +57,9 @@ struct SearchableReferencePicker: View {
                         if allowsCustomReference && !query.isEmpty && !options.contains(query) {
                             option(query, label: "Compare with \(query)")
                             Divider()
+                        }
+                        if let clearSelectionTitle, query.isEmpty {
+                            option("", label: clearSelectionTitle)
                         }
                         ForEach(matches, id: \.self) { ref in
                             option(ref, label: referenceLabel(ref))
