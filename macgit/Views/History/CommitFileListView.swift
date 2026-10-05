@@ -39,7 +39,8 @@ struct CommitFileListView: View {
             if onPatch != nil {
                 List(selection: $selectedFiles) { fileRows }
                     .onChange(of: selectedFiles) { old, new in
-                        if let added = changes.first(where: { new.subtracting(old).contains($0) }) {
+                        let addedFiles = new.subtracting(old)
+                        if let added = changes.first(where: { addedFiles.contains($0) }) {
                             selectedFile = added
                         } else if let selectedFile, !new.contains(selectedFile) {
                             self.selectedFile = changes.first(where: { new.contains($0) })

@@ -75,7 +75,7 @@ nonisolated enum GraphDotType: Equatable, Sendable {
     case merge
 }
 
-nonisolated struct GraphDot: Sendable {
+nonisolated struct GraphDot: Equatable, Sendable {
     let center: CGPoint
     let lane: Int
     let type: GraphDotType
@@ -84,6 +84,8 @@ nonisolated struct GraphDot: Sendable {
 }
 
 nonisolated struct CommitGraphModel: Sendable {
+    // Each immutable graph snapshot owns a bounded cache of rendered rows.
+    let rowGeometryCache = CommitGraphRowGeometryCache()
     let paths: [GraphPath]
     let links: [GraphLink]
     let dots: [GraphDot]

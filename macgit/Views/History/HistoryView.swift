@@ -70,8 +70,13 @@ struct HistoryView: View {
     @State private var diffHunks: [DiffHunk] = []
     @State private var diffCommitHash: String?
     @State private var diffFilePath: String?
+    @State private var commitFilesCommitHash: String?
+    @State private var commitFilesLoaded = false
+    @State private var commitLineCountsLoaded = false
     @State private var commitFilesLoadID = UUID()
     @State private var diffLoadID = UUID()
+    @State private var commitFilesLoadTask: Task<Void, Never>?
+    @State private var diffLoadTask: Task<Void, Never>?
     @AppStorage("history.tableColumns") private var tableColumnCustomization = TableColumnCustomization<HistoryTableRow>()
     @State private var tableSelection: Set<String> = []
     @State private var isRestoringTableSelection = false
@@ -201,13 +206,17 @@ struct HistoryView: View {
             showingCommitInfo = false
             fullCommitMessage = nil
             isLoadingFullCommitMessage = false
-            Task {
+            commitFilesLoadTask?.cancel()
+            diffLoadTask?.cancel()
+            commitFilesLoadTask = Task {
                 await loadFileChanges(for: newCommit)
             }
         }
         .onChange(of: selectedFile) { _, newFile in
-            Task {
-                await loadDiff(for: newFile, in: selectedCommit)
+            diffLoadTask?.cancel()
+            let commit = selectedCommit
+            diffLoadTask = Task {
+                await loadDiff(for: newFile, in: commit)
             }
         }
         .onChange(of: selectedBranch) { _, newBranch in
@@ -228,21 +237,38 @@ struct HistoryView: View {
         }
         .onAppear {
             tableScrollCoordinator.startContextClickMonitoring { row in
-                guard commits.indices.contains(row) else { return }
+                guard commits.indices.contains(row) else { return nil }
                 let commit = commits[row]
-                guard !tableSelection.contains(commit.hash) else { return }
-                commitSelection = HistoryCommitSelection(
-                    selectedHashes: [commit.hash],
-                    primaryHash: commit.hash,
-                    anchorHash: commit.hash
-                )
-                selectedCommit = commit
-                tableSelection = [commit.hash]
+                if !tableSelection.contains(commit.hash) {
+                    commitSelection = HistoryCommitSelection(
+                        selectedHashes: [commit.hash],
+                        primaryHash: commit.hash,
+                        anchorHash: commit.hash
+                    )
+                    selectedCommit = commit
+                    tableSelection = [commit.hash]
+                }
+                let contextHashes = tableSelection.intersection(Set(commits.map(\.hash)))
+                return NSHostingMenu(rootView: commitContextMenu(for: contextHashes))
+            }
+            // A retained History view can return with unchanged selection after
+            // its in-flight detail request was cancelled on disappearance.
+            if commitFilesLoadTask?.isCancelled == true {
+                let commit = selectedCommit
+                commitFilesLoadTask = Task { await loadFileChanges(for: commit, resuming: true) }
+            }
+            if diffLoadTask?.isCancelled == true,
+               let file = selectedFile,
+               let commit = selectedCommit,
+               diffCommitHash != commit.hash || diffFilePath != file.path {
+                diffLoadTask = Task { await loadDiff(for: file, in: commit) }
             }
         }
         .onDisappear {
             tableScrollCoordinator.stopContextClickMonitoring()
             historySearchDebounceTask?.cancel()
+            commitFilesLoadTask?.cancel()
+            diffLoadTask?.cancel()
             dragClickSuppressionTask?.cancel()
             dragCompletionMonitorTask?.cancel()
             activeDragCommitHashes.removeAll()
@@ -660,11 +686,22 @@ struct HistoryView: View {
                 .controlSize(.small)
                 .contextMenu(forSelectionType: String.self) { selectedHashes in
                     let commitHashes = selectedHashes.intersection(Set(commits.map(\.hash)))
-                    if !commitHashes.isEmpty, tableScrollCoordinator.allowsContextMenu {
+                    // The native table supplies the context-clicked row IDs.
+                    // Do not gate menu construction on NSApp.currentEvent:
+                    // SwiftUI may build it outside the original mouse event.
+                    if !commitHashes.isEmpty {
                         commitContextMenu(for: commitHashes)
                     }
                 } primaryAction: { selectedHashes in
                     handleCommitTablePrimaryAction(selectedHashes)
+                }
+                .onChange(of: tableColumnCustomization) { _, _ in
+                    Task { @MainActor in
+                        // Let SwiftUI apply column visibility before restoring
+                        // widths for the resulting native column set.
+                        await Task.yield()
+                        tableScrollCoordinator.restoreVisibleColumnsIfNeeded()
+                    }
                 }
                 .onChange(of: tableSelection) { oldSelection, newSelection in
                     applyTableSelection(from: oldSelection, to: newSelection)
@@ -687,11 +724,12 @@ struct HistoryView: View {
     @ViewBuilder
     private func historyGraphTableCell(_ row: HistoryTableRow, graphModel: CommitGraphModel) -> some View {
         if let commit = row.commit {
-            commitInteractionCell(for: commit) {
+            historyCellContent {
                 BranchGraphRowCanvas(
                     model: graphModel,
                     rowIndex: graphModel.rowIndexByHash[commit.hash] ?? 0
                 )
+                .equatable()
                 .opacity(activeDragCommitHashes.contains(commit.hash) ? 0.4 : 1)
             }
         }
@@ -700,7 +738,7 @@ struct HistoryView: View {
     @ViewBuilder
     private func historyMessageTableCell(_ row: HistoryTableRow, graphModel: CommitGraphModel) -> some View {
         if let commit = row.commit {
-            commitInteractionCell(for: commit) {
+            historyCellContent {
                 GeometryReader { geometry in
                     HistoryCommitMessageCell(
                         commit: commit,
@@ -733,7 +771,7 @@ struct HistoryView: View {
     @ViewBuilder
     private func historyAuthorTableCell(_ row: HistoryTableRow) -> some View {
         if let commit = row.commit {
-            commitInteractionCell(for: commit) {
+            historyCellContent {
                 Text("\(commit.author) <\(commit.email)>")
                     .font(.callout.scaled(by: textScale))
                     .foregroundStyle(.secondary)
@@ -746,7 +784,7 @@ struct HistoryView: View {
     @ViewBuilder
     private func historyDateTableCell(_ row: HistoryTableRow) -> some View {
         if let commit = row.commit {
-            commitInteractionCell(for: commit) {
+            historyCellContent {
                 Text(
                     commit.date,
                     format: .dateTime
@@ -767,7 +805,7 @@ struct HistoryView: View {
     @ViewBuilder
     private func historyCommitTableCell(_ row: HistoryTableRow) -> some View {
         if let commit = row.commit {
-            commitInteractionCell(for: commit) {
+            historyCellContent {
                 Text(commit.shortHash)
                     .font(.callout.monospaced().scaled(by: textScale))
                     .foregroundStyle(.tertiary)
@@ -1706,10 +1744,16 @@ struct HistoryView: View {
         }
     }
     
-    private func loadFileChanges(for commit: Commit?) async {
+    private func loadFileChanges(for commit: Commit?, resuming: Bool = false) async {
+        guard !Task.isCancelled else { return }
         let loadID = UUID()
         await MainActor.run {
+            guard !Task.isCancelled else { return }
             commitFilesLoadID = loadID
+            if resuming, commitFilesCommitHash == commit?.hash { return }
+            commitFilesCommitHash = commit?.hash
+            commitFilesLoaded = false
+            commitLineCountsLoaded = false
             commitLineCounts = [:]
             commitPatchEligibilityLoaded = false
             commitPatchEligibilityError = nil
@@ -1720,33 +1764,44 @@ struct HistoryView: View {
             diffLoadID = UUID()
         }
 
-        guard let commit = commit else {
+        guard !Task.isCancelled, let commit = commit else {
             return
         }
 
-        async let lineCounts = try? GitStatusService.shared.commitLineChangeCounts(in: commit.hash, in: repositoryURL)
-        let changes = await GitStatusService.shared.changedFiles(
-            in: commit.hash,
-            in: repositoryURL
-        )
-        await MainActor.run {
-            guard commitFilesLoadID == loadID,
-                  selectedCommit?.hash == commit.hash else {
-                return
+        // Resume each unfinished stage without clearing results or file selection.
+        // Empty results are valid, so completion cannot be inferred from their contents.
+        async let lineCounts: [String: FileLineChangeCount]? = commitLineCountsLoaded
+            ? nil
+            : try? GitStatusService.shared.commitLineChangeCounts(in: commit.hash, in: repositoryURL)
+        if !commitFilesLoaded {
+            let changes = await GitStatusService.shared.changedFiles(
+                in: commit.hash,
+                in: repositoryURL
+            )
+            await MainActor.run {
+                guard !Task.isCancelled, commitFilesLoadID == loadID,
+                      selectedCommit?.hash == commit.hash else {
+                    return
+                }
+                fileChanges = changes
+                commitFilesLoaded = true
+                selectedFile = changes.first(where: { $0 == selectedFile }) ?? changes.first
             }
-            fileChanges = changes
-            selectedFile = changes.first
         }
         let loadedLineCounts = await lineCounts
-        guard commitFilesLoadID == loadID, selectedCommit?.hash == commit.hash else { return }
-        commitLineCounts = loadedLineCounts ?? [:]
+        guard !Task.isCancelled, commitFilesLoadID == loadID, selectedCommit?.hash == commit.hash else { return }
+        if !commitLineCountsLoaded, let loadedLineCounts {
+            commitLineCounts = loadedLineCounts
+            commitLineCountsLoaded = true
+        }
+        guard !commitPatchEligibilityLoaded else { return }
         do {
             let reasons = try await GitStatusService.shared.commitPatchUnavailableReasons(commit: commit.hash, in: repositoryURL)
-            guard commitFilesLoadID == loadID, selectedCommit?.hash == commit.hash else { return }
+            guard !Task.isCancelled, commitFilesLoadID == loadID, selectedCommit?.hash == commit.hash else { return }
             commitPatchReasons = reasons
             commitPatchEligibilityLoaded = true
         } catch {
-            guard commitFilesLoadID == loadID else { return }
+            guard !Task.isCancelled, commitFilesLoadID == loadID else { return }
             commitPatchEligibilityError = error.localizedDescription
             commitPatchEligibilityLoaded = true
         }
@@ -1764,15 +1819,17 @@ struct HistoryView: View {
     }
 
     private func loadDiff(for file: CommitFileChange?, in commit: Commit?) async {
+        guard !Task.isCancelled else { return }
         let loadID = UUID()
         await MainActor.run {
+            guard !Task.isCancelled else { return }
             diffLoadID = loadID
             diffHunks = []
             diffCommitHash = nil
             diffFilePath = nil
         }
 
-        guard let file = file, let commit = commit else {
+        guard !Task.isCancelled, let file = file, let commit = commit else {
             return
         }
 
@@ -1782,7 +1839,7 @@ struct HistoryView: View {
             in: repositoryURL
         )
         await MainActor.run {
-            guard diffLoadID == loadID,
+            guard !Task.isCancelled, diffLoadID == loadID,
                   selectedCommit?.hash == commit.hash,
                   selectedFile == file else {
                 return
@@ -1848,9 +1905,8 @@ struct HistoryView: View {
             return
         }
 
-        // Cell clicks have already resolved the primary commit and range anchor.
-        // Keep that anchor for subsequent Shift-clicks; native keyboard selection
-        // still comes through the normal reconciliation below.
+        // Pointer and keyboard selection both come from the native table.
+        // Context-click monitoring can already have synchronized this selection.
         guard Set(commitSelection.selectedHashes) != newSelection else { return }
 
         let orderedHashes = visibleHashes.filter(newSelection.contains)
@@ -2505,54 +2561,12 @@ struct HistoryView: View {
             }
     }
 
-    private func commitInteractionCell<Content: View>(
-        for commit: Commit,
+    private func historyCellContent<Content: View>(
         @ViewBuilder content: () -> Content
     ) -> some View {
         content()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                selectCommitFromCell(commit)
-            }
-            .simultaneousGesture(
-                TapGesture(count: 2).onEnded {
-                    guard !consumeSuppressedCommitClick(commit.hash) else { return }
-                    handleCommitDoubleClick(commit)
-                }
-            )
-            .onContinuousHover { phase in
-                switch phase {
-                case .active:
-                    NSCursor.pointingHand.set()
-                case .ended:
-                    NSCursor.arrow.set()
-                }
-            }
-            .contextMenu {
-                // Cell gestures own pointer selection. Resolve the menu from
-                // that selection and the clicked row, rather than the native
-                // Table's contextual selection, which can include another row.
-                let contextCommits = Self.contextMenuCommits(
-                    startingAt: commit.hash,
-                    commits: commits,
-                    selection: commitSelection
-                )
-                if tableScrollCoordinator.allowsContextMenu {
-                    commitContextMenu(for: Set(contextCommits.map(\.hash)))
-                }
-            }
-    }
-
-    private func selectCommitFromCell(_ commit: Commit) {
-        guard !consumeSuppressedCommitClick(commit.hash) else { return }
-        selectedCommit = Self.selectCommitFromNativeTap(
-            commit.hash,
-            modifierFlags: NSEvent.modifierFlags,
-            commits: commits,
-            selection: &commitSelection
-        )
-        tableSelection = Set(commitSelection.selectedHashes).intersection(commits.map(\.hash))
+            .allowsHitTesting(false)
     }
 
     private func makeCommitDragPayload(startingAt commit: Commit) -> GitDragPayload {

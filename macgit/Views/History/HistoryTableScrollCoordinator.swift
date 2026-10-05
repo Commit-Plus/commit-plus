@@ -207,7 +207,7 @@ final class HistoryTableScrollCoordinator {
         return max(0, clipView.bounds.width - CGFloat(columns.count) * tableView.intercellSpacing.width)
     }
 
-    private func restoreVisibleColumnsIfNeeded() {
+    func restoreVisibleColumnsIfNeeded() {
         guard !isRestoringWidths, let tableView,
               let clipView = tableView.enclosingScrollView?.contentView,
               clipView.bounds.width > 0 else { return }
@@ -341,21 +341,30 @@ final class HistoryTableScrollCoordinator {
         }
     }
 
-    func startContextClickMonitoring(onRow: @escaping (Int) -> Void) {
+    func startContextClickMonitoring(onRow: @escaping (Int) -> NSMenu?) {
         stopContextClickMonitoring()
         contextClickMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.rightMouseDown, .leftMouseDown]
         ) { [weak self] event in
             MainActor.assumeIsolated {
-                guard event.type == .rightMouseDown || event.modifierFlags.contains(.control),
-                      let tableView = self?.tableView,
+                guard let tableView = self?.tableView,
                       self?.containsContextClick(event) == true else {
                     return event
                 }
                 let row = tableView.row(at: tableView.convert(event.locationInWindow, from: nil))
                 guard row >= 0 else { return event }
-                // Update selection before AppKit dispatches the context menu.
-                onRow(row)
+                // Cell content is presentation-only. Keep native table focus
+                // for selection highlighting, keyboard input and double-clicks.
+                tableView.window?.makeFirstResponder(tableView)
+                if event.type == .rightMouseDown || event.modifierFlags.contains(.control) {
+                    // SwiftUI's table menu can miss contextual row IDs when
+                    // Table uses explicit draggable rows. Resolve the row once
+                    // here and present the existing SwiftUI menu through AppKit.
+                    if let menu = onRow(row) {
+                        NSMenu.popUpContextMenu(menu, with: event, for: tableView)
+                        return nil
+                    }
+                }
                 return event
             }
         }
@@ -487,6 +496,10 @@ struct HistoryTableIntrospectionView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: HistoryTableIntrospectionNSView, context: Context) {
+        // Ordinary cell updates do not change the native table attachment.
+        // Lifecycle callbacks attach recycled cells; customization is handled
+        // once by the table rather than walking ancestors for every cell.
+        guard nsView.coordinator !== coordinator else { return }
         nsView.coordinator = coordinator
         nsView.attachIfPossible()
     }
@@ -503,6 +516,12 @@ final class HistoryTableIntrospectionNSView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
+        nil
+    }
+
+    // This zero-content bridge only discovers the table. It must never become
+    // the mouse target of the message cell or intercept native row actions.
+    override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 

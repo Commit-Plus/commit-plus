@@ -152,10 +152,13 @@ class SyncState: ObservableObject {
         async let loadedCurrentBranch = GitStatusService.shared.currentBranch(in: repositoryURL)
 
         let uncommittedCount = await GitStatusService.shared.uncommittedChangeCount(in: repositoryURL)
-        let trackedCounts = await GitStatusService.shared.trackedStatusCounts(in: repositoryURL)
         await MainActor.run {
             guard generation == refreshGeneration else { return }
             self.commitBadgeCount = uncommittedCount
+        }
+        let trackedCounts = await GitStatusService.shared.trackedStatusCounts(in: repositoryURL)
+        await MainActor.run {
+            guard generation == refreshGeneration else { return }
             self.stagedBadgeCount = trackedCounts.staged
             self.stashableCount = trackedCounts.staged + trackedCounts.unstaged
         }
@@ -202,6 +205,7 @@ class SyncState: ObservableObject {
         let autoFetchEnabled = settings.resolvedAutoFetchEnabled(globalValue: globalAutoFetchEnabled)
         backgroundTask = Task {
             while !Task.isCancelled {
+                await refresh(repositoryURL: repositoryURL, force: false)
                 if autoFetchEnabled,
                    networkMonitor.currentPath.status == .satisfied,
                    await performAutomaticFetch(
@@ -209,6 +213,7 @@ class SyncState: ObservableObject {
                        repositoryURL: repositoryURL,
                        force: false
                    ) {
+                        await refresh(repositoryURL: repositoryURL, force: true)
                         await MainActor.run {
                             NotificationCenter.default.post(
                                 name: .repositoryRemoteRefsDidRefresh,
@@ -217,7 +222,6 @@ class SyncState: ObservableObject {
                             )
                         }
                 }
-                await refresh(repositoryURL: repositoryURL, force: false)
                 try? await Task.sleep(for: Self.backgroundRefreshInterval)
             }
         }

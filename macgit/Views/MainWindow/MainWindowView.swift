@@ -545,6 +545,12 @@ struct MainWindowView: View {
                     globalValue: appState.refreshOnAppActive
                 ) else { return }
                 Task {
+                    await syncState.refresh(repositoryURL: repositoryURL, force: true)
+                    NotificationCenter.default.post(
+                        name: .repositoryLocalStateDidRefresh,
+                        object: nil,
+                        userInfo: ["repositoryURL": repositoryURL]
+                    )
                     var didFetchRemoteRefs = false
                     if let credentialResolver = await credentialResolverForFetch(
                         options: GitStatusService.FetchOptions()
@@ -556,7 +562,9 @@ struct MainWindowView: View {
                             force: true
                         )
                     }
-                    await syncState.refresh(repositoryURL: repositoryURL, force: true)
+                    if didFetchRemoteRefs {
+                        await syncState.refresh(repositoryURL: repositoryURL, force: true)
+                    }
                     await MainActor.run {
                         if didFetchRemoteRefs {
                             NotificationCenter.default.post(
@@ -565,11 +573,6 @@ struct MainWindowView: View {
                                 userInfo: ["repositoryURL": repositoryURL]
                             )
                         }
-                        NotificationCenter.default.post(
-                            name: .repositoryLocalStateDidRefresh,
-                            object: nil,
-                            userInfo: ["repositoryURL": repositoryURL]
-                        )
                     }
                 }
             }
@@ -1796,6 +1799,7 @@ struct MainWindowView: View {
             }
             gitFlowWorktreeRootURL = gitCommonDirectory?.deletingLastPathComponent()
         }
+        await syncState.refresh(repositoryURL: repositoryURL)
         var didFetchRemoteRefs = false
         if loadedSettings.resolvedRefreshOnAppActive(
             globalValue: appState.refreshOnAppActive
@@ -1809,8 +1813,8 @@ struct MainWindowView: View {
                 force: true
             )
         }
-        await syncState.refresh(repositoryURL: repositoryURL)
         if didFetchRemoteRefs {
+            await syncState.refresh(repositoryURL: repositoryURL)
             await MainActor.run {
                 NotificationCenter.default.post(
                     name: .repositoryRemoteRefsDidRefresh,
