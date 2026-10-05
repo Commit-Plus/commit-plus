@@ -6,6 +6,10 @@ struct BranchComparisonFileSidebar: View {
     @State private var filter = ""
     @State private var tree: [Node] = []
     @State private var collapsedFolders: Set<String> = []
+    @State private var visibleRows: [VisibleRow] = []
+    @State private var allFolderPaths: Set<String> = []
+    @State private var filteredFileCount = 0
+    @State private var scrollPosition = ScrollPosition(edge: .top)
     @FocusState private var isFilterFocused: Bool
 
     private struct Node: Identifiable {
@@ -13,6 +17,12 @@ struct BranchComparisonFileSidebar: View {
         let name: String
         var file: CommitFileChange?
         var children: [Node] = []
+    }
+
+    private struct VisibleRow: Identifiable {
+        let node: Node
+        let depth: Int
+        var id: String { node.id }
     }
 
     var body: some View {
@@ -39,11 +49,11 @@ struct BranchComparisonFileSidebar: View {
                 }
                 if !isFilterFocused {
                     Button("Expand all folders", systemImage: "arrow.up.left.and.arrow.down.right") {
-                        collapsedFolders.removeAll()
+                        setAllFoldersExpanded(true)
                     }
                     .help("Expand all folders")
                     Button("Collapse all folders", systemImage: "arrow.down.right.and.arrow.up.left") {
-                        collapsedFolders = folderPaths(in: nodes(for: controller.files, prefix: ""))
+                        setAllFoldersExpanded(false)
                     }
                     .help("Collapse all folders")
                 }
@@ -53,15 +63,23 @@ struct BranchComparisonFileSidebar: View {
             .padding(12)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(tree) { node in
-                        TreeRow(node: node, controller: controller, collapsedFolders: $collapsedFolders)
+                    ForEach(visibleRows) { row in
+                        TreeRow(node: row.node, controller: controller,
+                                isExpanded: !collapsedFolders.contains(row.id)) {
+                            toggleFolder(row.id)
+                        }
+                        .padding(.leading, CGFloat(row.depth) * 14)
+                        .frame(height: 30)
+                        .id(row.id)
                     }
                 }
+                .scrollTargetLayout()
                 .padding(.horizontal, 10)
                 .padding(.bottom, 10)
             }
+            .scrollPosition($scrollPosition)
             .overlay {
-                if tree.isEmpty {
+                if visibleRows.isEmpty {
                     ContentUnavailableView.search(text: filter)
                 }
             }
@@ -69,15 +87,15 @@ struct BranchComparisonFileSidebar: View {
             HStack {
                 Text("\(controller.files.count) changed files")
                 Spacer()
-                if !filter.isEmpty { Text("\(filteredFiles.count) shown") }
+                if !filter.isEmpty { Text("\(filteredFileCount) shown") }
             }
             .font(.caption).foregroundStyle(.secondary)
             .padding(12)
         }
         .background(.background.secondary)
         .onAppear(perform: rebuildTree)
-        .onChange(of: controller.files) { rebuildTree() }
-        .onChange(of: filter) { rebuildTree() }
+        .onChange(of: controller.files) { rebuildTree(); scrollPosition.scrollTo(edge: .top) }
+        .onChange(of: filter) { rebuildTree(); scrollPosition.scrollTo(edge: .top) }
     }
 
     private var filteredFiles: [CommitFileChange] {
@@ -86,20 +104,54 @@ struct BranchComparisonFileSidebar: View {
     }
 
     private func rebuildTree() {
-        tree = nodes(for: filteredFiles, prefix: "")
+        let files = filteredFiles
+        filteredFileCount = files.count
+        tree = nodes(for: files, prefix: "")
+        allFolderPaths = Set(controller.files.flatMap { file in
+            let parts = file.path.split(separator: "/")
+            return (1..<max(1, parts.count)).map { parts.prefix($0).joined(separator: "/") }
+        })
+        rebuildVisibleRows()
         if controller.selectedFile == nil, filter.isEmpty,
            let firstFile = firstFile(in: tree) {
             controller.selectFile(firstFile)
         }
     }
 
-    private func folderPaths(in nodes: [Node]) -> Set<String> {
-        var paths: Set<String> = []
-        for node in nodes where node.file == nil {
-            paths.insert(node.id)
-            paths.formUnion(folderPaths(in: node.children))
+    private func rebuildVisibleRows() {
+        var rows: [VisibleRow] = []
+        func append(_ nodes: [Node], depth: Int) {
+            for node in nodes {
+                rows.append(VisibleRow(node: node, depth: depth))
+                if node.file == nil, !collapsedFolders.contains(node.id) {
+                    append(node.children, depth: depth + 1)
+                }
+            }
         }
-        return paths
+        append(tree, depth: 0)
+        visibleRows = rows
+    }
+
+    private func setAllFoldersExpanded(_ expanded: Bool) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            collapsedFolders = expanded ? [] : allFolderPaths
+            rebuildVisibleRows()
+            scrollPosition.scrollTo(edge: .top)
+        }
+    }
+
+    private func toggleFolder(_ path: String) {
+        let collapsing = !collapsedFolders.contains(path)
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            if collapsing { collapsedFolders.insert(path) }
+            else { collapsedFolders.remove(path) }
+            rebuildVisibleRows()
+            if collapsing { scrollPosition.scrollTo(id: path, anchor: .top) }
+        }
     }
 
     private func firstFile(in nodes: [Node]) -> CommitFileChange? {
@@ -129,16 +181,8 @@ struct BranchComparisonFileSidebar: View {
     private struct TreeRow: View {
         let node: Node
         let controller: ReferenceComparisonController
-        @Binding var collapsedFolders: Set<String>
-
-        private var isExpanded: Bool { !collapsedFolders.contains(node.id) }
-
-        private var expansion: Binding<Bool> {
-            Binding(get: { isExpanded }, set: { expanded in
-                if expanded { collapsedFolders.remove(node.id) }
-                else { collapsedFolders.insert(node.id) }
-            })
-        }
+        let isExpanded: Bool
+        let onToggle: () -> Void
 
         var body: some View {
             if let file = node.file {
@@ -149,6 +193,15 @@ struct BranchComparisonFileSidebar: View {
                         RevisionTreeIcon(path: file.path, isDirectory: false)
                         Text(node.name).lineLimit(1).truncationMode(.middle)
                         Spacer(minLength: 4)
+                        if let counts = controller.lineCounts[file.path] {
+                            HStack(spacing: 4) {
+                                Text("+\(counts.added)").foregroundStyle(.green)
+                                Text("−\(counts.removed)").foregroundStyle(.red)
+                            }
+                            .font(.caption.monospacedDigit().weight(.medium))
+                            .fixedSize()
+                            .accessibilityLabel("\(counts.added) lines added, \(counts.removed) lines removed")
+                        }
                         Text(statusLetter(file.status))
                             .font(.caption.monospaced().weight(.semibold))
                             .foregroundStyle(statusColor(file.status))
@@ -167,21 +220,24 @@ struct BranchComparisonFileSidebar: View {
                 .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
                 .accessibilityLabel("\(file.path), \(file.status.displayText)")
             } else {
-                DisclosureGroup(isExpanded: expansion) {
-                    ForEach(node.children) { child in
-                        TreeRow(node: child, controller: controller, collapsedFolders: $collapsedFolders)
-                    }
-                    .padding(.leading, 14)
-                } label: {
+                Button(action: onToggle) {
                     HStack(spacing: 8) {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .frame(width: 10)
                         RevisionTreeIcon(path: node.id, isDirectory: true, isExpanded: isExpanded)
                         Text(node.name).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
+                        Spacer(minLength: 0)
                     }
-                        .lineLimit(1)
-                        .font(.callout)
-                        .padding(.vertical, 5)
+                    .font(.callout)
+                    .padding(.horizontal, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                .tint(.secondary)
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(node.name), \(isExpanded ? "expanded" : "collapsed")")
+                .help(isExpanded ? "Collapse folder" : "Expand folder")
             }
         }
 

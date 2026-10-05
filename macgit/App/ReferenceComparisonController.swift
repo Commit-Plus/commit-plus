@@ -16,6 +16,7 @@ final class ReferenceComparisonController {
     private(set) var branches: [ComparisonBranch] = []
     private(set) var snapshot: ReferenceComparisonSnapshot?
     private(set) var files: [CommitFileChange] = []
+    private(set) var lineCounts: [String: FileLineChangeCount] = [:]
     private(set) var baseCommits: [Commit] = []
     private(set) var targetCommits: [Commit] = []
     private(set) var selectedFile: CommitFileChange?
@@ -101,6 +102,7 @@ final class ReferenceComparisonController {
         error = nil
         fileError = nil
         files = []
+        lineCounts = [:]
         selectedFile = nil
         patch = nil
         snapshot = previousSnapshot
@@ -143,14 +145,22 @@ final class ReferenceComparisonController {
                     if baseCommits.isEmpty { loadMoreCommits(targetSide: false) }
                     if targetCommits.isEmpty { loadMoreCommits(targetSide: true) }
                 }
+                async let counts = try? service.comparisonLineChangeCounts(snapshot: resolved, mode: requestedMode, in: repositoryURL)
                 let changes = try await service.comparisonFiles(snapshot: resolved, mode: requestedMode, in: repositoryURL)
                 guard isCurrent(id) else { return }
+                if isBranchComparison, requestedMode == .mergeBase, changes.isEmpty {
+                    setMode(.tips)
+                    return
+                }
                 files = changes
                 isLoading = false
                 if let path {
                     let selected = changes.first { $0.path == previousSelection?.path }
                     selectFile(selected ?? (path.isDirectory ? nil : changes.first))
                 }
+                let loadedCounts = await counts
+                guard isCurrent(id) else { return }
+                lineCounts = loadedCounts ?? [:]
             } catch {
                 guard isCurrent(id) else { return }
                 self.error = error.localizedDescription

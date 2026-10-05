@@ -29,6 +29,19 @@ extension GitStatusService {
         return Self.parseLineChangeCounts(data).counts
     }
 
+    func comparisonLineChangeCounts(snapshot: ReferenceComparisonSnapshot, mode: ReferenceComparisonMode,
+                                    in repositoryURL: URL) async throws -> [String: FileLineChangeCount] {
+        try Task.checkCancellation()
+        let base = try snapshot.diffBase(for: mode)
+        let data = try await runGitRaw(arguments: [
+            "--no-optional-locks", "diff", "--numstat", "-z", "--find-renames", "--no-ext-diff", "--no-textconv"
+        ] + (snapshot.path == nil ? [base, snapshot.target] : snapshot.diffArguments) + ["--"], in: repositoryURL)
+        try Task.checkCancellation()
+        let counts = Self.parseLineChangeCounts(data).counts
+        guard let path = snapshot.path else { return counts }
+        return counts.filter { path.contains($0.key) }
+    }
+
     nonisolated private static func parseLineChangeCounts(_ data: Data) -> (counts: [String: FileLineChangeCount], binaryPaths: Set<String>) {
         let records = data.split(separator: 0, omittingEmptySubsequences: false)
         var counts: [String: FileLineChangeCount] = [:]

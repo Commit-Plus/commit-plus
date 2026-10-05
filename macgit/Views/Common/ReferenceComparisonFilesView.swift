@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ReferenceComparisonFilesView: View {
     let controller: ReferenceComparisonController
@@ -73,7 +74,13 @@ struct ReferenceComparisonFilesView: View {
                         Label("Large diff: showing the first 2 MB of output.", systemImage: "exclamationmark.triangle")
                             .font(.caption).padding(8)
                     }
-                    if patch.isBinary {
+                    if controller.isBranchComparison,
+                       UTType(filenameExtension: URL(fileURLWithPath: file.path).pathExtension)?.conforms(to: .image) == true,
+                       let snapshot = controller.snapshot {
+                        ReferenceComparisonImageView(file: file, snapshot: snapshot, mode: controller.mode,
+                                                     repositoryURL: controller.repositoryURL)
+                            .id("\(snapshot.base):\(snapshot.target):\(controller.mode.rawValue):\(file.path)")
+                    } else if patch.isBinary {
                         EmptyStateView(icon: "doc", message: "Binary file changed", detail: "A text diff is not available for this file.")
                     } else if patch.hunks.isEmpty {
                         EmptyStateView(icon: "doc", message: "No text changes",

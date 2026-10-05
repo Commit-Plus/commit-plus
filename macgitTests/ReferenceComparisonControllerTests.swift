@@ -228,6 +228,11 @@ private actor ComparisonTestService: ReferenceComparisonServing {
                 CommitFileChange(path: "binary.dat", status: .added)]
     }
 
+    func comparisonLineChangeCounts(snapshot: ReferenceComparisonSnapshot, mode: ReferenceComparisonMode,
+                                    in repositoryURL: URL) async throws -> [String: FileLineChangeCount] {
+        [:]
+    }
+
     func comparisonCommits(snapshot: ReferenceComparisonSnapshot, targetSide: Bool, skip: Int, limit: Int, in repositoryURL: URL) async throws -> [Commit] {
         [Commit(hash: targetSide ? snapshot.target : snapshot.base, parents: [], message: "Commit", author: "Test", email: "test@example.com", date: .distantPast, refs: [])]
     }
