@@ -23,56 +23,20 @@ struct BranchGraphRowCanvas: View, Equatable {
     static let dotSize: CGFloat = 8
     static let trailingPadding: CGFloat = 4
 
-    private struct Stroke: Equatable {
-        let path: Path
-        let colorIndex: Int
-        let isHighlighted: Bool
-    }
-
-    private let strokes: [Stroke]
-    private let dots: [GraphDot]
+    private let geometry: CommitGraphRowGeometry
     let rowIndex: Int
     @Environment(\.backgroundProminence) private var backgroundProminence
 
     init(model: CommitGraphModel, rowIndex: Int) {
         self.rowIndex = rowIndex
-        guard model.rowSlices.indices.contains(rowIndex) else {
-            strokes = []
-            dots = []
-            return
-        }
-        let row = model.rowSlices[rowIndex]
-        let offset = Double(rowIndex)
-        // Keep only this row's geometry. Appending unrelated history must not
-        // invalidate every visible canvas through a shared graph model.
-        strokes = row.pathIndices.compactMap { index in
-            guard model.paths.indices.contains(index) else { return nil }
-            let path = model.paths[index]
-            return Stroke(
-                path: BranchGraphCanvas.path(
-                    for: path, rowHeight: Self.rowHeight, laneWidth: Self.laneWidth,
-                    rowOffset: offset, visibleRows: (offset - 1)..<(offset + 2)
-                ),
-                colorIndex: path.colorIndex, isHighlighted: path.isHighlighted
-            )
-        } + row.linkIndices.compactMap { index in
-            guard model.links.indices.contains(index) else { return nil }
-            let link = model.links[index]
-            return Stroke(
-                path: BranchGraphCanvas.linkPath(
-                    for: link, rowHeight: Self.rowHeight, laneWidth: Self.laneWidth,
-                    rowOffset: offset
-                ),
-                colorIndex: link.colorIndex, isHighlighted: link.isHighlighted
-            )
-        }
-        dots = row.dotIndices.compactMap { index in
-            model.dots.indices.contains(index) ? model.dots[index] : nil
-        }
+        geometry = model.rowGeometryCache.geometry(for: model, rowIndex: rowIndex)
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.rowIndex == rhs.rowIndex && lhs.strokes == rhs.strokes && lhs.dots == rhs.dots
+        lhs.rowIndex == rhs.rowIndex && (
+            lhs.geometry === rhs.geometry ||
+            (lhs.geometry.strokes == rhs.geometry.strokes && lhs.geometry.dots == rhs.geometry.dots)
+        )
     }
 
     var body: some View {
@@ -99,7 +63,7 @@ struct BranchGraphRowCanvas: View, Equatable {
         )
         let rowOffset = Double(rowIndex)
 
-        for stroke in strokes {
+        for stroke in geometry.strokes {
             context.stroke(
                 stroke.path,
                 with: .color(BranchGraphCanvas.lineColor(
@@ -110,7 +74,7 @@ struct BranchGraphRowCanvas: View, Equatable {
             )
         }
 
-        for dot in dots {
+        for dot in geometry.dots {
             BranchGraphCanvas.drawDot(
                 dot,
                 in: &context,

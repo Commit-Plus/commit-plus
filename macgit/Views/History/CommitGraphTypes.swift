@@ -84,6 +84,8 @@ nonisolated struct GraphDot: Equatable, Sendable {
 }
 
 nonisolated struct CommitGraphModel: Sendable {
+    // Each immutable graph snapshot owns a bounded cache of rendered rows.
+    let rowGeometryCache = CommitGraphRowGeometryCache()
     let paths: [GraphPath]
     let links: [GraphLink]
     let dots: [GraphDot]

@@ -72,6 +72,8 @@ struct HistoryView: View {
     @State private var diffFilePath: String?
     @State private var commitFilesLoadID = UUID()
     @State private var diffLoadID = UUID()
+    @State private var commitFilesLoadTask: Task<Void, Never>?
+    @State private var diffLoadTask: Task<Void, Never>?
     @AppStorage("history.tableColumns") private var tableColumnCustomization = TableColumnCustomization<HistoryTableRow>()
     @State private var tableSelection: Set<String> = []
     @State private var isRestoringTableSelection = false
@@ -201,13 +203,17 @@ struct HistoryView: View {
             showingCommitInfo = false
             fullCommitMessage = nil
             isLoadingFullCommitMessage = false
-            Task {
+            commitFilesLoadTask?.cancel()
+            diffLoadTask?.cancel()
+            commitFilesLoadTask = Task {
                 await loadFileChanges(for: newCommit)
             }
         }
         .onChange(of: selectedFile) { _, newFile in
-            Task {
-                await loadDiff(for: newFile, in: selectedCommit)
+            diffLoadTask?.cancel()
+            let commit = selectedCommit
+            diffLoadTask = Task {
+                await loadDiff(for: newFile, in: commit)
             }
         }
         .onChange(of: selectedBranch) { _, newBranch in
@@ -242,10 +248,22 @@ struct HistoryView: View {
                 let contextHashes = tableSelection.intersection(Set(commits.map(\.hash)))
                 return NSHostingMenu(rootView: commitContextMenu(for: contextHashes))
             }
+            // A retained History view can return with unchanged selection after
+            // its in-flight detail request was cancelled on disappearance.
+            if commitFilesLoadTask?.isCancelled == true {
+                let commit = selectedCommit
+                commitFilesLoadTask = Task { await loadFileChanges(for: commit) }
+            } else if diffLoadTask?.isCancelled == true {
+                let file = selectedFile
+                let commit = selectedCommit
+                diffLoadTask = Task { await loadDiff(for: file, in: commit) }
+            }
         }
         .onDisappear {
             tableScrollCoordinator.stopContextClickMonitoring()
             historySearchDebounceTask?.cancel()
+            commitFilesLoadTask?.cancel()
+            diffLoadTask?.cancel()
             dragClickSuppressionTask?.cancel()
             dragCompletionMonitorTask?.cancel()
             activeDragCommitHashes.removeAll()
@@ -1722,8 +1740,10 @@ struct HistoryView: View {
     }
     
     private func loadFileChanges(for commit: Commit?) async {
+        guard !Task.isCancelled else { return }
         let loadID = UUID()
         await MainActor.run {
+            guard !Task.isCancelled else { return }
             commitFilesLoadID = loadID
             commitLineCounts = [:]
             commitPatchEligibilityLoaded = false
@@ -1735,7 +1755,7 @@ struct HistoryView: View {
             diffLoadID = UUID()
         }
 
-        guard let commit = commit else {
+        guard !Task.isCancelled, let commit = commit else {
             return
         }
 
@@ -1745,7 +1765,7 @@ struct HistoryView: View {
             in: repositoryURL
         )
         await MainActor.run {
-            guard commitFilesLoadID == loadID,
+            guard !Task.isCancelled, commitFilesLoadID == loadID,
                   selectedCommit?.hash == commit.hash else {
                 return
             }
@@ -1753,15 +1773,15 @@ struct HistoryView: View {
             selectedFile = changes.first
         }
         let loadedLineCounts = await lineCounts
-        guard commitFilesLoadID == loadID, selectedCommit?.hash == commit.hash else { return }
+        guard !Task.isCancelled, commitFilesLoadID == loadID, selectedCommit?.hash == commit.hash else { return }
         commitLineCounts = loadedLineCounts ?? [:]
         do {
             let reasons = try await GitStatusService.shared.commitPatchUnavailableReasons(commit: commit.hash, in: repositoryURL)
-            guard commitFilesLoadID == loadID, selectedCommit?.hash == commit.hash else { return }
+            guard !Task.isCancelled, commitFilesLoadID == loadID, selectedCommit?.hash == commit.hash else { return }
             commitPatchReasons = reasons
             commitPatchEligibilityLoaded = true
         } catch {
-            guard commitFilesLoadID == loadID else { return }
+            guard !Task.isCancelled, commitFilesLoadID == loadID else { return }
             commitPatchEligibilityError = error.localizedDescription
             commitPatchEligibilityLoaded = true
         }
@@ -1779,15 +1799,17 @@ struct HistoryView: View {
     }
 
     private func loadDiff(for file: CommitFileChange?, in commit: Commit?) async {
+        guard !Task.isCancelled else { return }
         let loadID = UUID()
         await MainActor.run {
+            guard !Task.isCancelled else { return }
             diffLoadID = loadID
             diffHunks = []
             diffCommitHash = nil
             diffFilePath = nil
         }
 
-        guard let file = file, let commit = commit else {
+        guard !Task.isCancelled, let file = file, let commit = commit else {
             return
         }
 
@@ -1797,7 +1819,7 @@ struct HistoryView: View {
             in: repositoryURL
         )
         await MainActor.run {
-            guard diffLoadID == loadID,
+            guard !Task.isCancelled, diffLoadID == loadID,
                   selectedCommit?.hash == commit.hash,
                   selectedFile == file else {
                 return
