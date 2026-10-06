@@ -74,12 +74,25 @@ struct RepositoryWindowReader: NSViewRepresentable {
         func configureWindow() {
             guard let window else { return }
             repositoryWindowContext.window = window
-            window.tabbingIdentifier = allowsTabbing
+            let tabbingIdentifier = allowsTabbing
                 ? "com.commitplus.macgit.repository"
                 : "com.commitplus.macgit.welcome"
-            window.tabbingMode = allowsTabbing ? .automatic : .disallowed
-            window.title = title
-            window.titleVisibility = .hidden
+            let tabbingMode: NSWindow.TabbingMode = allowsTabbing ? .automatic : .disallowed
+            // AppKit setters can update standard window menu items even when
+            // their values are unchanged. Avoid reconfiguring tabs during
+            // unrelated SwiftUI updates while a menu is being tracked.
+            if window.tabbingIdentifier != tabbingIdentifier {
+                window.tabbingIdentifier = tabbingIdentifier
+            }
+            if window.tabbingMode != tabbingMode {
+                window.tabbingMode = tabbingMode
+            }
+            if window.title != title {
+                window.title = title
+            }
+            if window.titleVisibility != .hidden {
+                window.titleVisibility = .hidden
+            }
         }
     }
 }
