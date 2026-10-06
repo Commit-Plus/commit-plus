@@ -64,7 +64,7 @@ final class SettingsSyncControllerTests: XCTestCase {
         XCTAssertNil(harness.controller.presentedSheet)
     }
 
-    func testConflictReplacesManageAccountSheetImmediately() async {
+    func testConflictPresentsSheetAfterOpeningAccountSettings() async {
         let harness = makeHarness(cloud: cloud, enabled: true)
         harness.controller.presentManageAccount()
 

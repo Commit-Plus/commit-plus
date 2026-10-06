@@ -37,7 +37,9 @@ struct AppSettingsDetailView: View {
         case .git:
             GitSettingsView()
         case .accounts:
-            AccountSettingsView(
+            AccountSettingsView(accountController: accountController)
+        case .connections:
+            ConnectionsSettingsView(
                 accountController: accountController,
                 providerAccountController: providerAccountController
             )

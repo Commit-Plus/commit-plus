@@ -18,6 +18,7 @@
 import SwiftUI
 
 struct AppSettingsView: View {
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     @ObservedObject var appState: AppState
     @ObservedObject var accountController: AccountSessionController
@@ -97,6 +98,12 @@ struct AppSettingsView: View {
         .frame(minWidth: 860, idealWidth: 920, minHeight: 540, idealHeight: 640)
         .navigationTitle("Settings")
         .background(AppSettingsWindowControls())
+        .onReceive(NotificationCenter.default.publisher(for: .showAppSettings)) { notification in
+            guard let rawSection = notification.userInfo?["section"] as? String,
+                  let section = AppSettingsSection(rawValue: rawSection) else { return }
+            selectedSection = section
+            openWindow(id: "settings")
+        }
         .alert("Couldn’t Save Settings", isPresented: $isShowingSaveError) {
             Button("OK", role: .cancel) {}
         } message: {

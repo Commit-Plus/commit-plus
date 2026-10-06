@@ -161,15 +161,6 @@ struct ContentView: View {
                 switch sheet {
                 case .authentication(let mode):
                     AuthenticationSheet(controller: accountController, mode: mode)
-                case .manageAccount:
-                    ManageAccountSheet(
-                        controller: accountController
-                    )
-                case .connections:
-                    ConnectionsSheet(
-                        accountController: accountController,
-                        providerAccountController: providerAccountController
-                    )
                 case .settingsConflict:
                     SettingsSyncConflictSheet(controller: accountController)
                 case .deviceLimit:

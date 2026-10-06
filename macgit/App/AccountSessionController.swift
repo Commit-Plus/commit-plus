@@ -175,11 +175,24 @@ final class AccountSessionController: ObservableObject {
     }
 
     func presentManageAccount() {
-        presentSheet(.manageAccount, in: NSApp.keyWindow ?? NSApp.mainWindow)
+        openSettings(.accounts)
     }
 
     func presentConnections() {
-        presentSheet(.connections, in: NSApp.keyWindow ?? NSApp.mainWindow)
+        openSettings(.connections)
+    }
+
+    private func openSettings(_ section: AppSettingsSection) {
+        // Route through a repository/welcome host even when an auxiliary window is key.
+        let sourceWindow = NSApp.orderedWindows.first { window in
+            window.tabbingIdentifier == "com.commitplus.macgit.repository"
+                || window.tabbingIdentifier == "com.commitplus.macgit.welcome"
+        } ?? NSApp.keyWindow ?? NSApp.mainWindow
+        NotificationCenter.default.post(
+            name: .showAppSettings,
+            object: sourceWindow,
+            userInfo: ["section": section.rawValue]
+        )
     }
 
     private func presentSheet(_ sheet: AccountSheet, in sourceWindow: NSWindow? = nil) {

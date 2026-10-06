@@ -19,9 +19,7 @@
 import SwiftUI
 
 struct AccountSettingsView: View {
-    @EnvironmentObject private var featureAccessController: FeatureAccessController
     @ObservedObject var accountController: AccountSessionController
-    @ObservedObject var providerAccountController: GitProviderAccountController
 
     @State private var authenticationMode: AuthenticationMode?
     @State private var confirmsAccountDeletion = false
@@ -148,29 +146,30 @@ struct AccountSettingsView: View {
             } header: {
                 Label("Commit+ Account", systemImage: "person.crop.circle")
             } footer: {
-                Text("Your Commit+ account is used for cloud settings, plan access, and securely associating provider connections.")
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Your Commit+ account is used for cloud settings, plan access, and securely associating provider connections.")
+                    if accountController.account != nil {
+                        SettingsActionRow {
+                            if accountController.isRefreshingProfile || accountController.isOpeningAccountOnWeb {
+                                ProgressView().controlSize(.small)
+                            }
+                            Button("Refresh", systemImage: "arrow.clockwise") {
+                                Task { await accountController.refreshProfile() }
+                            }
+                            .disabled(accountController.isRefreshingProfile)
+                            Button("Manage Account & Subscription", systemImage: "arrow.up.right.square") {
+                                Task { await accountController.openAccountOnWeb() }
+                            }
+                            .disabled(accountController.isOpeningAccountOnWeb)
+                        }
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .buttonStyle(.bordered)
+                    }
+                }
             }
 
-            Section {
-                GitProviderAccountsSection(
-                    controller: providerAccountController,
-                    isSignedIn: accountController.account != nil,
-                    onSignIn: presentSignIn,
-                    onUpgrade: {
-                        Task { await accountController.openPricingOnWeb() }
-                    },
-                    multipleAccountAccess: featureAccessController.decision(
-                        for: .multipleProviderAccounts,
-                        entitlement: accountController.entitlement
-                    ),
-                    showsTitle: false,
-                    alignsActionsToTrailingEdge: true
-                )
-            } header: {
-                Label("Git Provider Accounts", systemImage: "network")
-            } footer: {
-                Text("GitHub and GitLab use OAuth. Bitbucket Cloud uses an API token. All providers support HTTPS or SSH Git operations.")
-            }
+
         }
         .formStyle(.grouped)
         .navigationTitle("Account")

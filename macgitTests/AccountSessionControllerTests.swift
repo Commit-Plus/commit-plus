@@ -77,15 +77,30 @@ final class AccountSessionControllerTests: XCTestCase {
         XCTAssertEqual(auth.signOutCallCount, 1)
     }
 
-    func testPresentConnectionsShowsConnectionsSheet() {
+    func testPresentConnectionsRequestsConnectionsSettings() {
         let controller = AccountSessionController(
             auth: FakeAccountAuth(current: nil),
             bootstrapStatus: .configured
         )
 
+        let navigation = expectation(forNotification: .showAppSettings, object: nil) { notification in
+            notification.userInfo?["section"] as? String == AppSettingsSection.connections.rawValue
+        }
         controller.presentConnections()
+        wait(for: [navigation], timeout: 1)
+        XCTAssertNil(controller.presentedSheet)
+    }
 
-        XCTAssertEqual(controller.presentedSheet, .connections)
+    func testPresentProfileRequestsAccountSettings() {
+        let controller = AccountSessionController(
+            auth: FakeAccountAuth(current: nil), bootstrapStatus: .configured
+        )
+        let navigation = expectation(forNotification: .showAppSettings, object: nil) { notification in
+            notification.userInfo?["section"] as? String == AppSettingsSection.accounts.rawValue
+        }
+        controller.presentManageAccount()
+        wait(for: [navigation], timeout: 1)
+        XCTAssertNil(controller.presentedSheet)
     }
 
     func testSuccessfulAccountDeletionReturnsToGuest() async {

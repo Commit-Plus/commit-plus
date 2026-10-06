@@ -97,8 +97,6 @@ enum AuthenticationMode: String, CaseIterable, Identifiable {
 
 enum AccountSheet: Identifiable, Equatable {
     case authentication(AuthenticationMode)
-    case manageAccount
-    case connections
     case settingsConflict
     case deviceLimit
 
@@ -106,10 +104,6 @@ enum AccountSheet: Identifiable, Equatable {
         switch self {
         case .authentication(let mode):
             return "authentication-\(mode.rawValue)"
-        case .manageAccount:
-            return "manage-account"
-        case .connections:
-            return "connections"
         case .settingsConflict:
             return "settings-conflict"
         case .deviceLimit:
