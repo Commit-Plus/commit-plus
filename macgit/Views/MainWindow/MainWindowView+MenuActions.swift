@@ -61,7 +61,7 @@ extension MainWindowView {
         case .terminal:
             openTerminal()
         case .repositorySettings:
-            showingRepositorySettings = true
+            presentRepositorySettingsWindow()
         case .search:
             showingSearchModal = true
         }

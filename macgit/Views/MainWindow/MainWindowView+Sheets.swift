@@ -318,6 +318,7 @@ extension MainWindowView {
     var repositorySettingsSheet: some View {
         RepositorySettingsSheetView(
             repositoryURL: repositoryURL,
+            onClose: { showingRepositorySettings = false },
             initialSettings: repoSettings,
             initialGitFlowConfiguration: gitFlowConfiguration,
             initiallySelectGitFlow: initiallySelectGitFlowSettings,

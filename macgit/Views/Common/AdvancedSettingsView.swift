@@ -54,22 +54,23 @@ struct AdvancedSettingsView: View {
                         systemImage: "folder",
                         action: revealLogs
                     )
-                }
-
-                SettingsActionRow {
                     Button(
                         "Open Application Support",
                         systemImage: "externaldrive",
                         action: openApplicationSupport
                     )
                 }
-                Text("Application Support contains Commit+’s managed Git tools, local data, and AI chat history.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
             } header: {
                 Label("Diagnostics", systemImage: "stethoscope")
             } footer: {
-                Text("Diagnostic reports contain app and runtime status only—never tokens, credentials, repository paths, or Git output.")
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Application Support contains Commit+’s managed Git tools, local data, and AI chat history.")
+                    Text("Diagnostic reports contain app and runtime status only—never tokens, credentials, repository paths, or Git output.")
+                }
             }
 
             Section {
@@ -91,6 +92,10 @@ struct AdvancedSettingsView: View {
                     )
                     .disabled(isWorking)
                 }
+                .font(.body)
+                .foregroundStyle(.primary)
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
             } header: {
                 Label("Performance & Cache", systemImage: "gauge.with.dots.needle.67percent")
             } footer: {
@@ -110,24 +115,22 @@ struct AdvancedSettingsView: View {
                         action: inspectOrphanedUndoBackups
                     )
                     .disabled(isWorking || recentRepositories.repositories.isEmpty)
-                }
-
-                SettingsActionRow {
                     Button(
                         "Clear Recent Repositories…",
                         systemImage: "clock.badge.xmark",
                         action: { showingClearRecentConfirmation = true }
                     )
                     .disabled(recentRepositories.repositories.isEmpty)
-                }
-
-                SettingsActionRow {
                     Button(
                         "Reset Local App Settings…",
                         systemImage: "arrow.counterclockwise",
                         action: { showingResetConfirmation = true }
                     )
                 }
+                .font(.body)
+                .foregroundStyle(.primary)
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
             } header: {
                 Label("Data & Maintenance", systemImage: "wrench.adjustable")
             } footer: {

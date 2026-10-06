@@ -128,7 +128,22 @@ struct IntegrationsSettingsView: View {
             }
 
             Section {
-                SettingsActionRow {
+            } footer: {
+                HStack {
+                    if isTesting {
+                        ProgressView("Opening application…")
+                            .controlSize(.small)
+                    } else if let statusMessage {
+                        Label(statusMessage, systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    } else if let errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 0)
+
                     Button(
                         "Refresh Installed Applications",
                         systemImage: "arrow.clockwise",
@@ -136,18 +151,10 @@ struct IntegrationsSettingsView: View {
                     )
                     .disabled(isTesting)
                 }
-
-                if isTesting {
-                    ProgressView("Opening application…")
-                        .controlSize(.small)
-                } else if let statusMessage {
-                    Label(statusMessage, systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                } else if let errorMessage {
-                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                .font(.body)
+                .foregroundStyle(.primary)
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
             }
         }
         .formStyle(.grouped)

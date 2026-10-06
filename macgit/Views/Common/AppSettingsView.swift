@@ -96,6 +96,7 @@ struct AppSettingsView: View {
         .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 860, idealWidth: 920, minHeight: 540, idealHeight: 640)
         .navigationTitle("Settings")
+        .background(AppSettingsWindowControls())
         .alert("Couldn’t Save Settings", isPresented: $isShowingSaveError) {
             Button("OK", role: .cancel) {}
         } message: {

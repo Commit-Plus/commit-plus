@@ -31,18 +31,22 @@ struct UpdateSettingsView: View {
                 LabeledContent("Latest version") {
                     latestVersionContent
                 }
+
             } header: {
                 Label("Version", systemImage: "info.circle")
-            }
-
-            Section {
-                SettingsActionRow {
-                    updateAction
-                }
-            } header: {
-                Label("Software Update", systemImage: "arrow.triangle.2.circlepath")
             } footer: {
-                Text(statusMessage)
+                HStack {
+                    Text(statusMessage)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Spacer(minLength: 12)
+
+                    updateAction
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
+                }
             }
         }
         .formStyle(.grouped)

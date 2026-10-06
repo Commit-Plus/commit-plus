@@ -111,10 +111,12 @@ struct CommandLineSetupTip: View {
 struct CommandLineCodeBlock: View {
     let command: String
     @Binding var copiedCommand: String?
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 10) {
             syntaxColoredCommand
+                .font(.system(.body, design: .monospaced))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
 
@@ -131,10 +133,10 @@ struct CommandLineCodeBlock: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        .background(Color.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 9))
+        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 9))
         .overlay {
             RoundedRectangle(cornerRadius: 9)
-                .strokeBorder(.white.opacity(0.08))
+                .strokeBorder(.primary.opacity(0.12))
         }
     }
 
@@ -142,11 +144,13 @@ struct CommandLineCodeBlock: View {
         let prompt = Text("❯ ").foregroundStyle(.secondary)
         if command.hasPrefix("export PATH=") {
             return prompt
-                + Text("export").foregroundStyle(.purple)
+                + Text("export").foregroundStyle(colorScheme == .dark ? .purple : Color(red: 0.42, green: 0.18, blue: 0.65))
                 + Text(" PATH=").foregroundStyle(.primary)
-                + Text("\"$HOME/.local/bin:$PATH\"").foregroundStyle(.orange)
+                + Text("\"$HOME/.local/bin:$PATH\"").foregroundStyle(colorScheme == .dark ? .orange : Color(red: 0.55, green: 0.25, blue: 0.05))
         }
-        return prompt + Text("commit").foregroundStyle(.blue) + Text(" .").foregroundStyle(.primary)
+        return prompt
+            + Text("commit").foregroundStyle(colorScheme == .dark ? .blue : Color(red: 0.12, green: 0.32, blue: 0.65))
+            + Text(" .").foregroundStyle(.primary)
     }
 
     private func copyCommand() {

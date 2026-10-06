@@ -114,9 +114,14 @@ struct GeneralSettingsView: View {
             CommandLineSettingsSection()
 
             Section {
+            } footer: {
                 SettingsActionRow {
                     Button("Restore General Defaults…", action: showResetConfirmation)
                 }
+                .font(.body)
+                .foregroundStyle(.primary)
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
             }
         }
         .formStyle(.grouped)

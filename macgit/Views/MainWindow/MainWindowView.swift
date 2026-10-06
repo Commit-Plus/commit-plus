@@ -162,6 +162,7 @@ struct MainWindowView: View {
     @State private var branchComparisonWindow = BranchComparisonWindowController()
     @State private var pullPreselectedBranch: String? = nil
     @State var showingSearchModal = false
+    @State private var repositorySettingsWindow = RepositorySettingsWindowController()
     @State var showingRepositorySettings = false
     @State var initiallySelectGitFlowSettings = false
     @State var pendingSearchFileOpenRequest: SearchFileOpenRequest?
@@ -427,10 +428,13 @@ struct MainWindowView: View {
             }
             .replacingSheet(isPresented: $showingMergeSheet) { mergeSheet }
             .replacingSheet(isPresented: $showingStashSheet) { stashSheet }
-            .replacingSheet(
-                isPresented: $showingRepositorySettings,
-                onDismiss: { initiallySelectGitFlowSettings = false }
-            ) { repositorySettingsSheet }
+            .onChange(of: showingRepositorySettings) { _, isPresented in
+                if isPresented {
+                    presentRepositorySettingsWindow()
+                } else {
+                    repositorySettingsWindow.close()
+                }
+            }
             .replacingSheet(item: $pendingGitFlowTopicKind) { kind in
                 startGitFlowSheet(for: kind)
             }
@@ -772,6 +776,7 @@ struct MainWindowView: View {
             OpenRepositoryRegistry.shared.register(repositoryURL)
         }
         .onDisappear {
+            repositorySettingsWindow.close()
             branchComparisonWindow.close()
             isPromotionHostVisible = false
             if promotionPresentation != nil {
@@ -1729,6 +1734,17 @@ struct MainWindowView: View {
         }
     }
 
+    func presentRepositorySettingsWindow() {
+        showingRepositorySettings = true
+        repositorySettingsWindow.show(
+            content: repositorySettingsSheet.environmentObject(appState),
+            onClose: {
+                showingRepositorySettings = false
+                initiallySelectGitFlowSettings = false
+            }
+        )
+    }
+
     private func performRepositoryToolbarShortcut(_ shortcut: RepositoryToolbarShortcut) {
         guard !isRepositoryToolbarShortcutDisabled(shortcut) else { return }
         showingToolbarShortcutPopover = false
@@ -1746,7 +1762,7 @@ struct MainWindowView: View {
             openTerminal()
         case .settings:
             initiallySelectGitFlowSettings = false
-            showingRepositorySettings = true
+            presentRepositorySettingsWindow()
         }
     }
 

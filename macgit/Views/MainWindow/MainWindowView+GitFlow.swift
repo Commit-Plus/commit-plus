@@ -80,7 +80,7 @@ extension MainWindowView {
             guard await authorizeGitFlowAccess() else { return }
             await MainActor.run {
                 initiallySelectGitFlowSettings = true
-                showingRepositorySettings = true
+                presentRepositorySettingsWindow()
             }
         }
     }
@@ -93,7 +93,7 @@ extension MainWindowView {
                     pendingGitFlowTopicKind = kind
                 } else {
                     initiallySelectGitFlowSettings = true
-                    showingRepositorySettings = true
+                    presentRepositorySettingsWindow()
                 }
             }
         }

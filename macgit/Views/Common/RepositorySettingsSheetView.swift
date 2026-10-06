@@ -22,13 +22,22 @@
 //
 import SwiftUI
 
-private enum RepositorySettingsTab: String, CaseIterable, Identifiable {
+enum RepositorySettingsTab: String, CaseIterable, Identifiable {
     case remote = "Remote"
     case pullFetch = "Pull & Fetch"
     case gitFlow = "Git Flow"
     case advanced = "Advanced"
 
     var id: String { rawValue }
+
+    var systemImage: String {
+        switch self {
+        case .remote: "network"
+        case .pullFetch: "arrow.triangle.2.circlepath"
+        case .gitFlow: "arrow.triangle.branch"
+        case .advanced: "gearshape.2"
+        }
+    }
 }
 
 struct RemoteInfo: Identifiable, Equatable {
@@ -48,10 +57,10 @@ struct ProviderRemoteAccountOption: Identifiable {
 }
 
 struct RepositorySettingsSheetView: View {
-    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var appState: AppState
 
     let repositoryURL: URL
+    let onClose: () -> Void
     let initialSettings: RepoSettings
     let initialGitFlowConfiguration: GitFlowConfiguration
     let initiallySelectGitFlow: Bool
@@ -80,18 +89,12 @@ struct RepositorySettingsSheetView: View {
     @State private var showingCreateDevelopBranchSheet = false
     @State private var isGitFlowTabAuthorized = false
     @State private var isAuthorizingGitFlowTab = false
-    private let settingsContentWidth: CGFloat = 500
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-
-            Divider()
-                .padding(.top, 12)
-
-            ScrollView {
+            Form {
                 if let draft {
-                    VStack(alignment: .center, spacing: 16) {
+                    Group {
                         switch selectedTab {
                         case .remote:
                             remoteTab(draft)
@@ -114,9 +117,6 @@ struct RepositorySettingsSheetView: View {
                             advancedTab
                         }
                     }
-                    .padding(16)
-                    .frame(maxWidth: settingsContentWidth, alignment: .center)
-                    .frame(maxWidth: .infinity, alignment: .center)
                 } else {
                     VStack {
                         ProgressView()
@@ -125,11 +125,14 @@ struct RepositorySettingsSheetView: View {
                     .padding(24)
                 }
             }
+            .formStyle(.grouped)
 
+            Divider()
             footer
         }
-        .frame(minWidth: 600, idealWidth: 640, maxWidth: 680)
-        .frame(minHeight: 420, idealHeight: 480)
+        .frame(minWidth: 600, idealWidth: 640, maxWidth: .infinity)
+        .frame(minHeight: 480, idealHeight: 540)
+        .background(RepositorySettingsToolbar(selection: $selectedTab))
         .task {
             await loadOptions()
         }
@@ -177,40 +180,21 @@ struct RepositorySettingsSheetView: View {
         }
     }
 
-    private var header: some View {
-        HStack {
-            Text("Repository Settings")
-                .font(.title2)
-                .fontWeight(.semibold)
-
-            Spacer()
-
-            Picker("", selection: $selectedTab) {
-                ForEach(RepositorySettingsTab.allCases) { tab in
-                    Text(tab.rawValue).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 360)
-        }
-        .padding([.top, .horizontal], 24)
-    }
-
     private var footer: some View {
         HStack(spacing: 12) {
             Spacer()
 
             Button("Cancel", role: .cancel) {
-                dismiss()
+                onClose()
             }
             .keyboardShortcut(.cancelAction)
 
             Button("Save", action: save)
             .keyboardShortcut(.defaultAction)
-            .buttonStyle(GlassProminentButtonStyle(tint: .accentColor, fontSize: 13))
+            .buttonStyle(.borderedProminent)
             .disabled(!canSave)
         }
-        .padding([.horizontal, .bottom], 24)
+        .padding(16)
     }
 
     private func save() {
@@ -223,96 +207,56 @@ struct RepositorySettingsSheetView: View {
             await MainActor.run {
                 onSave(draft.resolvedSettings)
                 onSaveProviderAccountPreferences(providerAccountPreferenceChanges)
-                dismiss()
+                onClose()
             }
         }
     }
 
     @ViewBuilder
     private func remoteTab(_ draft: RepositorySettingsDraft) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Remote table
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Remote repository paths:")
-                    .font(.system(size: 13))
+        Section("Remote repository paths") {
+            remoteTable
+        }
 
-                remoteTable
-            }
-
-            // Default remote picker
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("Default remote")
-                    .font(.system(size: 13))
-                    .frame(width: 130, alignment: .leading)
-
-                Picker("", selection: binding(\.selectedRemoteName)) {
-                    ForEach(remoteOptions(for: draft), id: \.self) { remote in
-                        Text(remote).tag(remote)
-                    }
+        Section("Defaults") {
+            Picker("Default remote", selection: binding(\.selectedRemoteName)) {
+                ForEach(remoteOptions(for: draft), id: \.self) { remote in
+                    Text(remote).tag(remote)
                 }
-                .pickerStyle(.menu)
-                .disabled(remoteOptions(for: draft).isEmpty)
-
-                Spacer()
             }
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .disabled(remoteOptions(for: draft).isEmpty)
 
-            // Default pull branch
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Default pull branch")
-                    .font(.system(size: 13))
+            Picker("Default pull branch", selection: binding(\.selectedBranchMode)) {
+                Text("Detected branch").tag(SelectedBranchMode.detected)
+                Text("Manual entry").tag(SelectedBranchMode.manual)
+            }
 
-                HStack(alignment: .center, spacing: 12) {
-                    Picker("", selection: binding(\.selectedBranchMode)) {
-                        Text("Detected branch").tag(SelectedBranchMode.detected)
-                    }
-                    .pickerStyle(.radioGroup)
-                    .font(.system(size: 13))
-
+            if draft.selectedBranchMode == .detected {
+                LabeledContent("Branch") {
                     SearchableReferencePicker(
                         title: "Default pull branch", selection: draft.selectedDetectedBranch,
                         options: branchOptions(for: draft), searchPrompt: "Search branches",
                         onSelect: { binding(\.selectedDetectedBranch).wrappedValue = $0 })
-                    .pickerStyle(.menu)
-                    .disabled(draft.selectedBranchMode != .detected || branchOptions(for: draft).isEmpty)
-
-                    Spacer()
+                        .disabled(branchOptions(for: draft).isEmpty)
                 }
-
-                HStack(alignment: .center, spacing: 12) {
-                    Picker("", selection: binding(\.selectedBranchMode)) {
-                        Text("Manual entry").tag(SelectedBranchMode.manual)
-                    }
-                    .pickerStyle(.radioGroup)
-                    .font(.system(size: 13))
-
-                    TextField("release/hotfix", text: binding(\.manualBranchName))
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(draft.selectedBranchMode != .manual)
-
-                    Spacer()
-                }
+            } else {
+                TextField("Branch", text: binding(\.manualBranchName), prompt: Text("release/hotfix"))
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.quaternary.opacity(0.3))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
 
-            HStack {
-                Spacer()
-
+        Section {
+        } footer: {
+            SettingsActionRow {
                 Button("Open Remote URL") {
                     guard !draft.selectedRemoteName.isEmpty else { return }
                     onOpenRemoteURL(draft.selectedRemoteName)
                 }
-                .buttonStyle(GlassButtonStyle(tint: .accentColor, fontSize: 11))
                 .disabled(draft.selectedRemoteName.isEmpty)
-
-                Spacer()
             }
+            .font(.body)
+            .foregroundStyle(.primary)
+            .buttonStyle(.bordered)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var remoteTable: some View {
@@ -376,139 +320,81 @@ struct RepositorySettingsSheetView: View {
                     .stroke(.quaternary.opacity(0.4), lineWidth: 1)
             )
 
-            // Add / Edit / Remove buttons
-            HStack(spacing: 8) {
-            Button("Add") {
-                remoteEditMode = .add
-                showingRemoteEditSheet = true
-            }
-            .buttonStyle(GlassButtonStyle(tint: .accentColor, fontSize: 11))
-
-            Button("Edit") {
-                guard let url = remoteURLs[selectedRemoteName], !selectedRemoteName.isEmpty else { return }
-                remoteEditMode = .edit(name: selectedRemoteName, url: url)
-                showingRemoteEditSheet = true
-            }
-            .buttonStyle(GlassButtonStyle(tint: .accentColor, fontSize: 11))
-            .disabled(selectedRemoteName.isEmpty)
-
-            Button("Remove") {
-                Task {
-                    await removeRemote(name: selectedRemoteName)
+            SettingsActionRow {
+                Button("Add") {
+                    remoteEditMode = .add
+                    showingRemoteEditSheet = true
                 }
-            }
-            .buttonStyle(GlassButtonStyle(tint: .red, fontSize: 11))
-            .disabled(selectedRemoteName.isEmpty)
 
-            Spacer()
+                Button("Edit") {
+                    guard let url = remoteURLs[selectedRemoteName], !selectedRemoteName.isEmpty else { return }
+                    remoteEditMode = .edit(name: selectedRemoteName, url: url)
+                    showingRemoteEditSheet = true
+                }
+                .disabled(selectedRemoteName.isEmpty)
+
+                Button("Remove", role: .destructive) {
+                    Task {
+                        await removeRemote(name: selectedRemoteName)
+                    }
+                }
+                .disabled(selectedRemoteName.isEmpty)
+            }
+            .buttonStyle(.bordered)
         }
-    }
     }
 
     private var pullFetchTab: some View {
-        VStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text("Pull strategy")
-                        .font(.system(size: 13))
-                        .frame(width: 130, alignment: .trailing)
-
-                    Picker("", selection: binding(\.pullStrategy)) {
-                        Text("Merge").tag(PullStrategy.merge)
-                        Text("Rebase").tag(PullStrategy.rebase)
-                    }
-                    .pickerStyle(.menu)
-
-                    Spacer()
-                }
-
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text("Auto fetch")
-                        .font(.system(size: 13))
-                        .frame(width: 240, alignment: .leading)
-
-                    Picker("Auto fetch", selection: binding(\.autoFetchOverride)) {
-                        Text(globalOptionTitle(value: appState.autoFetchEnabled))
-                            .tag(Bool?.none)
-                        Text("On").tag(Bool?.some(true))
-                        Text("Off").tag(Bool?.some(false))
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                }
-
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text("Refresh when app becomes active")
-                        .font(.system(size: 13))
-                        .frame(width: 240, alignment: .leading)
-
-                    Picker(
-                        "Refresh when app becomes active",
-                        selection: binding(\.refreshOnAppActiveOverride)
-                    ) {
-                        Text(globalOptionTitle(value: appState.refreshOnAppActive))
-                            .tag(Bool?.none)
-                        Text("On").tag(Bool?.some(true))
-                        Text("Off").tag(Bool?.some(false))
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                }
+        Section("Pull & Fetch") {
+            Picker("Pull strategy", selection: binding(\.pullStrategy)) {
+                Text("Merge").tag(PullStrategy.merge)
+                Text("Rebase").tag(PullStrategy.rebase)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.quaternary.opacity(0.3))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            Picker("Auto fetch", selection: binding(\.autoFetchOverride)) {
+                Text(globalOptionTitle(value: appState.autoFetchEnabled)).tag(Bool?.none)
+                Text("On").tag(Bool?.some(true))
+                Text("Off").tag(Bool?.some(false))
+            }
+            Picker("Refresh when app becomes active", selection: binding(\.refreshOnAppActiveOverride)) {
+                Text(globalOptionTitle(value: appState.refreshOnAppActive)).tag(Bool?.none)
+                Text("On").tag(Bool?.some(true))
+                Text("Off").tag(Bool?.some(false))
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var advancedTab: some View {
-        VStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 12) {
+        Group {
+            Section("Safety & Confirmations") {
                 Toggle("Confirm detached HEAD checkout", isOn: binding(\.confirmDetachedHeadCheckout))
-                    .toggleStyle(.checkbox)
-                    .font(.system(size: 13))
-
                 Toggle("Skip protected branch commit warnings", isOn: binding(\.skipProtectedBranchCommitWarnings))
-                    .toggleStyle(.checkbox)
-                    .font(.system(size: 13))
                     .help("Skip local commit warnings for this repository. Remote branch protection still applies when pushing.")
-
                 Toggle("Confirm destructive stash actions", isOn: binding(\.confirmDestructiveStashActions))
-                    .toggleStyle(.checkbox)
-                    .font(.system(size: 13))
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.quaternary.opacity(0.3))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             userInformationSection
-
             providerAccountSection
 
-            HStack(spacing: 8) {
-                Spacer()
-
-                Button("Open .gitignore", action: onOpenGitIgnore)
-                    .buttonStyle(GlassButtonStyle(tint: .accentColor, fontSize: 11))
-
-                Button("Open .git/config", action: onOpenGitConfig)
-                    .buttonStyle(GlassButtonStyle(tint: .accentColor, fontSize: 11))
-
-                Spacer()
+            Section {
+            } footer: {
+                SettingsActionRow {
+                    Button("Open .gitignore", action: onOpenGitIgnore)
+                    Button("Open .git/config", action: onOpenGitConfig)
+                }
+                .font(.body)
+                .foregroundStyle(.primary)
+                .buttonStyle(.bordered)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var gitFlowTab: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Toggle("Enable Git Flow", isOn: $gitFlowConfiguration.isEnabled)
-                .toggleStyle(.checkbox)
+        Group {
+            Section("Git Flow") {
+                Toggle("Enable Git Flow", isOn: $gitFlowConfiguration.isEnabled)
+            }
 
-            VStack(alignment: .leading, spacing: 12) {
+            Section("Branches") {
                 branchPicker(
                     title: "Main branch",
                     selection: $gitFlowConfiguration.mainBranch
@@ -521,10 +407,7 @@ struct RepositorySettingsSheetView: View {
             }
             .disabled(!gitFlowConfiguration.isEnabled)
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Branch prefixes")
-                    .font(.headline)
-
+            Section("Branch Prefixes") {
                 prefixField("Feature", text: $gitFlowConfiguration.featurePrefix)
                 prefixField("Bugfix", text: $gitFlowConfiguration.bugfixPrefix)
                 prefixField("Release", text: $gitFlowConfiguration.releasePrefix)
@@ -532,54 +415,47 @@ struct RepositorySettingsSheetView: View {
             }
             .disabled(!gitFlowConfiguration.isEnabled)
 
-            VStack(alignment: .leading, spacing: 6) {
-                LabeledContent("Start new flows in") {
-                    Picker("Start new flows in", selection: $gitFlowConfiguration.defaultStartDestination) {
-                        ForEach(GitFlowStartDestination.allCases) { destination in
-                            Text(destination.displayName).tag(destination)
-                        }
+            Section {
+                Picker("Start new flows in", selection: $gitFlowConfiguration.defaultStartDestination) {
+                    ForEach(GitFlowStartDestination.allCases) { destination in
+                        Text(destination.displayName).tag(destination)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(minWidth: 180)
-                    .accessibilityLabel("Default Git Flow start destination")
-                    .accessibilityValue(gitFlowConfiguration.defaultStartDestination.displayName)
                 }
+                .pickerStyle(.menu)
+                .accessibilityLabel("Default Git Flow start destination")
+                .accessibilityValue(gitFlowConfiguration.defaultStartDestination.displayName)
 
+            } header: {
+                Text("Start Behavior")
+            } footer: {
                 Text("This is the default. You can change the destination for each flow from the Start sheet.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
             .disabled(!gitFlowConfiguration.isEnabled)
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Finish behavior")
-                    .font(.headline)
-
-                LabeledContent("Feature & Bugfix") {
-                    Picker("Feature & Bugfix", selection: $gitFlowConfiguration.topicFinishStrategy) {
-                        ForEach(GitFlowTopicFinishStrategy.allCases) { strategy in
-                            Text(strategy.displayName).tag(strategy)
-                        }
+            Section {
+                Picker("Feature & Bugfix", selection: $gitFlowConfiguration.topicFinishStrategy) {
+                    ForEach(GitFlowTopicFinishStrategy.allCases) { strategy in
+                        Text(strategy.displayName).tag(strategy)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(minWidth: 180)
-                    .accessibilityLabel("Default Feature and Bugfix finish strategy")
-                    .accessibilityValue(gitFlowConfiguration.topicFinishStrategy.displayName)
                 }
+                .pickerStyle(.menu)
+                .accessibilityLabel("Default Feature and Bugfix finish strategy")
+                .accessibilityValue(gitFlowConfiguration.topicFinishStrategy.displayName)
 
                 Toggle(
                     "Create an annotated tag when finishing Release",
                     isOn: $gitFlowConfiguration.createReleaseTagOnFinish
                 )
-                .toggleStyle(.checkbox)
                 Toggle(
                     "Create an annotated tag when finishing Hotfix",
                     isOn: $gitFlowConfiguration.createHotfixTagOnFinish
                 )
-                .toggleStyle(.checkbox)
 
+            } header: {
+                Text("Finish Behavior")
+            } footer: {
                 Text("Release and Hotfix always merge into Main, then Develop. Tag names default to the branch suffix.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -596,10 +472,6 @@ struct RepositorySettingsSheetView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.3))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private func branchPicker(
@@ -621,7 +493,7 @@ struct RepositorySettingsSheetView: View {
                     Button("Create New…") {
                         showingCreateDevelopBranchSheet = true
                     }
-                    .buttonStyle(GlassButtonStyle(tint: .accentColor, fontSize: 11))
+                    .buttonStyle(.bordered)
                     .disabled(gitFlowConfiguration.mainBranch.isEmpty)
                 }
             }
@@ -650,9 +522,11 @@ struct RepositorySettingsSheetView: View {
 
     private func prefixField(_ title: String, text: Binding<String>) -> some View {
         LabeledContent(title) {
-            TextField("\(title.lowercased())/", text: text)
+            TextField(title, text: text, prompt: Text("\(title.lowercased())/"))
+                .labelsHidden()
+                .multilineTextAlignment(.leading)
                 .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 180)
+                .frame(width: 220)
         }
     }
 
@@ -678,35 +552,12 @@ struct RepositorySettingsSheetView: View {
     }
 
     private var userInformationSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("User information")
-                .font(.system(size: 16, weight: .medium))
-
-            VStack(alignment: .leading, spacing: 10) {
-                Toggle("Use global user settings", isOn: binding(\.useGlobalUserSettings))
-                    .toggleStyle(.checkbox)
-                    .font(.system(size: 13))
-
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text("Full Name:")
-                        .frame(width: 100, alignment: .trailing)
-                    TextField("Full Name", text: binding(\.userName))
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(draft?.useGlobalUserSettings == true)
-                }
-
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text("Email address:")
-                        .frame(width: 100, alignment: .trailing)
-                    TextField("Email address", text: binding(\.userEmail))
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(draft?.useGlobalUserSettings == true)
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.quaternary.opacity(0.3))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        Section("User Information") {
+            Toggle("Use global user settings", isOn: binding(\.useGlobalUserSettings))
+            TextField("Full Name", text: binding(\.userName))
+                .disabled(draft?.useGlobalUserSettings == true)
+            TextField("Email address", text: binding(\.userEmail))
+                .disabled(draft?.useGlobalUserSettings == true)
         }
     }
 
@@ -714,27 +565,9 @@ struct RepositorySettingsSheetView: View {
     private var providerAccountSection: some View {
         let options = providerRemoteAccountOptions
         if !options.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Git provider accounts")
-                    .font(.headline)
-
-                Text("Choose which connected account this remote uses. Automatic uses the only matching account and asks before a remote operation when more than one account matches.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
+            Section {
                 ForEach(options) { option in
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(option.remoteName)
-                                .font(.subheadline)
-                            Text(option.identity.canonicalHTTPSURL.absoluteString)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                        .frame(minWidth: 140, idealWidth: 190, maxWidth: 240, alignment: .leading)
-
+                    LabeledContent {
                         Picker("Account for \(option.remoteName)", selection: providerAccountSelectionBinding(for: option)) {
                             Text("Automatic").tag("")
                             ForEach(option.accounts) { account in
@@ -743,15 +576,22 @@ struct RepositorySettingsSheetView: View {
                         }
                         .labelsHidden()
                         .pickerStyle(.menu)
-
-                        Spacer(minLength: 0)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(option.remoteName)
+                            Text(option.identity.canonicalHTTPSURL.absoluteString)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
                     }
                 }
+            } header: {
+                Text("Git Provider Accounts")
+            } footer: {
+                Text("Choose which connected account this remote uses. Automatic uses the only matching account and asks before a remote operation when more than one account matches.")
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.quaternary.opacity(0.3))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
     }
 

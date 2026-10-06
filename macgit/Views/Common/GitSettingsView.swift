@@ -70,7 +70,15 @@ struct GitSettingsView: View {
             }
 
             Section {
-                SettingsActionRow {
+            } footer: {
+                HStack {
+                    if let statusMessage = viewModel.statusMessage {
+                        Label(statusMessage, systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    }
+
+                    Spacer(minLength: 0)
+
                     Button("Open Global Git Config…", action: viewModel.openGlobalGitConfig)
 
                     if viewModel.isSaving {
@@ -82,11 +90,10 @@ struct GitSettingsView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!viewModel.canSave)
                 }
-
-                if let statusMessage = viewModel.statusMessage {
-                    Label(statusMessage, systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                }
+                .font(.body)
+                .foregroundStyle(.primary)
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
             }
         }
         .formStyle(.grouped)
