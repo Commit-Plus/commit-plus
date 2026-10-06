@@ -18,6 +18,7 @@
 import SwiftUI
 
 struct WelcomeAttentionView: View {
+    @EnvironmentObject private var providerAccountController: GitProviderAccountController
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.appTextScale) private var textScale
     let repositories: [WelcomeRepositoryAttention]
@@ -33,12 +34,41 @@ struct WelcomeAttentionView: View {
                 Spacer()
                 if isLoading { ProgressView().controlSize(.small) }
             }
-            if repositories.isEmpty {
+            ForEach(accountsNeedingAttention) { account in
+                HStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .frame(width: 22)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("\(account.provider.displayName) · \(account.username)")
+                            .font(.subheadline.bold().scaled(by: textScale))
+                        Text(account.hostURL.host() ?? account.hostURL.absoluteString)
+                            .font(.caption.scaled(by: textScale))
+                            .foregroundStyle(.secondary)
+                        Text(account.tokenStatus == .unavailableOnThisDevice
+                             ? "Credentials unavailable on this Mac" : "Reconnect required")
+                            .font(.caption.scaled(by: textScale))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("Review Connection") {
+                        NotificationCenter.default.post(
+                            name: .showAppSettings, object: nil,
+                            userInfo: ["section": AppSettingsSection.connections.rawValue]
+                        )
+                    }
+                    .font(.body.scaled(by: textScale))
+                    .buttonStyle(.bordered)
+                }
+                .padding(12)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+            }
+            if repositories.isEmpty && accountsNeedingAttention.isEmpty {
                 Label(isLoading ? "Checking local repositories…" : hasRepositories ? "All caught up" : "Open a repository to see tasks here",
                       systemImage: isLoading ? "clock" : "checkmark.circle")
                     .font(.body.scaled(by: textScale))
                     .foregroundStyle(.secondary)
-            } else {
+            } else if !repositories.isEmpty {
                 Text("Current branches · Ahead / behind reflects the last fetch. No automatic fetch.")
                     .font(.caption.scaled(by: textScale)).foregroundStyle(.secondary)
                 ForEach(repositories) { repository in
@@ -76,5 +106,9 @@ struct WelcomeAttentionView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.background, in: RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.primary.opacity(colorScheme == .light ? 0.16 : 0.10)))
+    }
+
+    private var accountsNeedingAttention: [GitProviderAccount] {
+        providerAccountController.accounts.filter { $0.tokenStatus != .valid }
     }
 }
