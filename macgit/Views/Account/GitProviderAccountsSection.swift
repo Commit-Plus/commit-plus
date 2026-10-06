@@ -26,6 +26,7 @@ struct GitProviderAccountsSection: View {
     let onUpgrade: () -> Void
     let multipleAccountAccess: FeatureAccessDecision
     var showsTitle = true
+    var alignsActionsToTrailingEdge = false
     var showsAddButton = true
     var addAccountPresentation: Binding<Bool>? = nil
     @State private var connectionTask: Task<Void, Never>?
@@ -69,6 +70,10 @@ struct GitProviderAccountsSection: View {
                     showingAddAccountSheet = true
                 }
                 .disabled(controller.isLoading || !accountCreationDecision.isAllowed)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: alignsActionsToTrailingEdge ? .trailing : .leading
+                )
             }
 
             if let message = GitProviderAccountsPresentationPolicy.accountCreationMessage(
@@ -82,6 +87,9 @@ struct GitProviderAccountsSection: View {
                         for: accountCreationDecision,
                         isSignedIn: isSignedIn
                     ) {
+                        if alignsActionsToTrailingEdge {
+                            Spacer(minLength: 0)
+                        }
                         Button(actionTitle, action: isSignedIn ? onUpgrade : onSignIn)
                             .buttonStyle(.link)
                     }
@@ -93,6 +101,10 @@ struct GitProviderAccountsSection: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("Connections are stored on this Mac.")
                         .foregroundStyle(.secondary)
+
+                    if alignsActionsToTrailingEdge {
+                        Spacer(minLength: 0)
+                    }
 
                     Button("Sign in to sync", action: onSignIn)
                         .buttonStyle(.link)

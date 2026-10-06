@@ -13,26 +13,26 @@ struct CustomActionsSettingsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Custom Actions")
-                    .font(.title2.bold())
-                Text("Run reusable executables or scripts with repository, file, and commit context.")
-                    .foregroundStyle(.secondary)
-                Text("When Settings Sync is enabled, action definitions—including script source and local paths—sync through your Firebase account. Each Mac must review changed actions before running them.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Group {
-                if store.actions.isEmpty {
-                    ContentUnavailableView(
-                        "No Custom Actions",
-                        systemImage: "terminal",
-                        description: Text("Add an executable or import a script to get started.")
+        VStack(spacing: 0) {
+            Form {
+                Section {
+                    SettingsToggleRow(
+                        title: "Sync Custom Actions",
+                        detail: "Sync scripts and action definitions across your Macs when Settings Sync is enabled. Turn off to stop syncing on this Mac; existing cloud copies remain.",
+                        isOn: $store.syncEnabled
                     )
-                } else {
-                    List {
+                } footer: {
+                    Text("Each Mac must review changed actions before running them.")
+                }
+
+                Section {
+                    if store.actions.isEmpty {
+                        ContentUnavailableView(
+                            "No Custom Actions",
+                            systemImage: "terminal",
+                            description: Text("Add an executable or import a script to get started.")
+                        )
+                    } else {
                         ForEach(store.actions) { action in
                             CustomActionSettingsRow(
                                 action: action,
@@ -47,23 +47,28 @@ struct CustomActionsSettingsView: View {
                         }
                         .onMove(perform: store.move)
                     }
+                } header: {
+                    Text("Actions")
+                } footer: {
+                    Text("Run reusable executables or scripts with repository, file, and commit context.")
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .formStyle(.grouped)
 
             HStack {
-                Button("Add", systemImage: "plus", action: add)
-                Spacer()
                 if let syncError = store.syncError {
                     Text(syncError)
                         .font(.caption)
                         .foregroundStyle(.red)
                         .lineLimit(2)
                 }
+                Spacer()
+                Button("Add…", systemImage: "plus", action: add)
             }
+            .padding()
             .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(24)
+        .navigationTitle("Custom Actions")
         .sheet(item: $editor) { presentation in
             CustomActionEditorSheet(action: presentation.action) { action in
                 store.saveEditedAction(action, original: presentation.action)

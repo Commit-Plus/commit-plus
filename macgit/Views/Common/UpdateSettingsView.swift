@@ -36,7 +36,9 @@ struct UpdateSettingsView: View {
             }
 
             Section {
-                updateAction
+                SettingsActionRow {
+                    updateAction
+                }
             } header: {
                 Label("Software Update", systemImage: "arrow.triangle.2.circlepath")
             } footer: {

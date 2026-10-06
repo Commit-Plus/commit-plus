@@ -46,11 +46,13 @@ struct IntegrationsSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Button("Test Editor", systemImage: "play", action: testEditor)
-                    .disabled(
-                        appState.preferredSearchFileApplicationBundleIdentifier == nil
-                            || isTesting
-                    )
+                SettingsActionRow {
+                    Button("Test Editor", systemImage: "play", action: testEditor)
+                        .disabled(
+                            appState.preferredSearchFileApplicationBundleIdentifier == nil
+                                || isTesting
+                        )
+                }
             } header: {
                 Label("External Editor", systemImage: "chevron.left.forwardslash.chevron.right")
             } footer: {
@@ -74,8 +76,10 @@ struct IntegrationsSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Button("Test Terminal", systemImage: "play", action: testTerminal)
-                    .disabled(terminalApplications.isEmpty || isTesting)
+                SettingsActionRow {
+                    Button("Test Terminal", systemImage: "play", action: testTerminal)
+                        .disabled(terminalApplications.isEmpty || isTesting)
+                }
             } header: {
                 Label("Terminal", systemImage: "terminal")
             } footer: {
@@ -105,7 +109,7 @@ struct IntegrationsSettingsView: View {
                     }
                 }
 
-                HStack {
+                SettingsActionRow {
                     Button("Test Diff Tool", action: testDiffTool)
                         .disabled(
                             integrationSettings.preferredDiffBundleIdentifier == nil
@@ -124,12 +128,14 @@ struct IntegrationsSettingsView: View {
             }
 
             Section {
-                Button(
-                    "Refresh Installed Applications",
-                    systemImage: "arrow.clockwise",
-                    action: refreshApplications
-                )
-                .disabled(isTesting)
+                SettingsActionRow {
+                    Button(
+                        "Refresh Installed Applications",
+                        systemImage: "arrow.clockwise",
+                        action: refreshApplications
+                    )
+                    .disabled(isTesting)
+                }
 
                 if isTesting {
                     ProgressView("Opening application…")

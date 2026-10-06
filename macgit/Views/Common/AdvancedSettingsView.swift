@@ -43,7 +43,7 @@ struct AdvancedSettingsView: View {
                     isOn: $settings.verboseGitLogging
                 )
 
-                HStack {
+                SettingsActionRow {
                     Button(
                         "Copy Diagnostic Report",
                         systemImage: "doc.on.doc",
@@ -56,13 +56,15 @@ struct AdvancedSettingsView: View {
                     )
                 }
 
-                Button(
-                    "Open Application Support",
-                    systemImage: "externaldrive",
-                    action: openApplicationSupport
-                )
+                SettingsActionRow {
+                    Button(
+                        "Open Application Support",
+                        systemImage: "externaldrive",
+                        action: openApplicationSupport
+                    )
+                }
                 Text("Application Support contains Commit+’s managed Git tools, local data, and AI chat history.")
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             } header: {
                 Label("Diagnostics", systemImage: "stethoscope")
@@ -71,19 +73,24 @@ struct AdvancedSettingsView: View {
             }
 
             Section {
-                Picker("History load size", selection: $settings.historyLoadSize) {
-                    ForEach(HistoryLoadSize.allCases) { size in
-                        Text("\(size.title) — \(size.detail)")
-                            .tag(size)
+                LabeledContent("History load size") {
+                    Picker("History load size", selection: $settings.historyLoadSize) {
+                        ForEach(HistoryLoadSize.allCases) { size in
+                            Text("\(size.title) — \(size.detail)")
+                                .tag(size)
+                        }
                     }
+                    .labelsHidden()
                 }
 
-                Button(
-                    "Clear Session Caches",
-                    systemImage: "arrow.clockwise",
-                    action: clearSessionCaches
-                )
-                .disabled(isWorking)
+                SettingsActionRow {
+                    Button(
+                        "Clear Session Caches",
+                        systemImage: "arrow.clockwise",
+                        action: clearSessionCaches
+                    )
+                    .disabled(isWorking)
+                }
             } header: {
                 Label("Performance & Cache", systemImage: "gauge.with.dots.needle.67percent")
             } footer: {
@@ -96,25 +103,31 @@ struct AdvancedSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Button(
-                    "Clean Orphaned Undo Backups…",
-                    systemImage: "trash",
-                    action: inspectOrphanedUndoBackups
-                )
-                .disabled(isWorking || recentRepositories.repositories.isEmpty)
+                SettingsActionRow {
+                    Button(
+                        "Clean Orphaned Undo Backups…",
+                        systemImage: "trash",
+                        action: inspectOrphanedUndoBackups
+                    )
+                    .disabled(isWorking || recentRepositories.repositories.isEmpty)
+                }
 
-                Button(
-                    "Clear Recent Repositories…",
-                    systemImage: "clock.badge.xmark",
-                    action: { showingClearRecentConfirmation = true }
-                )
-                .disabled(recentRepositories.repositories.isEmpty)
+                SettingsActionRow {
+                    Button(
+                        "Clear Recent Repositories…",
+                        systemImage: "clock.badge.xmark",
+                        action: { showingClearRecentConfirmation = true }
+                    )
+                    .disabled(recentRepositories.repositories.isEmpty)
+                }
 
-                Button(
-                    "Reset Local App Settings…",
-                    systemImage: "arrow.counterclockwise",
-                    action: { showingResetConfirmation = true }
-                )
+                SettingsActionRow {
+                    Button(
+                        "Reset Local App Settings…",
+                        systemImage: "arrow.counterclockwise",
+                        action: { showingResetConfirmation = true }
+                    )
+                }
             } header: {
                 Label("Data & Maintenance", systemImage: "wrench.adjustable")
             } footer: {

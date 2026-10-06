@@ -65,12 +65,14 @@ struct GitRuntimeSettingsSection: View {
                 )
             }
 
-            Button(
-                "Refresh Git Information",
-                systemImage: "arrow.clockwise",
-                action: refresh
-            )
-            .disabled(viewModel.isBusy)
+            SettingsActionRow {
+                Button(
+                    "Refresh Git Information",
+                    systemImage: "arrow.clockwise",
+                    action: refresh
+                )
+                .disabled(viewModel.isBusy)
+            }
         } header: {
             Label("Git Installation", systemImage: "terminal")
         } footer: {

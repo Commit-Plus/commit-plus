@@ -24,11 +24,17 @@ struct GitLFSRuntimeSection: View {
                 Label("Git LFS is not available", systemImage: "arrow.down.circle")
             }
             if runtime.status?.embeddedRuntime == nil {
-                GitLFSDownloadControls(runtime: runtime)
+                SettingsActionRow {
+                    GitLFSDownloadControls(runtime: runtime)
+                }
             }
             if let error = runtime.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
-            Button("Refresh Git LFS Information") { Task { await runtime.refresh() } }
+            SettingsActionRow {
+                Button("Refresh Git LFS Information", systemImage: "arrow.clockwise") {
+                    Task { await runtime.refresh() }
+                }
                 .disabled(runtime.isInstalling)
+            }
         } header: {
             Label("Git LFS Installation", systemImage: "externaldrive")
         } footer: {

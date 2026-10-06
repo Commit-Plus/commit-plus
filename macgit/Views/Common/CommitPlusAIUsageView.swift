@@ -29,7 +29,9 @@ struct CommitPlusAIUsageView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
             case .unavailable:
                 LabeledContent("Usage", value: "Usage unavailable")
-                Button("Retry") { Task { await controller.refresh(force: true) } }
+                SettingsActionRow {
+                    Button("Retry") { Task { await controller.refresh(force: true) } }
+                }
             case .loaded(let allowance):
                 LabeledContent("Available credits", value: "\(allowance.creditLabel) / \(allowance.allowanceLabel)")
                 ProgressView(value: Double(allowance.availableUnits), total: Double(max(1, allowance.allowanceUnits)))

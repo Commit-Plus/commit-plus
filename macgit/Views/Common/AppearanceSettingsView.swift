@@ -95,7 +95,9 @@ struct AppearanceSettingsView: View {
             }
 
             Section {
-                Button("Restore Appearance Defaults…", action: showResetConfirmation)
+                SettingsActionRow {
+                    Button("Restore Appearance Defaults…", action: showResetConfirmation)
+                }
             }
         }
         .formStyle(.grouped)

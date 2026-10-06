@@ -82,22 +82,24 @@ struct AccountSettingsView: View {
                         )
                     }
 
-                    Toggle("Sync app settings with Commit+ Cloud", isOn: syncSettingsBinding)
-                        .disabled(!accountController.cloudFeaturesAvailable)
+                    SettingsToggleRow(
+                        title: "Sync app settings",
+                        detail: "Keep app settings in sync across your Macs with Commit+ Cloud.",
+                        isOn: syncSettingsBinding
+                    )
+                    .disabled(!accountController.cloudFeaturesAvailable)
 
                     LabeledContent("Cloud sync status") {
                         Text(accountController.settingsSyncDisplayText)
                             .foregroundStyle(.secondary)
                     }
 
-                    HStack {
+                    SettingsActionRow {
                         Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", action: signOut)
 
                         if accountController.requiresRecentAuthentication {
                             Button("Sign In Again…", action: presentSignIn)
                         }
-
-                        Spacer()
 
                         Button("Delete Account…", systemImage: "trash", role: .destructive) {
                             confirmsAccountDeletion = true
@@ -125,10 +127,10 @@ struct AccountSettingsView: View {
                                 .font(.title2)
                         }
 
-                        HStack {
+                        SettingsActionRow {
+                            Button("Create Account…", action: presentCreateAccount)
                             Button("Sign In…", action: presentSignIn)
                                 .keyboardShortcut(.defaultAction)
-                            Button("Create Account…", action: presentCreateAccount)
                         }
                         .disabled(!accountController.cloudFeaturesAvailable)
                     }
@@ -161,7 +163,8 @@ struct AccountSettingsView: View {
                         for: .multipleProviderAccounts,
                         entitlement: accountController.entitlement
                     ),
-                    showsTitle: false
+                    showsTitle: false,
+                    alignsActionsToTrailingEdge: true
                 )
             } header: {
                 Label("Git Provider Accounts", systemImage: "network")

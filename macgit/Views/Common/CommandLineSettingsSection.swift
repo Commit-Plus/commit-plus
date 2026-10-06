@@ -33,8 +33,10 @@ struct CommandLineSettingsSection: View {
                 Label("CLI and PATH installed", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
             } else {
-                Button(model.isInstalled ? "Configure PATH" : "Install CLI & Configure PATH", action: model.install)
-                    .buttonStyle(.borderedProminent)
+                SettingsActionRow {
+                    Button(model.isInstalled ? "Configure PATH" : "Install CLI & Configure PATH", action: model.install)
+                        .buttonStyle(.borderedProminent)
+                }
             }
             Text(model.isReady
                 ? "PATH is configured. Open a new terminal tab or window to use commit."

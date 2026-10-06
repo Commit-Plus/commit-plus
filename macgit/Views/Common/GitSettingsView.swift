@@ -58,10 +58,9 @@ struct GitSettingsView: View {
             Section {
                 TextField("Ignore File Path", text: $viewModel.settings.excludesFilePath)
 
-                HStack {
+                SettingsActionRow {
                     Button("Choose…", action: viewModel.chooseGlobalIgnoreFile)
                     Button("Use Default", action: viewModel.useDefaultGlobalIgnoreFile)
-                    Spacer()
                     Button("Open Ignore File…", action: viewModel.openGlobalIgnoreFile)
                 }
             } header: {
@@ -71,10 +70,8 @@ struct GitSettingsView: View {
             }
 
             Section {
-                HStack {
+                SettingsActionRow {
                     Button("Open Global Git Config…", action: viewModel.openGlobalGitConfig)
-
-                    Spacer()
 
                     if viewModel.isSaving {
                         ProgressView()

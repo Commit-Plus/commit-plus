@@ -57,7 +57,7 @@ struct CloudAIProviderSettingsSection: View {
                     .labelsHidden()
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.trailing)
-                    .frame(width: 360)
+                    .frame(maxWidth: 360)
                     .disabled(!canConfigureModel)
                     .accessibilityLabel("\(descriptor.displayName) model ID")
             }
@@ -72,7 +72,7 @@ struct CloudAIProviderSettingsSection: View {
                     .labelsHidden()
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.trailing)
-                    .frame(width: 360)
+                    .frame(maxWidth: 360)
                     .accessibilityLabel("\(descriptor.displayName) API key")
                 }
             }

@@ -10,6 +10,13 @@ final class CustomActionStore: ObservableObject {
     static let executableOverridesKey = "customActions.executableOverrides.v1"
     static let pendingUpsertsKey = "customActions.pendingUpserts.v1"
     static let pendingDeletionsKey = "customActions.pendingDeletions.v1"
+    static let syncEnabledKey = "customActions.syncEnabled.v1"
+
+    @Published var syncEnabled: Bool {
+        didSet {
+            userDefaults.set(syncEnabled, forKey: Self.syncEnabledKey)
+        }
+    }
 
     @Published private(set) var actions: [CustomActionDefinition]
     @Published private(set) var syncError: String?
@@ -34,6 +41,7 @@ final class CustomActionStore: ObservableObject {
     ) {
         self.userDefaults = userDefaults
         self.cloudStore = cloudStore
+        syncEnabled = userDefaults.object(forKey: Self.syncEnabledKey) as? Bool ?? true
         actions = Self.decode([CustomActionDefinition].self, from: userDefaults.data(forKey: Self.actionsKey)) ?? []
         trustedFingerprints = Self.decode([String: String].self, from: userDefaults.data(forKey: Self.trustKey)) ?? [:]
         executableOverrides = Self.decode([String: String].self, from: userDefaults.data(forKey: Self.executableOverridesKey)) ?? [:]
@@ -47,13 +55,13 @@ final class CustomActionStore: ObservableObject {
             guard case .authenticated(let account) = state else { return nil }
             return account.uid
         }
-        let session = accountUID.combineLatest(appState.$syncEnabled)
+        let session = accountUID.combineLatest(appState.$syncEnabled, $syncEnabled)
             .removeDuplicates { previous, current in
-                previous.0 == current.0 && previous.1 == current.1
+                previous.0 == current.0 && previous.1 == current.1 && previous.2 == current.2
             }
         sessionObservation = session.sink { [weak self] value in
             guard let self else { return }
-            let generation = self.beginCloudSession(uid: value.0, enabled: value.1)
+            let generation = self.beginCloudSession(uid: value.0, enabled: value.1 && value.2)
             Task { @MainActor [weak self] in
                 await self?.startCloudSession(generation: generation)
             }
@@ -61,7 +69,7 @@ final class CustomActionStore: ObservableObject {
     }
 
     func updateCloudSession(uid: String?, enabled: Bool) async {
-        let generation = beginCloudSession(uid: uid, enabled: enabled)
+        let generation = beginCloudSession(uid: uid, enabled: enabled && syncEnabled)
         await startCloudSession(generation: generation)
     }
 
@@ -98,7 +106,7 @@ final class CustomActionStore: ObservableObject {
     }
 
     func syncNow() async {
-        guard !isSyncing, let uid = activeUID, let cloudStore else { return }
+        guard syncEnabled, !isSyncing, let uid = activeUID, let cloudStore else { return }
         let generation = sessionGeneration
         isSyncing = true
         defer {
