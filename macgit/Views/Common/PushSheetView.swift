@@ -108,7 +108,6 @@ struct PushSheetView: View {
     @State private var remoteURL: String = ""
 
     @State private var branches: [BranchPushInfo] = []
-    @State private var selectAll: Bool = false
     @State private var pushTags: Bool = false
 
     @State private var isLoading = false
@@ -116,6 +115,13 @@ struct PushSheetView: View {
 
     private var selectedBranches: [BranchPushInfo] {
         branches.filter { $0.isSelected }
+    }
+
+    private var branchSelectionState: NSControl.StateValue {
+        let selectedCount = selectedBranches.count
+        if selectedCount == 0 { return .off }
+        if selectedCount == branches.count { return .on }
+        return .mixed
     }
 
     private var canPush: Bool {
@@ -167,9 +173,19 @@ struct PushSheetView: View {
 
                 // Header row
                 HStack(spacing: 0) {
-                    Text("Push")
-                        .font(.system(size: 11, weight: .medium))
-                        .frame(width: 40, alignment: .leading)
+                    TriStateCheckbox(state: branchSelectionState, accessibilityLabel: "Select all branches to push") { selectAll in
+                        for index in branches.indices {
+                            branches[index].isSelected = selectAll
+                            if selectAll && branches[index].remote.isEmpty {
+                                branches[index].remote = branches[index].local
+                            }
+                        }
+                    }
+                    .frame(width: 18, height: 18)
+                    .pointingHandCursor()
+                    .disabled(branches.isEmpty)
+                    .help("Select or deselect all branches to push")
+                    .frame(width: 40, alignment: .leading)
                     Text("Local branch")
                         .font(.system(size: 11, weight: .medium))
                         .frame(minWidth: 120, alignment: .leading)
@@ -252,26 +268,7 @@ struct PushSheetView: View {
                 }
                 .frame(minHeight: 240)
 
-                // Select All
-                HStack {
-                    Toggle("Select All", isOn: Binding(
-                        get: { selectAll },
-                        set: { newValue in
-                            selectAll = newValue
-                            for index in branches.indices {
-                                branches[index].isSelected = newValue
-                                if newValue && branches[index].remote.isEmpty {
-                                    branches[index].remote = branches[index].local
-                                }
-                            }
-                        }
-                    ))
-                    .toggleStyle(.checkbox)
-                    .font(.system(size: 12))
-                    Spacer()
-                }
-                .padding(.horizontal, 8)
-                .padding(.top, 4)
+
             }
             .padding(12)
             .background(.quaternary.opacity(0.15))
@@ -329,7 +326,6 @@ struct PushSheetView: View {
         }
         .task(id: selectedRemote) {
             branches = []
-            selectAll = false
             remoteURL = ""
             guard !selectedRemote.isEmpty else { return }
             let remote = selectedRemote
