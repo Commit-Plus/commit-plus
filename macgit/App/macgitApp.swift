@@ -25,6 +25,7 @@ struct macgitApp: App {
     @StateObject private var appState: AppState
     @StateObject private var appUpdateController = AppUpdateController(updater: SparkleAppUpdater())
     @StateObject private var accountController: AccountSessionController
+    @StateObject private var notificationController: GitHubNotificationController
     @StateObject private var providerAccountController: GitProviderAccountController
     @StateObject private var aiProviderController: AIProviderController
     @StateObject private var featureAccessController: FeatureAccessController
@@ -33,6 +34,7 @@ struct macgitApp: App {
     @StateObject private var customActionStore: CustomActionStore
     @StateObject private var gitFlowConfigurationSyncController: GitFlowConfigurationSyncController
     @StateObject private var cloudLifecycleController: AppCloudLifecycleController
+    @Environment(\.openWindow) private var openWindow
     @State private var selectedAppSettingsSection: AppSettingsSection = .general
     private let repositoryWindowLifecycleController = RepositoryWindowLifecycleController()
     @FocusedValue(\.repositoryWindowCommandState) private var repositoryWindowCommandState
@@ -101,6 +103,9 @@ struct macgitApp: App {
             }
         )
         _providerAccountController = StateObject(wrappedValue: providerAccountController)
+        let notificationController = GitHubNotificationController(tokenVault: providerTokenVault)
+        _notificationController = StateObject(wrappedValue: notificationController)
+        if !FirebaseBootstrap.isRunningUnitTests { notificationController.start(provider: providerAccountController) }
         let managedUsage = CommitPlusAIUsageController()
         managedUsage.setSession(uid: accountController.account?.uid)
         let managedTokens = FirebaseCommitPlusAITokenProvider()
@@ -240,6 +245,7 @@ struct macgitApp: App {
                 selectedAppSettingsSection: $selectedAppSettingsSection,
                 repositoryWindowLifecycleController: repositoryWindowLifecycleController
             )
+                .environmentObject(notificationController)
                 .environmentObject(appState)
                 .environmentObject(appUpdateController)
                 .environmentObject(featureAccessController)
@@ -279,7 +285,35 @@ struct macgitApp: App {
         }
     }
 
+    // MenuBarExtra uses the NSImage's intrinsic size, so size the template
+    // before passing it to the native status item.
+    private static let notificationMenuBarIcon: NSImage = {
+        let image = (NSImage(named: "small-icon")?.copy() as? NSImage) ?? NSImage(size: NSSize(width: 12, height: 18))
+        let ratio = image.size.width / max(image.size.height, 1)
+        image.size = NSSize(width: 18 * ratio, height: 18)
+        image.isTemplate = true
+        return image
+    }()
+
     var body: some Scene {
+        MenuBarExtra {
+            GitHubNotificationPopover(controller: notificationController) {
+                NSApp.activate()
+                selectedAppSettingsSection = .connections
+                openWindow(id: "settings")
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(nsImage: Self.notificationMenuBarIcon)
+                if notificationController.unreadCount > 0 {
+                    Text("•")
+                }
+            }
+            .accessibilityLabel("GitHub Notifications")
+            .help("GitHub notifications · \(notificationController.unreadCount) unread")
+        }
+        .menuBarExtraStyle(.window)
+
         Window("Welcome to Commit+", id: "welcome") {
             windowContent(request: nil, isWelcomeWindow: true)
         }

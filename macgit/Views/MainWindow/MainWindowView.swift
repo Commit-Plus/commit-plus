@@ -1599,6 +1599,7 @@ struct MainWindowView: View {
                     .frame(width: 18, height: 18)
                 Text(repositoryURL.lastPathComponent)
                     .font(.headline.scaled(by: appState.textSize.scale))
+                GitHubNotificationBell()
             }
             .padding(.horizontal, 12)
         }
