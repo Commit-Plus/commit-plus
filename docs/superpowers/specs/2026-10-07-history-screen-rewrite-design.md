@@ -1,132 +1,299 @@
 # History Screen Rewrite — Design Spec
 
-**Ngày:** 2026-10-07
-**Phạm vi:** Viết lại màn hình History (`macgit/Views/History/HistoryView.swift` và các lớp lách SwiftUI `Table` đi kèm). Giữ nguyên giao diện, hành vi click / double-click / right-click / drag trên từng commit row.
-**Plan triển khai:** `docs/superpowers/plans/2026-10-07-history-screen-rewrite-plan.md`
+**Date:** 2026-10-07
+**Scope:** Rewrite the History screen, replacing `macgit/Views/History/HistoryView.swift` and the SwiftUI `Table` workarounds around it.
+**Approach:** Write new code from the behavior contract (§4). Do not port the old code; use it only as a reference for behavior.
+**Implementation plan:** `docs/superpowers/plans/2026-10-07-history-screen-rewrite-plan.md`
 
 ---
 
-## 1. Bối cảnh
+## 1. Background
 
-History và Reflog cùng dùng SwiftUI `Table` + detail panel, nhưng History lag rõ rệt khi click chọn commit, điều hướng bằng phím và scroll. Nguyên nhân nằm ở kiến trúc, không phải ở `Table`:
+History and Reflog both use a SwiftUI `Table` with a detail panel, yet History is noticeably slower when clicking a commit, navigating with the keyboard, and scrolling. The cause is architectural:
 
-| Vấn đề | Vị trí hiện tại |
+| Problem | Current location |
 |---|---|
-| ~60 `@State` trong một struct 2681 dòng; detail (`fileChanges`, `commitLineCounts`, `diffHunks`, `selectedFile`, `showingCommitInfo`…) đổi là toàn bộ body, kể cả `Table` rows builder, bị đánh giá lại | `HistoryView.swift:47-122` |
-| `@EnvironmentObject AppState` (29 `@Published`) — mọi thay đổi AppState không liên quan cũng invalidate History | `HistoryView.swift:42` |
-| Mỗi lần đổi selection gọi `onCustomActionSelectionChanged` → ghi `@State` của `MainWindowView` → MainWindow render lại → `HistoryView` được dựng lại với closure mới → body chạy lại lần nữa | `HistoryView.swift:706-709`, `MainWindowView.swift:1385` |
-| Nhiều phép O(n) mỗi click: `Set(commits.map(\.hash))` trong binding setter, `applyTableSelection`, context menu builder | `HistoryView.swift:1853-1925`, `1052` |
-| Cell nặng: `GeometryReader` + `NSViewRepresentable` introspection trong mọi message cell, `Canvas` per row, 3 `.help()` per row, `onAppear` per cell để phân trang | `HistoryCommitMessageCell.swift`, `HistoryView.swift:725-816`, `1937` |
-| `activeDragCommitHashes` được đọc trong mọi cell → bắt đầu drag là toàn bộ cell cập nhật | `HistoryView.swift:733,746` |
-| Các lớp lách SwiftUI `Table`: `NSEvent` monitor cho right-click, đổi `dataSource` để thay drag preview, tự khôi phục độ rộng cột, chặn click sau drag, poll chuột 50ms | `HistoryTableScrollCoordinator.swift`, `HistoryDragPreviewDataSource.swift`, `HistoryView.swift:2572-2648` |
+| ~60 `@State` properties in one 2681-line struct. Any detail change (`fileChanges`, `commitLineCounts`, `diffHunks`, `selectedFile`, `showingCommitInfo`, …) re-evaluates the whole body, including the `Table` rows builder | `HistoryView.swift:47-122` |
+| `@EnvironmentObject AppState` (29 `@Published` properties): any unrelated AppState change invalidates History | `HistoryView.swift:42` |
+| Every selection change calls `onCustomActionSelectionChanged`, which writes `MainWindowView` `@State`. MainWindow re-renders, `HistoryView` is rebuilt with new closures, and its body runs again | `HistoryView.swift:706-709`, `MainWindowView.swift:1385` |
+| Several O(n) passes per click: `Set(commits.map(\.hash))` in the binding setter, `applyTableSelection`, the context menu builder | `HistoryView.swift:1853-1925`, `1052` |
+| Heavy cells: a `GeometryReader` plus an introspection `NSViewRepresentable` in every message cell, a `Canvas` per row, three `.help()` per row, per-cell `onAppear` driving pagination | `HistoryCommitMessageCell.swift`, `HistoryView.swift:725-816`, `1937` |
+| Every cell reads `activeDragCommitHashes`, so starting a drag updates every cell | `HistoryView.swift:733,746` |
+| SwiftUI `Table` workarounds: an `NSEvent` monitor for right-click, swapping the table `dataSource` to replace the drag preview, manual column width restoration, click suppression after drag, 50 ms mouse polling | `HistoryTableScrollCoordinator.swift`, `HistoryDragPreviewDataSource.swift`, `HistoryView.swift:2572-2648` |
 
-## 2. Mục tiêu
+## 2. Goals
 
-1. Click / phím ↑↓ chọn commit **không** làm table đánh giá lại rows; chỉ detail panel cập nhật.
-2. Scroll không chạy code per-cell của SwiftUI; phân trang dựa trên viewport, không dựa trên `onAppear`.
-3. Thay đổi bên ngoài (AppState, MainWindow re-render, closure mới) không reload table.
-4. Bỏ toàn bộ lớp lách SwiftUI `Table` bằng cách dùng `NSTableView` trực tiếp.
-5. Tách `HistoryView` thành các đơn vị có trách nhiệm rõ: list model, detail model, action controller, table, view.
+1. Clicking or arrowing to a commit does **not** re-evaluate table rows; only the detail panel updates.
+2. Scrolling runs no per-cell SwiftUI code; pagination is driven by the viewport.
+3. External changes (AppState, MainWindow re-renders, new closures) never reload the table.
+4. Use `NSTableView` directly, with no workarounds.
+5. Keep the new code lean: do not carry over dead code or state flags that only exist to patch the old foundation (§5).
 
-## 3. Không thay đổi (giữ nguyên hành vi)
+## 3. Layers: what to rewrite, what to keep
 
-- **UI:** 5 cột Graph / Message / Author / Date / Commit; bordered, alternating rows, control size small, row height 24pt; ref badge trong message cell (tối đa 3 + "+N"); split dọc `HistoryMainSplit` (list trên, detail dưới); split ngang `HistoryDetailSplit` trong detail; header commit, popover thông tin commit, chỉ báo "Loading branch history…", empty state, "Loading older commits…" row.
-- **Các view con dùng lại nguyên trạng:** `BranchFilterBar`, `CommitFileListView`, `DiffView`, `CommitInfoPopoverView`, `CommitFilePreviewSheet`, `CommitPatchReviewSheet`, `SquashCommitsSheet`, `RefLabel` (cho header detail), `CommitDragPreview`, `EmptyStateView`, `PersistentVSplit` / `PersistentHSplit`.
-- **Logic dùng lại:** `CommitGraphGenerator` (+ incremental/append), `CommitGraphRowGeometryCache`, `HistoryCommitSelection`, `HistoryPagingState`, `HistoryCheckoutPolicy`, `BoundedMemoryCache` (capacity 3), toàn bộ API `GitStatusService` đang gọi, `CommitPatchController`, `GitDragPayload` / `GitDragPayloadStore`.
-- **Context menu:** cùng danh sách mục, thứ tự, divider, icon, điều kiện enable (single / multi / cherry-pick không merge / squash theo `canSquashCommits`), submenu Custom Actions, Copy Hash(es) / Message(s).
-- **Double-click / Return:** `handleCommitDoubleClick` — có branch ref thì `onRequestCheckout`, không thì xác nhận checkout detached (kèm kiểm tra uncommitted changes).
-- **Right-click trên row chưa chọn:** chọn row đó (bỏ selection cũ) rồi mới mở menu. Right-click trên row đã chọn: giữ selection, menu áp dụng cho toàn bộ selection.
-- **Drag:** payload `GitDragPayload.commits` theo `draggedCommits(startingAt:commits:selection:)`, preview `CommitDragPreview` một ảnh kèm badge số lượng, row đang kéo mờ 0.4.
-- **Data flow:** phân trang 2 chiều (cửa sổ `startIndex` + `loadedCount`), cache 3 snapshot theo `historyLoadKey`, refresh qua `.repositoryDidChange` / `.repositoryLocalStateDidRefresh` / `.advancedClearSessionCaches` với giữ selection và viewport, search debounce, "only this branch" so với base branch, setting `advanced.historyLoadSize`, chọn tip của `selectedBranch` khi filter là `.all`.
-- **Undo:** `registerHeadChangingUndo` và các `perform*` giữ nguyên logic, chỉ chuyển chỗ.
+| Layer | Treatment | Components |
+|---|---|---|
+| History UI and state | **Rewrite completely** from §4 | list model, detail model, action controller, AppKit table, cells, context menu, drag, `HistoryScreen`, History sheets |
+| Git operations and undo | **Rewrite the structure, keep the git contract** in §4.7: the same `GitStatusService` calls, the same `GitUndoEntry` values, the same error messages, the same notifications | action execution functions |
+| Small pure logic with existing tests | Rewrite in `HistoryLoadPolicy`, **keeping names and semantics** so existing tests only need a prefix change | §4.8 |
+| Infrastructure | **Do not touch** | `GitStatusService`, `CommitGraphGenerator` (+ `CommitGraphRowGeometryCache`, `CommitGraphModel`), `HistoryCommitSelection`, `HistoryCheckoutPolicy`, `BoundedMemoryCache`, `CommitPatchController`, `GitDragPayload` / `GitDragPayloadStore`, `CustomActionStore` / `CustomActionMenuContent`, `GitUndoManager` |
+| Shared subviews | **Do not touch** | `BranchFilterBar`, `CommitFileListView`, `DiffView`, `CommitInfoPopoverView`, `CommitFilePreviewSheet`, `CommitPatchReviewSheet`, `SquashCommitsSheet`, `CommitDragPreview`, `RefLabel` (style extraction only, §6.6), `EmptyStateView`, `PersistentVSplit` / `PersistentHSplit` |
 
-## 4. Không nằm trong phạm vi
+## 4. Behavior contract
 
-- Không đổi git query, thuật toán graph, giao diện, text của sheet / menu.
-- Không đổi Reflog, Sidebar, các drop target của drag.
-- Không đổi định dạng `GitDragPayload`.
+This is the source of truth for the new code. References to old line numbers are for lookup only, not for porting.
 
-## 5. Kiến trúc mới
+### 4.1 Layout
+
+- Top to bottom: `BranchFilterBar`, then content.
+- Content:
+  - Initial load with no commits yet: `ProgressView("Loading history…")` centered.
+  - No commits: `EmptyStateView` with icon `clock.arrow.circlepath`, message "No commits to display" (or "No matching commits" while searching), and detail from `emptyDetail` (§4.8).
+  - Commits available: a vertical `PersistentVSplit` with autosave name `HistoryMainSplit` (min top 200, min bottom 180), table on top and detail below.
+  - Refreshing with existing data for longer than 150 ms: a `.regularMaterial` capsule at the top edge with a spinner and "Loading branch history…" (caption, secondary).
+- Table:
+  - Five columns: Graph (min 60, width 200), Message (min 120, width 400), Author (min 140, width 180), Date (min 100, width 140), Commit (min 72, width 80). Graph and Message cannot be hidden or reordered; Author, Date and Commit can be hidden. Column layout persists.
+  - Bordered style (vertical grid lines), alternating rows, small control size, 24 pt row height.
+  - Graph: lanes and dots from `CommitGraphRowGeometry`, 2.2 pt lines with round caps and joins, continuous across rows. Dot background matches the row background (alternating), or the selection color when the row is selected and the table has focus.
+  - Message: up to 3 ref badges (`RefLabel` appearance, tinted with the commit's graph color), then "+N" (caption, secondary, tooltip listing the remaining refs), then the message on one line, tail-truncated, with the message as tooltip. An empty message shows "<empty message>". On a selected row, badges switch to primary text on a 12% primary background.
+  - Author: "name <email>", callout, secondary, same string as tooltip.
+  - Date: hour, minute, day, abbreviated month, year; callout, secondary, monospaced digits.
+  - Commit: short hash, monospaced callout, tertiary, full hash as tooltip.
+  - Fonts scale with `appTextScale`.
+  - While older pages remain: the last row shows a small spinner and "Loading older commits…".
+- Detail (same appearance as `HistoryView.swift:820-1019`):
+  - No commit selected: `EmptyStateView` "Select a commit".
+  - Header: person icon, message (semibold 13, one line), a secondary line with author • email • date and time • full hash; an info button opening `CommitInfoPopoverView` (loads the full message on open; copy message / copy hash); up to 5 `RefLabel`s. `.ultraThinMaterial` background with a bottom hairline.
+  - While a patch is being prepared: a row with a spinner, "Checking and merging selected changes…" and a Cancel button.
+  - A horizontal `PersistentHSplit` with autosave name `HistoryDetailSplit` (min left 220, min right 300): `CommitFileListView` | diff viewer (file name header plus `DiffView` with `gitRef` set to the commit, line-level patch support). No file selected: `EmptyStateView` "Select a file".
+
+### 4.2 Loading
+
+- **Scope** from `HistoryBranchFilter`: `.all` → all branches; `.current` → HEAD; `.branch(ref)` → that ref.
+- **Queries** (`GitStatusService`):
+  - "Only this branch" on and filter not `.all`: requires a base branch; with no base selected the list is empty. With a base: `branchOnlyCommitHistory(branch:base:query:limit:skip:)`, where branch is the ref, or `"HEAD"` for `.current`.
+  - No search: `commitHistory(allBranches:…)` or `commitHistory(branch:…)`.
+  - Search: `searchCommitHistory(allBranches:…)` or `searchCommitHistory(branch:…)`.
+- **Search:** a trimmed query shorter than 3 characters counts as no search and applies immediately. Three characters or more apply 800 ms after the last keystroke.
+- **One-directional pagination:** the first page uses `skip = 0`, `limit = pageSize`. Each next page uses `skip = number of loaded commits`. Pagination ends when a page returns fewer than `limit` commits. Load the next page when the last visible row is within `max(pageSize, visible row count × 3)` of the end. Never load two pages concurrently.
+- **Page size:** the `advanced.historyLoadSize` setting (`HistoryLoadSize`, default `.balanced`). Changing it clears the cache and reloads.
+- **Load key** = filter + applied search + page size + (only-this-branch ? base : "full"). A new key reloads from the start and cancels the previous load. Results for an outdated key are discarded.
+- **Graph:** `CommitGraphGenerator.generateIncrementalAsync` for a fresh load, `appendAsync` for an added page. Highlighting is `.all` for the `.all` filter, otherwise `.currentBranchOnly`. Highlight root from `highlightRootHash` (§4.8). HEAD hash comes from a commit's ref decoration (`HEAD` / `HEAD -> …`), falling back to `tipHash(for: "HEAD")`.
+- **Cache:** up to 3 snapshots keyed by load key (commits, selected commit, hasMore). Returning to a cached key shows it immediately (graph recomputed) without running git log. The cache is cleared when the repository changes or on `.advancedClearSessionCaches`.
+- **Refresh:** on `.repositoryDidChange` or `.repositoryLocalStateDidRefresh` for the matching `repositoryURL`, or on `.advancedClearSessionCaches`, clear the cache and reload **as many commits as are currently loaded** (at least one page), preserving selection and scroll position.
+
+### 4.3 Selection
+
+- Selection consists of the selected hash set, the primary hash (shown in detail) and the anchor, stored as `HistoryCommitSelection`.
+- Click, Shift-click, Cmd-click, ↑↓ and Shift+↑↓ follow standard `NSTableView` behavior. The primary hash is derived with `primaryHashForTableSelection` (§4.8).
+- **After a fresh load** (key change, not refresh):
+  - Filter `.all`, no search, and the tip of `selectedBranch` is in the page → select that tip.
+  - Otherwise → select the first commit.
+  - Always reselect, even if the previously selected commit is still present in the new list (`HistoryView.swift:1396`).
+  - Scroll to the selected commit.
+- **From cache:** filter `.all` and the tip of `selectedBranch` is in the snapshot → select it; otherwise select the snapshot's stored commit; otherwise the first commit.
+- **After refresh:** keep the selection. Hashes no longer present drop out of the table selection. If the primary commit disappeared, keep showing its detail (do not blank the panel) until the user selects another commit (`HistoryView.swift:1898-1903`).
+- **Adding a page:** selection and scroll position stay unchanged.
+- **`selectedBranch` changes** (branch picked in the sidebar) while the filter is `.all` and there is no search → select that branch's tip if loaded, scroll to it and focus the table.
+- An empty table selection (user deselects everything) → detail shows "Select a commit".
+- The selection, in display order, is published to the toolbar Custom Actions (§6.8).
+
+### 4.4 Detail
+
+- When the primary commit changes, the header updates immediately; the file list loads after the selection has been stable for 80 ms (holding ↑↓ only loads the final commit).
+- Three parts load; late results for a previous commit are discarded:
+  - File list: `changedFiles(in:in:)`. When done, keep the selected file if still present, otherwise select the first file.
+  - Line counts: `commitLineChangeCounts(in:in:)`, concurrently with the file list; errors are ignored.
+  - Patch eligibility: `commitPatchUnavailableReasons(commit:in:)`; on error, store the error message.
+- Changing the file loads its diff (`HistoryView.swift:1821-1851`). Line patches are allowed only when the shown diff matches the selected commit and file; otherwise the reason is "Loading commit diff…".
+- Patch-disabled reason, in priority order: merge commit → "Selected changes from merge commits are not supported."; preparing or applying → "Preparing or applying selected changes…"; eligibility not checked yet → "Checking selected changes…"; eligibility error → the error message; then the per-file reason (by path or oldPath).
+- If the screen disappears mid-load, cancel. On return with the same commit, **resume unfinished parts without clearing finished results or the selected file**. Empty results are valid, so completion must be tracked with a separate flag per part rather than inferred from the data (`HistoryView.swift:1771-1772`).
+- Changing the commit closes the commit info popover and clears the loaded full message.
+- The patch review sheet must read the latest review state after each resolution, not the snapshot from when the sheet opened (`HistoryView.swift:336`). Closing the sheet closes the conflict window.
+
+### 4.5 Row interactions
+
+- **Double-click or Return** on a commit (Return uses the selection's primary commit):
+  - Commit has a branch ref (`HistoryCheckoutPolicy.branchRef(from:)`) → `requestCheckout(branchRef, false)`.
+  - Otherwise → check `uncommittedChangeCount` and open the detached checkout sheet (with a "Discard local changes" checkbox when there are uncommitted changes). If the user has requested a different commit by the time the count returns, discard the result.
+  - A double-click must not fire right after a drop.
+- **Right-click:**
+  - On an unselected row → select only that row, then open the menu for it.
+  - On a selected row → **keep** the selection and detail; the menu applies to the whole selection (`HistoryView.swift:1859-1861`).
+  - On the loading row or empty space → no menu.
+  - Build the menu from the clicked row; do not depend on `NSApp.currentEvent` (`HistoryView.swift:689-691`).
+- **Context menu** (order, icons, enablement; "single" = exactly one commit in context; "primary" = the detail commit if it is in context, otherwise the first context commit):
+
+  | Item | Icon | Enabled when | Action |
+  |---|---|---|---|
+  | Show Repository at Revision | `folder` | single | `requestBrowseRevision` |
+  | Checkout Commit | `arrow.right.to.line` | single | detached checkout sheet |
+  | Cherry Pick / Cherry Pick N Commits | `arrow.down.doc` | context not empty, no merge commits | cherry-pick oldest → newest (`cherryPickCommits`) |
+  | AI Explain This Commit | `sparkles` | has primary | `requestExplain(primary)` |
+  | — | | | |
+  | Merge... | `arrow.triangle.merge` | single | merge sheet (both checkboxes on by default) |
+  | Rebase... | `arrow.triangle.swap` | single | rebase sheet |
+  | — | | | |
+  | Squash Commits | `rectangle.compress.vertical` | `canSquashCommits` | squash sheet, suggested message = messages joined by newlines |
+  | — | | | |
+  | Tag... | `tag` | single | tag sheet |
+  | Branch... | `arrow.triangle.branch` | single | branch sheet ("Checkout new branch" on by default) |
+  | — | | | |
+  | Reset to this commit | `arrow.counterclockwise` | single | fetch `currentBranch`, then open the reset sheet (Mixed by default) |
+  | Reverse commit... | `arrow.uturn.backward` | single | revert confirmation alert |
+  | — | | | |
+  | Custom Actions ▸ | | | `CustomActionMenuContent` with surface `.selectedCommits` and the context hashes |
+  | — | | | |
+  | Copy Hash / Copy Hashes | `doc.on.doc` | context not empty | hashes joined by newlines |
+  | Copy Message / Copy Messages | `doc.on.doc` | context not empty | messages joined by newlines |
+
+- **Drag:**
+  - Dragging a row: if it is in the selection, drag the whole selection; otherwise drag only that row. The dragged commit list comes from `draggedCommits` (§4.8).
+  - Payload `GitDragPayload.commits(...)`, written to the pasteboard as `UTType.macgitGitDragPayload` and via `GitDragPayloadStore.set(payload)`.
+  - The preview is **one** `CommitDragPreview` image (with a count badge), not per-row images.
+  - Dragged rows render at 0.4 opacity until the drag ends. Ending a drag does **not** clear `GitDragPayloadStore` (`HistoryView.swift:2617`).
+
+### 4.6 Sheets and alerts
+
+Text, sizes and keyboard shortcuts (`cancelAction` / `defaultAction`) stay exactly as in `HistoryView.swift:374-612`:
+- **Create Tag:** name field; "Create Tag" disabled when the trimmed name is empty.
+- **Create Branch:** "From commit" line, name field, "Checkout new branch" checkbox.
+- **Reset:** "This will reset '<branch>' to:", Soft / Mixed / Hard radio group; destructive "Reset" button.
+- **Merge:** checkboxes "Commit merged changes immediately" and "Include messages from commits being merged in merge commit".
+- **Rebase:** confirmation plus the warning "Make sure your changes have not been pushed to anyone else."
+- **Detached checkout:** detached-HEAD explanation plus "Discard local changes" when there are uncommitted changes.
+- **Revert:** "Reverse this commit?" alert with a "Revert" button.
+- **Squash:** `SquashCommitsSheet`.
+- **Error:** "Error" alert with the message.
+
+Each operation runs through `runOperation(<progress message>)` with the current messages: "Checking out commit...", "Cherry-picking <hash7>..." / "Cherry-picking N commits...", "Merging commit...", "Rebasing onto commit...", "Squashing N commits...", "Creating tag <name>...", "Creating branch <name>...", "Resetting HEAD...".
+
+### 4.7 Git and undo contract (must match exactly)
+
+Every successful operation posts `.repositoryDidChange` with `userInfo["repositoryURL"]`, dismisses its sheet and clears the pending commit. Errors show the "Error" alert with `error.localizedDescription` unless stated otherwise.
+
+"HEAD undo" means: after success, read `tipHash("HEAD")` again; if it differs from the old HEAD, register `GitUndoEntry(label, undo: .resetHead(target: oldHead, mode: .hard, expectedHead: newHead), redo: <redo>)`.
+
+| Operation | Call | Undo |
+|---|---|---|
+| Detached checkout | `checkoutCommit(hash, force: discardLocalChanges)` | none |
+| Cherry-pick | `cherryPickCommits(hashes)` | HEAD undo, label "Cherry-pick <hash7>" / "Cherry-pick N commits", redo `.cherryPick(commit:)` / `.cherryPickCommits(commits:)` |
+| Merge | `mergeCommit(hash, noCommit: !commitImmediately, log: includeMessages)` | HEAD undo, "Merge <hash7>", redo `.mergeCommit(commit:noCommit:log:)` |
+| Rebase | `rebaseCommit(hash)` | HEAD undo, "Rebase onto <hash7>", redo `.rebaseOnto(commit:)` |
+| Reset | `resetToCommit(hash, mode:)` | if HEAD changed: "Reset HEAD", undo `.resetHead(oldHead, mode: hard → .hard, otherwise .soft, expected: newHead)`, redo `.resetHead(hash, mode: resetMode.gitUndoMode, expected: oldHead)` |
+| Revert | `revertCommit(hash)` | HEAD undo, "Revert <hash7>", redo `.revert(commit:)` |
+| Squash | re-check `canSquashCommits` against the current HEAD, then `squashCommits(hashes, message:)` | if HEAD changed: "Squash N commits", undo `.resetHead(oldHead, .soft, expected: newHead)`, redo `.commit(message:noVerify: false, signOff: false)` |
+| Tag | `createTag(name: trimmed, commit:, annotated: false, message: nil)` | none |
+| Branch | `GitBranchUndoSupport().tip(of: hash)` first, then `createBranch(name: trimmed, checkout:, commit:)` | "Create branch <name>", undo `.deleteLocalBranch(name, force: true, expectedTip: startPoint)`, redo `.createLocalBranch(name, startPoint, checkout:)` |
+
+Cherry-pick and revert failures are handled specially: `syncState.refresh`, then if `hasConflicts` → "<Cherry-pick|Revert> produced conflicts. Resolve them in the File status view, then continue or abort."; else if `inProgressOperation` is set → "<Cherry-pick|Revert> produced an empty commit. Open the File status view to skip or abort."; else `localizedDescription`. All three cases still post `.repositoryDidChange`.
+
+Undo is registered only after the operation succeeds (per `AGENTS.md`).
+
+### 4.8 Pure logic (`HistoryLoadPolicy`, same names and semantics)
+
+- `historyScope(branchFilter:)`, `highlighting(for:)`, `highlightRootHash(for:commits:repositoryURL:)` (`.all` → nil; `.current` → decorated HEAD or `tipHash("HEAD")`; `.branch` → first commit or `tipHash(branch)`).
+- `normalizedSearchQuery(_:)` (trim; fewer than 3 characters → empty).
+- `resolvedHeadHash(from:)`, `tipCommit(for:in:)` (ref equals the branch name or `HEAD -> <branch>`), `commit(withHash:in:)`.
+- `primaryHashForTableSelection(oldSelection:newSelection:previousPrimaryHash:visibleHashes:)`: exactly one added hash → that hash; several added → the one farthest from the previous primary; previous primary still selected → keep it; otherwise the last selected hash in display order.
+- `canSquashCommits(_:selectedHashes:headHash:)`: at least 2 commits, first is HEAD, no merges, consecutive by first parent.
+- `cherryPickCommits(from:)` (reversed order), `draggedCommits(startingAt:commits:selection:)` (uses `HistoryCommitSelection.draggedHashes`).
+- `reloadTargetHash(reset:selectedCommitHash:newScrollTarget:)`.
+- `loadKey(...)`, `emptyDetail(...)`: "Choose a base branch to compare against" / "No commits ahead of <base>" / "No matching commits ahead of <base>. Try author name, email, or commit ID" / "Repository may be empty" / "Try author name, email, or commit ID".
+
+## 5. Intentionally removed
+
+| Removed | Reason |
+|---|---|
+| Bidirectional pagination: `loadNewerHistoryIfNeeded`, `HistoryPagingState.startIndex` / `canLoadNewer` / `replaceWindow(startIndex:…)` | `startIndex` starts at 0 and all three assignments (`HistoryView.swift:1427`, `1531`, `1648`) assign a value ≤ the current one, so it is always 0. Dead code reached only by tests |
+| `selectCommitFromNativeTap`, `selectionModifiers(from:)`, `contextMenuCommits` | No callers in the app; only tests call them |
+| `isRestoringTableSelection`, `restoreSelectionIfTableClearsAfterReload` | Patches SwiftUI `Table` clearing selection when rows change. `NSTableView` keeps selection by index, and the model re-applies selection after each data change |
+| Empty-selection interception on right-click, `isContextClick(onRows:)`, the `NSEvent` monitor | `NSTableView` does not change selection on right-click; use `clickedRow` |
+| `suppressedCommitClickHash`, polling `pressedMouseButtons` | `NSTableView` reports drag end and does not send a double-click after a drag |
+| `HistoryDragPreviewDataSource` (data source swap) | The controller is the data source and sets the preview directly |
+| `HistoryTableScrollCoordinator`, `HistoryTableIntrospectionView`, `@AppStorage("history.tableColumns")` | Use AppKit column autosave and direct scrolling APIs |
+| Complex viewport anchoring | Only one case remains (refresh preserving position): capture the first visible row hash plus offset, restore after reload |
+
+## 6. New architecture
 
 ```
 MainWindowView
-└── HistoryScreen (SwiftUI, body mỏng – chỉ ghép các phần)
-    ├── BranchFilterBar                         (giữ nguyên)
+└── HistoryScreen (SwiftUI, thin body – composition only)
+    ├── BranchFilterBar
     ├── PersistentVSplit "HistoryMainSplit"
     │   ├── HistoryCommitTable                  (NSViewRepresentable → NSScrollView + HistoryNSTableView)
-    │   │     └── HistoryCommitTableController  (dataSource / delegate / NSMenuDelegate / drag)
-    │   └── HistoryCommitDetailView             (chỉ observe HistoryCommitDetailModel)
-    └── .historyActionPresentations(controller) (sheet / alert, chỉ observe HistoryCommitActionController)
+    │   │     └── HistoryCommitTableController  (data source / delegate / NSMenuDelegate / drag)
+    │   └── HistoryCommitDetailView             (observes only HistoryCommitDetailModel)
+    └── .historyActionPresentations(actions)    (observes only HistoryCommitActionController)
 
-HistoryListModel            @Observable @MainActor – commits, graph, paging, cache, selection, load
-HistoryCommitDetailModel    @Observable @MainActor – files, line counts, diff, full message, patch
-HistoryCommitActionController @Observable @MainActor – pendingCommit, sheet hiện tại, perform*
-HistoryCommitContextMenu    SwiftUI View (nội dung menu), dựng lazily qua NSHostingMenu
+HistoryListModel              @Observable @MainActor – commits, graph, paging, cache, selection
+HistoryCommitDetailModel      @Observable @MainActor – files, line counts, diff, full message, patch
+HistoryCommitActionController @Observable @MainActor – pending commit, presentation, §4.7 execution
+HistoryCommitContextMenu      SwiftUI View – menu content, built on right-click via NSHostingMenu
 ```
 
-### 5.1 Vị trí file
+### 6.1 File locations
 
-| File mới | Thư mục |
+| File | Directory |
 |---|---|
-| `HistoryListModel.swift` | `macgit/ViewModels/` |
-| `HistoryCommitDetailModel.swift` | `macgit/ViewModels/` |
-| `HistoryCommitActionController.swift` | `macgit/ViewModels/` |
-| `HistoryLoadPolicy.swift` (các hàm static thuần) | `macgit/Views/History/` |
-| `HistoryScreen.swift` | `macgit/Views/History/` |
-| `HistoryCommitTable.swift` (representable + `HistoryNSTableView`) | `macgit/Views/History/` |
-| `HistoryCommitTableController.swift` | `macgit/Views/History/` |
-| `HistoryCommitTableCells.swift` (graph / message / text cell) | `macgit/Views/History/` |
-| `HistoryRefBadgeView.swift` | `macgit/Views/History/` |
-| `CommitGraphRowRenderer.swift` (vẽ CoreGraphics dùng chung) | `macgit/Views/History/` |
-| `HistoryCommitDetailView.swift` | `macgit/Views/History/` |
-| `HistoryCommitContextMenu.swift` | `macgit/Views/History/` |
-| `HistoryActionSheets.swift` (tag / branch / reset / merge / rebase / checkout sheet + modifier) | `macgit/Views/History/` |
+| `HistoryListModel.swift`, `HistoryCommitDetailModel.swift`, `HistoryCommitActionController.swift`, `HistoryCommitSelectionSink.swift` | `macgit/ViewModels/` |
+| `HistoryLoadPolicy.swift`, `HistoryScreen.swift`, `HistoryCommitTable.swift`, `HistoryCommitTableController.swift`, `HistoryCommitTableCells.swift`, `HistoryRefBadgeView.swift`, `CommitGraphRowRenderer.swift`, `HistoryCommitDetailView.swift`, `HistoryCommitContextMenu.swift`, `HistoryActionSheets.swift` | `macgit/Views/History/` |
 
-File xoá sau khi chuyển xong: `HistoryView.swift`, `HistoryTableScrollCoordinator.swift`, `HistoryDragPreviewDataSource.swift`, `HistoryCommitMessageCell.swift`, `HistoryTableRow.swift`, `BranchGraphRowCanvas.swift` (nếu không còn nơi dùng).
+Delete when done: `HistoryView.swift`, `HistoryTableScrollCoordinator.swift`, `HistoryDragPreviewDataSource.swift`, `HistoryCommitMessageCell.swift`, `HistoryTableRow.swift`, and `BranchGraphRowCanvas.swift` if unused. Reduce `HistoryPagingState.swift` to one-directional paging.
 
-### 5.2 `HistoryListModel`
-
-Trách nhiệm: nguồn dữ liệu duy nhất của danh sách.
+### 6.2 `HistoryListModel`
 
 ```swift
 @Observable @MainActor
 final class HistoryListModel {
-    // Inputs (set bởi HistoryScreen)
+    // Inputs
     var repositoryURL: URL
     var branchFilter: HistoryBranchFilter
     var onlyThisBranch: Bool
     var baseBranch: String?
-    var searchText: String          // raw; debounce nội bộ → activeSearchQuery
     var selectedBranch: String?
+    func setSearchText(_ text: String)      // §4.2 debounce
+    func setPageSize(_ size: Int)
 
-    // Outputs
-    private(set) var rows: HistoryRowsSnapshot       // commits + graphModel + hasMore + version + change kind
+    // Outputs (observed)
+    private(set) var rows: HistoryRows
     private(set) var selection: HistoryCommitSelection
-    private(set) var selectedCommit: Commit?
+    private(set) var selectedCommit: Commit?     // may be a "pinned" commit no longer in rows (§4.3)
     private(set) var headHash: String?
-    private(set) var isInitialLoading: Bool
-    private(set) var isRefreshing: Bool              // chỉ báo sau 150ms như hiện tại
-    private(set) var scrollRequest: HistoryScrollRequest?   // (hash, token) – table tiêu thụ một lần
+    private(set) var phase: Phase                // .initialLoading, .idle, .refreshing (after 150 ms)
+    private(set) var scrollRequest: HistoryScrollRequest?
     private(set) var dragActiveHashes: Set<String>
     var errorMessage: String?
 
-    func loadKeyDidChange() async                    // = .task(id: loadKey) hiện tại
-    func refresh(preservingSelectionAndScroll: Bool) async
-    func viewportDidChange(visibleRows: Range<Int>)  // thay handleHistoryCommitCellAppearance
-    func applyNativeSelection(orderedHashes: [String], previous: Set<String>)
-    func selectForContextClick(hash: String)
-    func selectBranchTip(_ branch: String)
-    func clearCaches()
+    var loadKey: String { get }
+    func load() async                            // driven by .task(id: loadKey)
+    func refresh() async                         // §4.2 Refresh
+    func clearCache()
+    func loadMoreIfNeeded(lastVisibleRow: Int, visibleCount: Int)
+    func applyTableSelection(orderedHashes: [String])
+    func selectBranchTipIfPossible()
+    func setDragActive(_ hashes: Set<String>)
+    func consumeScrollRequest(_ token: UUID)
     var selectedHashesInDisplayOrder: [String] { get }
 }
+
+struct HistoryRows {
+    enum Change { case reload(preserveViewport: Bool), appended(Range<Int>) }
+    let commits: [Commit]
+    let graphModel: CommitGraphModel?
+    let hasMore: Bool
+    let version: Int
+    let change: Change
+    let indexByHash: [String: Int]
+}
+struct HistoryScrollRequest: Equatable { let hash: String; let focus: Bool; let token: UUID }
 ```
 
-- `HistoryRowsSnapshot` là struct bất biến gồm `commits: [Commit]`, `graphModel: CommitGraphModel`, `hasMore: Bool`, `version: Int`, `change: Change` với `enum Change { case reload, appended(Range<Int>), prepended(count: Int) }`. `version` tăng mỗi lần gán. Table chỉ phản ứng khi `version` đổi.
-- Kèm `hashIndex: [String: Int]` dựng một lần mỗi snapshot để bỏ các phép `commits.map(\.hash)` / `firstIndex` lặp lại.
-- Logic `loadHistory`, `applyCachedSnapshot`, `loadOlderHistoryIfNeeded`, `loadNewerHistoryIfNeeded`, `historyPage`, `restoreSelectionIfTableClearsAfterReload` (không còn cần – xem 5.5), `scheduleHistorySearchDebounce`, refresh indicator chuyển nguyên sang đây. `appState.historyBranchFilter` thay bằng thuộc tính `branchFilter`.
-- Viewport anchor khi refresh: model không biết về `NSTableView`. Snapshot với `change == .reload` mang cờ `preserveViewport: Bool`; table controller tự chụp anchor trước khi reload và khôi phục sau.
+- All internal state (tasks, cache, `CommitGraphGenerationState`, page-loading flag) is `@ObservationIgnored`.
+- Each assignment to `rows` is a new immutable snapshot with `version + 1`; commits, graph and hasMore always change together.
+- All hash lookups use `indexByHash`.
 
-### 5.3 `HistoryCommitDetailModel`
+### 6.3 `HistoryCommitDetailModel`
 
 ```swift
 @Observable @MainActor
@@ -134,41 +301,39 @@ final class HistoryCommitDetailModel {
     private(set) var commit: Commit?
     private(set) var fileChanges: [CommitFileChange]
     private(set) var lineCounts: [String: FileLineChangeCount]
-    var selectedFile: CommitFileChange?            // didSet → loadDiff
-    private(set) var diffHunks: [DiffHunk]
-    private(set) var diffCommitHash: String?
-    private(set) var diffFilePath: String?
+    var selectedFile: CommitFileChange?          // didSet → load diff
+    private(set) var diff: (commit: String, path: String, hunks: [DiffHunk])?
     private(set) var fullMessage: String?
     private(set) var isLoadingFullMessage: Bool
     var showingCommitInfo: Bool
     var fullFilePreview: CommitFilePreviewRequest?
     let patchController: CommitPatchController
-    private(set) var patchReasons / patchEligibilityLoaded / patchEligibilityError
 
-    func show(_ commit: Commit?)                    // header cập nhật ngay; file list load sau debounce
-    func resumeIfCancelled()                        // thay logic onAppear hiện tại
-    func cancelLoads()                              // onDisappear
+    func show(_ commit: Commit?)                  // §4.4
+    func resume()                                 // onAppear
+    func suspend()                                // onDisappear
     func loadFullMessage()
     func patchDisabledReason(for files: [CommitFileChange]) -> String?
 }
 ```
 
-- `show(_:)` cập nhật `commit` ngay (header đổi tức thì), huỷ task cũ, đợi **80ms** rồi mới gọi `loadFileChanges`. Phím ↑↓ giữ liên tục chỉ tải commit cuối cùng.
-- Gán state theo lô: kết quả file list + line counts gán trong một lần cập nhật để detail view chỉ render một lượt.
-- `HistoryScreen` nối: `listModel.selectedCommit` đổi → `detailModel.show(...)` (qua `.onChange(of: listModel.selectedCommit?.hash)`).
+- Each part (files, line counts, patch eligibility) has its own "done" flag tied to the commit hash.
+- Results are assigned in batches so the detail view renders once per part.
 
-### 5.4 `HistoryCommitActionController`
+### 6.4 `HistoryCommitActionController`
 
 ```swift
 @Observable @MainActor
 final class HistoryCommitActionController {
-    enum Presentation: Identifiable { case checkout, reset, tag, branch, merge, rebase, squash([Commit], String) }
+    enum Presentation: Identifiable {
+        case checkout(Commit, hasUncommittedChanges: Bool)
+        case reset(Commit, branchName: String)
+        case tag(Commit), branch(Commit), merge(Commit), rebase(Commit)
+        case squash([Commit], message: String)
+    }
     var presentation: Presentation?
-    var showingRevertConfirmation: Bool
-    var pendingCommit: Commit?
-    // inputs của sheet: tagName, branchName, checkoutNewBranch, resetMode, currentBranchName,
-    // mergeCommitImmediately, mergeIncludeMessages, discardLocalChanges, hasUncommittedChanges
-    var errorMessage: String?; var showingError: Bool
+    var revertCandidate: Commit?                 // Reverse alert
+    var errorMessage: String?
 
     struct Dependencies {
         let repositoryURL: URL
@@ -179,128 +344,83 @@ final class HistoryCommitActionController {
         let requestExplain: (Commit) -> Void
         let requestBrowseRevision: (Commit) -> Void
         let runCustomAction: (UUID, [String]) -> Void
+        let headHash: () -> String?
     }
-    var dependencies: Dependencies     // cập nhật mỗi lần HistoryScreen dựng lại; không gây render
+    @ObservationIgnored var dependencies: Dependencies
 
-    // Mục menu
-    func browseRevision(_:), requestCheckoutCommit(_:), cherryPick(_:), explain(_:), requestMerge(_:),
-         requestRebase(_:), requestSquash(_:), requestTag(_:), requestBranch(_:), requestReset(_:),
-         requestRevert(_:), copyHashes(_:), copyMessages(_:)
-    func handleDoubleClick(_ commit: Commit)
-    // perform* (chuyển nguyên từ HistoryView)
+    // Menu items (§4.5) + handleDoubleClick
+    // Execution (§4.7): checkout(_, discard:), cherryPick(_:), merge(_, commitImmediately:, includeMessages:),
+    //   rebase(_:), reset(_, mode:), revert(_:), squash(_, message:), createTag(_, name:), createBranch(_, name:, checkout:)
 }
 ```
 
-- Một enum `Presentation` thay 7 cờ `showingXxx`, khớp cách `replacingSheet(item:)` đang dùng.
-- `dependencies` lưu closure mới nhất nhưng không phải thuộc tính observe (đánh dấu `@ObservationIgnored`).
+- Sheet inputs (tag / branch name, reset mode, checkboxes) are `@State` in each sheet view and passed to the execution function on confirm. The controller holds no input state.
+- One helper `registerHeadUndo(label:oldHead:redo:)` serves all "HEAD undo" operations.
 
-### 5.5 Table: `HistoryCommitTable` + `HistoryCommitTableController`
+### 6.5 Table: `HistoryCommitTable` + `HistoryCommitTableController`
 
-**Dựng bảng (một lần trong `makeNSView`):**
-- `HistoryNSTableView: NSTableView`, `style = .fullWidth`, `gridStyleMask = [.solidVerticalGridLineMask]` (khớp `.bordered`), `usesAlternatingRowBackgroundColors = true`, `rowHeight = 24`, `intercellSpacing` khớp hiện tại, `allowsMultipleSelection = true`, `allowsColumnReordering = true`, `columnAutoresizingStyle = .noColumnAutoresizing` (như hiện tại).
-- Cột (identifier = customization ID cũ): `graph` (min 60, w 200), `message` (min 120, w 400), `author` (min 140, w 180), `date` (min 100, w 140), `commit` (min 72, w 80). `graph`/`message` không ẩn được, không cho kéo đổi chỗ (chặn trong `tableView(_:shouldReorderColumn:toColumn:)`). Header có menu ẩn/hiện `author` / `date` / `commit`.
-- Lưu cột: `autosaveName = "HistoryCommitTable"`, `autosaveTableColumns = true`. Lần đầu (chưa có autosave) dựng độ rộng theo tỉ lệ cũ trong `history.tableColumnRatios` nếu có, để người dùng không mất layout.
-- `menu = NSMenu()` với `delegate = controller` (context menu), `doubleAction` + `target`.
-- `registerForDraggedTypes` không cần (bảng không nhận drop). `setDraggingSourceOperationMask(.copy, forLocal: true/false)`.
+**Built once (`makeNSView`):**
+- `HistoryNSTableView: NSTableView` with `gridStyleMask = .solidVerticalGridLineMask`, `usesAlternatingRowBackgroundColors`, `rowHeight = 24`, `allowsMultipleSelection`, `allowsColumnReordering`, `columnAutoresizingStyle = .noColumnAutoresizing`.
+- Columns with identifiers `graph` / `message` / `author` / `date` / `commit` as in §4.1; `shouldReorderColumn` blocks `graph` and `message`; a header menu toggles the other three.
+- `autosaveName = "HistoryCommitTable"`, `autosaveTableColumns = true`. Without an existing autosave, derive initial widths from the legacy ratios in `history.tableColumnRatios` if present (ratio × table width).
+- `menu` with `delegate = controller`; `target` + `doubleAction`; `setDraggingSourceOperationMask(.copy, forLocal:)` for both values.
+- `HistoryNSTableView.mouseDown` records `dragOriginRow`; `keyDown` handles Return / Enter.
 
-**`updateNSView` – quy tắc invalidation (cốt lõi của spec):**
-1. Luôn cập nhật `controller.listModel`, `controller.actions`, `controller.textScale` (gán tham chiếu, không reload).
-2. Nếu `rows.version` khác version controller đã áp dụng:
-   - `.appended(range)` → `insertRows(at:)` cho range, không đụng viewport.
-   - `.prepended(count)` → `insertRows(at: 0..<count)` rồi cộng `count * rowHeight` vào `clipView.bounds.origin.y` (row height cố định nên anchor chính xác).
-   - `.reload` → nếu `preserveViewport` thì chụp anchor (hash row đầu tiên nhìn thấy + offset) → `reloadData()` → khôi phục anchor theo `hashIndex`.
-   - Loading row ("Loading older commits…") là row cuối khi `hasMore`; tính trong `numberOfRows`.
-3. Nếu selection của model khác selection trên bảng → `selectRowIndexes(_:byExtendingSelection:false)` trong khối `isApplyingModelSelection = true` để không phát ngược về model. Hash ngoài cửa sổ hiện tại bị bỏ qua (giữ hành vi "pinned detail").
-4. Nếu `scrollRequest.token` mới → cuộn để row đó nằm giữa (logic hiện ở `scrollToRowWhenReady`), xong gọi `listModel.consumeScrollRequest(token)`.
-5. Nếu `dragActiveHashes` đổi → chỉ cập nhật `alphaValue` của các row view đang hiển thị thuộc tập cũ ∪ mới.
-6. Nếu `textScale` đổi → `reloadData()` (hiếm).
+**Update rules (`updateNSView` → `controller.apply`):**
+1. Always store the latest references (`listModel`, `actions`, `customActionStore`, `textScale`) without reloading.
+2. `rows.version` changed:
+   - `.appended(range)` → `insertRows(at: range)` (handling the trailing loading row), viewport untouched.
+   - `.reload(preserveViewport)` → if preserving, capture an anchor (first visible row hash + offset within the row) → `reloadData()` → restore the anchor via `indexByHash`.
+3. Model selection differs from table selection → `selectRowIndexes(…, byExtendingSelection: false)` inside an `isApplyingModelSelection` guard so it does not echo back. Hashes not in rows are ignored.
+4. New `scrollRequest.token` → scroll the row to the vertical center; if `focus`, `makeFirstResponder(tableView)`; then `consumeScrollRequest`.
+5. `dragActiveHashes` changed → update `alphaValue` only for visible row views in old ∪ new sets.
+6. `textScale` changed → `reloadData()`.
 
-Không có điều kiện nào khác dẫn tới reload. Detail, sheet, AppState, closure mới đều không chạm vào bảng.
+Nothing else triggers a reload. `updateNSView` reads only `rows`, `selection`, `scrollRequest` and `dragActiveHashes` from the model, so Observation tracks just those four properties.
 
-**Cells (AppKit thuần, tái sử dụng qua `makeView(withIdentifier:owner:)`):**
-- `HistoryGraphCellView`: `draw(_:)` gọi `CommitGraphRowRenderer.draw(geometry:rowIndex:in:dotBackground:)`. Geometry lấy từ `graphModel.rowGeometryCache.geometry(for:rowIndex:)`. Dot background: `selectedContentBackgroundColor` khi `backgroundStyle == .emphasized`, ngược lại theo `alternatingContentBackgroundColors[row % n]` — giống `BranchGraphRowCanvas.dotBackground`. Vẽ tràn 4pt trên/dưới như hiện tại để line liền mạch giữa các row.
-- `HistoryMessageCellView`: `NSStackView` ngang gồm tối đa 3 `HistoryRefBadgeView` + label "+N" (tooltip là các ref còn lại) + `NSTextField` (1 dòng, truncate tail, tooltip = message, "<empty message>" khi rỗng). Reuse: cập nhật badge bằng cách tái dùng view có sẵn, không tạo mới mỗi lần.
-- `HistoryRefBadgeView`: bản AppKit của `RefLabel` – cùng `displayText`, icon `tag` / `arrow.triangle.branch`, màu (tag tím 15%, graph color 20%, accent 15%), capsule, font 11 semibold × textScale; khi row được chọn (`backgroundStyle == .emphasized`) dùng màu primary + nền primary 12%. Logic `displayText` / `isTag` / màu tách ra `RefLabelStyle` dùng chung cho cả `RefLabel` SwiftUI và bản AppKit.
-- `HistoryTextCellView` cho Author (`"name <email>"`, secondary, tooltip), Date (formatter dùng chung, `.dateTime.hour().minute().day().month(.abbreviated).year()`, monospaced digit, secondary), Commit (`shortHash`, monospaced, tertiary, tooltip = full hash). Font callout × textScale.
-- Loading row: một cell view riêng span cột message (`ProgressIndicator` small + "Loading older commits…").
+**Cells** (plain AppKit, reused via `makeView(withIdentifier:owner:)`):
+- `HistoryGraphCellView`: `draw(_:)` calls `CommitGraphRowRenderer` (§6.6); a `backgroundStyle` change sets `needsDisplay`.
+- `HistoryMessageCellView`: an `NSStackView` with a pool of 3 `HistoryRefBadgeView`s, a "+N" label and the message label; reconfigured by hiding/showing and assigning text, never by creating views.
+- `HistoryTextCellView`: one `NSTextField` for Author / Date / Commit; one shared date formatter.
+- `HistoryLoadingCellView`: small spinner plus "Loading older commits…".
+- Tooltips via `toolTip`.
 
-**Phân trang:**
-- Controller quan sát `NSView.boundsDidChangeNotification` của clip view (đã có `postsBoundsChangedNotifications`). Mỗi lần đổi → `rows(in: visibleRect)` → nếu range khác lần trước thì `listModel.viewportDidChange(visibleRows:)`. Ngưỡng prefetch giữ nguyên: `max(pageSize, visible.count * 3)`.
-- Cũng gọi một lần sau mỗi lần áp snapshot mới (thay cho `onAppear` của loading row).
+**Pagination:** observe the clip view's `boundsDidChangeNotification` → `rows(in: visibleRect)` → `listModel.loadMoreIfNeeded(lastVisibleRow:visibleCount:)`. Also call it once after each new `rows` snapshot is applied.
 
-**Selection:**
-- `tableViewSelectionDidChange`: nếu `isApplyingModelSelection` thì bỏ qua; ngược lại map `selectedRowIndexes` → hash theo thứ tự hiển thị (bỏ loading row) → `listModel.applyNativeSelection(orderedHashes:previous:)`. Model dùng `primaryHashForTableSelection` như hiện tại.
-- Model đẩy selection cho MainWindow (custom actions) — xem 5.8.
+**Selection:** `tableViewSelectionDidChange` (ignored while `isApplyingModelSelection`) → `listModel.applyTableSelection(orderedHashes:)`. `selectionIndexesForProposedSelection` excludes the loading row.
 
-**Context menu (right-click):**
-- `menuNeedsUpdate(_ menu:)`:
-  1. `row = tableView.clickedRow`; nếu `row < 0` hoặc là loading row → menu rỗng.
-  2. Nếu `row` không thuộc `selectedRowIndexes` → `selectRowIndexes([row], byExtendingSelection: false)` (đi qua đường selection bình thường → model cập nhật).
-  3. `hashes = selection hiện tại theo thứ tự hiển thị`.
-  4. Thay item của `menu` bằng item của `NSHostingMenu(rootView: HistoryCommitContextMenu(...))` — tức dùng lại cách đang làm ở `HistoryView.swift:252`.
-- `HistoryCommitContextMenu` là `View` struct nhận `contextCommits`, `primaryCommit`, `headHash`, `actions`, `customActionStore`, `repositoryURL` — chuyển nguyên `commitContextMenu(for:)` sang, thay các thao tác state bằng lời gọi `actions.xxx`.
-- Bỏ: `NSEvent` context-click monitor, `isContextClick(onRows:)`, chặn selection rỗng trong binding.
+**Context menu:** in `menuNeedsUpdate`, an invalid `clickedRow` or the loading row yields an empty menu; an unselected `clickedRow` becomes the sole selection; then build `NSHostingMenu(rootView: HistoryCommitContextMenu(...))` from the selection in display order and move its items into `menu`.
 
-**Double-click / Return:**
-- `doubleAction` → `clickedRow` hợp lệ → `actions.handleDoubleClick(commit)`. Return / Enter trong `HistoryNSTableView.keyDown` → primary commit của selection → cùng hàm.
-- Bỏ: `suppressedCommitClickHash` và các task liên quan (AppKit không phát double-click sau drag).
+**Double-click / Return:** `doubleAction` uses `clickedRow`; Return uses the primary commit → `actions.handleDoubleClick`.
 
-**Drag:**
-- `HistoryNSTableView.mouseDown` ghi `dragOriginRow = row(at:)` trước khi gọi `super`.
-- `tableView(_:pasteboardWriterForRow:)`: chỉ trả writer cho `dragOriginRow` (các row khác trả `nil` để chỉ có một dragging item). Writer là `NSPasteboardItem` với data `GitDragPayload.encodeTransferData(payload)` cho type `UTType.macgitGitDragPayload.identifier`. Payload tính bằng `draggedCommits(startingAt:commits:selection:)` như `makeCommitDragPayload`. Đồng thời `GitDragPayloadStore.set(payload)`.
-- `draggingSession(_:willBeginAt:forRowIndexes:)`: render `CommitDragPreview` bằng `ImageRenderer` (chuyển từ `HistoryDragPreviewDataSource.prepare`) và đặt làm dragging frame, `draggingFormation = .none`; `listModel.setDragActive(hashes)`.
-- `draggingSession(_:endedAt:operation:)`: `listModel.setDragActive([])`. Không xoá `GitDragPayloadStore` (giữ như `finishCommitDrag(clearsPayload: false)`).
-- Bỏ: `.draggable` per row, poll `pressedMouseButtons`, swap `dataSource`.
+**Drag:** `pasteboardWriterForRow` returns an `NSPasteboardItem` only for `dragOriginRow` (a single item carrying the full payload); `draggingSession(_:willBeginAt:forRowIndexes:)` sets the `CommitDragPreview` image (rendered with `ImageRenderer`, matching the table's appearance), sets `draggingFormation = .none` and calls `setDragActive`; `draggingSession(_:endedAt:operation:)` → `setDragActive([])`.
 
-**Focus:** khi `selectedBranch` đổi và filter là `.all`, model phát `scrollRequest` kèm `focus: true`; controller gọi `window.makeFirstResponder(tableView)` sau khi cuộn.
+### 6.6 Shared drawing
 
-### 5.6 `HistoryCommitDetailView`
+- `CommitGraphRowRenderer.draw(_ geometry:, rowIndex:, in: CGContext, dotBackground: NSColor)`: Core Graphics, with the same constants (row height 24, lane width 14, dot size 8) and dot drawing as `BranchGraphCanvas.drawDot`; line colors from `BranchGraphCanvas.lineColor` (add an `NSColor` variant if needed).
+- `RefLabelStyle` is extracted from `RefLabel` (`displayText`, `isTag`, icon, foreground / background colors). Both `RefLabel` (SwiftUI, used in the detail header) and `HistoryRefBadgeView` (AppKit) use it, so badge appearance has a single source.
 
-- Nhận `detailModel`, `repositoryURL`, `textScale`. Chứa `commitInfoHeader`, thanh "Checking and merging selected changes…", `PersistentHSplit("HistoryDetailSplit")` với `CommitFileListView` + diff viewer — chuyển nguyên từ `HistoryView.swift:820-1043`.
-- Vì chỉ observe `detailModel`, thay đổi diff / file list không chạm list.
-- Sheet `CommitFilePreviewSheet` và `CommitPatchReviewSheet` + alert "Selected changes" gắn ở view này (chúng thuộc detail).
+### 6.7 `HistoryScreen`
 
-### 5.7 `HistoryScreen`
+- Parameters: `repositoryURL`, `selectedBranch`, `@Binding branchFilter`, `@Binding includeRemotes`, `dependencies`, `selectionSink`. No `@EnvironmentObject AppState`. `CustomActionStore` still comes from the environment and is passed only to the table (used when building the menu).
+- `@State` holds the three models plus `BranchFilterBar` state (`onlyThisBranch`, `baseBranch`, `searchText`).
+- The body only composes the §4.1 layout and wires inputs to the model through `.onChange`, `.task(id: listModel.loadKey)` and `.onReceive` for the three notifications.
+- `.onChange(of: listModel.selectedCommit?.hash)` → `detailModel.show(...)`; `.onChange(of: listModel.selectedHashesInDisplayOrder)` → `selectionSink.update(...)`.
+- `.onAppear` → `detailModel.resume()`; `.onDisappear` → `detailModel.suspend()` and cancel the search debounce.
+- Each body evaluation only assigns `actions.dependencies` (`@ObservationIgnored`).
 
-```swift
-struct HistoryScreen: View {
-    let repositoryURL: URL
-    let selectedBranch: String?
-    @Binding var branchFilter: HistoryBranchFilter
-    @Binding var includeRemotes: Bool
-    let dependencies: HistoryCommitActionController.Dependencies
-    let selectionSink: HistoryCommitSelectionSink
-    @State private var listModel: HistoryListModel
-    @State private var detailModel: HistoryCommitDetailModel
-    @State private var actions: HistoryCommitActionController
-    @State private var onlyThisBranch = false
-    @State private var baseBranch: String?
-    @State private var searchText = ""
-    @AppStorage("advanced.historyLoadSize") private var historyLoadSizeRaw = 120
-    @EnvironmentObject private var customActionStore: CustomActionStore
-}
-```
+### 6.8 MainWindow integration
 
-- Không dùng `@EnvironmentObject AppState`. MainWindow truyền `$appState.historyBranchFilter` và `$appState.historyIncludeRemotes`.
-- `body` chỉ: `BranchFilterBar` + trạng thái loading/empty + `PersistentVSplit(top: HistoryCommitTable, bottom: HistoryCommitDetailView)` + overlay refresh + `.historyActionPresentations(actions)` + alert lỗi.
-- `.task(id: loadKey)`, `.onReceive` 3 notification, `.onChange` của filter/search/load size/`selectedBranch` → gọi method của `listModel`.
-- `.onChange(of: listModel.selectedCommit?.hash)` → `detailModel.show(listModel.selectedCommit)`.
-- `.onChange(of: listModel.selectedHashesInDisplayOrder)` → `selectionSink.update(...)`.
-- `.onAppear` → `detailModel.resumeIfCancelled()`; `.onDisappear` → huỷ task của cả 2 model.
-- Mỗi lần body chạy chỉ cập nhật `actions.dependencies` (`@ObservationIgnored`), không gây thêm lượt render.
+- Replace `HistoryView(...)` at `MainWindowView.swift:1376` with `HistoryScreen(...)`, passing `$appState.historyBranchFilter`, `$appState.historyIncludeRemotes` and `Dependencies` built from the existing closures.
+- `HistoryCommitSelectionSink` (`@Observable`, held in MainWindow `@State`, `update` assigns only when the value changes) replaces `customActionCommitHashes`. `customActionCommandState` reads `sink.commitHashes`.
 
-### 5.8 Tích hợp MainWindow
+## 7. Risks
 
-- Thay `HistoryView(...)` ở `MainWindowView.swift:1376` bằng `HistoryScreen(...)` với binding AppState và `Dependencies` gom các closure hiện có.
-- Custom actions: thay closure `onCustomActionSelectionChanged` bằng `HistoryCommitSelectionSink` (một `@Observable` class nhỏ do MainWindow giữ trong `@State`, có `commitHashes: [String]`). `customActionCommandState` đọc `sink.commitHashes` thay cho `customActionCommitHashes`. Sink chỉ gán khi giá trị thực sự khác (`guard new != old`). Nhờ body của `HistoryScreen` rẻ và table không reload, lượt render của MainWindow (nếu có) không còn kéo theo đánh giá lại rows.
-- `onRunCustomAction` giữ nguyên, nằm trong `Dependencies.runCustomAction`.
-
-## 6. Rủi ro & cách xử lý
-
-| Rủi ro | Xử lý |
+| Risk | Mitigation |
 |---|---|
-| Giao diện AppKit lệch với SwiftUI `Table` (padding, font, màu selection) | Dùng cùng metric hiện tại: row 24pt, control size small, font callout × textScale, màu secondary / tertiary qua `NSColor.secondaryLabelColor` / `tertiaryLabelColor` |
-| Ref badge AppKit lệch `RefLabel` | Tách `RefLabelStyle` dùng chung để màu / text / icon chỉ có một nguồn |
-| Mất layout cột đã lưu | Migration một lần từ `history.tableColumnRatios` khi autosave chưa có |
-| Drop target đang kỳ vọng nhiều item | Payload đã chứa toàn bộ commit. Drop commit lên sidebar đọc `GitDragPayloadStore.currentPayload()` trước (`SidebarView+DragDrop.swift`); các `dropDestination(for: GitDragPayload.self)` khác chỉ xử lý stash. Khi làm Task 6, rà lại các drop handler nhận commit để chắc chắn chúng không phụ thuộc số lượng item |
-| Hàm static đang được test tham chiếu `HistoryView.xxx` | Chuyển sang `HistoryLoadPolicy` và cập nhật tham chiếu trong `macgitTests` cho compile được |
+| Implicit behavior lost in the rewrite | §4 is the complete list with old line references; the checklist at the end of the plan is used when running the app |
+| Visual drift from SwiftUI `Table` | Same metrics: 24 pt rows, small control size, callout × textScale, `secondaryLabelColor` / `tertiaryLabelColor`; badges share `RefLabelStyle` |
+| Wrong git / undo behavior | §4.7 is mandatory; review that part against the old code before deleting `HistoryView` |
+| Saved column layout lost | Derive initial widths from the legacy ratios when no autosave exists |
+| Drop targets depend on item count | Commit drops on the sidebar read `GitDragPayloadStore.currentPayload()` (`SidebarView+DragDrop.swift`); `dropDestination(for: GitDragPayload.self)` in `FileStatusView` handles stashes only. Re-check during the drag task |
+| Existing tests reference `HistoryView.xxx` | Functions with unchanged semantics → change the prefix to `HistoryLoadPolicy`; tests for removed functions (§5) → delete |
