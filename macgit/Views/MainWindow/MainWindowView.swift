@@ -1599,8 +1599,9 @@ struct MainWindowView: View {
                     .frame(width: 18, height: 18)
                 Text(repositoryURL.lastPathComponent)
                     .font(.headline.scaled(by: appState.textSize.scale))
+                GitHubNotificationBell()
             }
-            .padding(.horizontal, 12)
+            .padding(.leading, 12)
         }
 
         ToolbarSpacer(.flexible)
@@ -1815,6 +1816,7 @@ struct MainWindowView: View {
             }
             gitFlowWorktreeRootURL = gitCommonDirectory?.deletingLastPathComponent()
         }
+        await refreshRemotePresentation(for: loadedSettings.defaultRemoteName)
         await syncState.refresh(repositoryURL: repositoryURL)
         var didFetchRemoteRefs = false
         if loadedSettings.resolvedRefreshOnAppActive(
@@ -1847,7 +1849,6 @@ struct MainWindowView: View {
             settings: loadedSettings,
             globalAutoFetchEnabled: appState.autoFetchEnabled
         )
-        await refreshRemotePresentation(for: loadedSettings.defaultRemoteName)
 
         await MainActor.run {
             if initialShowsHistory == nil,
@@ -2326,8 +2327,12 @@ struct MainWindowView: View {
     }
 
     func refreshRemotePresentation(for preferredRemote: String?) async {
-        let fallbackRemote = await GitStatusService.shared.remotes(in: repositoryURL).first
-        let remote = preferredRemote ?? fallbackRemote
+        let remote: String?
+        if let preferredRemote {
+            remote = preferredRemote
+        } else {
+            remote = await GitStatusService.shared.remotes(in: repositoryURL).first
+        }
         guard let remote else {
             await MainActor.run {
                 remoteURLString = ""

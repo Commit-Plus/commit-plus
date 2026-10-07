@@ -91,7 +91,6 @@ struct ContentView: View {
                     windowContext: windowContext,
                     operationProgress: operationProgress
                 )
-                .environmentObject(accountController)
                 .background(
                     WindowInitialScreenFitModifier(
                         shouldFitVisibleScreen: initialRepositoryWindowShouldFitVisibleScreen,
@@ -107,6 +106,7 @@ struct ContentView: View {
                 )
             }
         }
+        .environmentObject(accountController)
         .onOpenURL(perform: handleExternalURL)
         .onAppear {
             guard !isWelcomeWindow else { return }

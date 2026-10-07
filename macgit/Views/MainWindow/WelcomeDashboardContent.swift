@@ -45,6 +45,7 @@ struct WelcomeDashboardContent: View {
                             .labelStyle(.iconOnly)
                             .disabled(model.isLoading)
                             .help("Refresh local dashboard data")
+                        if accountDisplayName != nil { GitHubNotificationBell() }
                         Button("Account", systemImage: "person.crop.circle", action: onOpenAccount)
                             .labelStyle(.iconOnly)
                             .help("Commit+ Account")
