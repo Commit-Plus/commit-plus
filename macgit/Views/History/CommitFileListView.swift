@@ -96,9 +96,8 @@ struct CommitFileListView: View {
                                 .help(oldPath)
                         }
                     }
-                    
-                    Spacer()
-                    
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
                     if let onOpenFile {
                         Button("Open in external editor", systemImage: "eye") {
                             onOpenFile(change)
