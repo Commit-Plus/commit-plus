@@ -6,7 +6,7 @@ import CoreText
 
 /// Measures small pieces off the main actor; no text layout sees the entire line.
 nonisolated struct DiffLongLineLayout: Sendable {
-    static let byteThreshold = 4_096
+    static let byteThreshold = DiffLineRendering.longLineByteThreshold
     static let chunkSize = 512
 
     struct Chunk: Sendable {
@@ -21,6 +21,23 @@ nonisolated struct DiffLongLineLayout: Sendable {
 
     static func isLong(_ text: String) -> Bool {
         text.utf8.count > byteThreshold
+    }
+
+    static func measuredWidth(text: String, fontName: String, fontSize: CGFloat) -> CGFloat {
+        let font = CTFontCreateWithName(fontName as CFString, fontSize, nil)
+        let attributes = [NSAttributedString.Key(kCTFontAttributeName as String): font]
+        var start = text.startIndex
+        var width: CGFloat = 0
+        while start < text.endIndex {
+            guard !Task.isCancelled else { return width }
+            let end = text.index(start, offsetBy: chunkSize, limitedBy: text.endIndex) ?? text.endIndex
+            let line = CTLineCreateWithAttributedString(
+                NSAttributedString(string: String(text[start..<end]), attributes: attributes)
+            )
+            width += CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+            start = end
+        }
+        return width
     }
 
     static func prepare(text: String, fontName: String, fontSize: CGFloat = 12) -> Self? {

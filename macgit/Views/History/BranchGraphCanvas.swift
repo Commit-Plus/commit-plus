@@ -102,6 +102,12 @@ struct BranchGraphCanvas: View {
         }
     }
 
+    static func lineNSColor(colorIndex: Int, isHighlighted: Bool) -> NSColor {
+        isHighlighted
+            ? GraphPalette.nsColor(for: colorIndex)
+            : NSColor(Color.gray).withAlphaComponent(0.4)
+    }
+
     static func lineColor(colorIndex: Int, isHighlighted: Bool) -> Color {
         isHighlighted
             ? GraphPalette.color(for: colorIndex)

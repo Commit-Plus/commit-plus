@@ -19,21 +19,11 @@ import Foundation
 
 struct HistoryPagingState {
     let pageSize: Int
-    private(set) var startIndex: Int = 0
     private(set) var loadedCount: Int = 0
     private(set) var hasMore: Bool = true
     private(set) var isLoadingMore: Bool = false
 
-    var canLoadNewer: Bool {
-        startIndex > 0
-    }
-
-    var olderPageStartIndex: Int {
-        startIndex + loadedCount
-    }
-
     mutating func reset() {
-        startIndex = 0
         loadedCount = 0
         hasMore = true
         isLoadingMore = false
@@ -45,27 +35,16 @@ struct HistoryPagingState {
         return true
     }
 
-    mutating func beginLoadingNewer() -> Bool {
-        guard canLoadNewer, !isLoadingMore else { return false }
-        isLoadingMore = true
-        return true
-    }
-
     mutating func finishLoadingMore(loaded pageCount: Int) {
         loadedCount += pageCount
         hasMore = pageCount == pageSize
         isLoadingMore = false
     }
 
-    mutating func replaceWindow(startIndex: Int, count: Int, hasMore: Bool) {
-        self.startIndex = max(0, startIndex)
+    mutating func replaceLoadedHistory(count: Int, hasMore: Bool) {
         loadedCount = max(0, count)
         self.hasMore = hasMore
         isLoadingMore = false
-    }
-
-    mutating func replaceLoadedHistory(count: Int, hasMore: Bool) {
-        replaceWindow(startIndex: 0, count: count, hasMore: hasMore)
     }
 
     mutating func cancelLoadingMore() {

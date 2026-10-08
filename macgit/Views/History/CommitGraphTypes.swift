@@ -138,6 +138,10 @@ struct GraphPalette {
         Color(red: 0.20, green: 0.52, blue: 0.66),
     ]
 
+    static func nsColor(for index: Int) -> NSColor {
+        NSColor(color(for: index))
+    }
+
     static func color(for index: Int) -> Color {
         colors[index % colors.count]
     }

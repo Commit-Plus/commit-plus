@@ -29,7 +29,10 @@ extension GitStatusService {
             return DiffParser.parse(output)
         }
 
-        let output = (try? await runGit(arguments: ["show", "--no-color", "--first-parent", "-p", commit, "--", file], in: repositoryURL)) ?? ""
+        let output = (try? await runGit(
+            arguments: ["show", "--no-color", "--first-parent", "-p", "-U3", commit, "--", file],
+            in: repositoryURL
+        )) ?? ""
         // Strip the commit header; diff starts at "diff --git"
         guard let diffStart = output.range(of: "diff --git") else { return [] }
         let diffText = String(output[diffStart.lowerBound...])

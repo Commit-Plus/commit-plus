@@ -201,7 +201,7 @@ struct MainWindowView: View {
     @ObservedObject var operationProgress: RepositoryOperationProgress
     private let customActionExecutor = CustomActionExecutor()
     @State private var customActionFilePaths: [String] = []
-    @State private var customActionCommitHashes: [String] = []
+    @State private var historySelectionSink = HistoryCommitSelectionSink()
     @State private var customActionOutput: CustomActionOutputPresentation?
 
     init(
@@ -822,11 +822,11 @@ struct MainWindowView: View {
                 commitHashes: []
             )
         case .item(.history), .branch, .worktree, .tag, .remoteBranch, .head:
-            surface = customActionCommitHashes.isEmpty ? .repository : .selectedCommits
+            surface = historySelectionSink.commitHashes.isEmpty ? .repository : .selectedCommits
             context = CustomActionInvocationContext(
                 repositoryURL: repositoryURL,
                 filePaths: [],
-                commitHashes: customActionCommitHashes
+                commitHashes: historySelectionSink.commitHashes
             )
         default:
             surface = .repository
@@ -1373,28 +1373,35 @@ struct MainWindowView: View {
                     )
                     .id("\(referenceDiffBase)→\(referenceDiffTarget)")
                 } else {
-                    HistoryView(
+                    HistoryScreen(
                         repositoryURL: repositoryURL,
                         selectedBranch: selectedBranchName,
-                        undoManager: undoManager,
-                        syncState: syncState,
-                        onRunRepositoryOperation: runRepositoryOperation,
-                        onRequestCheckout: checkoutRequest,
-                        onRequestExplainCommit: explainCommitWithRepositoryAI,
-                        onRequestBrowseRevision: { revisionBrowserWindow.show(revision: $0.hash, in: repositoryURL, credentialResolver: providerCredentialResolver) },
-                        onCustomActionSelectionChanged: { customActionCommitHashes = $0 },
-                        onRunCustomAction: { id, hashes in
-                            runCustomAction(
-                                id: id,
-                                context: CustomActionInvocationContext(
-                                    repositoryURL: repositoryURL,
-                                    filePaths: [],
-                                    commitHashes: hashes
-                                ),
-                                surface: .selectedCommits
-                            )
-                        }
+                        branchFilter: $appState.historyBranchFilter,
+                        includeRemotes: $appState.historyIncludeRemotes,
+                        dependencies: HistoryCommitActionController.Dependencies(
+                            repositoryURL: repositoryURL,
+                            undoManager: undoManager,
+                            syncState: syncState,
+                            runOperation: runRepositoryOperation,
+                            requestCheckout: checkoutRequest,
+                            requestExplain: explainCommitWithRepositoryAI,
+                            requestBrowseRevision: { revisionBrowserWindow.show(revision: $0.hash, in: repositoryURL, credentialResolver: providerCredentialResolver) },
+                            runCustomAction: { id, hashes in
+                                runCustomAction(
+                                    id: id,
+                                    context: CustomActionInvocationContext(
+                                        repositoryURL: repositoryURL,
+                                        filePaths: [],
+                                        commitHashes: hashes
+                                    ),
+                                    surface: .selectedCommits
+                                )
+                            },
+                            headHash: { nil }
+                        ),
+                        selectionSink: historySelectionSink
                     )
+                    .id(repositoryURL)
                 }
             case .item(.reflog):
                 ReflogView(

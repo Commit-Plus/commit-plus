@@ -29,7 +29,6 @@ struct CommitFileListView: View {
     @Binding var selectedFile: CommitFileChange?
     var onPreview: ((CommitFileChange) -> Void)? = nil
     var onPatch: (([CommitFileChange], CommitPatchRequest.Direction) -> Void)? = nil
-    var patchDisabledReason: (([CommitFileChange]) -> String?)? = nil
     @State private var selectedFiles: Set<CommitFileChange> = []
     @State private var visibleFileCount = 200
     private let pageSize = 200
@@ -128,10 +127,8 @@ struct CommitFileListView: View {
                 .contextMenu {
                     if let onPatch {
                         let files = selectedFiles.contains(change) ? changes.filter { selectedFiles.contains($0) } : [change]
-                        let reason = patchDisabledReason?(files)
-                        Button("Apply Selected Changes") { onPatch(files, .apply) }.disabled(reason != nil)
-                        Button("Revert Selected Changes") { onPatch(files, .revert) }.disabled(reason != nil)
-                        if let reason { Text(reason) }
+                        Button("Apply Selected Changes") { onPatch(files, .apply) }
+                        Button("Revert Selected Changes") { onPatch(files, .revert) }
                     }
                 }
             }

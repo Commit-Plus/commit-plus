@@ -57,8 +57,6 @@ struct FileStatusView: View {
     @State private var lfsPaths = Set<String>()
     @State private var stagedLFSPaths = Set<String>()
     @State private var changedFiles: [StatusFile] = []
-    @State private var visibleStagedFileCount = 100
-    @State private var visibleChangedFileCount = 100
     @State private var selectedFile: StatusFile? = nil
     @State private var selectedFileKey: FileStatusSelectionKey? = nil
     @State private var selectedActionFileKeys: Set<FileStatusSelectionKey> = []
@@ -91,24 +89,6 @@ struct FileStatusView: View {
     @State private var recentCommits: [(hash: String, message: String)] = []
     @State private var ignoreTargetFile: StatusFile? = nil
     @State private var conflictResolverWindowController = NSWindowController(window: nil)
-
-    private let fileDisplayPageSize = 100
-
-    private var visibleStagedFiles: ArraySlice<StatusFile> {
-        gitStatus.staged.prefix(visibleStagedFileCount)
-    }
-
-    private var visibleChangedFiles: ArraySlice<StatusFile> {
-        changedFiles.prefix(visibleChangedFileCount)
-    }
-
-    private var visibleStagedRows: [FileStatusRowItem] {
-        visibleStagedFiles.map { FileStatusRowItem(file: $0, isStaged: true) }
-    }
-
-    private var visibleChangedRows: [FileStatusRowItem] {
-        visibleChangedFiles.map { FileStatusRowItem(file: $0, isStaged: false) }
-    }
 
     private var hasChanges: Bool {
         !gitStatus.isEmpty
@@ -418,28 +398,25 @@ struct FileStatusView: View {
                     Divider()
                 }
 
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(visibleStagedRows) { row in
-                            fileRow(file: row.file, isStaged: row.isStaged)
-                        }
-                        if visibleStagedFileCount < gitStatus.staged.count {
-                            filePageLoader {
-                                visibleStagedFileCount = min(
-                                    visibleStagedFileCount + fileDisplayPageSize,
-                                    gitStatus.staged.count
-                                )
-                            }
-                            .id(visibleStagedFileCount)
-                        }
-                        if gitStatus.staged.isEmpty {
-                            Text("No staged files")
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(10)
-                        }
+                List {
+                    ForEach(gitStatus.staged) { file in
+                        fileRow(file: file, isStaged: true)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+                    if gitStatus.staged.isEmpty {
+                        Text("No staged files")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                     }
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
             }
             .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .contentShape(Rectangle())
@@ -489,28 +466,25 @@ struct FileStatusView: View {
                     Divider()
                 }
 
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(visibleChangedRows) { row in
-                            fileRow(file: row.file, isStaged: row.isStaged)
-                        }
-                        if visibleChangedFileCount < changedFiles.count {
-                            filePageLoader {
-                                visibleChangedFileCount = min(
-                                    visibleChangedFileCount + fileDisplayPageSize,
-                                    changedFiles.count
-                                )
-                            }
-                            .id(visibleChangedFileCount)
-                        }
-                        if changedFiles.isEmpty {
-                            Text("No changed files")
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(10)
-                        }
+                List {
+                    ForEach(changedFiles) { file in
+                        fileRow(file: file, isStaged: false)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+                    if changedFiles.isEmpty {
+                        Text("No changed files")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                     }
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
             }
             .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .contentShape(Rectangle())
@@ -581,12 +555,6 @@ struct FileStatusView: View {
         }
     }
 
-    private func filePageLoader(action: @escaping () -> Void) -> some View {
-        Color.clear
-            .frame(height: 1)
-            .onAppear(perform: action)
-    }
-
     private func fileRow(file: StatusFile, isStaged: Bool) -> some View {
         let isLFS = (isStaged ? stagedLFSPaths : lfsPaths).contains(file.path)
         let selectionKey = FileStatusSelectionKey(file: file, isStaged: isStaged)
@@ -613,7 +581,6 @@ struct FileStatusView: View {
                 ))
                 .toggleStyle(.checkbox)
                 .labelsHidden()
-                .pointingHandCursor()
 
                 HStack(spacing: 10) {
                     Image(systemName: fileIcon(for: file))
@@ -680,7 +647,6 @@ struct FileStatusView: View {
                 .fill(isPreviewed ? Color.accentColor : Color.clear)
                 .frame(width: 3)
         }
-        .pointingHandCursor()
         .simultaneousGesture(
             TapGesture(count: 2).onEnded {
                 Task {
@@ -747,7 +713,6 @@ struct FileStatusView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .pointingHandCursor()
         .help(quickAction.accessibilityLabel)
         .accessibilityLabel(quickAction.accessibilityLabel)
         .frame(width: 24)
@@ -847,7 +812,6 @@ struct FileStatusView: View {
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
-        .pointingHandCursor()
         .menuIndicator(.hidden)
         .frame(width: 24)
     }
@@ -1632,14 +1596,6 @@ struct FileStatusView: View {
             changedFiles = loadedStatus.unstaged + loadedStatus.untracked
             currentBranch = loadedCurrentBranch
             currentBranchIntegrationStatus = loadedIntegrationStatus
-            visibleStagedFileCount = min(
-                max(visibleStagedFileCount, fileDisplayPageSize),
-                loadedStatus.staged.count
-            )
-            visibleChangedFileCount = min(
-                max(visibleChangedFileCount, fileDisplayPageSize),
-                changedFiles.count
-            )
             recentCommits = await GitStatusService.shared.recentCommits(in: repositoryURL)
 
             restoreSelectedFileAfterStatusRefresh()
