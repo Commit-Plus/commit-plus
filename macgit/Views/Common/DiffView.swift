@@ -37,6 +37,7 @@ struct DiffView: View {
     let onError: (String) -> Void
     let filePath: String?
     let gitRef: String?
+    let commitPatchDisabledReason: String?
     let prefersTextDiff: Bool
     let onCommitPatch: (([DiffLine], CommitPatchRequest.Direction, String) -> Void)?
 
@@ -50,6 +51,7 @@ struct DiffView: View {
         filePath: String? = nil,
         gitRef: String? = nil,
         prefersTextDiff: Bool = false,
+        commitPatchDisabledReason: String? = nil,
         onCommitPatch: (([DiffLine], CommitPatchRequest.Direction, String) -> Void)? = nil
     ) {
         self.hunks = hunks
@@ -61,6 +63,7 @@ struct DiffView: View {
         self.filePath = filePath
         self.gitRef = gitRef
         self.prefersTextDiff = prefersTextDiff
+        self.commitPatchDisabledReason = commitPatchDisabledReason
         self.onCommitPatch = onCommitPatch
     }
 
@@ -88,36 +91,42 @@ struct DiffView: View {
         } else if hunks.isEmpty {
             EmptyStateView(message: "No diff to display", detail: "Select a file to see changes")
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(hunks) { hunk in
-                        HunkView(
-                            hunk: hunk,
-                            file: file,
-                            fileExtension: syntaxFileExtension,
-                            highlightCache: advancedSettings.diffSyntaxHighlighting ? highlightCache : nil,
-                            repositoryURL: repositoryURL,
-                            undoManager: undoManager,
-                            selectedLineIDs: $selectedLineIDs,
-                            lastSelectedLineID: $lastSelectedLineID,
-                            onRefresh: onRefresh,
-                            onError: onError,
-                            onCommitHunk: onCommitPatch.map { action in
-                                { hunk, direction in
-                                    action(hunk.lines.filter(isChangedDiffLine), direction, "Selected hunk")
-                                }
-                            },
-                            onCommitLines: onCommitPatch.map { action in
-                                { ids, direction in
-                                    action(hunks.flatMap(\.lines).filter {
-                                        ids.contains($0.id) && isChangedDiffLine($0)
-                                    }, direction, "Selected lines")
-                                }
-                            }
-                        )
+            DiffNativeTable(
+                hunks: hunks, textScale: textScale,
+                syntaxHighlighting: advancedSettings.diffSyntaxHighlighting,
+                selectedLineIDs: selectedLineIDs
+            ) { hunk, lineIndex, viewport in
+                let renderer = HunkView(
+                    textScale: textScale,
+                    hunk: hunk,
+                    file: file,
+                    fileExtension: syntaxFileExtension,
+                    highlightCache: advancedSettings.diffSyntaxHighlighting ? highlightCache : nil,
+                    repositoryURL: repositoryURL,
+                    undoManager: undoManager,
+                    selectedLineIDs: $selectedLineIDs,
+                    lastSelectedLineID: $lastSelectedLineID,
+                    onRefresh: onRefresh,
+                    onError: onError,
+                    commitPatchDisabledReason: commitPatchDisabledReason,
+                    onCommitHunk: onCommitPatch.map { action in
+                        { hunk, direction in
+                            action(hunk.lines.filter(isChangedDiffLine), direction, "Selected hunk")
+                        }
+                    },
+                    onCommitLines: onCommitPatch.map { action in
+                        { ids, direction in
+                            action(hunks.flatMap(\.lines).filter {
+                                ids.contains($0.id) && isChangedDiffLine($0)
+                            }, direction, "Selected lines")
+                        }
                     }
+                )
+                if let lineIndex {
+                    renderer.nativeLine(at: lineIndex, viewport: viewport)
+                } else {
+                    renderer.nativeHeader
                 }
-                .padding(12)
             }
             .onChange(of: hunks.first?.id) {
                 selectedLineIDs.removeAll()
@@ -188,147 +197,11 @@ struct DiffView: View {
 
 }
 
-@MainActor
-private final class DiffHorizontalScrollController {
-    weak var scrollView: NSScrollView?
-
-    func forward(_ event: NSEvent) {
-        scrollView?.scrollWheel(with: event)
-    }
-}
-
-private struct DiffHorizontalScrollProxy: NSViewRepresentable {
-    let contentWidth: CGFloat
-    let controller: DiffHorizontalScrollController
-    let onOffsetChange: (CGFloat) -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onOffsetChange: onOffsetChange)
-    }
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.drawsBackground = false
-        scrollView.hasHorizontalScroller = true
-        scrollView.hasVerticalScroller = false
-        scrollView.autohidesScrollers = false
-        scrollView.documentView = NSView(frame: NSRect(x: 0, y: 0, width: contentWidth, height: 1))
-        scrollView.contentView.postsBoundsChangedNotifications = true
-        context.coordinator.observe(scrollView)
-        controller.scrollView = scrollView
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.onOffsetChange = onOffsetChange
-        guard let documentView = scrollView.documentView,
-              documentView.frame.width != contentWidth else { return }
-        documentView.frame.size.width = contentWidth
-        scrollView.reflectScrolledClipView(scrollView.contentView)
-    }
-
-    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
-        coordinator.stopObserving()
-    }
-
-    final class Coordinator {
-        var onOffsetChange: (CGFloat) -> Void
-        private var observer: NSObjectProtocol?
-
-        init(onOffsetChange: @escaping (CGFloat) -> Void) {
-            self.onOffsetChange = onOffsetChange
-        }
-
-        func observe(_ scrollView: NSScrollView) {
-            observer = NotificationCenter.default.addObserver(
-                forName: NSView.boundsDidChangeNotification,
-                object: scrollView.contentView,
-                queue: .main
-            ) { [weak self, weak scrollView] _ in
-                guard let self, let scrollView else { return }
-                onOffsetChange(max(0, scrollView.contentView.bounds.origin.x))
-            }
-        }
-
-        func stopObserving() {
-            if let observer {
-                NotificationCenter.default.removeObserver(observer)
-            }
-            observer = nil
-        }
-
-        deinit {
-            stopObserving()
-        }
-    }
-}
-
-private struct DiffHorizontalScrollEventBridge: NSViewRepresentable {
-    let controller: DiffHorizontalScrollController
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(controller: controller)
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        context.coordinator.install(for: view)
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.uninstall()
-    }
-
-    final class Coordinator {
-        private let controller: DiffHorizontalScrollController
-        private weak var view: NSView?
-        private var monitor: Any?
-
-        init(controller: DiffHorizontalScrollController) {
-            self.controller = controller
-        }
-
-        func install(for view: NSView) {
-            self.view = view
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-                guard let self,
-                      let view = self.view,
-                      event.window === view.window,
-                      view.bounds.contains(view.convert(event.locationInWindow, from: nil)) else {
-                    return event
-                }
-                let isShiftWheel = event.modifierFlags.contains(.shift)
-                    && abs(event.scrollingDeltaY) > 0.01
-                let isHorizontalGesture = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
-                guard isShiftWheel || isHorizontalGesture else { return event }
-                controller.forward(event)
-                return nil
-            }
-        }
-
-        func uninstall() {
-            if let monitor {
-                NSEvent.removeMonitor(monitor)
-            }
-            monitor = nil
-        }
-
-        deinit {
-            uninstall()
-        }
-    }
-}
-
-
 struct HunkView: View {
     private static let rowHeight: CGFloat = 22
     private static let headerHeight: CGFloat = 32
-    private static let scrollerHeight: CGFloat = 16
 
-    @Environment(\.appTextScale) private var textScale
+    let textScale: CGFloat
     let hunk: DiffHunk
     let file: StatusFile?
     let fileExtension: String
@@ -339,13 +212,9 @@ struct HunkView: View {
     @Binding var lastSelectedLineID: UUID?
     let onRefresh: () -> Void
     let onError: (String) -> Void
+    var commitPatchDisabledReason: String? = nil
     var onCommitHunk: ((DiffHunk, CommitPatchRequest.Direction) -> Void)? = nil
     var onCommitLines: ((Set<UUID>, CommitPatchRequest.Direction) -> Void)? = nil
-    @State private var availableWidth: CGFloat = 0
-    @State private var measuredContentWidth: CGFloat = 0
-    @State private var horizontalOffset: CGFloat = 0
-    @State private var horizontalViewport = CGRect(x: 0, y: 0, width: 1_024, height: 0)
-    @State private var horizontalScrollController = DiffHorizontalScrollController()
 
     private var isStaged: Bool {
         guard let file = file else { return false }
@@ -368,173 +237,81 @@ struct HunkView: View {
         !selectedLineIDs.isEmpty
     }
 
-    var body: some View {
-        let lineRange = hunk.lines.indices
-        let viewportWidth = max(1, availableWidth)
-        let contentWidth = max(viewportWidth, measuredContentWidth)
-        let hasHorizontalOverflow = measuredContentWidth > viewportWidth
-        VStack(alignment: .leading, spacing: 0) {
-            // Hunk header
-            HStack(spacing: 10) {
-                Text(hunk.header)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced).scaled(by: textScale))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+    var body: some View { nativeHeader }
 
-                Spacer()
+    var nativeHeader: some View {
+        HStack(spacing: 10) {
+            Text(hunk.header)
+                .font(.system(size: 11, weight: .medium, design: .monospaced).scaled(by: textScale))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
 
-                if onCommitHunk != nil {
-                    Menu("Changes") { commitPatchMenu }
-                        .menuStyle(.borderlessButton)
-                        .fixedSize()
-                        .help("Apply or revert this hunk")
-                }
-                if canInteract {
-                    if isStaged {
-                        Button("Unstage") {
-                            unstageHunk()
-                        }
-                        .buttonStyle(GlassButtonStyle(tint: .yellow, fontSize: 10 * textScale))
-                        .pointingHandCursor()
-                    } else {
-                        Button("Stage") {
-                            stageHunk()
-                        }
-                        .buttonStyle(GlassButtonStyle(tint: .accentColor, fontSize: 10 * textScale))
-                        .pointingHandCursor()
+            Text("+\(hunk.backgroundRuns.filter { $0.kind == .added }.reduce(0) { $0 + $1.count })")
+                .foregroundStyle(.green)
+            Text("−\(hunk.backgroundRuns.filter { $0.kind == .removed }.reduce(0) { $0 + $1.count })")
+                .foregroundStyle(.red)
+            Spacer()
 
-                        Button("Discard") {
-                            let patch = DiffPatchBuilder.patchString(for: hunk, filePath: file!.path)
-                            performPatchAction(label: "Discard hunk in \(file!.displayName)", patch: patch, cached: false, reverse: true)
-                        }
-                        .buttonStyle(GlassButtonStyle(tint: .red, fontSize: 10 * textScale))
-                        .pointingHandCursor()
+            if onCommitHunk != nil {
+                Menu("Changes") { commitPatchMenu(line: nil) }
+                    .disabled(commitPatchDisabledReason != nil)
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help(commitPatchDisabledReason ?? "Apply or revert this hunk")
+            }
+            if canInteract {
+                if isStaged {
+                    Button("Unstage") {
+                        unstageHunk()
                     }
-                }
-            }
-            .padding(.horizontal, 10)
-            .frame(height: Self.headerHeight * textScale)
-            .background(.secondary.opacity(0.06))
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(.separator)
-                    .frame(height: 0.5)
-            }
-
-            // Lines
-            VStack(spacing: 0) {
-                ZStack(alignment: .topLeading) {
-                    lineRows(lineRange: lineRange)
-                        .frame(width: contentWidth, alignment: .leading)
-                        .offset(x: hasHorizontalOverflow ? -horizontalOffset : 0)
-                }
-                .frame(width: viewportWidth, height: linesHeight(lineRange), alignment: .topLeading)
-                .clipped()
-                .background {
-                    if hasHorizontalOverflow {
-                        DiffHorizontalScrollEventBridge(controller: horizontalScrollController)
+                    .buttonStyle(GlassButtonStyle(tint: .yellow, fontSize: 10 * textScale))
+                    .pointingHandCursor()
+                } else {
+                    Button("Stage") {
+                        stageHunk()
                     }
-                }
+                    .buttonStyle(GlassButtonStyle(tint: .accentColor, fontSize: 10 * textScale))
+                    .pointingHandCursor()
 
-                if hasHorizontalOverflow {
-                    horizontalScrollProxy(contentWidth: contentWidth)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .task(id: textScale) {
-                let text = hunk.widestLineCandidate
-                let fontSize = 12 * textScale
-                let fontName = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular).fontName
-                let width = await Task.detached(priority: .userInitiated) {
-                    DiffLongLineLayout.measuredWidth(
-                        text: text,
-                        fontName: fontName,
-                        fontSize: fontSize
-                    )
-                }.value
-                guard !Task.isCancelled else { return }
-                measuredContentWidth = ceil(width) + 114 * textScale
-            }
-            .background {
-                GeometryReader { geometry in
-                    Color.clear
-                        .onAppear {
-                            availableWidth = geometry.size.width
-                        }
-                        .onChange(of: geometry.size.width) { _, newWidth in
-                            availableWidth = newWidth
-                        }
+                    Button("Discard") {
+                        let patch = DiffPatchBuilder.patchString(for: hunk, filePath: file!.path)
+                        performPatchAction(label: "Discard hunk in \(file!.displayName)", patch: patch, cached: false, reverse: true)
+                    }
+                    .buttonStyle(GlassButtonStyle(tint: .red, fontSize: 10 * textScale))
+                    .pointingHandCursor()
                 }
             }
         }
+        .padding(.horizontal, 10)
+        .frame(height: Self.headerHeight * textScale)
         .background(.secondary.opacity(0.06))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(.separator.opacity(0.5), lineWidth: 0.5)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(.separator)
+                .frame(height: 0.5)
+        }
+
+        .contextMenu { hunkContextMenu }
+        .padding(.top, 12 * textScale)
+    }
+
+    func nativeLine(at index: Int, viewport: CGRect) -> some View {
+        let line = hunk.lines[index]
+        return DiffLineView(
+            line: line, fileExtension: fileExtension,
+            isSelected: selectedLineIDs.contains(line.id),
+            highlightCache: highlightCache, showsChangeBackground: true,
+            horizontalViewport: viewport
         )
-        .contextMenu {
-            hunkContextMenu
-        }
-    }
-
-    private func linesHeight(_ lineRange: Range<Int>) -> CGFloat {
-        CGFloat(lineRange.count) * Self.rowHeight * textScale
-    }
-
-    private func horizontalScrollProxy(contentWidth: CGFloat) -> some View {
-        DiffHorizontalScrollProxy(
-            contentWidth: contentWidth,
-            controller: horizontalScrollController
-        ) { newOffset in
-            updateHorizontalOffset(newOffset)
-        }
-        .frame(height: Self.scrollerHeight * textScale)
-    }
-
-    private func updateHorizontalOffset(_ newOffset: CGFloat) {
-        horizontalOffset = newOffset
-        horizontalViewport = CGRect(
-            x: floor(newOffset / 256) * 256,
-            y: 0,
-            width: ceil(max(1, availableWidth) / 256) * 256,
-            height: 0
-        )
-    }
-
-    private func lineRows(lineRange: Range<Int>) -> some View {
-        ZStack(alignment: .topLeading) {
-            DiffLineBackgroundRuns(
-                runs: hunk.backgroundRuns,
-                rowHeight: Self.rowHeight * textScale
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .allowsHitTesting(false)
-
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(lineRange, id: \.self) { index in
-                    let line = hunk.lines[index]
-                    DiffLineView(
-                        line: line,
-                        fileExtension: fileExtension,
-                        isSelected: selectedLineIDs.contains(line.id),
-                        highlightCache: highlightCache,
-                        showsChangeBackground: false,
-                        horizontalViewport: horizontalViewport
-                    )
-                    .frame(height: Self.rowHeight * textScale)
-                    .onTapGesture {
-                        handleLineTap(at: index)
-                    }
-                }
-            }
-        }
+        .frame(height: Self.rowHeight * textScale)
+        .contentShape(Rectangle())
+        .onTapGesture { handleLineTap(at: index) }
+        .contextMenu { lineContextMenu(for: line) }
     }
 
     private var hunkContextMenu: some View {
         Group {
-            commitPatchMenu
+            commitPatchMenu(line: nil)
             if canInteract {
                 if isStaged {
                     Button("Unstage Hunk") {
@@ -579,17 +356,73 @@ struct HunkView: View {
         }
     }
 
-    @ViewBuilder
-    private var commitPatchMenu: some View {
-        if let onCommitHunk {
-            Button("Apply Hunk") { onCommitHunk(hunk, .apply) }
-            Button("Revert Hunk") { onCommitHunk(hunk, .revert) }
-            if let onCommitLines, hasSelectedLines {
-                Divider()
-                Button("Apply Selected Changes") { onCommitLines(selectedLineIDs, .apply) }
-                Button("Revert Selected Changes") { onCommitLines(selectedLineIDs, .revert) }
+    private func lineContextMenu(for line: DiffLine) -> some View {
+        Group {
+            commitPatchMenu(line: line)
+            if canInteract {
+                if isStaged {
+                    Button("Unstage Hunk") {
+                        unstageHunk()
+                    }
+                    if selectedLineIDs.contains(line.id) && hasSelectedLines {
+                        Divider()
+                        Button("Unstage Selected Lines") {
+                            unstageSelectedLines()
+                        }
+                    }
+                } else {
+                    Button("Stage Hunk") {
+                        stageHunk()
+                    }
+                    Button("Discard Hunk") {
+                        let patch = DiffPatchBuilder.patchString(for: hunk, filePath: file!.path)
+                        performPatchAction(label: "Discard hunk in \(file!.displayName)", patch: patch, cached: false, reverse: true)
+                    }
+
+                    if selectedLineIDs.contains(line.id) && hasSelectedLines {
+                        Divider()
+                        Button("Stage Selected Lines") {
+                            stageSelectedLines()
+                        }
+                        Button("Discard Selected Lines") {
+                            let lines = expandedSelectedLines(for: hunk)
+                            let patch = DiffPatchBuilder.patchString(for: hunk, selectedLines: lines, filePath: file!.path)
+                            performPatchAction(label: "Discard selected lines in \(file!.displayName)", patch: patch, cached: false, reverse: true)
+                        }
+                    }
+                }
+            }
+            Divider()
+            Button("Copy") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(line.text, forType: .string)
             }
         }
+    }
+
+    @ViewBuilder
+    private func commitPatchMenu(line: DiffLine?) -> some View {
+        if let onCommitHunk {
+            Button("Apply Hunk") { onCommitHunk(hunk, .apply) }
+                .disabled(commitPatchDisabledReason != nil)
+            Button("Revert Hunk") { onCommitHunk(hunk, .revert) }
+                .disabled(commitPatchDisabledReason != nil)
+            if let onCommitLines, hasSelectedLines || line?.type == .added || line?.type == .removed {
+                Divider()
+                Button("Apply Selected Changes") { onCommitLines(commitLineIDs(line), .apply) }
+                    .disabled(commitPatchDisabledReason != nil)
+                Button("Revert Selected Changes") { onCommitLines(commitLineIDs(line), .revert) }
+                    .disabled(commitPatchDisabledReason != nil)
+            }
+            if let commitPatchDisabledReason { Text(commitPatchDisabledReason) }
+        }
+    }
+
+    private func commitLineIDs(_ line: DiffLine?) -> Set<UUID> {
+        if let line, !selectedLineIDs.contains(line.id), isChangedDiffLine(line) {
+            return [line.id]
+        }
+        return selectedLineIDs
     }
 
     private func handleLineTap(at index: Int) {
@@ -745,30 +578,6 @@ struct HunkView: View {
                     onError(error.localizedDescription)
                 }
             }
-        }
-    }
-}
-
-private struct DiffLineBackgroundRuns: View {
-    let runs: [DiffLineBackgroundRun]
-    let rowHeight: CGFloat
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach(runs) { run in
-                color(for: run.kind)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: CGFloat(run.count) * rowHeight)
-            }
-        }
-    }
-
-    private func color(for kind: DiffLineBackgroundKind) -> Color {
-        switch kind {
-        case .added: Color.green.opacity(0.08)
-        case .removed: Color.red.opacity(0.08)
-        case .conflict: Color.purple.opacity(0.10)
-        case .plain: Color.clear
         }
     }
 }

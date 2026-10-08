@@ -7,6 +7,19 @@ final class HistoryCommitDetailModel {
     private(set) var commit: Commit?
     private(set) var fileChanges: [CommitFileChange] = []
     private(set) var lineCounts: [String: FileLineChangeCount] = [:]
+    private(set) var patchUnavailableReasons: [String: String]?
+
+    func patchDisabledReason(for files: [CommitFileChange]) -> String? {
+        if patchController.isBusy { return "Another selected-patch operation is running." }
+        if commit?.isMerge == true { return "Selected changes from merge commits are not supported." }
+        guard let patchUnavailableReasons else { return "Checking patch availability…" }
+        for file in files {
+            if let reason = patchUnavailableReasons[file.path]
+                ?? file.oldPath.flatMap({ patchUnavailableReasons[$0] }) { return reason }
+        }
+        return nil
+    }
+
     var selectedFile: CommitFileChange? {
         didSet {
             guard oldValue != selectedFile else { return }
@@ -18,7 +31,6 @@ final class HistoryCommitDetailModel {
     private(set) var fullMessage: String?
     private(set) var isLoadingFullMessage = false
     var showingCommitInfo = false
-    var fullFilePreview: CommitFilePreviewRequest?
     let patchController = CommitPatchController()
 
     @ObservationIgnored private let repositoryURL: URL
@@ -42,6 +54,7 @@ final class HistoryCommitDetailModel {
         self.commit = commit
         showingCommitInfo = false
         fullMessage = nil
+        patchUnavailableReasons = nil
         fileChanges = []
         lineCounts = [:]
         filesHash = nil
@@ -86,6 +99,8 @@ final class HistoryCommitDetailModel {
                 do { try await Task.sleep(for: .milliseconds(80)) } catch { return }
             }
             guard isCurrent(hash, token: token) else { return }
+            async let reasons = try? GitStatusService.shared.commitPatchUnavailableReasons(
+                commit: hash, in: repositoryURL)
             async let counts: [String: FileLineChangeCount]? = countsHash == hash
                 ? nil : try? GitStatusService.shared.commitLineChangeCounts(in: hash, in: repositoryURL)
             if filesHash != hash {
@@ -97,8 +112,11 @@ final class HistoryCommitDetailModel {
                 selectedFile = files.first(where: { $0.path == previousPath }) ?? files.first
                 previousFile = selectedFile
             }
+            let loadedReasons = await reasons
             let loadedCounts = await counts
             guard isCurrent(hash, token: token) else { return }
+            patchUnavailableReasons = loadedReasons ?? Dictionary(
+                uniqueKeysWithValues: fileChanges.map { ($0.path, "Unable to check patch availability. Select the commit again to retry.") })
             if countsHash != hash {
                 lineCounts = loadedCounts ?? [:]
                 countsHash = hash

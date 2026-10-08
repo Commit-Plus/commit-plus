@@ -108,7 +108,7 @@ struct HistoryCommitContextMenu: View {
                         filePaths: [],
                         commitHashes: hashes
                     ),
-                    onRun: { id, _ in controller.dependencies.runCustomAction(id, hashes) }
+                    onRun: { id, _ in controller.runCustomAction(id, hashes: hashes) }
                 )
             }
 

@@ -106,6 +106,14 @@ final class HistoryCommitTableController: NSObject, NSTableViewDataSource, NSTab
             self.rows = rows
             switch rows.change {
             case .appended(let range):
+                guard appliedVersion == rows.version - 1,
+                      range.lowerBound == oldRows.commits.count,
+                      range.upperBound == rows.commits.count,
+                      tableView.numberOfRows == oldRows.commits.count + (oldRows.hasMore ? 1 : 0) else {
+                    tableView.reloadData()
+                    restoreViewport(anchor)
+                    break
+                }
                 tableView.beginUpdates()
                 if oldRows.hasMore { tableView.removeRows(at: IndexSet(integer: oldRows.commits.count), withAnimation: []) }
                 var inserted = IndexSet(integersIn: range)
@@ -133,6 +141,7 @@ final class HistoryCommitTableController: NSObject, NSTableViewDataSource, NSTab
         if appliedTextScale != textScale {
             let anchor = viewportAnchor()
             isApplyingModelSelection = true
+            tableView.rowHeight = 24 * textScale
             tableView.reloadData()
             tableView.selectRowIndexes(selected, byExtendingSelection: false)
             isApplyingModelSelection = false

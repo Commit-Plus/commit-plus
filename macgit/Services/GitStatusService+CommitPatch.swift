@@ -21,6 +21,11 @@ import Foundation
 import CryptoKit
 
 extension GitStatusService {
+    func commitPatchUnavailableReasons(commit: String, in repositoryURL: URL) async throws -> [String: String] {
+        let resolved = try await resolveComparisonRef(commit, branchesOnly: false, in: repositoryURL)
+        return try await commitPatchUnavailableReasons(resolvedCommit: resolved, in: repositoryURL)
+    }
+
     private func commitPatchUnavailableReasons(resolvedCommit: String, in repositoryURL: URL) async throws -> [String: String] {
         var reasons: [String: String] = [:]
         let stats = try await runGitRaw(arguments: ["diff-tree", "--root", "--no-commit-id", "--no-renames", "-r", "--numstat", "-z", resolvedCommit], in: repositoryURL)

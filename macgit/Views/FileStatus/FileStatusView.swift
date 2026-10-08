@@ -363,7 +363,8 @@ struct FileStatusView: View {
     }
 
     private var fileListPanel: some View {
-        VStack(spacing: 0) {
+        let selection = actionSelection
+        return VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
                     TriStateCheckbox(state: sectionCheckState(isStaged: true), accessibilityLabel: "Select all staged") { selectAll in
@@ -400,7 +401,7 @@ struct FileStatusView: View {
 
                 List {
                     ForEach(gitStatus.staged) { file in
-                        fileRow(file: file, isStaged: true)
+                        fileRow(file: file, isStaged: true, selection: selection)
                             .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
@@ -468,7 +469,7 @@ struct FileStatusView: View {
 
                 List {
                     ForEach(changedFiles) { file in
-                        fileRow(file: file, isStaged: false)
+                        fileRow(file: file, isStaged: false, selection: selection)
                             .listRowInsets(EdgeInsets())
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
@@ -555,7 +556,7 @@ struct FileStatusView: View {
         }
     }
 
-    private func fileRow(file: StatusFile, isStaged: Bool) -> some View {
+    private func fileRow(file: StatusFile, isStaged: Bool, selection: FileStatusActionSelection) -> some View {
         let isLFS = (isStaged ? stagedLFSPaths : lfsPaths).contains(file.path)
         let selectionKey = FileStatusSelectionKey(file: file, isStaged: isStaged)
         let isPreviewed = selectedFileKey == selectionKey
@@ -622,11 +623,11 @@ struct FileStatusView: View {
                     )
                 }
                 .onDrag {
-                    let paths = actionSelection.dragPaths(startingAt: file, isStaged: isStaged)
+                    let paths = selection.dragPaths(startingAt: file, isStaged: isStaged)
                     return makeFileItemProvider(payload: .files(paths, repositoryURL: repositoryURL))
                 } preview: {
                     FileDragPreview(
-                        pathCount: actionSelection.dragPaths(startingAt: file, isStaged: isStaged).count,
+                        pathCount: selection.dragPaths(startingAt: file, isStaged: isStaged).count,
                         fallbackPath: file.path
                     )
                 }
@@ -637,7 +638,7 @@ struct FileStatusView: View {
             quickActionButton(quickAction, file: file)
                 .padding(.trailing, 2)
 
-            moreButton(file: file, isStaged: isStaged)
+            moreButton(file: file, isStaged: isStaged, selection: selection)
                 .padding(.trailing, 4)
         }
         .padding(.leading, 8)
@@ -660,10 +661,10 @@ struct FileStatusView: View {
         )
         .accessibilityAddTraits(isActionSelected ? .isSelected : [])
         .contextMenu {
-            fileContextMenu(file: file, isStaged: isStaged)
+            fileContextMenu(file: file, isStaged: isStaged, selection: selection)
             Divider()
             Menu("Custom Actions") {
-                let paths = actionSelection.files(for: .remove, fallback: file).map(\.path)
+                let paths = selection.files(for: .remove, fallback: file).map(\.path)
                 CustomActionMenuContent(
                     store: customActionStore,
                     surface: .selectedFiles,
@@ -718,11 +719,10 @@ struct FileStatusView: View {
         .frame(width: 24)
     }
 
-    private func moreButton(file: StatusFile, isStaged: Bool) -> some View {
-        let selection = actionSelection
+    private func moreButton(file: StatusFile, isStaged: Bool, selection: FileStatusActionSelection) -> some View {
 
         return Menu {
-            comparisonMenu(file: file)
+            comparisonMenu(file: file, selection: selection)
             Button("Open") { openFile(file: file) }
                 .disabled(selection.isSingleFileActionDisabled)
             Button("Show in Finder") { showInFinder(file: file) }
@@ -817,30 +817,29 @@ struct FileStatusView: View {
     }
 
     @ViewBuilder
-    private func comparisonMenu(file: StatusFile) -> some View {
+    private func comparisonMenu(file: StatusFile, selection: FileStatusActionSelection) -> some View {
         Menu("Compare with Revision") {
             Button("File…") {
                 onRequestComparePath(ComparisonPath(path: file.path, isDirectory: false))
             }
-            .disabled(file.status == .untracked || actionSelection.isSingleFileActionDisabled)
+            .disabled(file.status == .untracked || selection.isSingleFileActionDisabled)
             Button("Parent Folder…") {
                 let components = file.path.split(separator: "/", omittingEmptySubsequences: false).dropLast()
                 onRequestComparePath(ComparisonPath(path: components.isEmpty ? "." : components.joined(separator: "/"),
                                                    isDirectory: true))
             }
-            .disabled(actionSelection.isSingleFileActionDisabled)
+            .disabled(selection.isSingleFileActionDisabled)
         }
-        .disabled(actionSelection.isSingleFileActionDisabled)
+        .disabled(selection.isSingleFileActionDisabled)
         Divider()
     }
 
     @ViewBuilder
-    private func fileContextMenu(file: StatusFile, isStaged: Bool) -> some View {
+    private func fileContextMenu(file: StatusFile, isStaged: Bool, selection: FileStatusActionSelection) -> some View {
         Button("Track with Git LFS…", systemImage: "externaldrive") { onRequestTrackLFS(file.path) }
         Divider()
-        let selection = actionSelection
 
-        comparisonMenu(file: file)
+        comparisonMenu(file: file, selection: selection)
         Button("Open") { openFile(file: file) }
             .disabled(selection.isSingleFileActionDisabled)
         Button("Show in Finder") { showInFinder(file: file) }

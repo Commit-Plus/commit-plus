@@ -314,6 +314,7 @@ final class HistoryCommitActionController {
     private func executeSquash(commits: [Commit], message: String, dependencies: Dependencies) async {
         let oldHead = await GitStatusService.shared.tipHash(for: "HEAD", in: dependencies.repositoryURL)
         guard HistoryLoadPolicy.canSquashCommits(commits, selectedHashes: commits.map(\.hash), headHash: oldHead) else {
+            errorMessage = "HEAD changed. The selected commits can no longer be squashed."
             return
         }
 

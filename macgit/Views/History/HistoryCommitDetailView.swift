@@ -8,7 +8,7 @@ struct HistoryCommitDetailView: View {
     let syncState: SyncState?
     let runOperation: RepositoryOperationRunner
     @Environment(\.appTextScale) private var textScale
-    @State private var availableSize: CGSize = .zero
+    let onOpenFile: (String) -> Void
 
     var body: some View {
         @Bindable var patch = model.patchController
@@ -31,15 +31,12 @@ struct HistoryCommitDetailView: View {
                         left: {
                             CommitFileListView(changes: model.fileChanges, lineCounts: model.lineCounts,
                                 selectedFile: $model.selectedFile,
-                                onPreview: { file in
-                                    model.fullFilePreview = CommitFilePreviewRequest(
-                                        repositoryURL: repositoryURL, commitHash: commit.hash, file: file)
-                                },
+                                onOpenFile: { onOpenFile($0.path) },
                                 onPatch: { files, direction in
                                     patch.prepare(CommitPatchRequest(commit: commit.hash, files: files,
                                         direction: direction, lines: nil,
                                         scope: "\(files.count) selected file(s)"), in: repositoryURL)
-                                })
+                                }, patchDisabledReason: { model.patchDisabledReason(for: $0) })
                                 .frame(minWidth: 220)
                         }, right: { diffViewer(commit).frame(minWidth: 300) })
                 }
@@ -47,10 +44,6 @@ struct HistoryCommitDetailView: View {
                 EmptyStateView(icon: "doc.text", message: "Select a commit",
                     detail: "Click a commit above to see its changes")
             }
-        }
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { availableSize = $0 }
-        .replacingSheet(item: $model.fullFilePreview) { request in
-            CommitFilePreviewSheet(request: request, availableSize: availableSize)
         }
         .replacingSheet(item: $patch.prepared) { _ in
             if let prepared = model.patchController.prepared {
@@ -139,16 +132,22 @@ struct HistoryCommitDetailView: View {
                 .padding(.horizontal, 12).padding(.vertical, 6)
                 .background(.ultraThinMaterial)
                 .overlay(alignment: .bottom) { Rectangle().fill(.separator).frame(height: 0.5) }
-                DiffView(hunks: matches ? model.diff?.hunks ?? [] : [], file: nil,
-                    repositoryURL: repositoryURL, undoManager: nil, onRefresh: {}, onError: { _ in },
-                    filePath: file.path, gitRef: commit.hash,
-                    onCommitPatch: { lines, direction, scope in
-                        guard model.commit?.hash == commit.hash, model.selectedFile == file,
-                              model.diff?.commit == commit.hash, model.diff?.path == file.path else { return }
-                        model.patchController.prepare(CommitPatchRequest(commit: commit.hash, files: [file],
-                            direction: direction, lines: Set(lines.map(CommitPatchRequest.Line.init)),
-                            scope: scope), in: repositoryURL)
-                    })
+                if !matches {
+                    ProgressView("Loading diff…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    DiffView(hunks: model.diff?.hunks ?? [], file: nil,
+                        repositoryURL: repositoryURL, undoManager: nil, onRefresh: {}, onError: { _ in },
+                        filePath: file.path, gitRef: commit.hash,
+                        commitPatchDisabledReason: model.patchDisabledReason(for: [file]),
+                        onCommitPatch: { lines, direction, scope in
+                            guard model.commit?.hash == commit.hash, model.selectedFile == file,
+                                  model.diff?.commit == commit.hash, model.diff?.path == file.path else { return }
+                            model.patchController.prepare(CommitPatchRequest(commit: commit.hash, files: [file],
+                                direction: direction, lines: Set(lines.map(CommitPatchRequest.Line.init)),
+                                scope: scope), in: repositoryURL)
+                        })
+                }
             }
         } else {
             EmptyStateView(icon: "doc.text", message: "Select a file",

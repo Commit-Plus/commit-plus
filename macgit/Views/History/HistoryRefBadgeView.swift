@@ -44,6 +44,8 @@ final class HistoryRefBadgeView: NSView {
         let color: NSColor = emphasized ? .labelColor : style.foreground
         label.textColor = color
         icon.contentTintColor = color
-        layer?.backgroundColor = (emphasized ? NSColor.labelColor.withAlphaComponent(0.12) : style.background).cgColor
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = (emphasized ? NSColor.labelColor.withAlphaComponent(0.12) : style.background).cgColor
+        }
     }
 }

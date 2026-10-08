@@ -9,6 +9,7 @@ struct HistoryScreen: View {
     @Binding var includeRemotes: Bool
     let dependencies: HistoryCommitActionController.Dependencies
     let selectionSink: HistoryCommitSelectionSink
+    let onOpenFile: (String) -> Void
     @EnvironmentObject private var customActionStore: CustomActionStore
     @Environment(\.appTextScale) private var textScale
     @AppStorage("advanced.historyLoadSize") private var historyLoadSizeRaw = HistoryLoadSize.balanced.rawValue
@@ -21,13 +22,14 @@ struct HistoryScreen: View {
 
     init(repositoryURL: URL, selectedBranch: String?, branchFilter: Binding<HistoryBranchFilter>,
          includeRemotes: Binding<Bool>, dependencies: HistoryCommitActionController.Dependencies,
-         selectionSink: HistoryCommitSelectionSink) {
+         selectionSink: HistoryCommitSelectionSink, onOpenFile: @escaping (String) -> Void) {
         self.repositoryURL = repositoryURL
         self.selectedBranch = selectedBranch
         _branchFilter = branchFilter
         _includeRemotes = includeRemotes
         self.dependencies = dependencies
         self.selectionSink = selectionSink
+        self.onOpenFile = onOpenFile
         let storedSize = UserDefaults.standard.integer(forKey: "advanced.historyLoadSize")
         let list = HistoryListModel(repositoryURL: repositoryURL, branchFilter: branchFilter.wrappedValue,
             selectedBranch: selectedBranch,
@@ -80,7 +82,7 @@ struct HistoryScreen: View {
                         }, bottom: {
                             HistoryCommitDetailView(model: detailModel, repositoryURL: repositoryURL,
                                 undoManager: dependencies.undoManager, syncState: dependencies.syncState,
-                                runOperation: dependencies.runOperation).frame(minHeight: 180)
+                                runOperation: dependencies.runOperation, onOpenFile: onOpenFile).frame(minHeight: 180)
                         })
                     if listModel.phase == .refreshing {
                         HStack(spacing: 8) {

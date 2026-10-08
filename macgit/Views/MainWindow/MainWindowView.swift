@@ -1399,7 +1399,8 @@ struct MainWindowView: View {
                             },
                             headHash: { nil }
                         ),
-                        selectionSink: historySelectionSink
+                        selectionSink: historySelectionSink,
+                        onOpenFile: prepareToOpenSearchFile
                     )
                     .id(repositoryURL)
                 }

@@ -20,7 +20,10 @@ final class HistoryGraphCellView: NSTableCellView {
         guard let geometry, let context = NSGraphicsContext.current?.cgContext else { return }
         let colors = NSColor.alternatingContentBackgroundColors
         let background = backgroundStyle == .emphasized ? NSColor.selectedContentBackgroundColor : colors[rowIndex % colors.count]
+        context.saveGState()
+        context.scaleBy(x: 1, y: bounds.height / CommitGraphRowRenderer.rowHeight)
         CommitGraphRowRenderer.draw(geometry, rowIndex: rowIndex, in: context, dotBackground: background)
+        context.restoreGState()
     }
 }
 

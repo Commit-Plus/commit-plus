@@ -166,7 +166,7 @@ final class HistoryListModel {
             } else {
                 let tip = request.filter == .all && (snapshot != nil || request.query.isEmpty)
                     ? self.selectedBranch.flatMap { self.branchTips[$0] }.flatMap(self.commit) : nil
-                self.select(tip ?? snapshot?.selectedCommit.flatMap { self.commit($0.hash) ?? $0 } ?? commits.first,
+                self.select(snapshot?.selectedCommit.flatMap { self.commit($0.hash) ?? $0 } ?? tip ?? commits.first,
                             focus: false)
             }
             self.storeSnapshot()

@@ -27,8 +27,9 @@ struct CommitFileListView: View {
     let changes: [CommitFileChange]
     var lineCounts: [String: FileLineChangeCount] = [:]
     @Binding var selectedFile: CommitFileChange?
-    var onPreview: ((CommitFileChange) -> Void)? = nil
+    var onOpenFile: ((CommitFileChange) -> Void)? = nil
     var onPatch: (([CommitFileChange], CommitPatchRequest.Direction) -> Void)? = nil
+    var patchDisabledReason: (([CommitFileChange]) -> String?)? = nil
     @State private var selectedFiles: Set<CommitFileChange> = []
     @State private var visibleFileCount = 200
     private let pageSize = 200
@@ -98,14 +99,14 @@ struct CommitFileListView: View {
                     
                     Spacer()
                     
-                    if let onPreview {
-                        Button("Preview full file", systemImage: "eye") {
-                            onPreview(change)
+                    if let onOpenFile {
+                        Button("Open in external editor", systemImage: "eye") {
+                            onOpenFile(change)
                         }
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
-                        .help("Preview the full file with changes")
-                        .accessibilityLabel("Preview \(fileName(from: change.path))")
+                        .help("Open the working-copy file in the configured external editor")
+                        .accessibilityLabel("Open \(fileName(from: change.path)) in external editor")
                         .onContinuousHover { phase in
                             switch phase {
                             case .active: NSCursor.pointingHand.set()
@@ -127,8 +128,13 @@ struct CommitFileListView: View {
                 .contextMenu {
                     if let onPatch {
                         let files = selectedFiles.contains(change) ? changes.filter { selectedFiles.contains($0) } : [change]
+                        let reason = patchDisabledReason?(files)
                         Button("Apply Selected Changes") { onPatch(files, .apply) }
+                            .disabled(reason != nil)
                         Button("Revert Selected Changes") { onPatch(files, .revert) }
+                            .disabled(reason != nil)
+                        if let reason { Text(reason) }
+
                     }
                 }
             }
