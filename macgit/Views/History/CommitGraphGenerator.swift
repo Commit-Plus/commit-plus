@@ -340,11 +340,16 @@ nonisolated enum CommitGraphGenerator {
                         state.mutablePaths.append(highlightedPath)
                     }
 
+                    // When the other parent is the next commit, connect at its
+                    // dot center rather than the half-row junction above it.
+                    let connectsToNextDot = parent.lastX < position.x
+                        && state.rowByHash[parentHash] == state.rowByHash[commit.hash].map { $0 + 1 }
+                    let connectionY = state.offsetY + (connectsToNextDot ? unitHeight : halfHeight)
                     state.links.append(
                         GraphLink(
                             start: position,
                             control: CGPoint(x: parent.lastX, y: position.y),
-                            end: CGPoint(x: parent.lastX, y: state.offsetY + halfHeight),
+                            end: CGPoint(x: parent.lastX, y: connectionY),
                             colorIndex: parent.colorIndex,
                             isHighlighted: isHighlighted
                         )

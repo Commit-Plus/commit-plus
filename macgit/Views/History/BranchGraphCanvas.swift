@@ -254,20 +254,24 @@ struct BranchGraphCanvas: View {
             laneWidth: laneWidth,
             rowOffset: rowOffset
         ))
-        path.addQuadCurve(
-            to: position(
-                for: link.end,
-                rowHeight: rowHeight,
-                laneWidth: laneWidth,
-                rowOffset: rowOffset
-            ),
-            control: position(
-                for: link.control,
-                rowHeight: rowHeight,
-                laneWidth: laneWidth,
-                rowOffset: rowOffset
+        let start = position(for: link.start, rowHeight: rowHeight, laneWidth: laneWidth, rowOffset: rowOffset)
+        let end = position(for: link.end, rowHeight: rowHeight, laneWidth: laneWidth, rowOffset: rowOffset)
+        if end.x < start.x {
+            // A parent already running in a left lane loops around the merge
+            // lane on the right, then returns horizontally into that parent.
+            let outerX = start.x + laneWidth * 1.6
+            path.addCurve(
+                to: end,
+                control1: CGPoint(x: outerX, y: start.y),
+                control2: CGPoint(x: outerX, y: end.y)
             )
-        )
+        } else {
+            path.addQuadCurve(
+                to: end,
+                control: position(for: link.control, rowHeight: rowHeight,
+                                  laneWidth: laneWidth, rowOffset: rowOffset)
+            )
+        }
         return path
     }
 
