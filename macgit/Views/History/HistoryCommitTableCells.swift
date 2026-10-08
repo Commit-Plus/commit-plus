@@ -7,17 +7,22 @@ func historyCalloutFont(_ scale: CGFloat) -> NSFont {
 }
 
 final class HistoryGraphCellView: NSTableCellView {
-    private var geometry: CommitGraphRowGeometry?
+    private var model: CommitGraphModel?
     private var rowIndex = 0
     override var isFlipped: Bool { true }
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsDisplay = true
+    }
     override var backgroundStyle: NSView.BackgroundStyle { didSet { needsDisplay = true } }
     func configure(model: CommitGraphModel?, rowIndex: Int) {
         self.rowIndex = rowIndex
-        geometry = model.map { $0.rowGeometryCache.geometry(for: $0, rowIndex: rowIndex) }
+        self.model = model
         needsDisplay = true
     }
     override func draw(_ dirtyRect: NSRect) {
-        guard let geometry, let context = NSGraphicsContext.current?.cgContext else { return }
+        guard let model, let context = NSGraphicsContext.current?.cgContext else { return }
+        let geometry = model.rowGeometryCache.geometry(for: model, rowIndex: rowIndex, canvasWidth: bounds.width)
         let colors = NSColor.alternatingContentBackgroundColors
         let background = backgroundStyle == .emphasized ? NSColor.selectedContentBackgroundColor : colors[rowIndex % colors.count]
         context.saveGState()

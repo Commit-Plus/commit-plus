@@ -79,7 +79,8 @@ struct BranchGraphCanvas: View {
                     for: link,
                     rowHeight: rowHeight,
                     laneWidth: laneWidth,
-                    rowOffset: 0
+                    rowOffset: 0,
+                    canvasWidth: graphWidth
                 ),
                 with: .color(Self.lineColor(
                     colorIndex: link.colorIndex,
@@ -245,7 +246,8 @@ struct BranchGraphCanvas: View {
         for link: GraphLink,
         rowHeight: CGFloat,
         laneWidth: CGFloat,
-        rowOffset: Double = 0
+        rowOffset: Double = 0,
+        canvasWidth: CGFloat? = nil
     ) -> Path {
         var path = Path()
         path.move(to: position(
@@ -259,7 +261,8 @@ struct BranchGraphCanvas: View {
         if end.x < start.x {
             // A parent already running in a left lane loops around the merge
             // lane on the right, then returns horizontally into that parent.
-            let outerX = start.x + laneWidth * 1.6
+            // Leave room for half the 2.2-point stroke at the canvas edge.
+            let outerX = min(start.x + laneWidth * 1.6, canvasWidth.map { max(0, $0 - 1.1) } ?? .greatestFiniteMagnitude)
             path.addCurve(
                 to: end,
                 control1: CGPoint(x: outerX, y: start.y),

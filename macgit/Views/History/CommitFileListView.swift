@@ -99,13 +99,13 @@ struct CommitFileListView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     if let onOpenFile {
-                        Button("Open in external editor", systemImage: "eye") {
+                        Button("Open with application", systemImage: "arrow.up.forward.app") {
                             onOpenFile(change)
                         }
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
-                        .help("Open the working-copy file in the configured external editor")
-                        .accessibilityLabel("Open \(fileName(from: change.path)) in external editor")
+                        .help("Open the working-copy file with your preferred application, or choose an application")
+                        .accessibilityLabel("Open \(fileName(from: change.path)) with an application")
                         .onContinuousHover { phase in
                             switch phase {
                             case .active: NSCursor.pointingHand.set()
