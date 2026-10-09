@@ -53,6 +53,7 @@ struct GitHubNotificationPopover: View {
                     .pickerStyle(.menu)
                     .controlSize(.small)
                     .frame(maxWidth: 240)
+                    .fixedSize(horizontal: true, vertical: false)
                     .help("Filter GitHub account")
                     Spacer()
                     Text("\(controller.selectedAccounts.reduce(0) { $0 + controller.unreadCount(for: $1) }) unread")
@@ -118,7 +119,7 @@ struct GitHubNotificationPopover: View {
             }
         }
         .font(.system(size: 13))
-        .frame(width: 400, height: 520)
+        .frame(width: 400, height: 520, alignment: .top)
         .task { controller.opened() }
         .onChange(of: controller.selectedAccountKey) { _, _ in
             visibleLimit = 20
