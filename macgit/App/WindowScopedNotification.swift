@@ -18,6 +18,10 @@
 
 import AppKit
 
+extension Notification.Name {
+    static let showReleaseNotes = Notification.Name("showReleaseNotes")
+}
+
 enum WindowScopedNotification {
     static func post(
         name: Notification.Name,

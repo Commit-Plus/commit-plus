@@ -20,24 +20,6 @@ import Foundation
 
 enum GitBranchNameSanitizer {
     nonisolated static func sanitize(_ input: String) -> String {
-        guard !input.isEmpty else { return "" }
-
-        let allowedCharacters = "abcdefghijklmnopqrstuvwxyz0123456789-_/"
-        let allowed = CharacterSet(charactersIn: allowedCharacters)
-        var sanitized = ""
-
-        for scalar in input.lowercased().unicodeScalars {
-            if allowed.contains(scalar) {
-                sanitized.append(Character(scalar))
-            } else {
-                sanitized.append("-")
-            }
-        }
-
-        while sanitized.contains("--") {
-            sanitized = sanitized.replacing("--", with: "-")
-        }
-
-        return sanitized.trimmingCharacters(in: CharacterSet(charactersIn: "-/"))
+        input.split(whereSeparator: { $0.isWhitespace }).joined(separator: "-")
     }
 }

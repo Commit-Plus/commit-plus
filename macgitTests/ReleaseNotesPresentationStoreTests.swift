@@ -28,7 +28,7 @@ final class ReleaseNotesPresentationStoreTests: XCTestCase {
         let firstPresentation = await firstStore.claimPresentation()
         XCTAssertEqual(
             firstPresentation,
-            ReleaseNotesPresentation(version: "1.2.0", markdown: "# Changelog")
+            ReleaseNotesPresentation(version: "1.2.0", markdown: "Release description")
         )
         let repeatedPresentation = await firstStore.claimPresentation()
         XCTAssertNil(repeatedPresentation)
@@ -43,14 +43,58 @@ final class ReleaseNotesPresentationStoreTests: XCTestCase {
         let failedDownloadStore = ReleaseNotesPresentationStore(
             defaults: defaults,
             versionProvider: { "1.2.0" },
-            changelogURLProvider: { URL(string: "https://example.com/CHANGELOG.md") },
-            markdownLoader: { _ in throw URLError(.notConnectedToInternet) }
+            releaseLoader: { _ in throw URLError(.notConnectedToInternet) }
         )
 
         let failedPresentation = await failedDownloadStore.claimPresentation()
         XCTAssertNil(failedPresentation)
         let retriedPresentation = await makeStore(defaults: defaults, version: "1.2.0").claimPresentation()
         XCTAssertNotNil(retriedPresentation)
+    }
+
+    func testExplicitViewingRemainsAvailableAfterStartupPresentation() async {
+        let store = makeStore(defaults: makeDefaults(), version: "1.1.12")
+        let initial = await store.claimPresentation()
+        let repeatedAutomatic = await store.claimPresentation()
+        let explicit = await store.loadPresentation()
+
+        XCTAssertNotNil(initial)
+        XCTAssertNil(repeatedAutomatic)
+        XCTAssertEqual(explicit, initial)
+    }
+
+    func testDifferentReleaseNotesDoNotConsumeInstalledVersion() async {
+        for remoteVersion in ["1.1.12", "1.1.9"] {
+            let defaults = makeDefaults()
+            let store = ReleaseNotesPresentationStore(
+                defaults: defaults,
+                versionProvider: { "1.1.10" },
+                releaseLoader: { _ in self.releaseData(tag: "v\(remoteVersion)") }
+            )
+
+            let presentation = await store.claimPresentation()
+            XCTAssertNil(presentation)
+            let matchingPresentation = await makeStore(defaults: defaults, version: "1.1.10")
+                .claimPresentation()
+            XCTAssertNotNil(matchingPresentation)
+        }
+    }
+
+    func testEmptyReleaseDescriptionIsNotPresented() async {
+        let store = ReleaseNotesPresentationStore(
+            defaults: makeDefaults(),
+            versionProvider: { "1.1.10" },
+            releaseLoader: { _ in self.releaseData(tag: "v1.1.10", body: " \n") }
+        )
+
+        let presentation = await store.claimPresentation()
+        XCTAssertNil(presentation)
+    }
+
+    private func releaseData(tag: String, body: String = "Release description") -> Data {
+        try! JSONSerialization.data(withJSONObject: [
+            "tag_name": tag, "body": body, "draft": false
+        ])
     }
 
     private func makeDefaults() -> UserDefaults {
@@ -64,8 +108,13 @@ final class ReleaseNotesPresentationStoreTests: XCTestCase {
         ReleaseNotesPresentationStore(
             defaults: defaults,
             versionProvider: { version },
-            changelogURLProvider: { URL(string: "https://example.com/CHANGELOG.md") },
-            markdownLoader: { _ in "# Changelog" }
+            releaseLoader: { url in
+                XCTAssertEqual(
+                    url.absoluteString,
+                    "https://api.github.com/repos/Commit-Plus/commit-plus/releases/tags/v\(version)"
+                )
+                return self.releaseData(tag: "v\(version)")
+            }
         )
     }
 }

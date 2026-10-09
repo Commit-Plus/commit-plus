@@ -413,7 +413,9 @@ nonisolated enum RepositoryAIMutationPolicy {
         guard name == name.trimmingCharacters(in: .whitespacesAndNewlines),
               !name.isEmpty,
               name.count <= 255,
-              GitBranchNameSanitizer.sanitize(name) == name,
+              name.unicodeScalars.allSatisfy({
+                  CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_/").contains($0)
+              }),
               !name.hasPrefix("-"),
               !name.hasSuffix("."),
               !name.hasSuffix("/"),

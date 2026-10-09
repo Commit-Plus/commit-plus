@@ -23,12 +23,19 @@ final class GitFlowLitePhase1Tests: XCTestCase {
     func testBranchNameSanitizerMatchesCreateBranchBehavior() {
         XCTAssertEqual(
             GitBranchNameSanitizer.sanitize("  Test  Feature Flow  "),
-            "test-feature-flow"
+            "Test-Feature-Flow"
         )
         XCTAssertEqual(
             GitBranchNameSanitizer.sanitize("Feature/Sidebar & Search"),
-            "feature/sidebar-search"
+            "Feature/Sidebar-&-Search"
         )
+    }
+
+    func testBranchNameSanitizerPreservesCaseAndNonWhitespaceCharacters() {
+        XCTAssertEqual(GitBranchNameSanitizer.sanitize("cv-123 Add new feature"), "cv-123-Add-new-feature")
+        XCTAssertEqual(GitBranchNameSanitizer.sanitize("Feature/CV-123.API_v2"), "Feature/CV-123.API_v2")
+        XCTAssertEqual(GitBranchNameSanitizer.sanitize("  CV-123\tAdd\nFeature  "), "CV-123-Add-Feature")
+        XCTAssertEqual(GitBranchNameSanitizer.sanitize("Feature--API"), "Feature--API")
     }
 
     func testPlannerMapsTopicKindsToExpectedBaseAndPrefix() throws {

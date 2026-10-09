@@ -89,7 +89,37 @@ struct DiffView: View {
         if isImageFile && !prefersTextDiff {
             imagePreview
         } else if hunks.isEmpty {
-            EmptyStateView(message: "No diff to display", detail: "Select a file to see changes")
+            if let file, file.status == .renamed, let originalPath = file.originalPath {
+                VStack(spacing: 16) {
+                    Image(systemName: "arrow.right.doc.on.clipboard")
+                        .font(.system(size: 36))
+                        .foregroundStyle(.secondary)
+                    Text("File moved or renamed")
+                        .font(.title3)
+                    VStack(spacing: 8) {
+                        Text(originalPath)
+                        Image(systemName: "arrow.down")
+                            .accessibilityLabel("Moved to")
+                        Text(file.path)
+                    }
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
+                    Text("No line changes to display")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                EmptyStateView(
+                    message: "No diff to display",
+                    detail: file != nil || filePath != nil
+                        ? "No line changes to display"
+                        : "Select a file to see changes"
+                )
+            }
         } else {
             DiffNativeTable(
                 hunks: hunks, textScale: textScale,

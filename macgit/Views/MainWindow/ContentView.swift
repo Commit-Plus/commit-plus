@@ -46,6 +46,7 @@ struct ContentView: View {
     @State private var initialRepositoryWindowFrame: RepositoryWindowRequest.InitialWindowFrame?
     @State private var webOpeningProgressID: UUID?
     @State private var windowContext = RepositoryWindowContext()
+    @State private var releaseNotesPresentation: ReleaseNotesPresentation?
     @State private var windowLifecycleID = UUID()
     @StateObject private var operationProgress = RepositoryOperationProgress()
 
@@ -140,6 +141,16 @@ struct ContentView: View {
                 operationProgress.end(id)
                 webOpeningProgressID = nil
             }
+        }
+        .replacingSheet(item: $releaseNotesPresentation) { presentation in
+            ReleaseNotesSheet(presentation: presentation)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showReleaseNotes)) { notification in
+            guard windowContext.owns(notification),
+                  let presentation = notification.userInfo?["presentation"] as? ReleaseNotesPresentation else { return }
+            windowContext.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            releaseNotesPresentation = presentation
         }
         .replacingSheet(isPresented: $showingRepoPickerSheet) {
             RepoPickerView(

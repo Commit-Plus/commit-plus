@@ -297,11 +297,17 @@ struct macgitApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            GitHubNotificationPopover(controller: notificationController) {
+            GitHubNotificationPopover(controller: notificationController, onConnect: {
                 NSApp.activate()
                 selectedAppSettingsSection = .connections
                 openWindow(id: "settings")
-            }
+            }, onReleaseNotes: { presentation in
+                NotificationCenter.default.post(
+                    name: .showReleaseNotes,
+                    object: NSApp.mainWindow,
+                    userInfo: ["presentation": presentation]
+                )
+            })
         } label: {
             HStack(spacing: 3) {
                 Image(nsImage: Self.notificationMenuBarIcon)

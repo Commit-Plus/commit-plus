@@ -2,9 +2,13 @@
 import SwiftUI
 
 struct GitHubNotificationPopover: View {
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var controller: GitHubNotificationController
     let onConnect: () -> Void
+    let onReleaseNotes: (ReleaseNotesPresentation) -> Void
     @State private var visibleLimit = 20
+    @State private var isLoadingReleaseNotes = false
+    @State private var releaseNotesUnavailable = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,6 +22,8 @@ struct GitHubNotificationPopover: View {
             }
             .frame(height: 24)
             .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 12)
+            changelogSection
+            Divider()
             if controller.accounts.isEmpty {
                 ContentUnavailableView {
                     Label("Connect GitHub", systemImage: "bell")
@@ -120,11 +126,63 @@ struct GitHubNotificationPopover: View {
         }
         .font(.system(size: 13))
         .frame(width: 400, height: 520, alignment: .top)
+        .alert("Changelog unavailable", isPresented: $releaseNotesUnavailable) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Could not load the release notes for this version. Please try again later.")
+        }
         .task { controller.opened() }
         .onChange(of: controller.selectedAccountKey) { _, _ in
             visibleLimit = 20
             controller.opened()
         }
+    }
+
+    private var changelogSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Changelog")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Button {
+                isLoadingReleaseNotes = true
+                Task {
+                    let presentation = await ReleaseNotesPresentationStore.shared.loadPresentation()
+                    isLoadingReleaseNotes = false
+                    if let presentation {
+                        dismiss()
+                        onReleaseNotes(presentation)
+                    } else {
+                        releaseNotesUnavailable = true
+                    }
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "tag")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 28, height: 28)
+                        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                    Text("Changelog v\(ReleaseNotesPresentationStore.shared.currentVersion ?? "—")")
+                        .font(.system(size: 13, weight: .semibold))
+                    Spacer()
+                    if isLoadingReleaseNotes {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "chevron.right")
+                            .font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isLoadingReleaseNotes)
+            .pointingHandCursor()
+            .help("View release notes for this version of Commit+")
+        }
+        .padding(.horizontal, 18).padding(.bottom, 12)
     }
 
     private var rows: [GitHubNotificationDisplayRow] {

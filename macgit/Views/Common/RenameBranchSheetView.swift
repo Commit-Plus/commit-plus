@@ -55,7 +55,7 @@ struct RenameBranchSheetView: View {
     }
 
     private var trimmedNewName: String {
-        newName.trimmingCharacters(in: .whitespaces)
+        GitBranchNameSanitizer.sanitize(newName)
     }
 
     private var isValid: Bool {
@@ -88,6 +88,14 @@ struct RenameBranchSheetView: View {
 
                         TextField("branch-name", text: $newName)
                             .textFieldStyle(.roundedBorder)
+
+                    }
+
+                    if trimmedNewName != newName && !trimmedNewName.isEmpty {
+                        Text(trimmedNewName)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 112)
                     }
 
                     if let errorMessage {

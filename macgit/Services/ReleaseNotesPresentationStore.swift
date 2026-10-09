@@ -24,63 +24,90 @@ final class ReleaseNotesPresentationStore {
 
     private let defaults: UserDefaults
     private let versionProvider: () -> String?
-    private let changelogURLProvider: () -> URL?
-    private let markdownLoader: (URL) async throws -> String
+    private let releaseURLProvider: (String) -> URL?
+    private let releaseLoader: (URL) async throws -> Data
     private let lastPresentedVersionKey = "releaseNotes.lastPresentedVersion"
     private var versionsInFlight = Set<String>()
+    private var cachedPresentations: [String: ReleaseNotesPresentation] = [:]
 
     init(
         defaults: UserDefaults = .standard,
         versionProvider: @escaping () -> String? = {
             Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         },
-        changelogURLProvider: @escaping () -> URL? = {
-            guard let value = Bundle.main.object(forInfoDictionaryKey: "CommitPlusChangelogURL") as? String else {
-                return nil
-            }
-            return URL(string: value)
+        releaseURLProvider: @escaping (String) -> URL? = { version in
+            URL(string: "https://api.github.com/repos/Commit-Plus/commit-plus/releases/tags/")?
+                .appendingPathComponent("v\(version)")
         },
-        markdownLoader: @escaping (URL) async throws -> String = { url in
+        releaseLoader: @escaping (URL) async throws -> Data = { url in
             var request = URLRequest(url: url)
             request.cachePolicy = .reloadRevalidatingCacheData
             request.timeoutInterval = 15
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            request.setValue("2026-03-10", forHTTPHeaderField: "X-GitHub-Api-Version")
 
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let response = response as? HTTPURLResponse,
                   (200..<300).contains(response.statusCode) else {
                 throw URLError(.badServerResponse)
             }
-            guard let markdown = String(data: data, encoding: .utf8) else {
-                throw URLError(.cannotDecodeContentData)
-            }
-            return markdown
+            return data
         }
     ) {
         self.defaults = defaults
         self.versionProvider = versionProvider
-        self.changelogURLProvider = changelogURLProvider
-        self.markdownLoader = markdownLoader
+        self.releaseURLProvider = releaseURLProvider
+        self.releaseLoader = releaseLoader
+    }
+
+    private struct Release: Decodable {
+        let tagName: String
+        let body: String?
+        let draft: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case tagName = "tag_name"
+            case body, draft
+        }
+    }
+
+    var currentVersion: String? {
+        guard let version = versionProvider()?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !version.isEmpty else { return nil }
+        return version
     }
 
     func claimPresentation() async -> ReleaseNotesPresentation? {
-        guard let version = versionProvider()?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !version.isEmpty,
+        guard let version = currentVersion,
               defaults.string(forKey: lastPresentedVersionKey) != version,
-              !versionsInFlight.contains(version),
-              let changelogURL = changelogURLProvider() else {
+              !versionsInFlight.contains(version) else {
             return nil
         }
 
         versionsInFlight.insert(version)
         defer { versionsInFlight.remove(version) }
 
-        do {
-            let markdown = try await markdownLoader(changelogURL)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !markdown.isEmpty else { return nil }
+        guard let presentation = await loadPresentation() else { return nil }
+        defaults.set(version, forKey: lastPresentedVersionKey)
+        return presentation
+    }
 
-            defaults.set(version, forKey: lastPresentedVersionKey)
-            return ReleaseNotesPresentation(version: version, markdown: markdown)
+    /// Explicit viewing remains available after the startup presentation was seen.
+    func loadPresentation() async -> ReleaseNotesPresentation? {
+        guard let version = currentVersion else { return nil }
+        if let cached = cachedPresentations[version] { return cached }
+        guard let releaseURL = releaseURLProvider(version) else { return nil }
+
+        do {
+            let data = try await releaseLoader(releaseURL)
+            let release = try JSONDecoder().decode(Release.self, from: data)
+            guard release.tagName == "v\(version)", !release.draft,
+                  let markdown = release.body?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !markdown.isEmpty else { return nil }
+
+            let presentation = ReleaseNotesPresentation(version: version, markdown: markdown)
+            cachedPresentations[version] = presentation
+            return presentation
         } catch {
             return nil
         }
