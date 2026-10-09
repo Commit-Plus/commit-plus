@@ -4,6 +4,53 @@ import XCTest
 @testable import macgit
 
 final class DiffNativeHunkViewTests: XCTestCase {
+    func testSmallHunkDoesNotRelayoutRowsForEachVerticalScrollTick() {
+        MainActor.assumeIsolated {
+            let panel = DiffNativeHunkView(frame: CGRect(x: 0, y: 0, width: 600, height: 252))
+            func moveViewport(to y: CGFloat) {
+                panel.updateGeometry(visible: CGRect(x: 0, y: y, width: 600, height: 600),
+                                     headerHeight: 32, lineHeight: 22, lineCount: 10,
+                                     contentWidth: 1_000, restoredOffset: nil)
+            }
+            moveViewport(to: -400)
+            panel.updateLines(lineCount: 10, lineHeight: 22) { _, _, _ in }
+            let frames = panel.cells.mapValues(\.frame)
+            let scrollFrame = panel.horizontalScroll.frame
+            var configurations = 0
+            for y in stride(from: CGFloat(-399), through: 250, by: 1) {
+                moveViewport(to: y)
+                panel.updateLines(lineCount: 10, lineHeight: 22) { _, _, _ in configurations += 1 }
+            }
+            XCTAssertEqual(configurations, 0)
+            XCTAssertEqual(panel.cells.mapValues(\.frame), frames)
+            XCTAssertEqual(panel.horizontalScroll.frame, scrollFrame)
+            // Selection/theme changes must still refresh stable row geometry.
+            panel.updateLines(lineCount: 10, lineHeight: 22, refresh: true) { _, _, _ in configurations += 1 }
+            XCTAssertEqual(configurations, 10)
+        }
+    }
+
+    func testRebindingHunkReusesHostingViewsAndRestoresItsOwnOffset() {
+        MainActor.assumeIsolated {
+            let panel = makePanel(width: 10_000, offset: 2_500)
+            panel.updateLines(lineCount: 1_000_000, lineHeight: 22) { _, _, _ in }
+            let originalCells = Set(panel.cells.values.map(ObjectIdentifier.init))
+            panel.updateGeometry(visible: CGRect(x: 0, y: 0, width: 600, height: 600),
+                                 headerHeight: 32, lineHeight: 22, lineCount: 2,
+                                 contentWidth: 800, restoredOffset: 100)
+            var configured: [Int] = []
+            panel.updateLines(lineCount: 2, lineHeight: 22, refresh: true) { _, line, _ in configured.append(line) }
+            XCTAssertEqual(configured, [0, 1])
+            XCTAssertEqual(panel.horizontalOffset, 100, accuracy: 0.5)
+            panel.updateGeometry(visible: CGRect(x: 0, y: 0, width: 600, height: 600),
+                                 headerHeight: 32, lineHeight: 22, lineCount: 1_000_000,
+                                 contentWidth: 10_000, restoredOffset: 2_500)
+            panel.updateLines(lineCount: 1_000_000, lineHeight: 22, refresh: true) { _, _, _ in }
+            XCTAssertEqual(Set(panel.cells.values.map(ObjectIdentifier.init)), originalCells)
+            XCTAssertEqual(panel.horizontalOffset, 2_500, accuracy: 0.5)
+        }
+    }
+
     func testHunksOwnIndependentNativeHorizontalOffsets() {
         MainActor.assumeIsolated {
             let first = makePanel(width: 1_000_000)

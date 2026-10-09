@@ -44,6 +44,7 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
         private var widths: [CGFloat] = []
         private var offsets: [Int: CGFloat] = [:]
         private var panels: [Int: DiffNativeHunkView] = [:]
+        private var recycledPanels: [DiffNativeHunkView] = []
         private var widthTask: Task<Void, Never>?
         private var observer: NSObjectProtocol?
         private var updating = false
@@ -64,6 +65,7 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
                 widths = Array(repeating: 0, count: ids.count)
                 for panel in panels.values { panel.removeFromSuperview() }
                 panels.removeAll()
+                recycledPanels.removeAll()
                 measureWidths(model)
             }
             layout(scroll, refresh: true)
@@ -118,7 +120,9 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
             for index in Array(panels.keys) where !visible.contains(index) {
                 if let panel = panels.removeValue(forKey: index) {
                     offsets[index] = panel.horizontalOffset
+                    panel.onHorizontalScroll = nil
                     panel.removeFromSuperview()
+                    recycledPanels.append(panel)
                 }
             }
             for index in visible {
@@ -128,19 +132,15 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
                     panel = existing
                     isNew = false
                 } else {
-                    panel = DiffNativeHunkView()
+                    panel = recycledPanels.popLast() ?? DiffNativeHunkView()
                     panels[index] = panel
                     document.addSubview(panel)
                     panel.horizontalScroll.verticalScrollView = scroll
-                    panel.onHorizontalScroll = { [weak self, weak panel] viewport in
-                        guard let self, let panel else { return }
-                        self.offsets[index] = panel.horizontalOffset
-                        self.refreshLongLines(panel, hunk: index, viewport: viewport)
-                    }
                     isNew = true
                 }
                 let hunk = model.hunks[index]
-                panel.frame = geometry.frame(at: index, width: size.width)
+                let frame = geometry.frame(at: index, width: size.width)
+                if panel.frame != frame { panel.frame = frame }
                 let localVisible = bounds.offsetBy(dx: -panel.frame.minX, dy: -panel.frame.minY)
                 panel.updateGeometry(
                     visible: localVisible, headerHeight: geometry.headerHeight,
@@ -150,12 +150,25 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
                 if refresh || isNew {
                     configure(panel.header, hunk: hunk, line: nil, viewport: panel.horizontalViewport)
                 }
-                panel.updateLines(lineCount: hunk.lines.count, lineHeight: geometry.lineHeight) { cell, line, created in
-                    if refresh || created {
+                panel.updateLines(lineCount: hunk.lines.count, lineHeight: geometry.lineHeight,
+                                  refresh: refresh || isNew) { cell, line, created in
+                    if refresh || isNew || created {
                         configure(cell, hunk: hunk, line: line, viewport: panel.horizontalViewport)
                     }
                 }
+                if isNew {
+                    // Rebind only after old row indices and content have been
+                    // replaced, so width notifications cannot access the old hunk.
+                    panel.onHorizontalScroll = { [weak self, weak panel] viewport in
+                        guard let self, let panel else { return }
+                        self.offsets[index] = panel.horizontalOffset
+                        self.refreshLongLines(panel, hunk: index, viewport: viewport)
+                    }
+                }
             }
+            // A bounded spare pool absorbs changes in visible hunk count without
+            // retaining every hosting tree visited during a long scroll.
+            if recycledPanels.count > 2 { recycledPanels.removeFirst(recycledPanels.count - 2) }
         }
 
         private func refreshLongLines(_ panel: DiffNativeHunkView, hunk index: Int, viewport: CGRect) {

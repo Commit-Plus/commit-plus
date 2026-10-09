@@ -7,14 +7,11 @@ final class DiffNativeCell: NSTableCellView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         host.sizingOptions = []
-        host.translatesAutoresizingMaskIntoConstraints = false
+        // Rows have explicit frames. Avoid solving four constraints for every
+        // hosting view whenever a native scroll slice moves or changes size.
+        host.frame = bounds
+        host.autoresizingMask = [.width, .height]
         addSubview(host)
-        NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: leadingAnchor),
-            host.trailingAnchor.constraint(equalTo: trailingAnchor),
-            host.topAnchor.constraint(equalTo: topAnchor),
-            host.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }

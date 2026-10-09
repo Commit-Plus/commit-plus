@@ -16,6 +16,9 @@ final class DiffNativeHunkView: DiffFlippedView {
     private var lastViewport = CGRect.zero
     private var updatingGeometry = false
     private var pendingOffset: CGFloat?
+    private var rowLayout: CGRect?
+    private var rowRange = 0..<0
+    private var spareCells: [DiffNativeCell] = []
 
     var horizontalOffset: CGFloat { pendingOffset ?? max(0, horizontalScroll.contentView.bounds.minX) }
     var horizontalViewport: CGRect {
@@ -59,10 +62,14 @@ final class DiffNativeHunkView: DiffFlippedView {
                         lineCount: Int, contentWidth: CGFloat, restoredOffset: CGFloat?) {
         updatingGeometry = true
         if let restoredOffset { pendingOffset = restoredOffset }
-        header.frame = CGRect(x: 0, y: 0, width: bounds.width, height: headerHeight)
+        let headerFrame = CGRect(x: 0, y: 0, width: bounds.width, height: headerHeight)
+        if header.frame != headerFrame { header.frame = headerFrame }
         let bodyHeight = CGFloat(lineCount) * lineHeight
-        sliceStart = min(bodyHeight, max(0, visible.minY - headerHeight))
-        let end = min(bodyHeight, max(0, visible.maxY - headerHeight))
+        // Small hunks move entirely with the outer clip. Cropping their native
+        // scroll view each pixel needlessly resizes every hosted row at the edge.
+        let wholeBody = bodyHeight <= max(0, visible.height)
+        sliceStart = wholeBody ? 0 : min(bodyHeight, max(0, visible.minY - headerHeight))
+        let end = wholeBody ? bodyHeight : min(bodyHeight, max(0, visible.maxY - headerHeight))
         sliceHeight = max(0, end - sliceStart)
         horizontalScroll.isHidden = sliceHeight == 0
         let scrollFrame = CGRect(x: 0, y: headerHeight + sliceStart, width: bounds.width, height: sliceHeight)
@@ -81,23 +88,25 @@ final class DiffNativeHunkView: DiffFlippedView {
             lastViewport = viewport
             onHorizontalScroll?(viewport)
         }
-        needsDisplay = true
     }
 
-    func updateLines(lineCount: Int, lineHeight: CGFloat,
+    func updateLines(lineCount: Int, lineHeight: CGFloat, refresh: Bool = false,
                      configure: (DiffNativeCell, Int, Bool) -> Void) {
         let visible = DiffHunkGeometry.visibleLines(
             start: sliceStart, height: sliceHeight, lineHeight: lineHeight, count: lineCount)
-        var recycled: [DiffNativeCell] = []
+        let layout = CGRect(x: 0, y: sliceStart, width: lines.bounds.width, height: lineHeight)
+        guard refresh || rowLayout != layout || rowRange != visible else { return }
+        rowLayout = layout
+        rowRange = visible
         for index in Array(cells.keys) where !visible.contains(index) {
             if let cell = cells.removeValue(forKey: index) {
                 cell.removeFromSuperview()
-                recycled.append(cell)
+                spareCells.append(cell)
             }
         }
         for index in visible {
             let created = cells[index] == nil
-            let cell = cells[index] ?? recycled.popLast() ?? DiffNativeCell()
+            let cell = cells[index] ?? spareCells.popLast() ?? DiffNativeCell()
             if created {
                 cells[index] = cell
                 lines.addSubview(cell)
@@ -107,6 +116,7 @@ final class DiffNativeHunkView: DiffFlippedView {
             if cell.frame != frame { cell.frame = frame }
             configure(cell, index, created)
         }
+        if spareCells.count > 32 { spareCells.removeFirst(spareCells.count - 32) }
     }
 
     override func draw(_ dirtyRect: NSRect) {
