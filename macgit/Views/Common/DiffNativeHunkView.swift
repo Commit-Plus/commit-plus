@@ -1,30 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import AppKit
 
-/// Only the visible vertical slice has a horizontal scroll surface. Even a hunk
-/// with a million rows creates just a screenful of hosting views, never a giant
-/// hosting view or a nested table with an unbounded viewport.
+/// Only the visible vertical slice has a horizontal scroll surface. Every hunk
+/// has one native canvas and one hosted header, independent of its row count.
 final class DiffNativeHunkView: DiffFlippedView {
     let header = DiffNativeCell()
     let horizontalScroll = DiffHunkScrollView()
     private let lines = DiffFlippedView()
-    private(set) var cells: [Int: DiffNativeCell] = [:]
-    var onHorizontalScroll: ((CGRect) -> Void)?
+    let canvas = DiffHunkCanvas()
     private var observer: NSObjectProtocol?
     private var sliceStart: CGFloat = 0
     private var sliceHeight: CGFloat = 0
-    private var lastViewport = CGRect.zero
     private var updatingGeometry = false
     private var pendingOffset: CGFloat?
-    private var rowLayout: CGRect?
-    private var rowRange = 0..<0
-    private var spareCells: [DiffNativeCell] = []
 
-    var horizontalOffset: CGFloat { pendingOffset ?? max(0, horizontalScroll.contentView.bounds.minX) }
-    var horizontalViewport: CGRect {
-        let bounds = horizontalScroll.contentView.bounds
-        return CGRect(x: floor(max(0, bounds.minX) / 256) * 256, y: 0,
-                      width: ceil(max(1, bounds.width) / 256) * 256 + 256, height: 0)
+    var horizontalOffset: CGFloat {
+        pendingOffset ?? max(0, horizontalScroll.contentView.bounds.minX)
     }
 
     override init(frame: NSRect) {
@@ -38,16 +29,15 @@ final class DiffNativeHunkView: DiffFlippedView {
         horizontalScroll.autohidesScrollers = true
         horizontalScroll.drawsBackground = false
         horizontalScroll.documentView = lines
+        lines.addSubview(canvas)
         horizontalScroll.contentView.postsBoundsChangedNotifications = true
         observer = NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification, object: horizontalScroll.contentView, queue: .main
+            forName: NSView.boundsDidChangeNotification, object: horizontalScroll.contentView,
+            queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, !self.updatingGeometry else { return }
-                let viewport = self.horizontalViewport
-                guard viewport != self.lastViewport else { return }
-                self.lastViewport = viewport
-                self.onHorizontalScroll?(viewport)
+                self.updateCanvasViewport()
             }
         }
     }
@@ -58,71 +48,65 @@ final class DiffNativeHunkView: DiffFlippedView {
         if let observer { NotificationCenter.default.removeObserver(observer) }
     }
 
-    func updateGeometry(visible: CGRect, headerHeight: CGFloat, lineHeight: CGFloat,
-                        lineCount: Int, contentWidth: CGFloat, restoredOffset: CGFloat?) {
+    func updateGeometry(
+        visible: CGRect, headerHeight: CGFloat, lineHeight: CGFloat,
+        lineCount: Int, contentWidth: CGFloat, restoredOffset: CGFloat?
+    ) {
         updatingGeometry = true
         if let restoredOffset { pendingOffset = restoredOffset }
         let headerFrame = CGRect(x: 0, y: 0, width: bounds.width, height: headerHeight)
         if header.frame != headerFrame { header.frame = headerFrame }
         let bodyHeight = CGFloat(lineCount) * lineHeight
         // Small hunks move entirely with the outer clip. Cropping their native
-        // scroll view each pixel needlessly resizes every hosted row at the edge.
+        // scroll view each pixel needlessly redraws otherwise unchanged content.
         let wholeBody = bodyHeight <= max(0, visible.height)
-        sliceStart = wholeBody ? 0 : min(bodyHeight, max(0, visible.minY - headerHeight))
-        let end = wholeBody ? bodyHeight : min(bodyHeight, max(0, visible.maxY - headerHeight))
+        sliceStart =
+            wholeBody
+            ? 0
+            : min(
+                bodyHeight,
+                max(0, floor((visible.minY - headerHeight) / (lineHeight * 16)) * lineHeight * 16))
+        let end =
+            wholeBody
+            ? bodyHeight
+            : min(
+                bodyHeight,
+                max(0, ceil((visible.maxY - headerHeight) / (lineHeight * 16)) * lineHeight * 16))
         sliceHeight = max(0, end - sliceStart)
         horizontalScroll.isHidden = sliceHeight == 0
-        let scrollFrame = CGRect(x: 0, y: headerHeight + sliceStart, width: bounds.width, height: sliceHeight)
+        let scrollFrame = CGRect(
+            x: 0, y: headerHeight + sliceStart, width: bounds.width, height: sliceHeight)
         if horizontalScroll.frame != scrollFrame { horizontalScroll.frame = scrollFrame }
         let size = CGSize(width: max(bounds.width, contentWidth), height: sliceHeight)
         if lines.frame.size != size { lines.setFrameSize(size) }
         if contentWidth > 0, let pendingOffset {
-            let x = min(pendingOffset, max(0, size.width - horizontalScroll.contentView.bounds.width))
+            let x = min(
+                pendingOffset, max(0, size.width - horizontalScroll.contentView.bounds.width))
             horizontalScroll.contentView.scroll(to: CGPoint(x: x, y: 0))
             horizontalScroll.reflectScrolledClipView(horizontalScroll.contentView)
             self.pendingOffset = nil
         }
         updatingGeometry = false
-        let viewport = horizontalViewport
-        if viewport != lastViewport {
-            lastViewport = viewport
-            onHorizontalScroll?(viewport)
-        }
+        updateCanvasViewport()
     }
 
-    func updateLines(lineCount: Int, lineHeight: CGFloat, refresh: Bool = false,
-                     configure: (DiffNativeCell, Int, Bool) -> Void) {
-        let visible = DiffHunkGeometry.visibleLines(
-            start: sliceStart, height: sliceHeight, lineHeight: lineHeight, count: lineCount)
-        let layout = CGRect(x: 0, y: sliceStart, width: lines.bounds.width, height: lineHeight)
-        guard refresh || rowLayout != layout || rowRange != visible else { return }
-        rowLayout = layout
-        rowRange = visible
-        for index in Array(cells.keys) where !visible.contains(index) {
-            if let cell = cells.removeValue(forKey: index) {
-                cell.removeFromSuperview()
-                spareCells.append(cell)
-            }
+    private func updateCanvasViewport() {
+        let clip = horizontalScroll.contentView.bounds
+        let origin = CGPoint(x: max(0, clip.minX), y: sliceStart)
+        let size = CGSize(width: max(0, clip.width), height: sliceHeight)
+        // The document retains the full horizontal extent for AppKit scrolling,
+        // but its only drawing surface is never wider than the viewport.
+        if canvas.frame.origin.x != origin.x {
+            canvas.setFrameOrigin(CGPoint(x: origin.x, y: 0))
         }
-        for index in visible {
-            let created = cells[index] == nil
-            let cell = cells[index] ?? spareCells.popLast() ?? DiffNativeCell()
-            if created {
-                cells[index] = cell
-                lines.addSubview(cell)
-            }
-            let frame = CGRect(x: 0, y: CGFloat(index) * lineHeight - sliceStart,
-                               width: lines.bounds.width, height: lineHeight)
-            if cell.frame != frame { cell.frame = frame }
-            configure(cell, index, created)
-        }
-        if spareCells.count > 32 { spareCells.removeFirst(spareCells.count - 32) }
+        canvas.updateViewport(origin: origin, size: size)
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         NSColor.separatorColor.setStroke()
-        let border = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        let border = NSBezierPath(
+            roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
         border.lineWidth = 1
         border.stroke()
     }

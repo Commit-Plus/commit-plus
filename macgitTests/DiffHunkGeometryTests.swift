@@ -35,6 +35,17 @@ final class DiffHunkGeometryTests: XCTestCase {
         }
     }
 
+    func testOverscanViewportIncludesHunksBeforeAndAfterVisibleContent() {
+        let geometry = DiffHunkGeometry(lineCounts: Array(repeating: 3, count: 30), scale: 1)
+        let viewport = CGRect(x: 0, y: 600, width: 800, height: 300)
+        let visible = geometry.visibleHunks(in: viewport)
+        let overscanned = geometry.visibleHunks(in: viewport.insetBy(dx: 0, dy: -viewport.height))
+
+        XCTAssertLessThanOrEqual(overscanned.lowerBound, visible.lowerBound)
+        XCTAssertGreaterThanOrEqual(overscanned.upperBound, visible.upperBound)
+        XCTAssertGreaterThan(overscanned.count, visible.count)
+    }
+
     func testEmptyViewportAndRows() {
         XCTAssertTrue(DiffHunkGeometry(lineCounts: [], scale: 1).visibleHunks(in: .zero).isEmpty)
         XCTAssertTrue(DiffHunkGeometry.visibleLines(start: 0, height: 0, lineHeight: 22, count: 100).isEmpty)

@@ -70,7 +70,6 @@ struct DiffView: View {
     @State private var selectedLineIDs: Set<UUID> = []
     @State private var lastSelectedLineID: UUID?
     @State private var loadedImage: NSImage?
-    @State private var highlightCache = DiffLineHighlightCache()
 
     private static let imageExtensions: Set<String> = [
         "png", "jpg", "jpeg", "gif", "svg", "webp", "bmp",
@@ -124,53 +123,45 @@ struct DiffView: View {
             DiffNativeTable(
                 hunks: hunks, textScale: textScale,
                 syntaxHighlighting: advancedSettings.diffSyntaxHighlighting,
-                selectedLineIDs: selectedLineIDs
-            ) { hunk, lineIndex, viewport in
-                let renderer = HunkView(
-                    textScale: textScale,
-                    hunk: hunk,
-                    file: file,
-                    fileExtension: syntaxFileExtension,
-                    highlightCache: advancedSettings.diffSyntaxHighlighting ? highlightCache : nil,
-                    repositoryURL: repositoryURL,
-                    undoManager: undoManager,
-                    selectedLineIDs: $selectedLineIDs,
-                    lastSelectedLineID: $lastSelectedLineID,
-                    onRefresh: onRefresh,
-                    onError: onError,
-                    commitPatchDisabledReason: commitPatchDisabledReason,
-                    onCommitHunk: onCommitPatch.map { action in
-                        { hunk, direction in
-                            action(hunk.lines.filter(isChangedDiffLine), direction, "Selected hunk")
-                        }
-                    },
-                    onCommitLines: onCommitPatch.map { action in
-                        { ids, direction in
-                            action(hunks.flatMap(\.lines).filter {
-                                ids.contains($0.id) && isChangedDiffLine($0)
-                            }, direction, "Selected lines")
-                        }
-                    }
-                )
-                if let lineIndex {
-                    renderer.nativeLine(at: lineIndex, viewport: viewport)
-                } else {
-                    renderer.nativeHeader
+                fileExtension: syntaxFileExtension,
+                selectedLineIDs: selectedLineIDs,
+                onLineTap: { hunk, index, flags in
+                    hunkRenderer(hunk).handleLineTap(at: index, flags: flags)
+                },
+                lineMenu: { hunk, index in
+                    NSHostingMenu(rootView: hunkRenderer(hunk).lineContextMenu(for: hunk.lines[index]))
                 }
+            ) { hunk in
+                hunkRenderer(hunk).nativeHeader
             }
             .onChange(of: hunks.first?.id) {
                 selectedLineIDs.removeAll()
                 lastSelectedLineID = nil
-                highlightCache.removeAll()
-            }
-            .onChange(of: textScale) {
-                highlightCache.removeAll()
-            }
-            .onChange(of: advancedSettings.diffSyntaxHighlighting) {
-                highlightCache.removeAll()
             }
             .id(hunks.first?.id)
         }
+    }
+
+    private func hunkRenderer(_ hunk: DiffHunk) -> HunkView {
+        HunkView(
+            textScale: textScale, hunk: hunk, file: file,
+            repositoryURL: repositoryURL, undoManager: undoManager,
+            selectedLineIDs: $selectedLineIDs, lastSelectedLineID: $lastSelectedLineID,
+            onRefresh: onRefresh, onError: onError,
+            commitPatchDisabledReason: commitPatchDisabledReason,
+            onCommitHunk: onCommitPatch.map { action in
+                { hunk, direction in
+                    action(hunk.lines.filter(isChangedDiffLine), direction, "Selected hunk")
+                }
+            },
+            onCommitLines: onCommitPatch.map { action in
+                { ids, direction in
+                    action(hunks.flatMap(\.lines).filter {
+                        ids.contains($0.id) && isChangedDiffLine($0)
+                    }, direction, "Selected lines")
+                }
+            }
+        )
     }
 
     private var syntaxFileExtension: String {
@@ -228,14 +219,11 @@ struct DiffView: View {
 }
 
 struct HunkView: View {
-    private static let rowHeight: CGFloat = 22
     static let headerHeight: CGFloat = 32
 
     let textScale: CGFloat
     let hunk: DiffHunk
     let file: StatusFile?
-    let fileExtension: String
-    let highlightCache: DiffLineHighlightCache?
     let repositoryURL: URL?
     let undoManager: GitUndoManager?
     @Binding var selectedLineIDs: Set<UUID>
@@ -276,9 +264,9 @@ struct HunkView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 
-            Text("+\(hunk.backgroundRuns.filter { $0.kind == .added }.reduce(0) { $0 + $1.count })")
+            Text("+\(hunk.addedCount)")
                 .foregroundStyle(.green)
-            Text("−\(hunk.backgroundRuns.filter { $0.kind == .removed }.reduce(0) { $0 + $1.count })")
+            Text("−\(hunk.removedCount)")
                 .foregroundStyle(.red)
             Spacer()
 
@@ -322,20 +310,6 @@ struct HunkView: View {
         }
 
         .contextMenu { hunkContextMenu }
-    }
-
-    func nativeLine(at index: Int, viewport: CGRect) -> some View {
-        let line = hunk.lines[index]
-        return DiffLineView(
-            line: line, fileExtension: fileExtension,
-            isSelected: selectedLineIDs.contains(line.id),
-            highlightCache: highlightCache, showsChangeBackground: true,
-            horizontalViewport: viewport
-        )
-        .frame(height: Self.rowHeight * textScale)
-        .contentShape(Rectangle())
-        .onTapGesture { handleLineTap(at: index) }
-        .contextMenu { lineContextMenu(for: line) }
     }
 
     private var hunkContextMenu: some View {
@@ -385,7 +359,7 @@ struct HunkView: View {
         }
     }
 
-    private func lineContextMenu(for line: DiffLine) -> some View {
+    func lineContextMenu(for line: DiffLine) -> some View {
         Group {
             commitPatchMenu(line: line)
             if canInteract {
@@ -454,11 +428,10 @@ struct HunkView: View {
         return selectedLineIDs
     }
 
-    private func handleLineTap(at index: Int) {
+    func handleLineTap(at index: Int, flags: NSEvent.ModifierFlags = NSEvent.modifierFlags) {
         let line = hunk.lines[index]
         guard isChangedDiffLine(line) else { return }
 
-        let flags = NSEvent.modifierFlags
         let isShift = flags.contains(.shift)
         let isCommand = flags.contains(.command)
 
