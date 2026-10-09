@@ -20,6 +20,7 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
         let table = context.coordinator.table
+        table.style = .plain
         table.headerView = nil
         table.backgroundColor = .clear
         table.intercellSpacing = .zero
@@ -94,7 +95,7 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
                                 text: line.text, fontName: fontName, fontSize: fontSize))
                         }
                     }
-                    return ceil(width) + 114
+                    return ceil(width) + 122
                 }
                 let width = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
                 guard !Task.isCancelled, let self else { return }
@@ -144,7 +145,45 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
             guard let model else { return }
             let hunk = model.hunks[row.hunk]
             let identity = row.line.map { hunk.lines[$0].id } ?? hunk.id
+            let isHeader = row.line == nil
+            let isLast = row.line == hunk.lines.indices.last || (isHeader && hunk.lines.isEmpty)
+            let radius: CGFloat = 8
             cell.host.rootView = AnyView(model.content(hunk, row.line, viewport)
+                .clipShape(UnevenRoundedRectangle(
+                    topLeadingRadius: isHeader ? radius : 0,
+                    bottomLeadingRadius: isLast ? radius : 0,
+                    bottomTrailingRadius: isLast ? radius : 0,
+                    topTrailingRadius: isHeader ? radius : 0))
+                .overlay {
+                    GeometryReader { geometry in
+                        Path { path in
+                            let width = geometry.size.width - 0.5
+                            let height = geometry.size.height
+                            let top: CGFloat = isHeader ? radius : 0
+                            let bottom: CGFloat = isLast ? radius : 0
+                            path.move(to: CGPoint(x: 0.5, y: height - bottom))
+                            path.addLine(to: CGPoint(x: 0.5, y: top))
+                            if isHeader {
+                                path.addQuadCurve(to: CGPoint(x: radius, y: 0.5), control: CGPoint(x: 0.5, y: 0.5))
+                                path.addLine(to: CGPoint(x: width - radius, y: 0.5))
+                                path.addQuadCurve(to: CGPoint(x: width, y: radius), control: CGPoint(x: width, y: 0.5))
+                            } else {
+                                path.move(to: CGPoint(x: width, y: 0))
+                            }
+                            path.addLine(to: CGPoint(x: width, y: height - bottom))
+                            if isLast {
+                                path.addQuadCurve(to: CGPoint(x: width - radius, y: height - 0.5), control: CGPoint(x: width, y: height - 0.5))
+                                path.addLine(to: CGPoint(x: radius, y: height - 0.5))
+                                path.addQuadCurve(to: CGPoint(x: 0.5, y: height - radius), control: CGPoint(x: 0.5, y: height - 0.5))
+                            }
+                        }
+                        .stroke(.separator, lineWidth: 1)
+                    }
+                    .allowsHitTesting(false)
+                }
+                .padding(.horizontal, 4)
+                .padding(.top, isHeader ? 4 : 0)
+                .padding(.bottom, isLast ? 4 : 0)
                 .id(identity)
                 .environment(\.appTextScale, model.textScale)
                 .environment(\.colorScheme, model.colorScheme))
@@ -152,7 +191,12 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
 
         func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-            (rows[row].line == nil ? 44 : 22) * scale
+            guard let model else { return 22 * scale }
+            let item = rows[row]
+            let hunk = model.hunks[item.hunk]
+            let isHeader = item.line == nil
+            let isLast = item.line == hunk.lines.indices.last || (isHeader && hunk.lines.isEmpty)
+            return (isHeader ? HunkView.headerHeight : 22) * scale + (isHeader ? 4 : 0) + (isLast ? 4 : 0)
         }
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {

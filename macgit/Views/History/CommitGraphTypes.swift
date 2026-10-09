@@ -62,6 +62,7 @@ nonisolated struct GraphPath: Sendable {
 }
 
 nonisolated struct GraphLink: Sendable {
+    var targetCommitHash: String? = nil
     let start: CGPoint
     let control: CGPoint
     let end: CGPoint

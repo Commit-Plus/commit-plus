@@ -199,7 +199,7 @@ struct DiffView: View {
 
 struct HunkView: View {
     private static let rowHeight: CGFloat = 22
-    private static let headerHeight: CGFloat = 32
+    static let headerHeight: CGFloat = 32
 
     let textScale: CGFloat
     let hunk: DiffHunk
@@ -292,7 +292,6 @@ struct HunkView: View {
         }
 
         .contextMenu { hunkContextMenu }
-        .padding(.top, 12 * textScale)
     }
 
     func nativeLine(at index: Int, viewport: CGRect) -> some View {

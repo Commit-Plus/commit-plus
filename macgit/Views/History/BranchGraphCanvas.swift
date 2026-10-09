@@ -214,23 +214,17 @@ struct BranchGraphCanvas: View {
             )
 
             if current.x > last.x {
-                path.addQuadCurve(
-                    to: current,
-                    control: CGPoint(x: current.x, y: last.y)
-                )
+                addRoundedRoute([last, CGPoint(x: current.x, y: last.y), current],
+                                radius: laneWidth, to: &path)
             } else if current.x < last.x {
                 if index < points.count - 1 {
                     let middleY = (last.y + current.y) / 2
-                    path.addCurve(
-                        to: current,
-                        control1: CGPoint(x: last.x, y: middleY + 4),
-                        control2: CGPoint(x: current.x, y: middleY - 4)
-                    )
+                    addRoundedRoute([last, CGPoint(x: last.x, y: middleY),
+                                     CGPoint(x: current.x, y: middleY), current],
+                                    radius: laneWidth, to: &path)
                 } else {
-                    path.addQuadCurve(
-                        to: current,
-                        control: CGPoint(x: last.x, y: current.y)
-                    )
+                    addRoundedRoute([last, CGPoint(x: last.x, y: current.y), current],
+                                    radius: laneWidth, to: &path)
                 }
             } else {
                 path.addLine(to: current)
@@ -263,19 +257,46 @@ struct BranchGraphCanvas: View {
             // lane on the right, then returns horizontally into that parent.
             // Leave room for half the 2.2-point stroke at the canvas edge.
             let outerX = min(start.x + laneWidth * 1.6, canvasWidth.map { max(0, $0 - 1.1) } ?? .greatestFiniteMagnitude)
-            path.addCurve(
-                to: end,
-                control1: CGPoint(x: outerX, y: start.y),
-                control2: CGPoint(x: outerX, y: end.y)
-            )
+            addRoundedRoute([start, CGPoint(x: outerX, y: start.y),
+                             CGPoint(x: outerX, y: end.y), end],
+                            radius: laneWidth, to: &path)
         } else {
-            path.addQuadCurve(
-                to: end,
-                control: position(for: link.control, rowHeight: rowHeight,
-                                  laneWidth: laneWidth, rowOffset: rowOffset)
-            )
+            addRoundedRoute([start, CGPoint(x: end.x, y: start.y), end],
+                            radius: laneWidth, to: &path)
         }
         return path
+    }
+
+    /// Straight orthogonal runs joined by circular quarter-turns.
+    private static func addRoundedRoute(_ points: [CGPoint], radius: CGFloat, to path: inout Path) {
+        let circleControl: CGFloat = 0.5522847498
+        for index in 1..<(points.count - 1) {
+            let previous = points[index - 1]
+            let corner = points[index]
+            let next = points[index + 1]
+            let incoming = hypot(corner.x - previous.x, corner.y - previous.y)
+            let outgoing = hypot(next.x - corner.x, next.y - corner.y)
+            guard incoming > 0, outgoing > 0 else {
+                path.addLine(to: corner)
+                continue
+            }
+            // Two adjacent corners share a segment without overlapping arcs.
+            let r = min(radius, incoming / (index > 1 ? 2 : 1),
+                        outgoing / (index < points.count - 2 ? 2 : 1))
+            let inX = (corner.x - previous.x) / incoming
+            let inY = (corner.y - previous.y) / incoming
+            let outX = (next.x - corner.x) / outgoing
+            let outY = (next.y - corner.y) / outgoing
+            let entry = CGPoint(x: corner.x - inX * r, y: corner.y - inY * r)
+            let exit = CGPoint(x: corner.x + outX * r, y: corner.y + outY * r)
+            path.addLine(to: entry)
+            path.addCurve(to: exit,
+                          control1: CGPoint(x: entry.x + inX * r * circleControl,
+                                            y: entry.y + inY * r * circleControl),
+                          control2: CGPoint(x: exit.x - outX * r * circleControl,
+                                            y: exit.y - outY * r * circleControl))
+        }
+        if let end = points.last { path.addLine(to: end) }
     }
 
     static func dotPath(
