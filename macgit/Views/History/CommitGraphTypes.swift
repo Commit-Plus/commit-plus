@@ -62,6 +62,7 @@ nonisolated struct GraphPath: Sendable {
 }
 
 nonisolated struct GraphLink: Sendable {
+    var targetCommitHash: String? = nil
     let start: CGPoint
     let control: CGPoint
     let end: CGPoint
@@ -137,6 +138,10 @@ struct GraphPalette {
         Color(red: 0.58, green: 0.38, blue: 0.72),
         Color(red: 0.20, green: 0.52, blue: 0.66),
     ]
+
+    static func nsColor(for index: Int) -> NSColor {
+        NSColor(color(for: index))
+    }
 
     static func color(for index: Int) -> Color {
         colors[index % colors.count]

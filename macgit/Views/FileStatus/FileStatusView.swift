@@ -57,8 +57,6 @@ struct FileStatusView: View {
     @State private var lfsPaths = Set<String>()
     @State private var stagedLFSPaths = Set<String>()
     @State private var changedFiles: [StatusFile] = []
-    @State private var visibleStagedFileCount = 100
-    @State private var visibleChangedFileCount = 100
     @State private var selectedFile: StatusFile? = nil
     @State private var selectedFileKey: FileStatusSelectionKey? = nil
     @State private var selectedActionFileKeys: Set<FileStatusSelectionKey> = []
@@ -91,24 +89,6 @@ struct FileStatusView: View {
     @State private var recentCommits: [(hash: String, message: String)] = []
     @State private var ignoreTargetFile: StatusFile? = nil
     @State private var conflictResolverWindowController = NSWindowController(window: nil)
-
-    private let fileDisplayPageSize = 100
-
-    private var visibleStagedFiles: ArraySlice<StatusFile> {
-        gitStatus.staged.prefix(visibleStagedFileCount)
-    }
-
-    private var visibleChangedFiles: ArraySlice<StatusFile> {
-        changedFiles.prefix(visibleChangedFileCount)
-    }
-
-    private var visibleStagedRows: [FileStatusRowItem] {
-        visibleStagedFiles.map { FileStatusRowItem(file: $0, isStaged: true) }
-    }
-
-    private var visibleChangedRows: [FileStatusRowItem] {
-        visibleChangedFiles.map { FileStatusRowItem(file: $0, isStaged: false) }
-    }
 
     private var hasChanges: Bool {
         !gitStatus.isEmpty
@@ -383,7 +363,8 @@ struct FileStatusView: View {
     }
 
     private var fileListPanel: some View {
-        VStack(spacing: 0) {
+        let selection = actionSelection
+        return VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
                     TriStateCheckbox(state: sectionCheckState(isStaged: true), accessibilityLabel: "Select all staged") { selectAll in
@@ -418,28 +399,25 @@ struct FileStatusView: View {
                     Divider()
                 }
 
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(visibleStagedRows) { row in
-                            fileRow(file: row.file, isStaged: row.isStaged)
-                        }
-                        if visibleStagedFileCount < gitStatus.staged.count {
-                            filePageLoader {
-                                visibleStagedFileCount = min(
-                                    visibleStagedFileCount + fileDisplayPageSize,
-                                    gitStatus.staged.count
-                                )
-                            }
-                            .id(visibleStagedFileCount)
-                        }
-                        if gitStatus.staged.isEmpty {
-                            Text("No staged files")
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(10)
-                        }
+                List {
+                    ForEach(gitStatus.staged) { file in
+                        fileRow(file: file, isStaged: true, selection: selection)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+                    if gitStatus.staged.isEmpty {
+                        Text("No staged files")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                     }
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
             }
             .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .contentShape(Rectangle())
@@ -489,28 +467,25 @@ struct FileStatusView: View {
                     Divider()
                 }
 
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(visibleChangedRows) { row in
-                            fileRow(file: row.file, isStaged: row.isStaged)
-                        }
-                        if visibleChangedFileCount < changedFiles.count {
-                            filePageLoader {
-                                visibleChangedFileCount = min(
-                                    visibleChangedFileCount + fileDisplayPageSize,
-                                    changedFiles.count
-                                )
-                            }
-                            .id(visibleChangedFileCount)
-                        }
-                        if changedFiles.isEmpty {
-                            Text("No changed files")
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(10)
-                        }
+                List {
+                    ForEach(changedFiles) { file in
+                        fileRow(file: file, isStaged: false, selection: selection)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                    }
+                    if changedFiles.isEmpty {
+                        Text("No changed files")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .listRowInsets(EdgeInsets())
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                     }
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
             }
             .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .contentShape(Rectangle())
@@ -581,13 +556,7 @@ struct FileStatusView: View {
         }
     }
 
-    private func filePageLoader(action: @escaping () -> Void) -> some View {
-        Color.clear
-            .frame(height: 1)
-            .onAppear(perform: action)
-    }
-
-    private func fileRow(file: StatusFile, isStaged: Bool) -> some View {
+    private func fileRow(file: StatusFile, isStaged: Bool, selection: FileStatusActionSelection) -> some View {
         let isLFS = (isStaged ? stagedLFSPaths : lfsPaths).contains(file.path)
         let selectionKey = FileStatusSelectionKey(file: file, isStaged: isStaged)
         let isPreviewed = selectedFileKey == selectionKey
@@ -613,7 +582,6 @@ struct FileStatusView: View {
                 ))
                 .toggleStyle(.checkbox)
                 .labelsHidden()
-                .pointingHandCursor()
 
                 HStack(spacing: 10) {
                     Image(systemName: fileIcon(for: file))
@@ -655,11 +623,11 @@ struct FileStatusView: View {
                     )
                 }
                 .onDrag {
-                    let paths = actionSelection.dragPaths(startingAt: file, isStaged: isStaged)
+                    let paths = selection.dragPaths(startingAt: file, isStaged: isStaged)
                     return makeFileItemProvider(payload: .files(paths, repositoryURL: repositoryURL))
                 } preview: {
                     FileDragPreview(
-                        pathCount: actionSelection.dragPaths(startingAt: file, isStaged: isStaged).count,
+                        pathCount: selection.dragPaths(startingAt: file, isStaged: isStaged).count,
                         fallbackPath: file.path
                     )
                 }
@@ -670,7 +638,7 @@ struct FileStatusView: View {
             quickActionButton(quickAction, file: file)
                 .padding(.trailing, 2)
 
-            moreButton(file: file, isStaged: isStaged)
+            moreButton(file: file, isStaged: isStaged, selection: selection)
                 .padding(.trailing, 4)
         }
         .padding(.leading, 8)
@@ -680,7 +648,6 @@ struct FileStatusView: View {
                 .fill(isPreviewed ? Color.accentColor : Color.clear)
                 .frame(width: 3)
         }
-        .pointingHandCursor()
         .simultaneousGesture(
             TapGesture(count: 2).onEnded {
                 Task {
@@ -694,10 +661,10 @@ struct FileStatusView: View {
         )
         .accessibilityAddTraits(isActionSelected ? .isSelected : [])
         .contextMenu {
-            fileContextMenu(file: file, isStaged: isStaged)
+            fileContextMenu(file: file, isStaged: isStaged, selection: selection)
             Divider()
             Menu("Custom Actions") {
-                let paths = actionSelection.files(for: .remove, fallback: file).map(\.path)
+                let paths = selection.files(for: .remove, fallback: file).map(\.path)
                 CustomActionMenuContent(
                     store: customActionStore,
                     surface: .selectedFiles,
@@ -747,17 +714,15 @@ struct FileStatusView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .pointingHandCursor()
         .help(quickAction.accessibilityLabel)
         .accessibilityLabel(quickAction.accessibilityLabel)
         .frame(width: 24)
     }
 
-    private func moreButton(file: StatusFile, isStaged: Bool) -> some View {
-        let selection = actionSelection
+    private func moreButton(file: StatusFile, isStaged: Bool, selection: FileStatusActionSelection) -> some View {
 
         return Menu {
-            comparisonMenu(file: file)
+            comparisonMenu(file: file, selection: selection)
             Button("Open") { openFile(file: file) }
                 .disabled(selection.isSingleFileActionDisabled)
             Button("Show in Finder") { showInFinder(file: file) }
@@ -847,36 +812,34 @@ struct FileStatusView: View {
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
-        .pointingHandCursor()
         .menuIndicator(.hidden)
         .frame(width: 24)
     }
 
     @ViewBuilder
-    private func comparisonMenu(file: StatusFile) -> some View {
+    private func comparisonMenu(file: StatusFile, selection: FileStatusActionSelection) -> some View {
         Menu("Compare with Revision") {
             Button("File…") {
                 onRequestComparePath(ComparisonPath(path: file.path, isDirectory: false))
             }
-            .disabled(file.status == .untracked || actionSelection.isSingleFileActionDisabled)
+            .disabled(file.status == .untracked || selection.isSingleFileActionDisabled)
             Button("Parent Folder…") {
                 let components = file.path.split(separator: "/", omittingEmptySubsequences: false).dropLast()
                 onRequestComparePath(ComparisonPath(path: components.isEmpty ? "." : components.joined(separator: "/"),
                                                    isDirectory: true))
             }
-            .disabled(actionSelection.isSingleFileActionDisabled)
+            .disabled(selection.isSingleFileActionDisabled)
         }
-        .disabled(actionSelection.isSingleFileActionDisabled)
+        .disabled(selection.isSingleFileActionDisabled)
         Divider()
     }
 
     @ViewBuilder
-    private func fileContextMenu(file: StatusFile, isStaged: Bool) -> some View {
+    private func fileContextMenu(file: StatusFile, isStaged: Bool, selection: FileStatusActionSelection) -> some View {
         Button("Track with Git LFS…", systemImage: "externaldrive") { onRequestTrackLFS(file.path) }
         Divider()
-        let selection = actionSelection
 
-        comparisonMenu(file: file)
+        comparisonMenu(file: file, selection: selection)
         Button("Open") { openFile(file: file) }
             .disabled(selection.isSingleFileActionDisabled)
         Button("Show in Finder") { showInFinder(file: file) }
@@ -1632,14 +1595,6 @@ struct FileStatusView: View {
             changedFiles = loadedStatus.unstaged + loadedStatus.untracked
             currentBranch = loadedCurrentBranch
             currentBranchIntegrationStatus = loadedIntegrationStatus
-            visibleStagedFileCount = min(
-                max(visibleStagedFileCount, fileDisplayPageSize),
-                loadedStatus.staged.count
-            )
-            visibleChangedFileCount = min(
-                max(visibleChangedFileCount, fileDisplayPageSize),
-                changedFiles.count
-            )
             recentCommits = await GitStatusService.shared.recentCommits(in: repositoryURL)
 
             restoreSelectedFileAfterStatusRefresh()

@@ -4,15 +4,15 @@ import SwiftUI
 /// NSCache is thread-safe; drawing data is accessed only on the main actor.
 /// Ownership by one graph snapshot makes invalidation automatic when it changes.
 nonisolated final class CommitGraphRowGeometryCache: @unchecked Sendable {
-    private let rows = NSCache<NSNumber, CommitGraphRowGeometry>()
+    private let rows = NSCache<NSString, CommitGraphRowGeometry>()
 
     init() {
         rows.countLimit = 512
     }
 
     @MainActor
-    func geometry(for model: CommitGraphModel, rowIndex: Int) -> CommitGraphRowGeometry {
-        let key = NSNumber(value: rowIndex)
+    func geometry(for model: CommitGraphModel, rowIndex: Int, canvasWidth: CGFloat? = nil) -> CommitGraphRowGeometry {
+        let key = "\(rowIndex):\(canvasWidth.map { String(Double($0)) } ?? "unbounded")" as NSString
         if let cached = rows.object(forKey: key) { return cached }
         guard model.rowSlices.indices.contains(rowIndex) else {
             return CommitGraphRowGeometry(strokes: [], dots: [])
@@ -42,7 +42,8 @@ nonisolated final class CommitGraphRowGeometryCache: @unchecked Sendable {
                     for: link,
                     rowHeight: BranchGraphRowCanvas.rowHeight,
                     laneWidth: BranchGraphRowCanvas.laneWidth,
-                    rowOffset: offset
+                    rowOffset: offset,
+                    canvasWidth: canvasWidth
                 ),
                 colorIndex: link.colorIndex,
                 isHighlighted: link.isHighlighted

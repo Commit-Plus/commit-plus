@@ -19,6 +19,7 @@ import SwiftUI
 
 /// Uses fixed-height rows so two-axis scrolling never needs to lay out the full file.
 struct CommitFilePreviewContent: View {
+    @ObservedObject private var advancedSettings = AdvancedSettingsStore.shared
     let lines: [DiffLine]
     let fileExtension: String
     @State private var visibleRange = 0..<0
@@ -42,7 +43,9 @@ struct CommitFilePreviewContent: View {
                             line: line,
                             fileExtension: fileExtension,
                             isSelected: false,
-                            cachedHighlightedText: highlightCache.text(for: line, fileExtension: fileExtension),
+                            cachedHighlightedText: advancedSettings.diffSyntaxHighlighting
+                                ? highlightCache.text(for: line, fileExtension: fileExtension)
+                                : nil,
                             showsDiffGutter: false,
                             horizontalViewport: horizontalViewport
                         )

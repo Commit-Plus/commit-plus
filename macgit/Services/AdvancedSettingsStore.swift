@@ -25,6 +25,7 @@ final class AdvancedSettingsStore: ObservableObject {
 
     static let verboseGitLoggingKey = "advanced.verboseGitLogging"
     private static let historyLoadSizeKey = "advanced.historyLoadSize"
+    private static let diffSyntaxHighlightingKey = "advanced.diffSyntaxHighlighting"
 
     @Published var verboseGitLogging: Bool {
         didSet {
@@ -38,6 +39,12 @@ final class AdvancedSettingsStore: ObservableObject {
         }
     }
 
+    @Published var diffSyntaxHighlighting: Bool {
+        didSet {
+            userDefaults.set(diffSyntaxHighlighting, forKey: Self.diffSyntaxHighlightingKey)
+        }
+    }
+
     private let userDefaults: UserDefaults
 
     init(userDefaults: UserDefaults = .standard) {
@@ -48,10 +55,13 @@ final class AdvancedSettingsStore: ObservableObject {
             userDefaults.object(forKey: Self.historyLoadSizeKey) as? Int
         historyLoadSize = storedHistoryLoadSize
             .flatMap(HistoryLoadSize.init(rawValue:)) ?? .balanced
+        diffSyntaxHighlighting =
+            userDefaults.object(forKey: Self.diffSyntaxHighlightingKey) as? Bool ?? false
     }
 
     func restoreDefaults() {
         verboseGitLogging = false
         historyLoadSize = .balanced
+        diffSyntaxHighlighting = false
     }
 }

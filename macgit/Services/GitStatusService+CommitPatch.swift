@@ -22,16 +22,20 @@ import CryptoKit
 
 extension GitStatusService {
     func commitPatchUnavailableReasons(commit: String, in repositoryURL: URL) async throws -> [String: String] {
-        let sha = try await resolveComparisonRef(commit, branchesOnly: false, in: repositoryURL)
+        let resolved = try await resolveComparisonRef(commit, branchesOnly: false, in: repositoryURL)
+        return try await commitPatchUnavailableReasons(resolvedCommit: resolved, in: repositoryURL)
+    }
+
+    private func commitPatchUnavailableReasons(resolvedCommit: String, in repositoryURL: URL) async throws -> [String: String] {
         var reasons: [String: String] = [:]
-        let stats = try await runGitRaw(arguments: ["diff-tree", "--root", "--no-commit-id", "--no-renames", "-r", "--numstat", "-z", sha], in: repositoryURL)
+        let stats = try await runGitRaw(arguments: ["diff-tree", "--root", "--no-commit-id", "--no-renames", "-r", "--numstat", "-z", resolvedCommit], in: repositoryURL)
         for record in stats.split(separator: 0) {
             let fields = record.split(separator: 9, maxSplits: 2)
             if fields.count == 3, fields[0] == Data("-".utf8) {
                 reasons[String(decoding: fields[2], as: UTF8.self)] = "Binary changes are not supported."
             }
         }
-        let raw = try await runGitRaw(arguments: ["diff-tree", "--root", "--no-commit-id", "--no-renames", "-r", "--raw", "-z", sha], in: repositoryURL)
+        let raw = try await runGitRaw(arguments: ["diff-tree", "--root", "--no-commit-id", "--no-renames", "-r", "--raw", "-z", resolvedCommit], in: repositoryURL)
         let fields = raw.split(separator: 0)
         var index = 0
         while index + 1 < fields.count {
@@ -75,6 +79,16 @@ extension GitStatusService {
         }
         guard Set(files.map(\.path)).count == files.count else {
             throw GitError.commandFailed("A file was selected more than once.")
+        }
+        let unavailableReasons = try await commitPatchUnavailableReasons(
+            resolvedCommit: commit,
+            in: repositoryURL
+        )
+        for file in files {
+            if let reason = unavailableReasons[file.path]
+                ?? file.oldPath.flatMap({ unavailableReasons[$0] }) {
+                throw GitError.commandFailed(reason)
+            }
         }
         let paths = Set(files.flatMap { [$0.oldPath, $0.path].compactMap { $0 } }).sorted()
         let fingerprint = try await commitPatchFingerprint(paths: paths, in: repositoryURL)

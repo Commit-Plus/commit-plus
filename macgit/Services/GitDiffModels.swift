@@ -22,6 +22,10 @@
 //
 import Foundation
 
+nonisolated enum DiffLineRendering {
+    static let longLineByteThreshold = 4_096
+}
+
 nonisolated enum DiffLineType: Sendable {
     case context
     case added
@@ -38,10 +42,62 @@ nonisolated struct DiffLine: Identifiable, Sendable {
     let type: DiffLineType
 }
 
+nonisolated enum DiffLineBackgroundKind: Equatable, Sendable {
+    case added
+    case removed
+    case conflict
+    case plain
+
+    init(_ type: DiffLineType) {
+        switch type {
+        case .added: self = .added
+        case .removed: self = .removed
+        case .conflictMarker: self = .conflict
+        case .context, .header: self = .plain
+        }
+    }
+}
+
+nonisolated struct DiffLineBackgroundRun: Identifiable, Sendable {
+    let id: Int
+    let count: Int
+    let kind: DiffLineBackgroundKind
+}
+
 nonisolated struct DiffHunk: Identifiable, Sendable {
     let id = UUID()
     let header: String
     let lines: [DiffLine]
+    let backgroundRuns: [DiffLineBackgroundRun]
+    let widestLineCandidate: String
+
+    init(header: String, lines: [DiffLine]) {
+        self.header = header
+        self.lines = lines
+
+        var runs: [DiffLineBackgroundRun] = []
+        var widestLineCandidate = ""
+        var widestLineUTF16Count = 0
+        for (index, line) in lines.enumerated() {
+            let kind = DiffLineBackgroundKind(line.type)
+            if let last = runs.last, last.kind == kind {
+                runs[runs.count - 1] = DiffLineBackgroundRun(
+                    id: last.id,
+                    count: last.count + 1,
+                    kind: kind
+                )
+            } else {
+                runs.append(DiffLineBackgroundRun(id: index, count: 1, kind: kind))
+            }
+            let utf16Count = line.text.utf16.count
+            if utf16Count > widestLineUTF16Count {
+                widestLineCandidate = line.text
+                widestLineUTF16Count = utf16Count
+            }
+        }
+        backgroundRuns = runs
+        self.widestLineCandidate = widestLineCandidate
+    }
 }
 
 nonisolated enum DiffParser {

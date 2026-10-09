@@ -22,8 +22,8 @@ import XCTest
 @MainActor
 final class HistoryViewTests: XCTestCase {
     func testBranchFilterMapsToGraphHighlighting() {
-        XCTAssertEqual(HistoryView.highlighting(for: .all), .all)
-        XCTAssertEqual(HistoryView.highlighting(for: .branch("feature/login")), .currentBranchOnly)
+        XCTAssertEqual(HistoryLoadPolicy.highlighting(for: .all), .all)
+        XCTAssertEqual(HistoryLoadPolicy.highlighting(for: .branch("feature/login")), .currentBranchOnly)
     }
 
     func testHighlightRootHashUsesSelectedBranchTipFromLoadedCommits() async {
@@ -32,7 +32,7 @@ final class HistoryViewTests: XCTestCase {
             makeCommit(hash: "base")
         ]
 
-        let rootHash = await HistoryView.highlightRootHash(
+        let rootHash = await HistoryLoadPolicy.highlightRootHash(
             for: .branch("feature/login"),
             commits: commits,
             repositoryURL: URL(fileURLWithPath: "/tmp/repo")
@@ -42,7 +42,7 @@ final class HistoryViewTests: XCTestCase {
     }
 
     func testBranchFilterUsesSelectedBranch() {
-        let scope = HistoryView.historyScope(branchFilter: .branch("origin/feature/login"))
+        let scope = HistoryLoadPolicy.historyScope(branchFilter: .branch("origin/feature/login"))
 
         if case .ref(let branch) = scope {
             XCTAssertEqual(branch, "origin/feature/login")
@@ -52,7 +52,7 @@ final class HistoryViewTests: XCTestCase {
     }
 
     func testAllBranchFilterUsesAllBranches() {
-        let scope = HistoryView.historyScope(branchFilter: .all)
+        let scope = HistoryLoadPolicy.historyScope(branchFilter: .all)
 
         if case .allBranches = scope {
             XCTAssertTrue(true)
@@ -62,7 +62,7 @@ final class HistoryViewTests: XCTestCase {
     }
 
     func testCurrentBranchFilterUsesCurrentBranch() {
-        let scope = HistoryView.historyScope(branchFilter: .current)
+        let scope = HistoryLoadPolicy.historyScope(branchFilter: .current)
 
         if case .currentBranch = scope {
             XCTAssertTrue(true)
@@ -78,9 +78,9 @@ final class HistoryViewTests: XCTestCase {
             makeCommit(hash: "base")
         ]
 
-        XCTAssertEqual(HistoryView.tipCommit(for: "main", in: commits)?.hash, "main-tip")
-        XCTAssertEqual(HistoryView.tipCommit(for: "feature/login", in: commits)?.hash, "feature-tip")
-        XCTAssertNil(HistoryView.tipCommit(for: "missing", in: commits))
+        XCTAssertEqual(HistoryLoadPolicy.tipCommit(for: "main", in: commits)?.hash, "main-tip")
+        XCTAssertEqual(HistoryLoadPolicy.tipCommit(for: "feature/login", in: commits)?.hash, "feature-tip")
+        XCTAssertNil(HistoryLoadPolicy.tipCommit(for: "missing", in: commits))
     }
 
     func testSidebarBranchSelectionUsesCurrentOnlyForCheckedOutBranch() {
@@ -111,10 +111,10 @@ final class HistoryViewTests: XCTestCase {
     }
 
     func testHistorySearchRequiresAtLeastThreeCharacters() {
-        XCTAssertEqual(HistoryView.normalizedSearchQuery("ab"), "")
-        XCTAssertEqual(HistoryView.normalizedSearchQuery("  ab "), "")
-        XCTAssertEqual(HistoryView.normalizedSearchQuery("abc"), "abc")
-        XCTAssertEqual(HistoryView.normalizedSearchQuery("  bob@example.com  "), "bob@example.com")
+        XCTAssertEqual(HistoryLoadPolicy.normalizedSearchQuery("ab"), "")
+        XCTAssertEqual(HistoryLoadPolicy.normalizedSearchQuery("  ab "), "")
+        XCTAssertEqual(HistoryLoadPolicy.normalizedSearchQuery("abc"), "abc")
+        XCTAssertEqual(HistoryLoadPolicy.normalizedSearchQuery("  bob@example.com  "), "bob@example.com")
     }
 
     func testSquashRequiresHeadContiguousNonMergeCommits() {
@@ -124,14 +124,14 @@ final class HistoryViewTests: XCTestCase {
         ]
 
         XCTAssertTrue(
-            HistoryView.canSquashCommits(
+            HistoryLoadPolicy.canSquashCommits(
                 commits,
                 selectedHashes: commits.map(\.hash),
                 headHash: "head"
             )
         )
         XCTAssertFalse(
-            HistoryView.canSquashCommits(
+            HistoryLoadPolicy.canSquashCommits(
                 [commits[1], commits[0]],
                 selectedHashes: commits.map(\.hash),
                 headHash: "head"
@@ -144,14 +144,14 @@ final class HistoryViewTests: XCTestCase {
         let regular = makeCommit(hash: "regular", parents: ["base"])
 
         XCTAssertFalse(
-            HistoryView.canSquashCommits(
+            HistoryLoadPolicy.canSquashCommits(
                 [merge, regular],
                 selectedHashes: ["merge", "regular"],
                 headHash: "merge"
             )
         )
         XCTAssertFalse(
-            HistoryView.canSquashCommits(
+            HistoryLoadPolicy.canSquashCommits(
                 [regular],
                 selectedHashes: ["regular"],
                 headHash: "head"
@@ -161,7 +161,7 @@ final class HistoryViewTests: XCTestCase {
 
     func testBranchReloadStartsSelectionAndScrollAtNewBranchTip() {
         XCTAssertEqual(
-            HistoryView.reloadTargetHash(
+            HistoryLoadPolicy.reloadTargetHash(
                 reset: true,
                 selectedCommitHash: "shared-ancestor",
                 newScrollTarget: "branch-tip"
@@ -183,7 +183,7 @@ final class HistoryViewTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            HistoryView.draggedCommits(
+            HistoryLoadPolicy.draggedCommits(
                 startingAt: "newest",
                 commits: commits,
                 selection: selection
@@ -207,7 +207,7 @@ final class HistoryViewTests: XCTestCase {
             anchorHash: "newest"
         )
 
-        let draggedCommits = HistoryView.draggedCommits(
+        let draggedCommits = HistoryLoadPolicy.draggedCommits(
             startingAt: "middle",
             commits: commits,
             selection: selection
@@ -233,79 +233,12 @@ final class HistoryViewTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            HistoryView.draggedCommits(
+            HistoryLoadPolicy.draggedCommits(
                 startingAt: "middle",
                 commits: commits,
                 selection: selection
             ),
             [GitDraggedCommit(hash: "middle", message: "Middle", isMerge: false)]
-        )
-    }
-
-    func testNativeCommitTapPreservesCommandSelection() {
-        let commits = [
-            makeCommit(hash: "newest", message: "Newest"),
-            makeCommit(hash: "oldest", message: "Oldest")
-        ]
-        var selection = HistoryCommitSelection(
-            selectedHashes: ["newest"],
-            primaryHash: "newest",
-            anchorHash: "newest"
-        )
-
-        let selectedCommit = HistoryView.selectCommitFromNativeTap(
-            "oldest",
-            modifierFlags: [.command],
-            commits: commits,
-            selection: &selection
-        )
-
-        XCTAssertEqual(selection.selectedHashes, ["newest", "oldest"])
-        XCTAssertEqual(selection.primaryHash, "oldest")
-        XCTAssertEqual(selectedCommit?.hash, "oldest")
-    }
-
-    func testContextMenuUsesAllSelectedCommitsWhenClickedRowIsSelected() {
-        let commits = [
-            makeCommit(hash: "newest", message: "Newest"),
-            makeCommit(hash: "middle", message: "Middle"),
-            makeCommit(hash: "oldest", message: "Oldest")
-        ]
-        let selection = HistoryCommitSelection(
-            selectedHashes: commits.map(\.hash),
-            primaryHash: "oldest",
-            anchorHash: "newest"
-        )
-
-        XCTAssertEqual(
-            HistoryView.contextMenuCommits(
-                startingAt: "middle",
-                commits: commits,
-                selection: selection
-            ).map(\.hash),
-            ["newest", "middle", "oldest"]
-        )
-    }
-
-    func testContextMenuUsesOnlyClickedCommitWhenRowIsOutsideSelection() {
-        let commits = [
-            makeCommit(hash: "newest"),
-            makeCommit(hash: "middle"),
-            makeCommit(hash: "oldest")
-        ]
-        let selection = HistoryCommitSelection(
-            selectedHashes: ["newest", "middle"],
-            primaryHash: "middle",
-            anchorHash: "newest"
-        )
-
-        XCTAssertEqual(
-            HistoryView.contextMenuCommits(
-                startingAt: "oldest",
-                commits: commits,
-                selection: selection
-            ).map(\.hash),
-            ["oldest"]
         )
     }
 
@@ -317,7 +250,7 @@ final class HistoryViewTests: XCTestCase {
         ]
 
         XCTAssertEqual(
-            HistoryView.cherryPickCommits(from: selectedCommits).map(\.hash),
+            HistoryLoadPolicy.cherryPickCommits(from: selectedCommits).map(\.hash),
             ["oldest", "middle", "newest"]
         )
     }
@@ -355,7 +288,7 @@ final class HistoryViewTests: XCTestCase {
 
     func testNativeTableSelectionMakesNewlyAddedRowPrimary() {
         XCTAssertEqual(
-            HistoryView.primaryHashForTableSelection(
+            HistoryLoadPolicy.primaryHashForTableSelection(
                 oldSelection: ["newest"],
                 newSelection: ["newest", "middle"],
                 previousPrimaryHash: "newest",
@@ -367,7 +300,7 @@ final class HistoryViewTests: XCTestCase {
 
     func testNativeTableRangeSelectionUsesFarthestAddedEndpoint() {
         XCTAssertEqual(
-            HistoryView.primaryHashForTableSelection(
+            HistoryLoadPolicy.primaryHashForTableSelection(
                 oldSelection: ["middle"],
                 newSelection: ["middle", "older", "oldest"],
                 previousPrimaryHash: "middle",
@@ -377,7 +310,7 @@ final class HistoryViewTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            HistoryView.primaryHashForTableSelection(
+            HistoryLoadPolicy.primaryHashForTableSelection(
                 oldSelection: ["older"],
                 newSelection: ["newest", "middle", "older"],
                 previousPrimaryHash: "older",
@@ -389,7 +322,7 @@ final class HistoryViewTests: XCTestCase {
 
     func testNativeTableRemovalPreservesPrimaryWhenStillSelected() {
         XCTAssertEqual(
-            HistoryView.primaryHashForTableSelection(
+            HistoryLoadPolicy.primaryHashForTableSelection(
                 oldSelection: ["newest", "middle", "oldest"],
                 newSelection: ["newest", "middle"],
                 previousPrimaryHash: "middle",

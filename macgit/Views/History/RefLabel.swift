@@ -28,61 +28,62 @@ struct RefLabel: View {
         self.graphColorIndex = graphColorIndex
     }
 
-    var displayText: String {
-        if text.hasPrefix("HEAD -> ") {
-            return String(text.dropFirst(8))
-        }
-        if text.hasPrefix("tag: ") {
-            return String(text.dropFirst(5))
-        }
-        return text
-    }
-
-    var isTag: Bool {
-        text.hasPrefix("tag: ")
-    }
-
-    var backgroundColor: Color {
-        if isTag {
-            return Color(nsColor: .systemPurple).opacity(0.15)
-        }
-        if let graphColorIndex {
-            return GraphPalette.color(for: graphColorIndex).opacity(0.2)
-        }
-        return Color.accentColor.opacity(0.15)
-    }
-
-    var textColor: Color {
-        if isTag {
-            return Color(nsColor: .systemPurple)
-        }
-        if let graphColorIndex {
-            return GraphPalette.color(for: graphColorIndex)
-        }
-        return .accentColor
+    private var style: RefLabelStyle {
+        RefLabelStyle(text: text, graphColorIndex: graphColorIndex)
     }
 
     var body: some View {
         HStack(spacing: 3) {
-            Image(systemName: isTag ? "tag" : "arrow.triangle.branch")
+            Image(systemName: style.symbolName)
                 .font(.system(size: 10, weight: .semibold))
 
-            Text(displayText)
+            Text(style.displayText)
                 .font(.system(size: 11, weight: .semibold).scaled(by: textScale))
         }
         .lineLimit(1)
         .foregroundStyle(
             backgroundProminence == .increased
                 ? AnyShapeStyle(.primary)
-                : AnyShapeStyle(textColor)
+                : AnyShapeStyle(Color(nsColor: style.foreground))
         )
         .padding(.horizontal, 6)
         .padding(.vertical, 1)
         .background(
             backgroundProminence == .increased
                 ? Color.primary.opacity(0.12)
-                : backgroundColor
+                : Color(nsColor: style.background)
         )
         .clipShape(Capsule())
+    }
+}
+
+/// Native badge appearance shared by SwiftUI and AppKit History surfaces.
+struct RefLabelStyle {
+    let displayText: String
+    let isTag: Bool
+    let symbolName: String
+    let foreground: NSColor
+    let background: NSColor
+
+    init(text: String, graphColorIndex: Int?) {
+        isTag = text.hasPrefix("tag: ")
+        if text.hasPrefix("HEAD -> ") {
+            displayText = String(text.dropFirst(8))
+        } else if isTag {
+            displayText = String(text.dropFirst(5))
+        } else {
+            displayText = text
+        }
+        symbolName = isTag ? "tag" : "arrow.triangle.branch"
+        if isTag {
+            foreground = .systemPurple
+            background = foreground.withAlphaComponent(0.15)
+        } else if let graphColorIndex {
+            foreground = GraphPalette.nsColor(for: graphColorIndex)
+            background = foreground.withAlphaComponent(0.2)
+        } else {
+            foreground = .controlAccentColor
+            background = foreground.withAlphaComponent(0.15)
+        }
     }
 }

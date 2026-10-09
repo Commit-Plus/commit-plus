@@ -340,11 +340,18 @@ nonisolated enum CommitGraphGenerator {
                         state.mutablePaths.append(highlightedPath)
                     }
 
+                    // Existing parents on the left must join their actual dot,
+                    // even when other commits lie between the merge and parent.
+                    let targetHash = parent.lastX < position.x && state.rowByHash[parentHash] != nil
+                        ? parentHash : nil
+                    let connectionY = targetHash.flatMap { state.rowByHash[$0] }
+                        .map { Double($0) + halfHeight } ?? state.offsetY + halfHeight
                     state.links.append(
                         GraphLink(
+                            targetCommitHash: targetHash,
                             start: position,
                             control: CGPoint(x: parent.lastX, y: position.y),
-                            end: CGPoint(x: parent.lastX, y: state.offsetY + halfHeight),
+                            end: CGPoint(x: parent.lastX, y: connectionY),
                             colorIndex: parent.colorIndex,
                             isHighlighted: isHighlighted
                         )
@@ -421,9 +428,17 @@ nonisolated enum CommitGraphGenerator {
             )
         }
 
+        let links = state.links.map { link -> GraphLink in
+            guard let hash = link.targetCommitHash,
+                  let row = state.rowByHash[hash], state.dots.indices.contains(row) else { return link }
+            return GraphLink(targetCommitHash: hash, start: link.start, control: link.control,
+                             end: state.dots[row].center, colorIndex: link.colorIndex,
+                             isHighlighted: link.isHighlighted)
+        }
+
         let newRowSlices = CommitGraphRowSlice.makeRows(
             paths: paths,
-            links: state.links,
+            links: links,
             dots: state.dots,
             rowRange: appendedRowStart..<state.dots.count,
             rowCount: state.dots.count
@@ -432,7 +447,7 @@ nonisolated enum CommitGraphGenerator {
 
         return CommitGraphModel(
             paths: paths,
-            links: state.links,
+            links: links,
             dots: state.dots,
             laneCount: max(1, snapshotMaxLane + 1),
             commitMetadata: state.metadata,
@@ -573,7 +588,9 @@ nonisolated fileprivate final class PathHelper {
             add(x: lastX, y: lastY)
             add(x: x, y: y - halfHeight)
         } else if x < lastX {
-            add(x: lastX, y: y - halfHeight)
+            // Start returning to the parent at the previous row's dot center,
+            // rather than keeping a straight half-row before the turn.
+            add(x: lastX, y: max(lastY, y - halfHeight * 2))
         }
         add(x: x, y: y)
         lastX = x

@@ -79,7 +79,8 @@ struct BranchGraphCanvas: View {
                     for: link,
                     rowHeight: rowHeight,
                     laneWidth: laneWidth,
-                    rowOffset: 0
+                    rowOffset: 0,
+                    canvasWidth: graphWidth
                 ),
                 with: .color(Self.lineColor(
                     colorIndex: link.colorIndex,
@@ -100,6 +101,12 @@ struct BranchGraphCanvas: View {
                 background: Color(nsColor: .windowBackgroundColor)
             )
         }
+    }
+
+    static func lineNSColor(colorIndex: Int, isHighlighted: Bool) -> NSColor {
+        isHighlighted
+            ? GraphPalette.nsColor(for: colorIndex)
+            : NSColor(Color.gray).withAlphaComponent(0.4)
     }
 
     static func lineColor(colorIndex: Int, isHighlighted: Bool) -> Color {
@@ -207,23 +214,17 @@ struct BranchGraphCanvas: View {
             )
 
             if current.x > last.x {
-                path.addQuadCurve(
-                    to: current,
-                    control: CGPoint(x: current.x, y: last.y)
-                )
+                addRoundedRoute([last, CGPoint(x: current.x, y: last.y), current],
+                                radius: laneWidth, to: &path)
             } else if current.x < last.x {
                 if index < points.count - 1 {
                     let middleY = (last.y + current.y) / 2
-                    path.addCurve(
-                        to: current,
-                        control1: CGPoint(x: last.x, y: middleY + 4),
-                        control2: CGPoint(x: current.x, y: middleY - 4)
-                    )
+                    addRoundedRoute([last, CGPoint(x: last.x, y: middleY),
+                                     CGPoint(x: current.x, y: middleY), current],
+                                    radius: laneWidth, to: &path)
                 } else {
-                    path.addQuadCurve(
-                        to: current,
-                        control: CGPoint(x: last.x, y: current.y)
-                    )
+                    addRoundedRoute([last, CGPoint(x: last.x, y: current.y), current],
+                                    radius: laneWidth, to: &path)
                 }
             } else {
                 path.addLine(to: current)
@@ -239,7 +240,8 @@ struct BranchGraphCanvas: View {
         for link: GraphLink,
         rowHeight: CGFloat,
         laneWidth: CGFloat,
-        rowOffset: Double = 0
+        rowOffset: Double = 0,
+        canvasWidth: CGFloat? = nil
     ) -> Path {
         var path = Path()
         path.move(to: position(
@@ -248,21 +250,53 @@ struct BranchGraphCanvas: View {
             laneWidth: laneWidth,
             rowOffset: rowOffset
         ))
-        path.addQuadCurve(
-            to: position(
-                for: link.end,
-                rowHeight: rowHeight,
-                laneWidth: laneWidth,
-                rowOffset: rowOffset
-            ),
-            control: position(
-                for: link.control,
-                rowHeight: rowHeight,
-                laneWidth: laneWidth,
-                rowOffset: rowOffset
-            )
-        )
+        let start = position(for: link.start, rowHeight: rowHeight, laneWidth: laneWidth, rowOffset: rowOffset)
+        let end = position(for: link.end, rowHeight: rowHeight, laneWidth: laneWidth, rowOffset: rowOffset)
+        if end.x < start.x {
+            // A parent already running in a left lane loops around the merge
+            // lane on the right, then returns horizontally into that parent.
+            // Leave room for half the 2.2-point stroke at the canvas edge.
+            let outerX = min(start.x + laneWidth * 1.6, canvasWidth.map { max(0, $0 - 1.1) } ?? .greatestFiniteMagnitude)
+            addRoundedRoute([start, CGPoint(x: outerX, y: start.y),
+                             CGPoint(x: outerX, y: end.y), end],
+                            radius: laneWidth, to: &path)
+        } else {
+            addRoundedRoute([start, CGPoint(x: end.x, y: start.y), end],
+                            radius: laneWidth, to: &path)
+        }
         return path
+    }
+
+    /// Straight orthogonal runs joined by circular quarter-turns.
+    private static func addRoundedRoute(_ points: [CGPoint], radius: CGFloat, to path: inout Path) {
+        let circleControl: CGFloat = 0.5522847498
+        for index in 1..<(points.count - 1) {
+            let previous = points[index - 1]
+            let corner = points[index]
+            let next = points[index + 1]
+            let incoming = hypot(corner.x - previous.x, corner.y - previous.y)
+            let outgoing = hypot(next.x - corner.x, next.y - corner.y)
+            guard incoming > 0, outgoing > 0 else {
+                path.addLine(to: corner)
+                continue
+            }
+            // Two adjacent corners share a segment without overlapping arcs.
+            let r = min(radius, incoming / (index > 1 ? 2 : 1),
+                        outgoing / (index < points.count - 2 ? 2 : 1))
+            let inX = (corner.x - previous.x) / incoming
+            let inY = (corner.y - previous.y) / incoming
+            let outX = (next.x - corner.x) / outgoing
+            let outY = (next.y - corner.y) / outgoing
+            let entry = CGPoint(x: corner.x - inX * r, y: corner.y - inY * r)
+            let exit = CGPoint(x: corner.x + outX * r, y: corner.y + outY * r)
+            path.addLine(to: entry)
+            path.addCurve(to: exit,
+                          control1: CGPoint(x: entry.x + inX * r * circleControl,
+                                            y: entry.y + inY * r * circleControl),
+                          control2: CGPoint(x: exit.x - outX * r * circleControl,
+                                            y: exit.y - outY * r * circleControl))
+        }
+        if let end = points.last { path.addLine(to: end) }
     }
 
     static func dotPath(

@@ -27,7 +27,7 @@ struct CommitFileListView: View {
     let changes: [CommitFileChange]
     var lineCounts: [String: FileLineChangeCount] = [:]
     @Binding var selectedFile: CommitFileChange?
-    var onPreview: ((CommitFileChange) -> Void)? = nil
+    var onOpenFile: ((CommitFileChange) -> Void)? = nil
     var onPatch: (([CommitFileChange], CommitPatchRequest.Direction) -> Void)? = nil
     var patchDisabledReason: (([CommitFileChange]) -> String?)? = nil
     @State private var selectedFiles: Set<CommitFileChange> = []
@@ -96,17 +96,16 @@ struct CommitFileListView: View {
                                 .help(oldPath)
                         }
                     }
-                    
-                    Spacer()
-                    
-                    if let onPreview {
-                        Button("Preview full file", systemImage: "eye") {
-                            onPreview(change)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if let onOpenFile {
+                        Button("Open with application", systemImage: "arrow.up.forward.app") {
+                            onOpenFile(change)
                         }
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
-                        .help("Preview the full file with changes")
-                        .accessibilityLabel("Preview \(fileName(from: change.path))")
+                        .help("Open the working-copy file with your preferred application, or choose an application")
+                        .accessibilityLabel("Open \(fileName(from: change.path)) with an application")
                         .onContinuousHover { phase in
                             switch phase {
                             case .active: NSCursor.pointingHand.set()
@@ -129,9 +128,12 @@ struct CommitFileListView: View {
                     if let onPatch {
                         let files = selectedFiles.contains(change) ? changes.filter { selectedFiles.contains($0) } : [change]
                         let reason = patchDisabledReason?(files)
-                        Button("Apply Selected Changes") { onPatch(files, .apply) }.disabled(reason != nil)
-                        Button("Revert Selected Changes") { onPatch(files, .revert) }.disabled(reason != nil)
+                        Button("Apply Selected Changes") { onPatch(files, .apply) }
+                            .disabled(reason != nil)
+                        Button("Revert Selected Changes") { onPatch(files, .revert) }
+                            .disabled(reason != nil)
                         if let reason { Text(reason) }
+
                     }
                 }
             }

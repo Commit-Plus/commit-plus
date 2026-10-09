@@ -23,11 +23,13 @@ struct BranchGraphRowCanvas: View, Equatable {
     static let dotSize: CGFloat = 8
     static let trailingPadding: CGFloat = 4
 
+    private let model: CommitGraphModel
     private let geometry: CommitGraphRowGeometry
     let rowIndex: Int
     @Environment(\.backgroundProminence) private var backgroundProminence
 
     init(model: CommitGraphModel, rowIndex: Int) {
+        self.model = model
         self.rowIndex = rowIndex
         geometry = model.rowGeometryCache.geometry(for: model, rowIndex: rowIndex)
     }
@@ -44,7 +46,7 @@ struct BranchGraphRowCanvas: View, Equatable {
             // Keep dense graphs inside their column while retaining the native
             // lane spacing and the full row height for continuous vertical lines.
             context.clip(to: Path(CGRect(origin: .zero, size: size)))
-            drawRow(in: &context)
+            drawRow(in: &context, canvasWidth: size.width)
         }
         .frame(maxWidth: .infinity)
         .frame(height: Self.rowHeight)
@@ -55,7 +57,8 @@ struct BranchGraphRowCanvas: View, Equatable {
         .accessibilityHidden(true)
     }
 
-    private func drawRow(in context: inout GraphicsContext) {
+    private func drawRow(in context: inout GraphicsContext, canvasWidth: CGFloat) {
+        let geometry = model.rowGeometryCache.geometry(for: model, rowIndex: rowIndex, canvasWidth: canvasWidth)
         let strokeStyle = StrokeStyle(
             lineWidth: 2.2,
             lineCap: .round,

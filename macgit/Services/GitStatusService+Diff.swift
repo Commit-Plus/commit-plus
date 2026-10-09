@@ -29,7 +29,10 @@ extension GitStatusService {
             return DiffParser.parse(output)
         }
 
-        let output = (try? await runGit(arguments: ["show", "--no-color", "--first-parent", "-p", commit, "--", file], in: repositoryURL)) ?? ""
+        let output = (try? await runGit(
+            arguments: ["show", "--no-color", "--first-parent", "-p", "-U3", commit, "--", file],
+            in: repositoryURL
+        )) ?? ""
         // Strip the commit header; diff starts at "diff --git"
         guard let diffStart = output.range(of: "diff --git") else { return [] }
         let diffText = String(output[diffStart.lowerBound...])
@@ -70,36 +73,6 @@ extension GitStatusService {
 
         let output = try await runGit(arguments: arguments, in: repositoryURL)
         return DiffParser.parse(output)
-    }
-
-    /// Reads the committed blob and expands the patch to include all unchanged lines.
-    func fullFilePreview(
-        for file: CommitFileChange,
-        in commit: String,
-        in repositoryURL: URL
-    ) async throws -> [DiffLine] {
-        let ref = file.status == .deleted ? "\(commit)^1" : commit
-        let data = try await showFile(at: file.path, ref: ref, in: repositoryURL)
-        guard !data.contains(0), let text = String(data: data, encoding: .utf8) else {
-            throw GitError.commandFailed("This file is binary or is not UTF-8 text.")
-        }
-        let output = try await runGit(arguments: [
-            "show", "--format=", "--no-color", "--no-ext-diff", "--no-textconv",
-            "--first-parent", "--follow", "--find-renames", "--unified=2147483647",
-            commit, "--", file.path
-        ], in: repositoryURL)
-        let lines = DiffParser.parse(output).flatMap(\.lines).filter {
-            $0.oldLineNumber != nil || $0.newLineNumber != nil
-        }
-        if !lines.isEmpty { return lines }
-
-        // Mode-only changes and pure renames have no patch, but still have content.
-        var sourceLines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        if sourceLines.last?.isEmpty == true { sourceLines.removeLast() }
-        return sourceLines.enumerated().map { index, text in
-            DiffLine(oldLineNumber: index + 1, newLineNumber: index + 1,
-                     text: String(text), type: .context)
-        }
     }
 
     func showFile(at path: String, ref: String, in repositoryURL: URL) async throws -> Data {

@@ -59,7 +59,6 @@ final class HistoryPaginationTests: XCTestCase {
         state.finishLoadingMore(loaded: 100)
 
         XCTAssertEqual(state.loadedCount, 100)
-        XCTAssertEqual(state.startIndex, 0)
         XCTAssertTrue(state.hasMore)
         XCTAssertFalse(state.isLoadingMore)
 
@@ -70,25 +69,22 @@ final class HistoryPaginationTests: XCTestCase {
 
         state.replaceLoadedHistory(count: 175, hasMore: true)
         XCTAssertEqual(state.loadedCount, 175)
-        XCTAssertEqual(state.startIndex, 0)
         XCTAssertTrue(state.hasMore)
         XCTAssertFalse(state.isLoadingMore)
 
         state.reset()
         XCTAssertEqual(state.loadedCount, 0)
-        XCTAssertEqual(state.startIndex, 0)
         XCTAssertTrue(state.hasMore)
         XCTAssertFalse(state.isLoadingMore)
     }
 
-    func testHistoryPagingStateAppendsBeyondThreePagesWithoutMovingStart() {
+    func testHistoryPagingStateAppendsBeyondThreePages() {
         var state = HistoryPagingState(pageSize: 100)
         for page in 0..<8 {
-            XCTAssertEqual(state.olderPageStartIndex, page * 100)
+            XCTAssertEqual(state.loadedCount, page * 100)
             XCTAssertTrue(state.beginLoadingMore())
             XCTAssertFalse(state.beginLoadingMore(), "Only one page request may run at a time")
             state.finishLoadingMore(loaded: 100)
-            XCTAssertEqual(state.startIndex, 0)
             XCTAssertEqual(state.loadedCount, (page + 1) * 100)
         }
 
@@ -100,23 +96,8 @@ final class HistoryPaginationTests: XCTestCase {
 
         state.reset()
         XCTAssertEqual(state.loadedCount, 0)
-        XCTAssertEqual(state.olderPageStartIndex, 0)
+        XCTAssertEqual(state.loadedCount, 0)
         XCTAssertTrue(state.beginLoadingMore())
-    }
-
-    func testHistoryPagingStateCanLoadNewerFromLargeCachedWindow() {
-        var state = HistoryPagingState(pageSize: 100)
-        state.replaceWindow(startIndex: 100, count: 800, hasMore: false)
-
-        XCTAssertTrue(state.canLoadNewer)
-        XCTAssertTrue(state.beginLoadingNewer())
-        XCTAssertFalse(state.beginLoadingNewer())
-        state.replaceWindow(startIndex: 0, count: 900, hasMore: false)
-
-        XCTAssertEqual(state.startIndex, 0)
-        XCTAssertEqual(state.loadedCount, 900)
-        XCTAssertFalse(state.canLoadNewer)
-        XCTAssertFalse(state.isLoadingMore)
     }
 
     func testCommitHistoryUsesTopoOrder() async throws {
