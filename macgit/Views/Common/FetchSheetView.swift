@@ -27,7 +27,7 @@ struct FetchSheetView: View {
     let repositoryURL: URL
     let onFetch: (GitStatusService.FetchOptions) -> Void
 
-    @State private var fetchAllRemotes = true
+    @State private var fetchAllRemotes = false
     @State private var pruneBranches = false
     @State private var fetchTags = false
 

@@ -32,6 +32,7 @@ struct FileStatusView: View {
     let repositoryURL: URL
     let isActive: Bool
     @ObservedObject var aiProviderController: AIProviderController
+    @Environment(\.appTextScale) private var textScale
     @EnvironmentObject private var accountController: AccountSessionController
     @EnvironmentObject private var featureAccessController: FeatureAccessController
     @EnvironmentObject private var customActionStore: CustomActionStore
@@ -402,25 +403,7 @@ struct FileStatusView: View {
                     Divider()
                 }
 
-                List {
-                    ForEach(gitStatus.staged) { file in
-                        fileRow(file: file, isStaged: true, selection: selection)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    }
-                    if gitStatus.staged.isEmpty {
-                        Text("No staged files")
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(10)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    }
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
+                nativeFileList(files: gitStatus.staged, isStaged: true, selection: selection)
             }
             .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .contentShape(Rectangle())
@@ -428,11 +411,6 @@ struct FileStatusView: View {
                 isTargeted: isStagedDropTargeted,
                 label: "Drop to stage"
             )
-            .dropDestination(for: GitDragPayload.self) { payloads, _ in
-                handleFileDrop(payloads, into: .staged)
-            } isTargeted: { isTargeted in
-                isStagedDropTargeted = isTargeted
-            }
 
             Divider()
 
@@ -470,25 +448,7 @@ struct FileStatusView: View {
                     Divider()
                 }
 
-                List {
-                    ForEach(changedFiles) { file in
-                        fileRow(file: file, isStaged: false, selection: selection)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    }
-                    if changedFiles.isEmpty {
-                        Text("No changed files")
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(10)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    }
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
+                nativeFileList(files: changedFiles, isStaged: false, selection: selection)
             }
             .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .contentShape(Rectangle())
@@ -496,13 +456,89 @@ struct FileStatusView: View {
                 isTargeted: isChangedDropTargeted,
                 label: "Drop to unstage"
             )
-            .dropDestination(for: GitDragPayload.self) { payloads, _ in
-                handleFileDrop(payloads, into: .changed)
-            } isTargeted: { isTargeted in
-                isChangedDropTargeted = isTargeted
-            }
         }
         .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    @ViewBuilder
+    private func nativeFileList(
+        files: [StatusFile],
+        isStaged: Bool,
+        selection: FileStatusActionSelection
+    ) -> some View {
+        let lineCounts = isStaged ? stagedLineCounts : changedLineCounts
+        let sectionLFSPaths = isStaged ? stagedLFSPaths : lfsPaths
+        let rows = files.map { file in
+            let key = FileStatusSelectionKey(file: file, isStaged: isStaged)
+            return FileStatusNativeList.Row(
+                file: file,
+                count: lineCounts[file.path],
+                isLFS: sectionLFSPaths.contains(file.path),
+                isPotentialConflict: hasPotentialConflict(file),
+                isActionSelected: selectedActionFileKeys.contains(key),
+                isPreviewed: selectedFileKey == key
+            )
+        }
+        ZStack(alignment: .topLeading) {
+            FileStatusNativeList(
+                rows: rows,
+                isStaged: isStaged,
+                textScale: textScale,
+                onSelect: { file, flags in
+                    selectFileRow(file: file, isStaged: isStaged, modifierFlags: flags)
+                },
+                onToggleSelection: { file, selected in
+                    toggleFileSelection(file: file, isStaged: isStaged, selected: selected)
+                },
+                onQuickAction: { file in
+                    Task {
+                        if isStaged { await unstage(file: file) }
+                        else { await stage(file: file) }
+                    }
+                },
+                onDoubleClick: { file in
+                    Task {
+                        if isStaged { await unstage(file: file) }
+                        else { await stage(file: file) }
+                    }
+                },
+                onOpenPotentialConflict: presentPotentialConflictDetails,
+                dragPaths: { selection.dragPaths(startingAt: $0, isStaged: isStaged) },
+                makeDragPayload: { .files($0, repositoryURL: repositoryURL) },
+                makeMoreMenu: { file in
+                    NSHostingMenu(rootView: fileMoreMenuContent(file: file, isStaged: isStaged, selection: selection))
+                },
+                makeContextMenu: { file in
+                    NSHostingMenu(rootView: completeFileContextMenu(file: file, isStaged: isStaged, selection: selection))
+                },
+                onDrop: { payloads in
+                    handleFileDrop(payloads, into: isStaged ? .staged : .changed)
+                },
+                onDropTargetChanged: { targeted in
+                    if isStaged { isStagedDropTargeted = targeted }
+                    else { isChangedDropTargeted = targeted }
+                }
+            )
+            if files.isEmpty {
+                Text(isStaged ? "No staged files" : "No changed files")
+                    .foregroundStyle(.secondary)
+                    .padding(10)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    private func toggleFileSelection(file: StatusFile, isStaged: Bool, selected: Bool) {
+        let key = FileStatusSelectionKey(file: file, isStaged: isStaged)
+        if selected {
+            selectedActionFileKeys.insert(key)
+            actionSelectionAnchorKey = key
+        } else {
+            selectedActionFileKeys.remove(key)
+            if actionSelectionAnchorKey == key {
+                actionSelectionAnchorKey = selectedActionFileKeys.first
+            }
+        }
     }
 
     private func canAcceptFileDrop(
@@ -559,264 +595,99 @@ struct FileStatusView: View {
         }
     }
 
-    private func fileRow(file: StatusFile, isStaged: Bool, selection: FileStatusActionSelection) -> some View {
-        let isLFS = (isStaged ? stagedLFSPaths : lfsPaths).contains(file.path)
-        let selectionKey = FileStatusSelectionKey(file: file, isStaged: isStaged)
-        let isPreviewed = selectedFileKey == selectionKey
-        let isActionSelected = selectedActionFileKeys.contains(selectionKey)
-        let quickAction = FileStatusRowQuickAction(isStaged: isStaged)
-        let isPotentialConflict = hasPotentialConflict(file)
+    @ViewBuilder
+    private func fileMoreMenuContent(
+        file: StatusFile,
+        isStaged: Bool,
+        selection: FileStatusActionSelection
+    ) -> some View {
+        comparisonMenu(file: file, selection: selection)
+        Button("Open") { openFile(file: file) }
+            .disabled(selection.isSingleFileActionDisabled)
+        Button("Show in Finder") { showInFinder(file: file) }
+            .disabled(selection.isSingleFileActionDisabled)
+        if hasPotentialConflict(file) {
+            Button("View Potential Conflict Details…", systemImage: "exclamationmark.triangle") {
+                presentPotentialConflictDetails(for: file)
+            }
+            .disabled(selection.isSingleFileActionDisabled)
+        }
+        Divider()
 
-        return HStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Toggle("", isOn: Binding(
-                    get: { selectedActionFileKeys.contains(selectionKey) },
-                    set: { isSelected in
-                        if isSelected {
-                            selectedActionFileKeys.insert(selectionKey)
-                            actionSelectionAnchorKey = selectionKey
-                        } else {
-                            selectedActionFileKeys.remove(selectionKey)
-                            if actionSelectionAnchorKey == selectionKey {
-                                actionSelectionAnchorKey = selectedActionFileKeys.first
-                            }
+        if isStaged {
+            Button(menuTitle(for: .unstage, selection: selection)) {
+                Task { await unstage(files: selection.files(for: .unstage, fallback: file)) }
+            }
+            Button(selection.title(for: .remove)) {
+                Task { await remove(files: selection.files(for: .remove, fallback: file)) }
+            }
+        } else {
+            Button(menuTitle(for: .stage, selection: selection)) {
+                Task { await stage(files: selection.files(for: .stage, fallback: file)) }
+            }
+            Button(selection.title(for: .discard)) {
+                Task { await discard(files: selection.files(for: .discard, fallback: file)) }
+            }
+            Button(selection.title(for: .remove)) {
+                Task { await remove(files: selection.files(for: .remove, fallback: file)) }
+            }
+            if file.status == .untracked || file.status == .added {
+                Button("Ignore") { ignoreTargetFile = file }
+                    .disabled(selection.isSingleFileActionDisabled)
+            }
+        }
+
+        Divider()
+        if !isStaged {
+            Button("Reset") { Task { await discard(file: file) } }
+                .disabled(selection.isSingleFileActionDisabled)
+            if !recentCommits.isEmpty {
+                Menu("Reset to Commit...") {
+                    ForEach(recentCommits, id: \.hash) { commit in
+                        Button("\(commit.hash) \(commit.message)") {
+                            Task { await resetToCommit(file: file, commit: commit.hash) }
                         }
                     }
-                ))
-                .toggleStyle(.checkbox)
-                .labelsHidden()
-
-                HStack(spacing: 10) {
-                    Image(systemName: fileIcon(for: file))
-                        .foregroundStyle(fileColor(for: file))
-                        .font(.system(size: 14, weight: .medium))
-                        .frame(width: 18)
-
-                    FileChangeLabel(
-                        name: file.displayName,
-                        path: file.originalPath.map { "\($0) → \(file.path)" } ?? file.directory,
-                        counts: (isStaged ? stagedLineCounts : changedLineCounts)[file.path],
-                        pathColor: file.originalPath == nil ? .tertiary : .secondary
-                    ) {
-                        if isLFS || isPotentialConflict {
-                            HStack(spacing: 6) {
-                                if isLFS {
-                                    GitLFSChip()
-                                }
-                                if isPotentialConflict {
-                                    PotentialConflictFileIndicator(
-                                        baseRef: currentBranchIntegrationStatus?.baseRef,
-                                        onOpenDetails: { presentPotentialConflictDetails(for: file) }
-                                    )
-                                }
-                            }
-                            .fixedSize(horizontal: true, vertical: false)
-                            .layoutPriority(1)
-                        }
-                    }
-
-                    Spacer()
                 }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    selectFileRow(
-                        file: file,
-                        isStaged: isStaged,
-                        modifierFlags: NSEvent.modifierFlags
-                    )
-                }
-                .onDrag {
-                    let paths = selection.dragPaths(startingAt: file, isStaged: isStaged)
-                    return makeFileItemProvider(payload: .files(paths, repositoryURL: repositoryURL))
-                } preview: {
-                    FileDragPreview(
-                        pathCount: selection.dragPaths(startingAt: file, isStaged: isStaged).count,
-                        fallbackPath: file.path
-                    )
-                }
+                .disabled(selection.isSingleFileActionDisabled)
             }
-            .padding(.vertical, 3)
-            .padding(.horizontal, 2)
-
-            quickActionButton(quickAction, file: file)
-                .padding(.trailing, 2)
-
-            moreButton(file: file, isStaged: isStaged, selection: selection)
-                .padding(.trailing, 4)
-        }
-        .padding(.leading, 8)
-        .background(isActionSelected ? Color.accentColor.opacity(0.16) : Color.clear)
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(isPreviewed ? Color.accentColor : Color.clear)
-                .frame(width: 3)
-        }
-        .simultaneousGesture(
-            TapGesture(count: 2).onEnded {
-                Task {
-                    if isStaged {
-                        await unstage(file: file)
-                    } else {
-                        await stage(file: file)
+            if file.status == .conflict {
+                Menu("Resolve Conflicts") {
+                    Button("Use Current Version") { Task { await resolveConflict(file: file, using: .ours) } }
+                    Button("Use Incoming Version") { Task { await resolveConflict(file: file, using: .theirs) } }
+                    Divider()
+                    Button("Resolve Manually…") { openConflictResolverWindow(for: file) }
+                    Button("Resolve with External Tool") {
+                        Task { await resolveConflictWithExternalTool(file: file) }
                     }
+                    .disabled(integrationSettings.selectedApplication(for: .merge) == nil)
                 }
-            }
-        )
-        .accessibilityAddTraits(isActionSelected ? .isSelected : [])
-        .contextMenu {
-            fileContextMenu(file: file, isStaged: isStaged, selection: selection)
-            Divider()
-            Menu("Custom Actions") {
-                let paths = selection.files(for: .remove, fallback: file).map(\.path)
-                CustomActionMenuContent(
-                    store: customActionStore,
-                    surface: .selectedFiles,
-                    context: CustomActionInvocationContext(
-                        repositoryURL: repositoryURL,
-                        filePaths: paths,
-                        commitHashes: []
-                    ),
-                    onRun: { id, _ in onRunCustomAction(id, paths) }
-                )
+                .disabled(selection.isSingleFileActionDisabled)
             }
         }
     }
 
-    private func makeFileItemProvider(payload: GitDragPayload) -> NSItemProvider {
-        GitDragPayloadStore.set(payload)
-
-        let provider = NSItemProvider()
-        if let data = try? GitDragPayload.encodeTransferData(payload) {
-            provider.registerDataRepresentation(
-                forTypeIdentifier: UTType.macgitGitDragPayload.identifier,
-                visibility: .all
-            ) { completionHandler in
-                completionHandler(data, nil)
-                return nil
-            }
+    @ViewBuilder
+    private func completeFileContextMenu(
+        file: StatusFile,
+        isStaged: Bool,
+        selection: FileStatusActionSelection
+    ) -> some View {
+        fileContextMenu(file: file, isStaged: isStaged, selection: selection)
+        Divider()
+        Menu("Custom Actions") {
+            let paths = selection.files(for: .remove, fallback: file).map(\.path)
+            CustomActionMenuContent(
+                store: customActionStore,
+                surface: .selectedFiles,
+                context: CustomActionInvocationContext(
+                    repositoryURL: repositoryURL,
+                    filePaths: paths,
+                    commitHashes: []
+                ),
+                onRun: { id, _ in onRunCustomAction(id, paths) }
+            )
         }
-        provider.register(payload)
-        provider.suggestedName = "\(payload.files.count) files"
-        return provider
-    }
-
-    private func quickActionButton(_ quickAction: FileStatusRowQuickAction, file: StatusFile) -> some View {
-        Button {
-            Task {
-                switch quickAction.kind {
-                case .stage:
-                    await stage(file: file)
-                case .unstage:
-                    await unstage(file: file)
-                }
-            }
-        } label: {
-            Image(systemName: quickAction.systemImage)
-                .font(.system(size: 10, weight: .semibold))
-                .frame(width: 20, height: 20)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .help(quickAction.accessibilityLabel)
-        .accessibilityLabel(quickAction.accessibilityLabel)
-        .frame(width: 24)
-    }
-
-    private func moreButton(file: StatusFile, isStaged: Bool, selection: FileStatusActionSelection) -> some View {
-
-        return Menu {
-            comparisonMenu(file: file, selection: selection)
-            Button("Open") { openFile(file: file) }
-                .disabled(selection.isSingleFileActionDisabled)
-            Button("Show in Finder") { showInFinder(file: file) }
-                .disabled(selection.isSingleFileActionDisabled)
-            if hasPotentialConflict(file) {
-                Button("View Potential Conflict Details…", systemImage: "exclamationmark.triangle") {
-                    presentPotentialConflictDetails(for: file)
-                }
-                .disabled(selection.isSingleFileActionDisabled)
-            }
-            Divider()
-
-            if isStaged {
-                Button(menuTitle(for: .unstage, selection: selection)) {
-                    Task {
-                        await unstage(files: selection.files(for: .unstage, fallback: file))
-                    }
-                }
-                Button(selection.title(for: .remove)) {
-                    Task {
-                        await remove(files: selection.files(for: .remove, fallback: file))
-                    }
-                }
-            } else {
-                Button(menuTitle(for: .stage, selection: selection)) {
-                    Task {
-                        await stage(files: selection.files(for: .stage, fallback: file))
-                    }
-                }
-                Button(selection.title(for: .discard)) {
-                    Task {
-                        await discard(files: selection.files(for: .discard, fallback: file))
-                    }
-                }
-                Button(selection.title(for: .remove)) {
-                    Task {
-                        await remove(files: selection.files(for: .remove, fallback: file))
-                    }
-                }
-                if file.status == .untracked || file.status == .added {
-                    Button("Ignore") { ignoreTargetFile = file }
-                        .disabled(selection.isSingleFileActionDisabled)
-                }
-            }
-
-            Divider()
-
-            if !isStaged {
-                Button("Reset") { Task { await discard(file: file) } }
-                    .disabled(selection.isSingleFileActionDisabled)
-
-                if !recentCommits.isEmpty {
-                    Menu("Reset to Commit...") {
-                        ForEach(recentCommits, id: \.hash) { commit in
-                            Button("\(commit.hash) \(commit.message)") {
-                                Task { await resetToCommit(file: file, commit: commit.hash) }
-                            }
-                        }
-                    }
-                    .disabled(selection.isSingleFileActionDisabled)
-                }
-
-                if file.status == .conflict {
-                    Menu("Resolve Conflicts") {
-                        Button("Use Current Version") {
-                            Task { await resolveConflict(file: file, using: .ours) }
-                        }
-                        Button("Use Incoming Version") {
-                            Task { await resolveConflict(file: file, using: .theirs) }
-                        }
-                        Divider()
-                        Button("Resolve Manually…") {
-                            openConflictResolverWindow(for: file)
-                        }
-                        Button("Resolve with External Tool") {
-                            Task { await resolveConflictWithExternalTool(file: file) }
-                        }
-                        .disabled(integrationSettings.selectedApplication(for: .merge) == nil)
-                    }
-                    .disabled(selection.isSingleFileActionDisabled)
-                }
-            }
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 11, weight: .semibold))
-                .frame(width: 20, height: 20)
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(width: 24)
     }
 
     @ViewBuilder

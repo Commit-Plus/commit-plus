@@ -26,7 +26,7 @@ nonisolated enum DiffLineRendering {
     static let longLineByteThreshold = 4_096
 }
 
-nonisolated enum DiffLineType: Sendable {
+nonisolated enum DiffLineType: Hashable, Sendable {
     case context
     case added
     case removed
@@ -35,11 +35,21 @@ nonisolated enum DiffLineType: Sendable {
 }
 
 nonisolated struct DiffLine: Identifiable, Sendable {
-    let id = UUID()
+    var id: UUID
     let oldLineNumber: Int?
     let newLineNumber: Int?
     let text: String
     let type: DiffLineType
+
+    init(id: UUID = UUID(), oldLineNumber: Int?, newLineNumber: Int?, text: String, type: DiffLineType) {
+        self.id = id
+        self.oldLineNumber = oldLineNumber
+        self.newLineNumber = newLineNumber
+        self.text = text
+        self.type = type
+    }
+
+    var textFingerprint: DiffTextFingerprint { DiffTextFingerprint(text) }
 }
 
 nonisolated enum DiffLineBackgroundKind: Equatable, Sendable {
@@ -65,19 +75,25 @@ nonisolated struct DiffLineBackgroundRun: Identifiable, Sendable {
 }
 
 nonisolated struct DiffHunk: Identifiable, Sendable {
-    let id = UUID()
+    let id: UUID
     let header: String
     let lines: [DiffLine]
     let backgroundRuns: [DiffLineBackgroundRun]
     let widestLineCandidate: String
+    let addedCount: Int
+    let removedCount: Int
+    let contentRevision: DiffContentRevision
 
-    init(header: String, lines: [DiffLine]) {
+    init(id: UUID = UUID(), header: String, lines: [DiffLine]) {
+        self.id = id
         self.header = header
         self.lines = lines
 
         var runs: [DiffLineBackgroundRun] = []
         var widestLineCandidate = ""
         var widestLineUTF16Count = 0
+        var addedCount = 0
+        var removedCount = 0
         for (index, line) in lines.enumerated() {
             let kind = DiffLineBackgroundKind(line.type)
             if let last = runs.last, last.kind == kind {
@@ -89,6 +105,8 @@ nonisolated struct DiffHunk: Identifiable, Sendable {
             } else {
                 runs.append(DiffLineBackgroundRun(id: index, count: 1, kind: kind))
             }
+            if line.type == .added { addedCount += 1 }
+            if line.type == .removed { removedCount += 1 }
             let utf16Count = line.text.utf16.count
             if utf16Count > widestLineUTF16Count {
                 widestLineCandidate = line.text
@@ -97,6 +115,20 @@ nonisolated struct DiffHunk: Identifiable, Sendable {
         }
         backgroundRuns = runs
         self.widestLineCandidate = widestLineCandidate
+        self.addedCount = addedCount
+        self.removedCount = removedCount
+        contentRevision = DiffContentRevision(
+            header: header,
+            lines: lines.map {
+                DiffContentRevision.Line(oldLineNumber: $0.oldLineNumber,
+                                         newLineNumber: $0.newLineNumber,
+                                         text: $0.text, type: $0.type)
+            }
+        )
+    }
+
+    func replacingLines(_ lines: [DiffLine]) -> Self {
+        Self(id: id, header: header, lines: lines)
     }
 }
 
@@ -107,6 +139,8 @@ nonisolated enum DiffParser {
         var currentHeader = ""
         var oldLine = 0
         var newLine = 0
+        var currentHunkID = UUID()
+        var occurrences: [String: Int] = [:]
 
         let lines = raw.components(separatedBy: "\n")
         var inHunk = false
@@ -117,7 +151,7 @@ nonisolated enum DiffParser {
             if text.hasPrefix("@@") {
                 // Start of hunk
                 if inHunk {
-                    hunks.append(DiffHunk(header: currentHeader, lines: currentLines))
+                    hunks.append(DiffHunk(id: currentHunkID, header: currentHeader, lines: currentLines))
                 }
                 inHunk = true
                 currentHeader = text
@@ -136,6 +170,11 @@ nonisolated enum DiffParser {
                             // Deleted file or new file
                         }
                         newLine = Int(String(newPart[0]).dropFirst()) ?? 0
+                        let key = "\(oldLine):\(newLine)"
+                        let occurrence = occurrences[key, default: 0]
+                        occurrences[key] = occurrence + 1
+                        currentHunkID = DiffHunkIdentity.make(
+                            oldStart: oldLine, newStart: newLine, occurrence: occurrence)
                     }
                 }
                 continue
@@ -186,7 +225,7 @@ nonisolated enum DiffParser {
         }
 
         if inHunk && !currentLines.isEmpty {
-            hunks.append(DiffHunk(header: currentHeader, lines: currentLines))
+            hunks.append(DiffHunk(id: currentHunkID, header: currentHeader, lines: currentLines))
         }
 
         return hunks

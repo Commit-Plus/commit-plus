@@ -250,6 +250,11 @@ class SyncState: ObservableObject {
             )
             await refreshCoordinator.finishAutomaticFetch(succeeded: true, at: .now)
             return true
+        } catch let error as GitFetchError where !error.succeededRemotes.isEmpty {
+            // Automatic fetch is non-interrupting. Keep successful remote updates
+            // and leave reconnect guidance for the account and manual-fetch UI.
+            await refreshCoordinator.finishAutomaticFetch(succeeded: true, at: .now)
+            return true
         } catch {
             // Automatic fetch remains best effort. Manual actions surface errors.
             await refreshCoordinator.finishAutomaticFetch(succeeded: false, at: .now)
@@ -574,6 +579,11 @@ class SyncState: ObservableObject {
             await refresh(repositoryURL: repositoryURL)
             notifyRepositoryChanged(repositoryURL)
         } catch {
+            if let fetchError = error as? GitFetchError,
+               !fetchError.succeededRemotes.isEmpty {
+                await refresh(repositoryURL: repositoryURL)
+                notifyRepositoryChanged(repositoryURL)
+            }
             showError(error.localizedDescription)
         }
     }

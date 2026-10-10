@@ -36,7 +36,7 @@ Small hunks scroll smoothly. Files with large bulk changes (tens of thousands of
 ## 3. Architecture
 
 ```
-DiffView (SwiftUI)                         selection @State, contentIdentity, image preview, empty state
+DiffView (SwiftUI)                         selection @State, presentationIdentity, image preview, empty state
 └─ DiffNativeTable (NSViewRepresentable)   no generic content closure
    └─ NSScrollView (vertical)
       └─ DiffFlippedView (document, height = DiffHunkGeometry.height)
@@ -84,17 +84,21 @@ This is the source of truth. Old line numbers are for lookup only.
 - Image preview, `EmptyStateView` for no hunks, and `prefersTextDiff` behavior are unchanged.
 
 ### 4.3 Identity and refresh
-- Switching to another file (different `contentIdentity`) resets: scroll to top, horizontal offsets, selection, anchor.
+- Switching to another file (different `presentationIdentity`) resets: scroll to top, horizontal offsets, selection, anchor.
 - Re-rendering the same file with equal or changed hunks never recreates the `NSScrollView`.
+- Same-file text changes with unchanged hunk and line counts still invalidate affected widths and canvas sources while preserving the viewport.
+- Selection follows unchanged logical lines; inserting a neighbouring row must not invalidate every later line merely because its index or displayed line number moved.
 
 ## 5. Component design
 
-### 5.1 Stable identity (`GitDiffModels.swift`)
-- `DiffLine` gains `let contentKey: Int` (hash of `text`) and its `id` becomes `fileprivate(set) var id: UUID`. The public initializer is unchanged (random id) so standalone call sites keep compiling.
-- `DiffHunk.init(header:lines:)` re-stamps ids deterministically:
-  - `hunkSeed = hash(header, lines.count)`; `hunk.id = DiffIdentity.uuid(hunkSeed, 0x48554e4b)`.
-  - `line.id = DiffIdentity.uuid(hash(hunkSeed, index, type, old, new), contentKey)`.
-- `DiffIdentity.uuid(_:_:)` packs two `Int`s into the 16 UUID bytes. `Hasher` is seeded per process; ids are only used in memory, never persisted.
+### 5.1 Identity, revision and cache fingerprints (`GitDiffModels.swift`)
+Identity is split by purpose; one hash must not control navigation, refresh invalidation, selection restoration and cache reuse.
+
+- `presentationIdentity` belongs to `DiffView`. It identifies the displayed surface (`repository + file path + git ref/mode`) and defines the full-reset boundary.
+- `DiffHunk.id` is stable for viewport and horizontal-offset matching. `DiffParser` derives it from parsed old/new hunk start positions plus an occurrence ordinal, not line count or text. Standalone `DiffHunk` initializers retain a random id unless an identity is supplied.
+- `DiffHunk.contentRevision` fingerprints the complete ordered render/action input: header and every line's type, old/new numbers and exact text. Any content edit changes it even when counts stay equal. Width and canvas invalidation compare revisions, never only ids.
+- `DiffLine` keeps its public random id. On same-presentation refresh, `DiffLineIdentityMatcher` maps old IDs onto new lines using `(type, exact text)` plus occurrence order and local neighbouring context. Index and displayed line numbers are tie-breakers only. Ambiguous matches deliberately receive new IDs rather than restoring selection to the wrong row.
+- Text caches use `DiffTextFingerprint`, containing the exact `String` plus a precomputed hash. Equality verifies the string, so a hash collision cannot alias two contents. Cache keys add only the rendering inputs they depend on.
 - `DiffHunk` also precomputes `addedCount` and `removedCount` (from `backgroundRuns`). Text metrics are **not** stored on the model; they are font-dependent and live in §5.3/§5.7.
 - `DiffLineType` becomes `Hashable`.
 
@@ -120,7 +124,7 @@ Holds `textScale`, `syntaxHighlighting`, `fileExtension`, `isDark`, and derived 
 - After drawing, the canvas asks `DiffHighlightStore` and `DiffLongLineStore` to prefetch rows `visible ± one viewport`; when results arrive the stores mark interested canvases for display.
 
 ### 5.5 `DiffLongLineStore` (`@MainActor final class`)
-- Key: `(contentKey, styleVersionForFont)`. Values:
+- Key: `(DiffTextFingerprint, fontVersion)`. Values:
   - `.ascii(bytes: [UInt8], columns: Int)` — tab-expanded bytes. Window drawing creates a `CTLine` only for columns `[floor(x0 / advance) − 64, ceil(x1 / advance) + 64]`, built with `String(decoding: bytes[a..<b], as: UTF8.self)`. Cost is proportional to the viewport, not the line.
   - `.chunked(DiffLongLineLayout)` — existing chunked CoreText layout for non-ASCII long lines; window = `visibleChunks(in:)`; per-chunk `CTLine`s cached in the store.
 - Preparation runs in one detached task per key; concurrent requests for the same key share it (in-flight dictionary). Cancellation only when no canvas wants the key anymore and the file changes.
@@ -129,12 +133,12 @@ Holds `textScale`, `syntaxHighlighting`, `fileExtension`, `isDark`, and derived 
 
 ### 5.6 Highlighting off the main thread
 - Extract `SyntaxTokenizer` (`nonisolated enum`) from `SyntaxHighlighter`: compiled rules cache behind `OSAllocatedUnfairLock`, `static func tokens(in text: String, language: String) -> [SyntaxToken]` where `SyntaxToken { range: NSRange; type: SyntaxTokenType }` is `Sendable`. `syntaxIdentifier(forLanguage:)`/`forFilePath:` become `nonisolated`. `SyntaxHighlighter` keeps its API and delegates to the tokenizer (no behavior change for other users).
-- `DiffHighlightStore` (`@MainActor`): `tokens(for line) -> [SyntaxToken]?` (cache by `contentKey` + language); `prefetch(lines:)` collects missing, non-long, non-in-flight lines and tokenizes them in **one** detached task per batch; results inserted on main, then the registered canvases redraw. Batches are dropped if `contentIdentity` changed.
-- `DiffTextLayoutStore` combines text + tokens + `DiffRenderContext` colors into a `CTLine` keyed by `(contentKey, type, highlighted, styleVersion)`.
+- `DiffHighlightStore` (`@MainActor`): caches by `(DiffTextFingerprint, language)`; batches carry a monotonically increasing presentation generation and stale generations are dropped before insertion.
+- `DiffTextLayoutStore` combines text + tokens + `DiffRenderContext` colors into a `CTLine` keyed by `(DiffTextFingerprint, type, highlighted, styleVersion)`.
 
 ### 5.7 `DiffWidthIndex`
-- Per hunk id: `estimate` = `widestLineCandidate` columns × advance (instant, from the field `DiffHunk` already computes), replaced by `exact` computed off-main (`DiffTextMetrics` for ASCII, `CTLine`/`DiffLongLineLayout.measuredWidth` otherwise).
-- Visible hunks are measured first; the remaining hunks follow in order. Each finished hunk updates the table via a callback (only that panel's `updateGeometry`). Results are keyed by `(hunk.id, fontKey)` and survive refreshes.
+- Per hunk revision: `estimate` = `widestLineCandidate` columns × advance (instant, from the field `DiffHunk` already computes), replaced by `exact` computed off-main (`DiffTextMetrics` for ASCII, `CTLine`/`DiffLongLineLayout.measuredWidth` otherwise).
+- Visible hunks are measured first; the remaining hunks follow in order. Each finished hunk updates the table via a callback (only that panel's `updateGeometry`). Results are keyed by `(hunk.contentRevision, fontKey)`, so unchanged hunks survive refreshes and edited same-count hunks cannot reuse stale widths.
 
 ### 5.8 Selection, menus, actions
 - `DiffLineSelection` (`nonisolated enum`, pure): `apply(tapAt:in:selection:anchor:shift:command:) -> (Set<UUID>, UUID?)` and `expandedSelectedLines(in hunk:, selection:) -> [DiffLine]` (moved from `HunkView`).
@@ -145,10 +149,10 @@ Holds `textScale`, `syntaxHighlighting`, `fileExtension`, `isDark`, and derived 
 A tiny `DiffGenerationalCache<Key, Value>` (two dictionaries; lookup promotes from the old generation; when the current generation exceeds `capacity / 2` the old one is dropped). O(1) amortized, bounded at `capacity`. Used by the layout, highlight and long-line stores. (`BoundedMemoryCache` is O(n) per touch and stays untouched for its current users.)
 
 ### 5.10 Coordinator change detection and viewport preservation
-- `DiffNativeTable` takes `hunks`, `contentIdentity: AnyHashable?`, `textScale`, `syntaxHighlighting`, `fileExtension`, `selectedLineIDs`, `headerInputs` (value) and `actions: DiffActionController`. No view-builder closure.
+- `DiffNativeTable` takes `hunks`, `presentationIdentity: AnyHashable`, `textScale`, `syntaxHighlighting`, `fileExtension`, `selectedLineIDs`, `headerInputs` (value) and `actions: DiffActionController`. No view-builder closure.
 - `apply()` compares, in this order:
-  1. `contentIdentity` changed → full reset (scroll to top, offsets cleared, panels released).
-  2. hunk ids changed (same identity) → rebuild geometry; keep `contentView.bounds.minY` (clamped to the new height); keep offsets keyed by **hunk id** (was index); re-source visible panels.
+  1. `presentationIdentity` changed → increment generation and full reset (scroll to top, offsets and selection cleared, panels released).
+  2. hunk ids or content revisions changed (same presentation) → run `DiffLineIdentityMatcher`, rebuild geometry only when counts changed, keep `contentView.bounds.minY` clamped to the new height, keep offsets for matching hunk ids, and invalidate width/canvas sources only for changed revisions.
   3. scale/highlighting/extension/appearance → bump `styleVersion`, update geometry if scale changed, redraw canvases, reconfigure headers.
   4. selection changed → redraw visible canvases; reconfigure a header only if its `hasSelectedLines` flipped.
   5. otherwise → nothing.
@@ -171,7 +175,7 @@ A tiny `DiffGenerationalCache<Key, Value>` (two dictionaries; lookup promotes fr
 | Create | `Views/Common/Diff/DiffRenderContext.swift`, `DiffTextMetrics.swift`, `DiffGenerationalCache.swift`, `DiffTextLayoutStore.swift`, `DiffLongLineStore.swift`, `DiffHighlightStore.swift`, `DiffWidthIndex.swift`, `DiffLineSelection.swift`, `DiffMenuModel.swift`, `DiffActionController.swift`, `DiffHunkHeaderView.swift`, `DiffHunkCanvasView.swift`, `DiffSignpost.swift`; `Services/SyntaxTokenizer.swift` |
 | Modify | `Services/GitDiffModels.swift`, `Services/SyntaxHighlighter.swift`, `Views/Common/DiffView.swift`, `DiffNativeTable.swift`, `DiffNativeHunkView.swift`, `DiffLongLineContent.swift` |
 | Delete | `Views/Common/DiffNativeCell.swift`, `Views/Common/DiffLineHighlightCache.swift`, `HunkView` (inside `DiffView.swift`) |
-| Keep | `DiffLineView` (used by `CommitFilePreviewContent`), `DiffHunkGeometry`, `DiffHunkScrollView`, `DiffFlippedView`, `DiffLongLineLayout`, `DiffPatchBuilder`, all `DiffView` call sites (signature stays source-compatible; `contentIdentity` defaults to `file?.path ?? filePath`) |
+| Keep | `DiffLineView` (used by `CommitFilePreviewContent`), `DiffHunkGeometry`, `DiffHunkScrollView`, `DiffFlippedView`, `DiffLongLineLayout`, `DiffPatchBuilder`, all `DiffView` call sites (signature stays source-compatible; `presentationIdentity` has a safe derived default) |
 
 The project uses synchronized folders: new files and the `Diff/` subfolder need no `.xcodeproj` edits.
 
@@ -190,7 +194,7 @@ The project uses synchronized folders: new files and the `Diff/` subfolder need 
 | VoiceOver loses row elements | Canvas exposes visible rows as `NSAccessibilityElement` children (role static text, label “Added line 12: …”, first 200 characters). |
 | Long-line tooltip (`.help`) is lost | Accepted; placeholder text remains. Can be re-added with `addToolTip(_:owner:userData:)` per long row if missed. |
 | Deterministic ids collide | Line id mixes hunk seed, index, type, numbers and content hash; ids are scoped to one file's diff. |
-| Off-main highlighting races a file switch | Every batch carries `contentIdentity`; stale results are dropped. |
+| Off-main highlighting races a file switch | Every batch carries the monotonic presentation generation; stale results are dropped. |
 | Tab rendering changes slightly (4-column stops) | Documented decision; constant in one place. |
 
 ## 9. Follow-ups (not in this work)
