@@ -243,6 +243,8 @@ private final class CommitFileNativeCell: NSTableCellView {
             removedLabel.font = countFont
             addedLabel.stringValue = "+\(count.added)"
             removedLabel.stringValue = "-\(count.removed)"
+            addedLabel.setAccessibilityLabel("\(count.added) lines added")
+            removedLabel.setAccessibilityLabel("\(count.removed) lines removed")
             addedWidth = ceil(addedLabel.intrinsicContentSize.width) + 3
             removedWidth = ceil(removedLabel.intrinsicContentSize.width) + 3
             addedLabel.isHidden = false
