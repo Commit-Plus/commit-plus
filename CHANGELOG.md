@@ -2,26 +2,25 @@
 
 Changes in the latest Commit+ release compared with the previous release.
 
-## v1.1.12
+## v1.1.13
 
-Changes since `v1.1.11`.
+Changes since `v1.1.12`.
 
 ### Added
 
-- **GitHub notifications** — Check repository notifications from the toolbar, refresh them on demand, and open related GitHub activity from the new popover.
-- **Command-line tool setup** — Install the `commit` command from the app menu or Settings with clearer setup guidance.
+- **View release notes again** — Open the changelog for your installed version from the GitHub notifications popover.
 
 ### Improved
 
-- **Faster History and diff browsing** — New native table-backed views, incremental loading, cached graph geometry, and cancellable detail loading reduce unnecessary work while navigating large repositories.
-- **Settings organization** — App, repository, account, and connection settings are easier to navigate, with account and connection management consolidated in Settings.
-- **Push workflow** — The branch push sheet has a clearer, more compact layout.
+- **Diff browsing** — Canvas-backed rendering, cached text layout, and stable line identities reduce rendering work for large diffs and long lines.
+- **Native sidebar and file lists** — AppKit tables handle sidebar navigation, changed files, and commit files with reusable rows and native click and drag handling.
+- **Repository screen switching** — File Status, History, and Reflog retain their screen state when switching views and defer refresh work while inactive.
+- **Branch names** — Creating and renaming branches preserves capitalization and non-whitespace characters, while replacing whitespace with hyphens.
 
 ### Fixed
 
-- Diff content in detail panels now scrolls reliably and no longer conflicts with split-view divider hit testing.
-- History detail loading resumes cleanly after interruption and avoids stale work when selection changes.
-- The GitHub notification account picker no longer truncates when the popover uses a fixed height.
-- Repository menu actions target the correct window more reliably.
+- Fetch uses the current branch's tracked remote, falling back to origin or an available remote, without resolving credentials for unrelated remotes.
+- Fetching all remotes continues after an individual failure, retains successful updates, and reports failures by remote.
+- Release notes match the installed app version instead of loading the latest changelog from main.
 
-[Compare v1.1.11 to v1.1.12](https://github.com/Commit-Plus/commit-plus/compare/v1.1.11...v1.1.12)
+[Compare v1.1.12 to v1.1.13](https://github.com/Commit-Plus/commit-plus/compare/v1.1.12...v1.1.13)
