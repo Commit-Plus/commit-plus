@@ -87,6 +87,7 @@ struct SidebarBranchDragSource: NSViewRepresentable {
             dragStartEvent = event
             pendingDoubleTap = event.clickCount == 2
             didStartDragging = false
+            onTap()
         }
 
         override func mouseDragged(with event: NSEvent) {
@@ -128,9 +129,6 @@ struct SidebarBranchDragSource: NSViewRepresentable {
             dragStartEvent = nil
             pendingDoubleTap = false
             didStartDragging = false
-            if shouldTap {
-                onTap()
-            }
             if shouldDoubleTap {
                 onDoubleTap()
             }

@@ -18,9 +18,17 @@
 import Foundation
 
 struct BranchNode: Identifiable, Hashable {
-    let id = UUID()
+    struct ID: Hashable {
+        let fullPath: String
+        let isFolder: Bool
+    }
+
     let name: String
     let fullPath: String
     let isFolder: Bool
     var children: [BranchNode]
+
+    var id: ID {
+        ID(fullPath: fullPath, isFolder: isFolder)
+    }
 }

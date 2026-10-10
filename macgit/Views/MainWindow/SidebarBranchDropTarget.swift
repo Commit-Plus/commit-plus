@@ -27,6 +27,7 @@ import UniformTypeIdentifiers
 struct SidebarBranchDropTarget: NSViewRepresentable {
     var passthroughTrailingWidth: CGFloat = 0
     let onTap: () -> Void
+    var onDoubleTap: () -> Void = {}
     let onTargetedChange: (Bool) -> Void
     let fallbackPayload: () -> GitDragPayload?
     let canAcceptDrop: (GitDragPayload) -> Bool
@@ -39,6 +40,7 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
         DropTargetView(
             passthroughTrailingWidth: passthroughTrailingWidth,
             onTap: onTap,
+            onDoubleTap: onDoubleTap,
             onTargetedChange: onTargetedChange,
             fallbackPayload: fallbackPayload,
             canAcceptDrop: canAcceptDrop,
@@ -52,6 +54,7 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
     func updateNSView(_ nsView: DropTargetView, context: Context) {
         nsView.passthroughTrailingWidth = passthroughTrailingWidth
         nsView.onTap = onTap
+        nsView.onDoubleTap = onDoubleTap
         nsView.onTargetedChange = onTargetedChange
         nsView.fallbackPayload = fallbackPayload
         nsView.canAcceptDrop = canAcceptDrop
@@ -71,6 +74,7 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
         private static let payloadType = NSPasteboard.PasteboardType(payloadIdentifier)
 
         var onTap: () -> Void
+        var onDoubleTap: () -> Void
         var passthroughTrailingWidth: CGFloat
         var onTargetedChange: (Bool) -> Void
         var fallbackPayload: () -> GitDragPayload?
@@ -84,10 +88,12 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
         private var dragStartEvent: NSEvent?
         private var activeDragPayload: GitDragPayload?
         private var didStartDragging = false
+        private var pendingDoubleTap = false
 
         init(
             passthroughTrailingWidth: CGFloat = 0,
             onTap: @escaping () -> Void,
+            onDoubleTap: @escaping () -> Void = {},
             onTargetedChange: @escaping (Bool) -> Void,
             fallbackPayload: @escaping () -> GitDragPayload?,
             canAcceptDrop: @escaping (GitDragPayload) -> Bool,
@@ -98,6 +104,7 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
         ) {
             self.passthroughTrailingWidth = passthroughTrailingWidth
             self.onTap = onTap
+            self.onDoubleTap = onDoubleTap
             self.onTargetedChange = onTargetedChange
             self.fallbackPayload = fallbackPayload
             self.canAcceptDrop = canAcceptDrop
@@ -129,13 +136,13 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
         override func mouseDown(with event: NSEvent) {
             dragStartEvent = event
             didStartDragging = false
+            pendingDoubleTap = event.clickCount == 2
+            onTap()
         }
 
         override func mouseDragged(with event: NSEvent) {
             guard activeDragPayload == nil,
-                  let dragStartEvent,
-                  let payload = dragPayload(),
-                  let item = Self.pasteboardItem(for: payload)
+                  let dragStartEvent
             else {
                 return
             }
@@ -143,6 +150,13 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
             let start = dragStartEvent.locationInWindow
             let location = event.locationInWindow
             guard hypot(location.x - start.x, location.y - start.y) >= 4 else {
+                return
+            }
+            pendingDoubleTap = false
+
+            guard let payload = dragPayload(),
+                  let item = Self.pasteboardItem(for: payload)
+            else {
                 return
             }
 
@@ -162,11 +176,12 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
         }
 
         override func mouseUp(with event: NSEvent) {
-            if !didStartDragging && activeDragPayload == nil {
-                onTap()
+            if !didStartDragging && activeDragPayload == nil && pendingDoubleTap {
+                onDoubleTap()
             }
             dragStartEvent = nil
             didStartDragging = false
+            pendingDoubleTap = false
         }
 
         func draggingSession(

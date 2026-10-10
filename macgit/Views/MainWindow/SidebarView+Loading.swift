@@ -20,6 +20,7 @@ import SwiftUI
 extension SidebarView {
     func resetLazySectionData() {
         branchNodes = []
+        cachedVisibleBranchRows = []
         currentBranch = ""
         headHash = ""
         branchSyncStatus = [:]
@@ -31,19 +32,26 @@ extension SidebarView {
         isLoadingBranches = false
 
         hasLoadedTags = false
+        cachedVisibleTagRows = []
         isLoadingTags = false
+        activeTagLoadID = nil
 
         hasLoadedRemotes = false
+        cachedVisibleRemoteRows = []
         isLoadingRemotes = false
+        activeRemoteLoadID = nil
 
         hasLoadedStashes = false
         isLoadingStashes = false
+        activeStashLoadID = nil
 
         worktreeEntries = []
         hasLoadedWorktrees = false
         isLoadingWorktrees = false
 
         submoduleEntries = []
+        cachedVisibleSubmoduleRows = []
+        cachedSubmoduleEntriesByPath = [:]
         hasLoadedSubmodules = false
         isLoadingSubmodules = false
 
@@ -132,26 +140,23 @@ extension SidebarView {
     }
 
     var visibleBranchRows: [BranchRowItem] {
-        SidebarTreeBuilder.visibleRows(from: branchNodes, expandedFolders: expandedFolders)
+        cachedVisibleBranchRows
     }
 
     var visibleTagRows: [BranchRowItem] {
-        SidebarTreeBuilder.visibleRows(from: tagNodes, expandedFolders: expandedTagFolders)
+        cachedVisibleTagRows
     }
 
     var visibleSubmoduleRows: [BranchRowItem] {
-        SidebarTreeBuilder.visibleRows(
-            from: SidebarTreeBuilder.buildTree(from: submoduleEntries.map(\.path)),
-            expandedFolders: expandedSubmoduleFolders
-        )
+        cachedVisibleSubmoduleRows
     }
 
     var submoduleEntriesByPath: [String: GitSubmoduleEntry] {
-        Dictionary(uniqueKeysWithValues: submoduleEntries.map { ($0.path, $0) })
+        cachedSubmoduleEntriesByPath
     }
 
     var visibleRemoteRows: [BranchRowItem] {
-        SidebarTreeBuilder.visibleRows(from: remoteNodes, expandedFolders: expandedRemoteFolders)
+        cachedVisibleRemoteRows
     }
 
     func loadBranches(force: Bool = false) async {
@@ -159,24 +164,24 @@ extension SidebarView {
             return
         }
 
+        let loadID = UUID()
+        activeBranchSyncLoadID = loadID
         isLoadingBranches = !hasLoadedBranches
-        defer { isLoadingBranches = false }
 
         let (locals, current) = await (
             GitStatusService.shared.cachedLocalBranches(in: repositoryURL),
             GitStatusService.shared.currentBranch(in: repositoryURL) ?? ""
         )
+        guard activeBranchSyncLoadID == loadID else { return }
         let filteredLocals = locals.filter { $0 != "HEAD" && !$0.contains("HEAD detached") }
         let tree = SidebarTreeBuilder.buildTree(from: filteredLocals)
         let allFolders = collectFolderPaths(from: tree)
-        let loadID = UUID()
         let hadLoadedBranches = hasLoadedBranches
         let currentBranchFolders = SidebarTreeBuilder.expandedFolderPaths(revealing: current)
             .intersection(allFolders)
         let expandedFoldersForLoad = hadLoadedBranches
             ? expandedFolders.intersection(allFolders)
             : currentBranchFolders
-        activeBranchSyncLoadID = loadID
 
         await MainActor.run {
             guard activeBranchSyncLoadID == loadID else { return }
@@ -192,7 +197,12 @@ extension SidebarView {
             // Reveal the current branch only on the initial load. Refreshes
             // preserve the user's tree state while dropping removed folders.
             expandedFolders = expandedFoldersForLoad
+            cachedVisibleBranchRows = SidebarTreeBuilder.visibleRows(
+                from: tree,
+                expandedFolders: expandedFoldersForLoad
+            )
             hasLoadedBranches = true
+            isLoadingBranches = false
         }
 
         if current.isEmpty {
@@ -261,16 +271,24 @@ extension SidebarView {
     }
 
     func loadTags() async {
+        let loadID = UUID()
+        activeTagLoadID = loadID
         isLoadingTags = !hasLoadedTags
-        defer { isLoadingTags = false }
 
         let tags = await GitStatusService.shared.tags(in: repositoryURL)
+        guard activeTagLoadID == loadID else { return }
         let tree = SidebarTreeBuilder.buildTree(from: tags)
         let allFolders = collectFolderPaths(from: tree)
 
         await MainActor.run {
             tagNodes = tree
+            cachedVisibleTagRows = SidebarTreeBuilder.visibleRows(
+                from: tree,
+                expandedFolders: expandedTagFolders.isEmpty ? allFolders : expandedTagFolders
+            )
             hasLoadedTags = true
+            isLoadingTags = false
+            activeTagLoadID = nil
             if expandedTagFolders.isEmpty {
                 expandedTagFolders = allFolders
             }
@@ -278,8 +296,9 @@ extension SidebarView {
     }
 
     func loadRemotes() async {
+        let loadID = UUID()
+        activeRemoteLoadID = loadID
         isLoadingRemotes = !hasLoadedRemotes
-        defer { isLoadingRemotes = false }
 
         let remotes = await GitStatusService.shared.remotes(in: repositoryURL)
         let fetchedBranchesByRemote = await withTaskGroup(
@@ -303,14 +322,21 @@ extension SidebarView {
             return result
         }
         let upstreams = await GitStatusService.shared.localBranchUpstreams(in: repositoryURL)
+        guard activeRemoteLoadID == loadID else { return }
 
         let tree = SidebarTreeBuilder.buildRemoteTree(remoteBranchesByRemote: fetchedBranchesByRemote)
         await MainActor.run {
             remoteNodes = tree
+            cachedVisibleRemoteRows = SidebarTreeBuilder.visibleRows(
+                from: tree,
+                expandedFolders: expandedRemoteFolders
+            )
             remoteNames = remotes
             branchesByRemote = fetchedBranchesByRemote
             upstreamByBranch = upstreams
             hasLoadedRemotes = true
+            isLoadingRemotes = false
+            activeRemoteLoadID = nil
             if expandedRemoteFolders.isEmpty {
                 expandedRemoteFolders = []
             }
@@ -318,13 +344,17 @@ extension SidebarView {
     }
 
     func loadStashes() async {
+        let loadID = UUID()
+        activeStashLoadID = loadID
         isLoadingStashes = !hasLoadedStashes
-        defer { isLoadingStashes = false }
 
         let stashes = await GitStatusService.shared.stashes(in: repositoryURL)
+        guard activeStashLoadID == loadID else { return }
         await MainActor.run {
             stashEntries = stashes
             hasLoadedStashes = true
+            isLoadingStashes = false
+            activeStashLoadID = nil
         }
     }
 

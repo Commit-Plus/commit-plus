@@ -121,6 +121,7 @@ extension SidebarView {
                !entries.contains(where: { $0.path == path }) {
                 selection = nil
             }
+            rebuildSubmoduleRowCache()
         } catch is CancellationError {
             if activeSubmoduleLoadID == loadID {
                 isLoadingSubmodules = false
@@ -134,5 +135,16 @@ extension SidebarView {
             errorMessage = error.localizedDescription
             showingError = true
         }
+    }
+
+    func rebuildSubmoduleRowCache() {
+        let tree = SidebarTreeBuilder.buildTree(from: submoduleEntries.map(\.path))
+        cachedVisibleSubmoduleRows = SidebarTreeBuilder.visibleRows(
+            from: tree,
+            expandedFolders: expandedSubmoduleFolders
+        )
+        cachedSubmoduleEntriesByPath = Dictionary(
+            uniqueKeysWithValues: submoduleEntries.map { ($0.path, $0) }
+        )
     }
 }

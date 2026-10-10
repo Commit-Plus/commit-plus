@@ -100,6 +100,7 @@ struct SidebarView: View {
     let onRunRepositoryOperation: RepositoryOperationRunner
 
     @State var branchNodes: [BranchNode] = []
+    @State var cachedVisibleBranchRows: [BranchRowItem] = []
     @State var currentBranch: String = ""
     @State var headHash: String = ""
     @State var branchSyncStatus: [String: BranchSyncStatus] = [:]
@@ -111,10 +112,14 @@ struct SidebarView: View {
     @State var hasLoadedBranches = false
     @State var isLoadingBranches = false
     @State var tagNodes: [BranchNode] = []
+    @State var cachedVisibleTagRows: [BranchRowItem] = []
+    @State var activeTagLoadID: UUID?
     @State var hasLoadedTags = false
     @State var isLoadingTags = false
     @State var expandedTagFolders: Set<String> = []
     @State var remoteNodes: [BranchNode] = []
+    @State var cachedVisibleRemoteRows: [BranchRowItem] = []
+    @State var activeRemoteLoadID: UUID?
     @State var hasLoadedRemotes = false
     @State var remoteNames: [String] = []
     @State var branchesByRemote: [String: [String]] = [:]
@@ -122,9 +127,12 @@ struct SidebarView: View {
     @State var isLoadingRemotes = false
     @State var expandedRemoteFolders: Set<String> = []
     @State var stashEntries: [StashEntry] = []
+    @State var activeStashLoadID: UUID?
     @State var hasLoadedStashes = false
     @State var isLoadingStashes = false
     @State var submoduleEntries: [GitSubmoduleEntry] = []
+    @State var cachedVisibleSubmoduleRows: [BranchRowItem] = []
+    @State var cachedSubmoduleEntriesByPath: [String: GitSubmoduleEntry] = [:]
     @State var hasLoadedSubmodules = false
     @State var isLoadingSubmodules = false
     @State var expandedSubmoduleFolders: Set<String> = []

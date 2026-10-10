@@ -39,16 +39,12 @@ struct SidebarRemoteRow: View {
     private var leafRow: some View {
         let rowView = content
             .tag(SidebarSelection.remoteBranch(row.fullPath))
-            .onTapGesture {
-                actions.select(.remoteBranch(row.fullPath))
-            }
-            .onTapGesture(count: 2) {
-                actions.select(.remoteBranch(row.fullPath))
-                actions.checkoutFromRow(row.fullPath)
-            }
 
         if isHeadReference {
             rowView
+                .onTapGesture {
+                    actions.select(.remoteBranch(row.fullPath))
+                }
                 .contextMenu {
                     SidebarRemoteContextMenu(
                         fullPath: row.fullPath,

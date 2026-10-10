@@ -18,7 +18,7 @@
 import Foundation
 
 struct BranchRowItem: Identifiable, Equatable {
-    let id: UUID
+    let id: BranchNode.ID
     let name: String
     let fullPath: String
     let isFolder: Bool

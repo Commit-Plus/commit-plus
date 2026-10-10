@@ -36,12 +36,6 @@ struct SidebarTagRow: View {
             let tagTarget = GitDragTarget.tag(name: row.fullPath)
             let rowView = content
                 .tag(SidebarSelection.tag(row.fullPath))
-                .onTapGesture {
-                    actions.select(.tag(row.fullPath))
-                }
-                .onTapGesture(count: 2) {
-                    actions.checkout(row.fullPath)
-                }
                 .contextMenu {
                     SidebarTagContextMenu(
                         tag: row.fullPath,
@@ -54,6 +48,7 @@ struct SidebarTagRow: View {
                 .overlay {
                     SidebarBranchDropTarget(
                         onTap: { actions.select(.tag(row.fullPath)) },
+                        onDoubleTap: { actions.checkout(row.fullPath) },
                         onTargetedChange: { actions.setTagDropTargeted(row.fullPath, $0) },
                         fallbackPayload: actions.drop.activePayload,
                         canAcceptDrop: { payload in

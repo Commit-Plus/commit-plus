@@ -75,4 +75,23 @@ final class SidebarTreeBuilderTests: XCTestCase {
         XCTAssertFalse(rows.contains { $0.fullPath == "feature/2026/v2/update-search" })
         XCTAssertFalse(rows.contains { $0.fullPath == "test/sidebar" })
     }
+
+    func testTreeIdentityIsStableAcrossEquivalentRebuilds() {
+        let refs = ["main", "feature/sidebar", "feature/history"]
+
+        let first = SidebarTreeBuilder.buildTree(from: refs)
+        let second = SidebarTreeBuilder.buildTree(from: refs.reversed())
+
+        XCTAssertEqual(first.map(\.id), second.map(\.id))
+        XCTAssertEqual(first.flatMap(\.children).map(\.id), second.flatMap(\.children).map(\.id))
+    }
+
+    func testFolderAndLeafWithSamePathHaveDistinctIdentity() {
+        let nodes = SidebarTreeBuilder.buildTree(from: ["feature", "feature/sidebar"])
+        let featureFolder = try? XCTUnwrap(nodes.first { $0.fullPath == "feature" && $0.isFolder })
+        let featureLeaf = featureFolder?.children.first { $0.fullPath == "feature" && !$0.isFolder }
+
+        XCTAssertNotNil(featureLeaf)
+        XCTAssertNotEqual(featureFolder?.id, featureLeaf?.id)
+    }
 }

@@ -23,6 +23,10 @@ extension SidebarView {
             expandedFolders.remove(path)
         } else {
             expandedFolders.insert(path)
+            cachedVisibleBranchRows = SidebarTreeBuilder.visibleRows(
+                from: branchNodes,
+                expandedFolders: expandedFolders
+            )
             if let loadID = activeBranchSyncLoadID {
                 let newlyVisibleBranches = visibleBranchRows
                     .filter { !$0.isFolder && $0.fullPath.hasPrefix(path + "/") }
@@ -30,6 +34,10 @@ extension SidebarView {
                 startBranchSync(for: newlyVisibleBranches, loadID: loadID)
             }
         }
+        cachedVisibleBranchRows = SidebarTreeBuilder.visibleRows(
+            from: branchNodes,
+            expandedFolders: expandedFolders
+        )
     }
 
     func toggleRemoteFolder(_ path: String) {
@@ -38,6 +46,10 @@ extension SidebarView {
         } else {
             expandedRemoteFolders.insert(path)
         }
+        cachedVisibleRemoteRows = SidebarTreeBuilder.visibleRows(
+            from: remoteNodes,
+            expandedFolders: expandedRemoteFolders
+        )
     }
 
     func requestRemoteBranchCheckout(_ fullPath: String) {

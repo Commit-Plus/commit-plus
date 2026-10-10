@@ -36,6 +36,10 @@ extension SidebarView {
         } else {
             expandedTagFolders.insert(path)
         }
+        cachedVisibleTagRows = SidebarTreeBuilder.visibleRows(
+            from: tagNodes,
+            expandedFolders: expandedTagFolders
+        )
     }
 
     func toggleSubmoduleFolder(_ path: String) {
@@ -44,5 +48,6 @@ extension SidebarView {
         } else {
             expandedSubmoduleFolders.insert(path)
         }
+        rebuildSubmoduleRowCache()
     }
 }
