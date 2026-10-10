@@ -405,20 +405,20 @@ private final class FileStatusNativeCell: NSTableCellView {
     override func layout() {
         super.layout()
         let midY = bounds.midY
-        checkbox.frame = NSRect(x: 8, y: midY - 9, width: 18, height: 18)
-        icon.frame = NSRect(x: 36, y: midY - 9, width: 18, height: 18)
-        moreButton.frame = NSRect(x: bounds.maxX - 28, y: midY - 12, width: 24, height: 24)
-        quickButton.frame = NSRect(x: moreButton.frame.minX - 26, y: midY - 12, width: 24, height: 24)
+        checkbox.frame = NSRect(x: 5, y: midY - 9, width: 18, height: 18)
+        icon.frame = NSRect(x: 29, y: midY - 9, width: 18, height: 18)
+        moreButton.frame = NSRect(x: bounds.maxX - 24, y: midY - 11, width: 22, height: 22)
+        quickButton.frame = NSRect(x: moreButton.frame.minX - 22, y: midY - 11, width: 22, height: 22)
         var accessoryX = quickButton.frame.minX
         if !conflictButton.isHidden {
-            accessoryX -= 26
-            conflictButton.frame = NSRect(x: accessoryX, y: midY - 11, width: 24, height: 22)
+            accessoryX -= 24
+            conflictButton.frame = NSRect(x: accessoryX, y: midY - 11, width: 22, height: 22)
         }
         if !lfsLabel.isHidden {
             accessoryX -= 34
             lfsLabel.frame = NSRect(x: accessoryX, y: midY - 9, width: 30, height: 18)
         }
-        let textX: CGFloat = 64
+        let textX: CGFloat = 53
         let textWidth = max(20, accessoryX - textX - 6)
         nameLabel.frame = NSRect(x: textX, y: midY + 1, width: textWidth, height: 18)
         let countWidth = addedCountWidth + removedCountWidth + (addedCountWidth > 0 ? 4 : 0)
