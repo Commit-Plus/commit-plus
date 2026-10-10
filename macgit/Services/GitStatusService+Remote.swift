@@ -22,6 +22,27 @@
 //
 import Foundation
 
+struct GitFetchRemoteFailure: Equatable, Sendable {
+    let remote: String
+    let message: String
+}
+
+struct GitFetchError: LocalizedError, Equatable, Sendable {
+    let succeededRemotes: [String]
+    let failures: [GitFetchRemoteFailure]
+
+    var errorDescription: String? {
+        var sections: [String] = []
+        if !succeededRemotes.isEmpty {
+            sections.append("Fetched \(succeededRemotes.joined(separator: ", ")).")
+        }
+        sections.append(contentsOf: failures.map { failure in
+            "Could not fetch '\(failure.remote)': \(failure.message)"
+        })
+        return sections.joined(separator: "\n\n")
+    }
+}
+
 extension GitStatusService {
     func fetch(
         remote: String,
@@ -212,16 +233,11 @@ extension GitStatusService {
         credentialInjector: GitCredentialInjecting = TemporaryGitCredentialInjector(),
         sshCredentialInjector: GitSSHCredentialInjecting = TemporaryGitSSHCredentialInjector()
     ) async throws {
+        let remoteNames = await remoteNamesForFetch(options: options, in: repositoryURL)
         if options.fetchAllRemotes {
-            let remoteNames = await remotes(in: repositoryURL)
+            var succeededRemotes: [String] = []
+            var failures: [GitFetchRemoteFailure] = []
             for remote in remoteNames {
-                var arguments = ["fetch", remote]
-                if options.prune {
-                    arguments.append("--prune")
-                }
-                if options.fetchTags {
-                    arguments.append("--tags")
-                }
                 do {
                     let injection = try await credentialInjection(
                         for: remote,
@@ -231,30 +247,84 @@ extension GitStatusService {
                         sshCredentialInjector: sshCredentialInjector
                     )
                     defer { injection?.cleanup() }
-                    _ = try await runRemoteGit(arguments: arguments, in: repositoryURL, injection: injection)
+                    _ = try await runRemoteGit(
+                        arguments: fetchArguments(remote: remote, options: options),
+                        in: repositoryURL,
+                        injection: injection
+                    )
+                    succeededRemotes.append(remote)
+                } catch {
+                    failures.append(
+                        GitFetchRemoteFailure(remote: remote, message: error.localizedDescription)
+                    )
                 }
             }
             await branchListCache.invalidateRemotes(repositoryURL: repositoryURL)
+            if !failures.isEmpty {
+                throw GitFetchError(succeededRemotes: succeededRemotes, failures: failures)
+            }
             return
         }
 
+        guard let remote = remoteNames.first else {
+            _ = try await runRemoteGit(
+                arguments: fetchArguments(remote: nil, options: options),
+                in: repositoryURL,
+                injection: .configuredGitHelpers()
+            )
+            return
+        }
+        do {
+            let injection = try await credentialInjection(
+                for: remote,
+                in: repositoryURL,
+                credentialResolver: credentialResolver,
+                credentialInjector: credentialInjector,
+                sshCredentialInjector: sshCredentialInjector
+            )
+            defer { injection?.cleanup() }
+            _ = try await runRemoteGit(
+                arguments: fetchArguments(remote: remote, options: options),
+                in: repositoryURL,
+                injection: injection
+            )
+            await branchListCache.invalidateRemote(repositoryURL: repositoryURL, remote: remote)
+        } catch {
+            throw GitFetchError(
+                succeededRemotes: [],
+                failures: [GitFetchRemoteFailure(remote: remote, message: error.localizedDescription)]
+            )
+        }
+    }
+
+    func remoteNamesForFetch(options: FetchOptions, in repositoryURL: URL) async -> [String] {
+        let remoteNames = await remotes(in: repositoryURL)
+        guard !options.fetchAllRemotes else { return remoteNames }
+
+        if let branch = await currentBranch(in: repositoryURL),
+           let upstream = await upstreamBranch(for: branch, in: repositoryURL),
+           let remote = upstream.split(separator: "/", maxSplits: 1).first.map(String.init),
+           remoteNames.contains(remote) {
+            return [remote]
+        }
+        if remoteNames.contains("origin") {
+            return ["origin"]
+        }
+        return remoteNames.first.map { [$0] } ?? []
+    }
+
+    private func fetchArguments(remote: String?, options: FetchOptions) -> [String] {
         var arguments = ["fetch"]
+        if let remote {
+            arguments.append(remote)
+        }
         if options.prune {
             arguments.append("--prune")
         }
         if options.fetchTags {
             arguments.append("--tags")
         }
-        let injection = try await credentialInjectionForFetch(
-            options: options,
-            in: repositoryURL,
-            credentialResolver: credentialResolver,
-            credentialInjector: credentialInjector,
-            sshCredentialInjector: sshCredentialInjector
-        )
-        defer { injection?.cleanup() }
-        _ = try await runRemoteGit(arguments: arguments, in: repositoryURL, injection: injection)
-        await branchListCache.invalidateRemotes(repositoryURL: repositoryURL)
+        return arguments
     }
 
     func fetchBranch(
@@ -434,47 +504,4 @@ extension GitStatusService {
         return (remote: String(parts[0]), branch: String(parts[1]))
     }
 
-    private func credentialInjectionForFetch(
-        options: FetchOptions,
-        in repositoryURL: URL,
-        credentialResolver: GitProviderCredentialResolver?,
-        credentialInjector: GitCredentialInjecting,
-        sshCredentialInjector: GitSSHCredentialInjecting
-    ) async throws -> GitCredentialInjection? {
-        guard let credentialResolver else { return .configuredGitHelpers() }
-        let remoteNames = await remotes(in: repositoryURL)
-        let credentials = try await remoteNames.asyncCompactMap { remote -> RemoteGitCredential? in
-            let remoteURLString = await remoteURL(remote: remote, in: repositoryURL)
-            return try await remoteCredential(for: remoteURLString, credentialResolver: credentialResolver)
-        }
-        let uniqueCredentials = credentials.reduce(into: [RemoteGitCredential]()) { result, credential in
-            if !result.contains(credential) {
-                result.append(credential)
-            }
-        }
-        guard let credential = uniqueCredentials.first else { return .configuredGitHelpers() }
-        guard uniqueCredentials.count == 1 else {
-            throw GitProviderCredentialError.multipleMatchingAccounts(host: "configured remotes")
-        }
-        return try injection(
-            for: credential,
-            credentialInjector: credentialInjector,
-            sshCredentialInjector: sshCredentialInjector
-        )
-    }
-
-}
-
-private extension Sequence {
-    func asyncCompactMap<Element>(
-        _ transform: (Self.Element) async throws -> Element?
-    ) async throws -> [Element] {
-        var values: [Element] = []
-        for element in self {
-            if let value = try await transform(element) {
-                values.append(value)
-            }
-        }
-        return values
-    }
 }

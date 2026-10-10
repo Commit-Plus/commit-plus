@@ -91,14 +91,10 @@ extension MainWindowView {
     func credentialResolverForFetch(
         options: GitStatusService.FetchOptions
     ) async -> GitProviderCredentialResolver? {
-        let remotes: [String]
-        if options.fetchAllRemotes {
-            remotes = await GitStatusService.shared.remotes(in: repositoryURL)
-        } else if let defaultRemote = repoSettings.defaultRemoteName, !defaultRemote.isEmpty {
-            remotes = [defaultRemote]
-        } else {
-            remotes = await GitStatusService.shared.remotes(in: repositoryURL).prefix(1).map { $0 }
-        }
+        let remotes = await GitStatusService.shared.remoteNamesForFetch(
+            options: options,
+            in: repositoryURL
+        )
         return await credentialResolverForRemoteOperation(remotes: remotes)
     }
 
