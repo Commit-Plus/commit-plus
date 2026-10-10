@@ -1,7 +1,7 @@
 # Sidebar Native Rendering and Interaction — Design Spec
 
 **Date:** 2026-10-10  
-**Status:** Proposed; implementation and runtime measurements have not started.  
+**Status:** All sections migrated to a shared native table; runtime interaction and performance acceptance remain pending.
 **Plan:** [Implementation plan](../plans/2026-10-10-sidebar-native-performance-plan.md)  
 **Reference:** [PR #54](https://github.com/Commit-Plus/commit-plus/pull/54), especially `CommitFileNativeList` and `FileStatusNativeList`.
 
@@ -25,7 +25,9 @@ PR #54 provides the applicable pattern: reusable native cells, value-based chang
 
 ## 2. Scope and decisions
 
-Replace the scrollable `SidebarView.sidebarList` with **one `NSScrollView` containing one `NSTableView`**, using a flattened, explicitly indented row snapshot. This matches the existing flattened tree model and supports heterogeneous section headers, folders, leaves, loading rows, and empty rows without nested scroll views.
+Replace the SwiftUI `List` and per-row interaction overlays with one `NSScrollView`/`NSTableView` for every section. The previous attempt to keep `List` did not resolve the user's reported long-list scrolling lag. A native cutover is the agreed scope; a successful build is not evidence that the latency budget has been met.
+
+Use reusable AppKit labels, icons and controls, an equatable source snapshot, event-time menus, and one native drag destination. SwiftUI context menus are lazy already; the improvement is removing row hosting and independent overlay lifecycles from the scroll path, not claiming that all old menus were eagerly constructed. Signposts and a reproducible large-ref fixture support subsequent runtime measurement.
 
 All sidebar sections participate: Workspace/Git Flow, Branches, Worktrees, Tags, Remotes, Stashes, Submodules, and Subtrees. Branches are the first implementation slice; the final switch includes the complete list so another section does not retain the same per-item bottleneck.
 
@@ -47,7 +49,7 @@ SidebarView — chrome, bindings, existing presentation and action routing
     Drag session state — decoded payload, source identity, current target
 ```
 
-Proposed types live under `macgit/Views/MainWindow/Sidebar/Native/`, one type per file where practical. Reuse existing controllers/action structs; do not build a second business-action layer. The presentation store is a narrowly scoped `@MainActor` owner, not a replacement for `AppState` or `MainWindowView`.
+Implemented types live under `macgit/Views/MainWindow/Sidebar/` (`SidebarNativeInput`, `SidebarNativeList`) with row/menu adapters in `SidebarView` extensions. Existing section state remains with `SidebarView`; the coordinator owns the installed snapshot and compares source values before rebuilding it. This preserves one data owner instead of introducing a second presentation store. Existing controllers/action structs continue to own business operations.
 
 ### 3.1 Stable identity
 
@@ -164,4 +166,4 @@ These runtime checks require an available running app. **Do not launch/relaunch 
 
 ## 7. Completion criteria
 
-All sidebar sections use the shared native list; source-based behavior parity and deterministic tests pass; build passes; dead row overlays/menu attachments are removed after checking external call sites. Runtime parity and performance results are recorded separately as passed or pending. Do not call the work performance-verified solely because compilation succeeds. No automatic commit, push, deployment, stash, or reset is part of this scope.
+All sections use stable semantic row identity and cached snapshots; selection and drag have a single effective event path; stale loads are rejected; pasteboard decoding is session-cached; source-based behavior parity and build pass. All sections use the same standalone `NSTableView`. Runtime parity and performance results are recorded separately as passed or pending. Do not call the work performance-verified solely because compilation succeeds. No automatic commit, push, deployment, stash, or reset is part of this scope.

@@ -90,17 +90,18 @@ extension GitStatusService {
     }
 
     func stashes(in repositoryURL: URL) async -> [StashEntry] {
-        let output = (try? await runGit(arguments: ["stash", "list", "--format=%gd%x1f%gs"], in: repositoryURL)) ?? ""
+        let output = (try? await runGit(arguments: ["stash", "list", "--format=%gd%x1f%H%x1f%gs"], in: repositoryURL)) ?? ""
         return output.split(separator: "\n").compactMap { line in
-            let parts = line.split(separator: "\u{001f}", maxSplits: 1, omittingEmptySubsequences: false)
-            guard parts.count == 2 else { return nil }
+            let parts = line.split(separator: "\u{001f}", maxSplits: 2, omittingEmptySubsequences: false)
+            guard parts.count == 3 else { return nil }
 
             let ref = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
-            let summary = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let objectID = String(parts[1])
+            let summary = String(parts[2]).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !ref.isEmpty else { return nil }
 
             let parsed = parseStashSummary(summary)
-            return StashEntry(ref: ref, branchName: parsed.branchName, description: parsed.description)
+            return StashEntry(ref: ref, branchName: parsed.branchName, description: parsed.description, objectID: objectID)
         }
     }
 

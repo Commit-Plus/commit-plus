@@ -19,6 +19,12 @@ import Foundation
 
 struct SidebarTreeBuilder {
     static func buildTree(from refs: [String], prefix: String = "") -> [BranchNode] {
+        SidebarSignpost.interval("BuildTree") {
+            buildTreeContents(from: refs, prefix: prefix)
+        }
+    }
+
+    private static func buildTreeContents(from refs: [String], prefix: String) -> [BranchNode] {
         var groups = [String: [String]]()
         var leaves = Set<String>()
 
@@ -36,7 +42,7 @@ struct SidebarTreeBuilder {
 
         for (name, childRefs) in groups.sorted(by: { $0.key < $1.key }) {
             let fullPath = prefix.isEmpty ? name : "\(prefix)/\(name)"
-            var children = buildTree(from: childRefs, prefix: fullPath)
+            var children = buildTreeContents(from: childRefs, prefix: fullPath)
             if leaves.remove(name) != nil {
                 children.insert(
                     BranchNode(name: name, fullPath: fullPath, isFolder: false, children: []),
@@ -87,25 +93,27 @@ struct SidebarTreeBuilder {
     }
 
     static func visibleRows(from nodes: [BranchNode], expandedFolders: Set<String>) -> [BranchRowItem] {
-        var rows: [BranchRowItem] = []
+        SidebarSignpost.interval("VisibleRows") {
+            var rows: [BranchRowItem] = []
 
-        func traverse(_ nodes: [BranchNode], indent: Int) {
-            for node in nodes {
-                rows.append(BranchRowItem(
-                    id: node.id,
-                    name: node.name,
-                    fullPath: node.fullPath,
-                    isFolder: node.isFolder,
-                    indent: indent
-                ))
-                if node.isFolder && expandedFolders.contains(node.fullPath) {
-                    traverse(node.children, indent: indent + 1)
+            func traverse(_ nodes: [BranchNode], indent: Int) {
+                for node in nodes {
+                    rows.append(BranchRowItem(
+                        id: node.id,
+                        name: node.name,
+                        fullPath: node.fullPath,
+                        isFolder: node.isFolder,
+                        indent: indent
+                    ))
+                    if node.isFolder && expandedFolders.contains(node.fullPath) {
+                        traverse(node.children, indent: indent + 1)
+                    }
                 }
             }
-        }
 
-        traverse(nodes, indent: 0)
-        return rows
+            traverse(nodes, indent: 0)
+            return rows
+        }
     }
 
     nonisolated private static func normalizedRemoteBranchName(_ branch: String) -> String {

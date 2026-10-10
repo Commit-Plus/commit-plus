@@ -28,6 +28,8 @@ struct StashEntry: Identifiable, Hashable {
     let ref: String
     let branchName: String
     let description: String
+    // Reflog selectors shift when a stash is inserted or removed.
+    var objectID: String? = nil
 
     var displayTitle: String {
         "On \(branchName) : \(description)"

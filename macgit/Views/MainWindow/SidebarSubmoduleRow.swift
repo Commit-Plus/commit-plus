@@ -129,7 +129,7 @@ struct SidebarSubmoduleRow: View {
     }
 }
 
-private extension GitSubmoduleState {
+extension GitSubmoduleState {
     var title: String {
         switch self {
         case .clean: "Clean"

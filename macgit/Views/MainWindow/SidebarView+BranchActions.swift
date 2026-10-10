@@ -19,25 +19,22 @@ import Foundation
 
 extension SidebarView {
     func toggleFolder(_ path: String) {
+        let expanding = !expandedFolders.contains(path)
         if expandedFolders.contains(path) {
             expandedFolders.remove(path)
         } else {
             expandedFolders.insert(path)
-            cachedVisibleBranchRows = SidebarTreeBuilder.visibleRows(
-                from: branchNodes,
-                expandedFolders: expandedFolders
-            )
-            if let loadID = activeBranchSyncLoadID {
-                let newlyVisibleBranches = visibleBranchRows
-                    .filter { !$0.isFolder && $0.fullPath.hasPrefix(path + "/") }
-                    .map(\.fullPath)
-                startBranchSync(for: newlyVisibleBranches, loadID: loadID)
-            }
         }
         cachedVisibleBranchRows = SidebarTreeBuilder.visibleRows(
             from: branchNodes,
             expandedFolders: expandedFolders
         )
+        if expanding, let loadID = activeBranchSyncLoadID {
+            let newlyVisibleBranches = visibleBranchRows
+                .filter { !$0.isFolder && $0.fullPath.hasPrefix(path + "/") }
+                .map(\.fullPath)
+            startBranchSync(for: newlyVisibleBranches, loadID: loadID)
+        }
     }
 
     func toggleRemoteFolder(_ path: String) {

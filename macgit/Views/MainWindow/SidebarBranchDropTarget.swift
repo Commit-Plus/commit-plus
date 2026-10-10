@@ -89,6 +89,8 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
         private var activeDragPayload: GitDragPayload?
         private var didStartDragging = false
         private var pendingDoubleTap = false
+        private var cachedPasteboardChangeCount = -1
+        private var cachedIncomingPayload: GitDragPayload?
 
         init(
             passthroughTrailingWidth: CGFloat = 0,
@@ -137,6 +139,7 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
             dragStartEvent = event
             didStartDragging = false
             pendingDoubleTap = event.clickCount == 2
+            SidebarSignpost.event("Selection")
             onTap()
         }
 
@@ -161,6 +164,7 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
             }
 
             didStartDragging = true
+            SidebarSignpost.event("PayloadEncode")
             activeDragPayload = payload
 
             let dragItem = NSDraggingItem(pasteboardWriter: item)
@@ -298,6 +302,11 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
         }
 
         private func payload(from pasteboard: NSPasteboard) -> GitDragPayload? {
+            if cachedPasteboardChangeCount == pasteboard.changeCount {
+                return cachedIncomingPayload
+            }
+
+            cachedPasteboardChangeCount = pasteboard.changeCount
             for item in pasteboard.pasteboardItems ?? [] {
                 guard let data = item.data(forType: Self.payloadType),
                       let payload = try? GitDragPayload.decodeTransferData(data)
@@ -305,6 +314,8 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
                     continue
                 }
 
+                cachedIncomingPayload = payload
+                SidebarSignpost.event("PayloadDecode")
                 return payload
             }
 
@@ -312,7 +323,10 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
                 return nil
             }
 
-            return try? GitDragPayload.decodeTransferData(data)
+            let payload = try? GitDragPayload.decodeTransferData(data)
+            cachedIncomingPayload = payload
+            if payload != nil { SidebarSignpost.event("PayloadDecode") }
+            return payload
         }
 
         private func preserveCommitPreviewSize(

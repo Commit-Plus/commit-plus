@@ -1,10 +1,25 @@
 # Sidebar Native Rendering and Interaction — Implementation Plan
 
 **Date:** 2026-10-10  
-**Status:** Ready for implementation; all tasks below are pending.  
+**Status:** Native renderer cutover implemented for all sections; app compilation passed, runtime acceptance pending.
 **Spec:** [Design and acceptance contract](../specs/2026-10-10-sidebar-native-performance-design.md)
 
 Implement in dependency order. This document authorizes no automatic commits, pushes, production changes, or app launches. Preserve unrelated working-tree changes. Use `rtk` for shell commands, keep Xcode build/test invocations sequential, and add AGPL notices to new Swift files.
+
+## Implementation record — native cutover
+
+The production sidebar now uses `SidebarNativeList` for every section. The old `List`, section renderers, row renderers and their SwiftUI context-menu trees have been removed from that path. Surrounding account/update chrome and presentation modifiers remain in SwiftUI.
+
+- `SidebarNativeInput` compares immutable source values before `SidebarView+NativeRows` builds a snapshot. Selection-only updates synchronize an index; scroll/hover do not publish SwiftUI state. Existing section data stays with its current owner rather than being duplicated into a new store.
+- `SidebarNativeList.Coordinator` maintains ID and selection indexes, applies structural insertions/removals, preserves a surviving viewport anchor, and updates instantiated cells. Native cells contain reusable labels, icons, progress indicators and accessory buttons, with no per-leaf hosting views.
+- `SidebarView+NativeMenus` preserves the existing callback/policy routes. Right-click builds the clicked row's menu; tracking targets are populated when its submenu opens. Refresh invalidates open-menu actions. Rich popovers are hosted only when requested.
+- The table owns selection, double-click, keyboard disclosure, drag sources, drop hit-testing and hover labels. It uses AppKit's drag threshold, caches payload decoding by pasteboard name/revision, rechecks drop policy and retains the existing commit-preview point-size correction. The legacy drop helper remains for that shared correction and its existing tests; it is not instantiated per row.
+- Stash reads now include the object ID; selection follows an unambiguous object when reflog indices shift. Native duplicate-object IDs are disambiguated. Worktree/subtree loads now reject superseded completions; repository resets invalidate outstanding section generations. Branch sync results publish in a batch.
+- `SidebarNativeListTests` adds regression cases for 10,000-row selection without a snapshot rebuild, hidden selection, reorder, row namespaces, stale menus, lazy submenus and cell reuse.
+
+Validation: app builds passed during implementation. `build-for-testing` was attempted without executing tests; the shared test target fails on existing actor conformances to globally isolated protocols in Git Undo/AI and other test fixtures. No error was reported for the new sidebar test file. The final app build and diff check are recorded below. No app launch, XCTest execution, Instruments trace or frame-time measurement was performed.
+
+The task checklists below retain the original acceptance scope. An unchecked runtime/test item is not implied to pass by this implementation record.
 
 ## Task 1 — Capture behavior and establish measurement seams
 
@@ -44,6 +59,8 @@ Implement in dependency order. This document authorizes no automatic commits, pu
 **Exit:** No tree building/filtering/sorting remains on the frequent SwiftUI body or pointer-event path. New source data reliably invalidates the relevant cache.
 
 ## Task 4 — Native table, reusable cells, and incremental reconciliation
+
+**Decision:** Complete the agreed native cutover. Keeping the existing `List` did not resolve the reported long-list lag. Remove its production rendering path once all sections are represented in the shared table; retain runtime measurement as acceptance evidence, not as a gate that cancels the authorized implementation.
 
 **Create:** `Sidebar/Native/SidebarNativeList.swift`, `SidebarTableView.swift`, native cell types, and `SidebarNativeListTests.swift`.
 
@@ -131,12 +148,12 @@ Fill this in when implementation finishes; never convert unchecked runtime crite
 
 | Area | Required evidence | Current status |
 | --- | --- | --- |
-| Behavior parity | Complete section/action matrix and dispatch coverage | Pending |
-| Compilation | Successful macOS build | Pending |
-| Deterministic correctness | Identity, stale loads, reconciliation, selection, menu and drag checks | Pending |
+| Behavior parity | Complete section/action matrix and dispatch coverage | All section callbacks/menu policies ported; runtime parity pending |
+| Compilation | Successful macOS build | Passed |
+| Deterministic correctness | Identity, stale loads, reconciliation, selection, menu and drag checks | Regression tests added; test target compilation blocked by existing actor/protocol errors |
 | Scroll/selection/menu/drag latency | Release trace and spec budgets on documented hardware | Pending |
 | Visual/keyboard/accessibility parity | Existing running app review across sizes/styles | Pending |
 | Resource lifetime | Bounded reuse/retention after repeated cycles | Pending |
-| Repository hygiene | Diff check, dead-code review, no unintended service changes | Pending |
+| Repository hygiene | Diff check, dead-code review, no unintended service changes | Passed |
 
 The final handoff distinguishes implemented code, compilation evidence, tests actually executed, and runtime checks still pending. It does not commit, push, or deploy automatically.

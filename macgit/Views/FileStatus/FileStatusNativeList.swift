@@ -400,6 +400,8 @@ private final class FileStatusNativeCell: NSTableCellView {
         )
         quickButton.toolTip = isStaged ? "Unstage" : "Stage"
         quickButton.setAccessibilityLabel(isStaged ? "Unstage" : "Stage")
+        // Counts arrive asynchronously and change the manually laid out widths.
+        needsLayout = true
     }
 
     override func layout() {

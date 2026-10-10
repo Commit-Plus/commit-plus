@@ -19,15 +19,23 @@ import Foundation
 
 extension SidebarView {
     func loadSubtrees(force: Bool = false) async {
-        if !force && hasLoadedSubtrees {
+        if !force && (hasLoadedSubtrees || activeSubtreeLoadID != nil) {
             return
         }
 
+        let loadID = UUID()
+        activeSubtreeLoadID = loadID
         isLoadingSubtrees = !hasLoadedSubtrees
-        defer { isLoadingSubtrees = false }
+        defer {
+            if activeSubtreeLoadID == loadID {
+                activeSubtreeLoadID = nil
+                isLoadingSubtrees = false
+            }
+        }
 
         do {
             let entries = try await GitStatusService.shared.subtrees(in: repositoryURL)
+            guard activeSubtreeLoadID == loadID else { return }
             await MainActor.run {
                 subtreeEntries = entries
                 hasLoadedSubtrees = true
@@ -37,6 +45,7 @@ extension SidebarView {
                 }
             }
         } catch {
+            guard activeSubtreeLoadID == loadID else { return }
             await MainActor.run {
                 errorMessage = error.localizedDescription
                 showingError = true

@@ -952,6 +952,7 @@ struct MainWindowView: View {
                     activeSyncBranch: syncState.activeSyncBranch
                 )
             },
+            activeSyncBranchName: (syncState.isUpdatingCurrentBranch || syncState.isPulling || syncState.isPushing) ? syncState.activeSyncBranch : nil,
             canUpdateCurrentBranch: canUpdateCurrentBranch,
             onRequestCheckout: { ref, isTag in
                 if isTag {

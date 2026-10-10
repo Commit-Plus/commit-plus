@@ -25,6 +25,7 @@
 import SwiftUI
 
 struct SidebarView: View {
+    @Environment(\.appTextScale) private var textScale
     @EnvironmentObject private var appUpdateController: AppUpdateController
     @EnvironmentObject private var accountController: AccountSessionController
     @EnvironmentObject var appState: AppState
@@ -40,6 +41,7 @@ struct SidebarView: View {
     let gitFlowRecoveryIssue: GitFlowLocalStateIssue?
     let isGitFlowOperationDisabled: Bool
     let isBranchSyncing: (String) -> Bool
+    let activeSyncBranchName: String?
     let canUpdateCurrentBranch: Bool
     let onRequestCheckout: (String, Bool) -> Void
     let onRequestRemoteBranchCheckout: (RemoteBranchCheckoutTarget) -> Void
@@ -100,6 +102,7 @@ struct SidebarView: View {
     let onRunRepositoryOperation: RepositoryOperationRunner
 
     @State var branchNodes: [BranchNode] = []
+    @State var sidebarDataRepositoryURL: URL?
     @State var cachedVisibleBranchRows: [BranchRowItem] = []
     @State var currentBranch: String = ""
     @State var headHash: String = ""
@@ -149,6 +152,8 @@ struct SidebarView: View {
     @State var worktreeEntries: [WorktreeEntry] = []
     @State var hasLoadedWorktrees = false
     @State var isLoadingWorktrees = false
+    @State var activeWorktreeLoadID: UUID?
+    @State var activeSubtreeLoadID: UUID?
     @State var worktreeToLabel: WorktreeEntry?
     @State var worktreeLabelInput = ""
     @State var worktreeToLock: WorktreeEntry?
@@ -196,9 +201,6 @@ struct SidebarView: View {
     @State var activeDropLabel: String?
     @State var isCurrentBranchDropTargeted = false
     @State var activeBranchDragPayload: GitDragPayload?
-    @State private var isSidebarHovered = false
-    @State private var isSidebarScrolling = false
-    @State private var sidebarScrollHideTask: Task<Void, Never>?
 
     init(
         repositoryURL: URL,
@@ -212,6 +214,7 @@ struct SidebarView: View {
         gitFlowRecoveryIssue: GitFlowLocalStateIssue? = nil,
         isGitFlowOperationDisabled: Bool = false,
         isBranchSyncing: @escaping (String) -> Bool = { _ in false },
+        activeSyncBranchName: String? = nil,
         canUpdateCurrentBranch: Bool = true,
         onRequestCheckout: @escaping (String, Bool) -> Void,
         onRequestRemoteBranchCheckout: @escaping (RemoteBranchCheckoutTarget) -> Void,
@@ -284,6 +287,7 @@ struct SidebarView: View {
         self.gitFlowRecoveryIssue = gitFlowRecoveryIssue
         self.isGitFlowOperationDisabled = isGitFlowOperationDisabled
         self.isBranchSyncing = isBranchSyncing
+        self.activeSyncBranchName = activeSyncBranchName
         self.canUpdateCurrentBranch = canUpdateCurrentBranch
         self.onRequestCheckout = onRequestCheckout
         self.onRequestRemoteBranchCheckout = onRequestRemoteBranchCheckout
@@ -405,7 +409,7 @@ struct SidebarView: View {
         )
     }
 
-    private var gitFlowCommandState: GitFlowCommandState {
+    var gitFlowCommandState: GitFlowCommandState {
         GitFlowCommandState(
             isEnabled: gitFlowConfiguration.isEnabled,
             currentKind: GitFlowPlanner().topicKind(for: currentBranch, configuration: gitFlowConfiguration),
@@ -415,7 +419,7 @@ struct SidebarView: View {
         )
     }
 
-    private func performGitFlowAction(_ action: GitFlowMenuAction) {
+    func performGitFlowAction(_ action: GitFlowMenuAction) {
         switch action {
         case .start(let kind):
             onRequestStartGitFlow(kind)
@@ -690,28 +694,14 @@ struct SidebarView: View {
     }
 
     private var sidebarList: some View {
-        List(selection: $selection) {
-            sidebarRows
-        }
-        .listStyle(.sidebar)
-        .background(
-            ScrollViewIndicatorController(
-                showsIndicators: isSidebarHovered || isSidebarScrolling,
-                onScroll: showSidebarScrollIndicatorsForScroll
-            )
-        )
-        .onHover { hovering in
-            isSidebarHovered = hovering
-        }
-        .onDisappear {
-            sidebarScrollHideTask?.cancel()
-            sidebarScrollHideTask = nil
-            isSidebarScrolling = false
-            isSidebarHovered = false
-        }
-        .contextMenu {
-            sidebarContextMenu
-        }
+        SidebarNativeList(repositoryURL: repositoryURL, input: nativeInput,
+            makeRows: { sidebarDataRepositoryURL == repositoryURL ? nativeRows : [] }, selection: selection,
+            textScale: textScale, backgroundMenu: nativeBackgroundMenu,
+            acceptDrop: { payload, target, option in
+                guard canAcceptDrop(payload, target: target, optionKeyPressed: option) else { return false }
+                handleDrop([payload], target: target, optionKeyPressed: option)
+                return true
+            })
         .task(id: "\(repositoryURL.path)|\(appState.showSubmodules)") {
             loadSectionStates()
             resetLazySectionData()
@@ -729,6 +719,7 @@ struct SidebarView: View {
                         expandedFolders.formUnion(
                             SidebarTreeBuilder.expandedFolderPaths(revealing: checkedOutBranch)
                         )
+                        cachedVisibleBranchRows = SidebarTreeBuilder.visibleRows(from: branchNodes, expandedFolders: expandedFolders)
                     }
                 }
             }
@@ -777,19 +768,6 @@ struct SidebarView: View {
         }
     }
 
-    private func showSidebarScrollIndicatorsForScroll() {
-        // Hover already keeps the indicator visible; avoid rebuilding sidebar
-        // state and replacing a hide task on every scroll notification.
-        guard !isSidebarHovered else { return }
-        isSidebarScrolling = true
-        sidebarScrollHideTask?.cancel()
-        sidebarScrollHideTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(900))
-            guard !Task.isCancelled else { return }
-            isSidebarScrolling = false
-        }
-    }
-
     @ViewBuilder
     private var sidebarCreationMenu: some View {
         Button("Add Submodule...", systemImage: "plus", action: onRequestAddSubmodule)
@@ -799,130 +777,6 @@ struct SidebarView: View {
         Button("New Tag...", systemImage: "tag", action: onRequestCreateTag)
     }
 
-    @ViewBuilder
-    private var sidebarContextMenu: some View {
-        sidebarCreationMenu
-        Divider()
-        Toggle(isOn: $appState.showTags) {
-            Label("Show Tags", systemImage: "tag")
-        }
-        Toggle(isOn: $appState.showWorktrees) {
-            Label("Show Worktrees", systemImage: "rectangle.3.group")
-        }
-        Toggle(isOn: $appState.showSubmodules) {
-            Label("Show Submodules", systemImage: "folder.badge.gearshape")
-        }
-        Toggle(isOn: $appState.showSubtrees) {
-            Label("Show Subtrees", systemImage: "tree")
-        }
-    }
-
-    @ViewBuilder
-    private var sidebarRows: some View {
-        SidebarWorkspaceSection(
-            appState: appState,
-            onRequestSearch: onRequestSearch,
-            onRequestCreatePullRequest: onRequestCreatePullRequestFromWorkspace,
-            gitFlowCommandState: gitFlowCommandState,
-            onGitFlowAction: performGitFlowAction
-        )
-
-        SidebarBranchesSection(
-            rows: visibleBranchRows,
-            isExpanded: sectionStates.branchesExpanded,
-            isLoading: isLoadingBranches,
-            currentBranch: currentBranch,
-            gitFlowConfiguration: gitFlowConfiguration,
-            headHash: headHash,
-            expandedFolders: expandedFolders,
-            branchSyncStatus: branchSyncStatus,
-            currentBranchFallbackSyncStatus: currentBranchFallbackSyncStatus,
-            currentBranchIntegrationStatus: currentBranchIntegrationStatus,
-            canUpdateCurrentBranch: canUpdateCurrentBranch,
-            upstreamByBranch: upstreamByBranch,
-            remoteNames: remoteNames,
-            branchesByRemote: branchesByRemote,
-            isCurrentBranchDropTargeted: isCurrentBranchDropTargeted,
-            isHeaderDropTargeted: activeDropTarget == .branchesHeader,
-            activeDropLabel: activeDropTarget == .branchesHeader ? activeDropLabel : nil,
-            draggedRemoteBranch: draggedRemoteBranch,
-            isBranchSyncing: isBranchSyncing,
-            deletableBranchesForPrefix: { prefix in
-                branchesUnderPrefix(prefix).filter { $0 != currentBranch }
-            },
-            makeBranchPayload: { makeBranchPayload(branchName: $0) },
-            finishBranchDrag: finishBranchDrag,
-            actions: branchSectionActions
-        )
-
-        if appState.showWorktrees {
-            SidebarWorktreesSection(
-                currentRepositoryURL: repositoryURL,
-                entries: worktreeEntries,
-                isExpanded: sectionStates.worktreesExpanded,
-                isLoading: isLoadingWorktrees,
-                onOpenInNewWindow: onRequestOpenWorktree,
-                actions: worktreeSectionActions
-            )
-        }
-
-        if appState.showTags {
-            SidebarTagsSection(
-                rows: visibleTagRows,
-                isExpanded: sectionStates.tagsExpanded,
-                isLoading: isLoadingTags,
-                expandedFolders: expandedTagFolders,
-                remoteNames: remoteNames,
-                isHeaderDropTargeted: activeDropTarget == .tagsHeader,
-                activeDropLabel: activeDropTarget == .tagsHeader ? activeDropLabel : nil,
-                actions: tagSectionActions
-            )
-        }
-
-        SidebarRemotesSection(
-            rows: visibleRemoteRows,
-            isExpanded: sectionStates.remotesExpanded,
-            isLoading: isLoadingRemotes,
-            currentBranch: currentBranch,
-            expandedFolders: expandedRemoteFolders,
-            isHeaderDropTargeted: activeDropTarget == .remotesHeader,
-            activeDropLabel: activeDropTarget == .remotesHeader ? activeDropLabel : nil,
-            actions: remoteSectionActions
-        )
-
-        SidebarStashesSection(
-            stashes: stashEntries,
-            isExpanded: sectionStates.stashesExpanded,
-            isLoading: isLoadingStashes,
-            isHeaderDropTargeted: activeDropTarget == .stashesHeader,
-            activeDropLabel: activeDropTarget == .stashesHeader ? activeDropLabel : nil,
-            actions: stashSectionActions
-        )
-
-        if appState.showSubmodules {
-            SidebarSubmodulesSection(
-                repositoryURL: repositoryURL,
-                rows: visibleSubmoduleRows,
-                entriesByPath: submoduleEntriesByPath,
-                expandedFolders: expandedSubmoduleFolders,
-                isExpanded: sectionStates.submodulesExpanded,
-                isLoading: isLoadingSubmodules,
-                onAddSubmodule: onRequestAddSubmodule,
-                actions: submoduleSectionActions
-            )
-        }
-
-        if appState.showSubtrees {
-            SidebarSubtreesSection(
-                repositoryURL: repositoryURL,
-                entries: subtreeEntries,
-                isExpanded: sectionStates.subtreesExpanded,
-                isLoading: isLoadingSubtrees,
-                onAddLinkSubtree: onRequestAddLinkSubtree,
-                actions: subtreeSectionActions
-            )
-        }
-    }
 }
 
 #Preview {

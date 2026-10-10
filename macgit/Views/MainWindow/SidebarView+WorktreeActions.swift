@@ -70,14 +70,22 @@ extension SidebarView {
     }
 
     func loadWorktrees(force: Bool = false) async {
-        if !force && hasLoadedWorktrees {
+        if !force && (hasLoadedWorktrees || activeWorktreeLoadID != nil) {
             return
         }
 
+        let loadID = UUID()
+        activeWorktreeLoadID = loadID
         isLoadingWorktrees = !hasLoadedWorktrees
-        defer { isLoadingWorktrees = false }
+        defer {
+            if activeWorktreeLoadID == loadID {
+                activeWorktreeLoadID = nil
+                isLoadingWorktrees = false
+            }
+        }
 
         let entries = await GitStatusService.shared.worktreesWithLabels(in: repositoryURL)
+        guard activeWorktreeLoadID == loadID else { return }
         await MainActor.run {
             worktreeEntries = entries
             hasLoadedWorktrees = true

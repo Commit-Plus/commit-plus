@@ -1462,13 +1462,14 @@ struct FileStatusView: View {
             let paths = Set((loadedStatus.staged + loadedStatus.unstaged + loadedStatus.untracked).map(\.path))
             lfsPaths = (try? await GitStatusService.shared.lfsPaths(Array(paths), in: repositoryURL)) ?? []
             stagedLFSPaths = (try? await GitStatusService.shared.lfsPaths(loadedStatus.staged.map(\.path), cached: true, in: repositoryURL)) ?? []
-            stagedLineCounts = [:]
-            changedLineCounts = [:]
             if gitStatus != loadedStatus {
                 gitStatus = loadedStatus
-                lineCountRefreshID = UUID()
                 changedFiles = loadedStatus.unstaged + loadedStatus.untracked
             }
+            // The same paths/statuses can have different content after an edit.
+            // Refresh counts even when the file-list snapshot is unchanged, and
+            // keep the previous badges visible until their replacement arrives.
+            lineCountRefreshID = UUID()
             currentBranch = loadedCurrentBranch
             currentBranchIntegrationStatus = loadedIntegrationStatus
             recentCommits = await GitStatusService.shared.recentCommits(in: repositoryURL)

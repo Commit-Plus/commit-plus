@@ -19,6 +19,11 @@ import SwiftUI
 
 extension SidebarView {
     func resetLazySectionData() {
+        sidebarDataRepositoryURL = repositoryURL
+        activeBranchSyncLoadID = nil
+        activeSubmoduleLoadID = nil
+        activeWorktreeLoadID = nil
+        activeSubtreeLoadID = nil
         branchNodes = []
         cachedVisibleBranchRows = []
         currentBranch = ""
@@ -32,16 +37,22 @@ extension SidebarView {
         isLoadingBranches = false
 
         hasLoadedTags = false
+        tagNodes = []
         cachedVisibleTagRows = []
         isLoadingTags = false
         activeTagLoadID = nil
 
         hasLoadedRemotes = false
+        remoteNodes = []
+        remoteNames = []
+        branchesByRemote = [:]
+        upstreamByBranch = [:]
         cachedVisibleRemoteRows = []
         isLoadingRemotes = false
         activeRemoteLoadID = nil
 
         hasLoadedStashes = false
+        stashEntries = []
         isLoadingStashes = false
         activeStashLoadID = nil
 
@@ -188,7 +199,8 @@ extension SidebarView {
             branchNodes = tree
             currentBranch = current
             headHash = ""
-            branchSyncStatus = [:]
+            let existingBranches = Set(filteredLocals)
+            branchSyncStatus = branchSyncStatus.filter { existingBranches.contains($0.key) }
             if currentBranchIntegrationStatus?.branch != current {
                 currentBranchIntegrationStatus = nil
             }
@@ -215,10 +227,7 @@ extension SidebarView {
             }
         }
 
-        let initiallyVisibleBranches = SidebarTreeBuilder.visibleRows(
-            from: tree,
-            expandedFolders: expandedFoldersForLoad
-        )
+        let initiallyVisibleBranches = cachedVisibleBranchRows
         .filter { !$0.isFolder }
         .map(\.fullPath)
         startBranchSync(for: initiallyVisibleBranches, loadID: loadID)
@@ -258,15 +267,17 @@ extension SidebarView {
 
         await MainActor.run {
             guard activeBranchSyncLoadID == loadID else { return }
+            var updatedStatuses = branchSyncStatus
             for branch in branches {
                 if let status = statuses[branch] {
-                    branchSyncStatus[branch] = status
+                    updatedStatuses[branch] = status
                 } else {
-                    branchSyncStatus.removeValue(forKey: branch)
+                    updatedStatuses.removeValue(forKey: branch)
                 }
-                loadedBranchSyncBranches.insert(branch)
-                syncingBranchSyncBranches.remove(branch)
             }
+            branchSyncStatus = updatedStatuses
+            loadedBranchSyncBranches.formUnion(branches)
+            syncingBranchSyncBranches.subtract(branches)
         }
     }
 
@@ -351,6 +362,12 @@ extension SidebarView {
         let stashes = await GitStatusService.shared.stashes(in: repositoryURL)
         guard activeStashLoadID == loadID else { return }
         await MainActor.run {
+            if case .stash(let ref) = selection,
+               let previous = stashEntries.first(where: { $0.ref == ref }), let objectID = previous.objectID {
+                let matches = stashes.filter { $0.objectID == objectID }
+                // Ambiguous duplicate stash objects must not silently select another entry.
+                selection = matches.count == 1 ? .stash(matches[0].ref) : nil
+            }
             stashEntries = stashes
             hasLoadedStashes = true
             isLoadingStashes = false
