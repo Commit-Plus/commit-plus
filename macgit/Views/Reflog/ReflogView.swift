@@ -21,9 +21,11 @@ import AppKit
 
 struct ReflogView: View {
     let repositoryURL: URL
+    let isActive: Bool
     let onShowCommit: (String) -> Void
     let onCreateBranch: (ReflogEntry) -> Void
     @State private var model = ReflogViewModel()
+    @State private var needsRefresh = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -65,12 +67,23 @@ struct ReflogView: View {
                 }
             }.padding(10)
         }
-        .task(id: repositoryURL.absoluteString + String(model.allReferences)) { await model.load(in: repositoryURL, reset: true) }
+        .task(id: repositoryURL.absoluteString + String(model.allReferences)) {
+            guard isActive else {
+                needsRefresh = true
+                return
+            }
+            await model.load(in: repositoryURL, reset: true)
+            needsRefresh = false
+        }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange)) { notification in
             refresh(for: notification)
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh)) { notification in
             refresh(for: notification)
+        }
+        .onChange(of: isActive) { _, active in
+            guard active, needsRefresh else { return }
+            reload()
         }
     }
 
@@ -138,10 +151,17 @@ struct ReflogView: View {
     private func refresh(for notification: Notification) {
         guard let url = notification.userInfo?["repositoryURL"] as? URL,
               url.standardizedFileURL == repositoryURL.standardizedFileURL else { return }
-        reload()
+        needsRefresh = true
+        if isActive { reload() }
     }
 
-    private func reload() { Task { await model.load(in: repositoryURL) } }
+    private func reload() {
+        Task {
+            await model.load(in: repositoryURL)
+            guard !Task.isCancelled else { return }
+            needsRefresh = false
+        }
+    }
     private func copy(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)

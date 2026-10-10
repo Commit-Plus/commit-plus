@@ -4,6 +4,7 @@ import Combine
 
 struct HistoryScreen: View {
     let repositoryURL: URL
+    let isActive: Bool
     let selectedBranch: String?
     @Binding var branchFilter: HistoryBranchFilter
     @Binding var includeRemotes: Bool
@@ -19,11 +20,13 @@ struct HistoryScreen: View {
     @State private var onlyThisBranch = false
     @State private var baseBranch: String?
     @State private var searchText = ""
+    @State private var needsRefresh = true
 
-    init(repositoryURL: URL, selectedBranch: String?, branchFilter: Binding<HistoryBranchFilter>,
+    init(repositoryURL: URL, isActive: Bool, selectedBranch: String?, branchFilter: Binding<HistoryBranchFilter>,
          includeRemotes: Binding<Bool>, dependencies: HistoryCommitActionController.Dependencies,
          selectionSink: HistoryCommitSelectionSink, onOpenFile: @escaping (String) -> Void) {
         self.repositoryURL = repositoryURL
+        self.isActive = isActive
         self.selectedBranch = selectedBranch
         _branchFilter = branchFilter
         _includeRemotes = includeRemotes
@@ -116,18 +119,43 @@ struct HistoryScreen: View {
             )
         }
         .onChange(of: listModel.selectedHashesInDisplayOrder) { _, hashes in selectionSink.update(hashes) }
-        .task(id: listModel.loadKey) { await listModel.load() }
+        .task(id: listModel.loadKey) {
+            guard isActive else {
+                needsRefresh = true
+                return
+            }
+            await listModel.load()
+            needsRefresh = false
+        }
         .onReceive(Publishers.Merge(
             NotificationCenter.default.publisher(for: .repositoryDidChange),
             NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh)
         )) { notification in
             guard notification.userInfo?["repositoryURL"] as? URL == repositoryURL else { return }
-            refresh()
+            requestRefresh()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .advancedClearSessionCaches)) { _ in refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: .advancedClearSessionCaches)) { _ in
+            listModel.clearCache()
+            requestRefresh()
+        }
+        .onChange(of: isActive) { _, active in
+            if active {
+                detailModel.resume()
+                selectionSink.update(listModel.selectedHashesInDisplayOrder)
+                if needsRefresh { requestRefresh() }
+            } else {
+                detailModel.suspend()
+                listModel.cancelSearchDebounce()
+                selectionSink.update([])
+            }
+        }
         .onAppear {
-            detailModel.resume()
-            selectionSink.update(listModel.selectedHashesInDisplayOrder)
+            if isActive {
+                detailModel.resume()
+                selectionSink.update(listModel.selectedHashesInDisplayOrder)
+            } else {
+                detailModel.suspend()
+            }
             listModel.setSearchText(searchText)
         }
         .onDisappear {
@@ -144,8 +172,13 @@ struct HistoryScreen: View {
         } message: { Text(listModel.errorMessage ?? "") }
     }
 
-    private func refresh() {
-        listModel.clearCache()
-        Task { await listModel.refresh() }
+    private func requestRefresh() {
+        needsRefresh = true
+        guard isActive else { return }
+        Task {
+            await listModel.refresh()
+            guard !Task.isCancelled else { return }
+            needsRefresh = false
+        }
     }
 }

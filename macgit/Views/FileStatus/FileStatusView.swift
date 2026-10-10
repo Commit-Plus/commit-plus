@@ -30,6 +30,7 @@ struct FileStatusView: View {
     }
 
     let repositoryURL: URL
+    let isActive: Bool
     @ObservedObject var aiProviderController: AIProviderController
     @EnvironmentObject private var accountController: AccountSessionController
     @EnvironmentObject private var featureAccessController: FeatureAccessController
@@ -59,6 +60,7 @@ struct FileStatusView: View {
     @State private var changedFiles: [StatusFile] = []
     @State private var selectedFile: StatusFile? = nil
     @State private var selectedFileKey: FileStatusSelectionKey? = nil
+    @State private var diffRefreshID = UUID()
     @State private var selectedActionFileKeys: Set<FileStatusSelectionKey> = []
     @State private var actionSelectionAnchorKey: FileStatusSelectionKey? = nil
     @State private var diffHunks: [DiffHunk] = []
@@ -89,6 +91,7 @@ struct FileStatusView: View {
     @State private var recentCommits: [(hash: String, message: String)] = []
     @State private var ignoreTargetFile: StatusFile? = nil
     @State private var conflictResolverWindowController = NSWindowController(window: nil)
+    @State private var needsRefresh = true
 
     private var hasChanges: Bool {
         !gitStatus.isEmpty
@@ -286,7 +289,9 @@ struct FileStatusView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .task {
+            guard isActive else { return }
             await loadStatus()
+            needsRefresh = false
         }
         .task(id: lineCountRefreshID) {
             let status = gitStatus
@@ -304,7 +309,7 @@ struct FileStatusView: View {
         .onChange(of: selectedActionFileKeys, initial: true) { _, _ in
             onCustomActionSelectionChanged(actionSelection.selectedFiles.map(\.path))
         }
-        .task(id: selectedFileKey) {
+        .task(id: "\(String(describing: selectedFileKey))|\(diffRefreshID.uuidString)") {
             guard let selectionKey = selectedFileKey,
                   let file = selectedFile else { return }
             await loadDiff(for: file, selectionKey: selectionKey)
@@ -342,23 +347,21 @@ struct FileStatusView: View {
         }
 
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task {
-                await loadStatus()
-            }
+            requestRefresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange)) { notification in
             if let url = notification.userInfo?["repositoryURL"] as? URL, url == repositoryURL {
-                Task {
-                    await loadStatus()
-                }
+                requestRefresh()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryRemoteRefsDidRefresh)) { notification in
             if let url = notification.userInfo?["repositoryURL"] as? URL, url == repositoryURL {
-                Task {
-                    await loadStatus()
-                }
+                requestRefresh()
             }
+        }
+        .onChange(of: isActive) { _, active in
+            guard active else { return }
+            requestRefresh()
         }
     }
 
@@ -1590,12 +1593,15 @@ struct FileStatusView: View {
             stagedLFSPaths = (try? await GitStatusService.shared.lfsPaths(loadedStatus.staged.map(\.path), cached: true, in: repositoryURL)) ?? []
             stagedLineCounts = [:]
             changedLineCounts = [:]
-            gitStatus = loadedStatus
-            lineCountRefreshID = UUID()
-            changedFiles = loadedStatus.unstaged + loadedStatus.untracked
+            if gitStatus != loadedStatus {
+                gitStatus = loadedStatus
+                lineCountRefreshID = UUID()
+                changedFiles = loadedStatus.unstaged + loadedStatus.untracked
+            }
             currentBranch = loadedCurrentBranch
             currentBranchIntegrationStatus = loadedIntegrationStatus
             recentCommits = await GitStatusService.shared.recentCommits(in: repositoryURL)
+            diffRefreshID = UUID()
 
             restoreSelectedFileAfterStatusRefresh()
 
@@ -1610,6 +1616,16 @@ struct FileStatusView: View {
         } catch {
             errorMessage = error.localizedDescription
             showingError = true
+        }
+    }
+
+    private func requestRefresh() {
+        needsRefresh = true
+        guard isActive else { return }
+        Task {
+            await loadStatus()
+            guard !Task.isCancelled else { return }
+            needsRefresh = false
         }
     }
 

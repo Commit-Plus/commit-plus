@@ -29,6 +29,15 @@ struct WindowWidthKey: PreferenceKey {
     }
 }
 
+private extension View {
+    func repositoryScreenVisibility(isActive: Bool) -> some View {
+        opacity(isActive ? 1 : 0)
+            .allowsHitTesting(isActive)
+            .accessibilityHidden(!isActive)
+            .zIndex(isActive ? 1 : 0)
+    }
+}
+
 struct PendingCommitDropConfirmation: Identifiable, Equatable {
     let id = UUID()
     let commits: [GitDraggedCommit]
@@ -1324,41 +1333,12 @@ struct MainWindowView: View {
                         .frame(height: 0.5)
                 }
 
-            switch selectedItem {
+            ZStack {
+                cachedRepositoryScreens
+
+                switch selectedItem {
             case .item(.fileStatus):
-                FileStatusView(
-                    repositoryURL: repositoryURL,
-                    aiProviderController: aiProviderController,
-                    syncState: syncState,
-                    undoManager: undoManager,
-                    preferredRemote: repoSettings.defaultRemoteName,
-                    gitFlowConfiguration: gitFlowConfiguration,
-                    canUpdateCurrentBranch: canUpdateCurrentBranch,
-                    onRequestUpdateCurrentBranch: requestCurrentBranchIntegrationUpdate,
-                    onRequestApplyStash: { ref in
-                        requestStashAction(ref: ref, action: .apply)
-                    },
-                    onRequestComparePath: { pathComparisonWindow.show(path: $0, in: repositoryURL) },
-                    onRequestTrackLFS: { path in
-                        lfsTrackingPath = path
-                        selectedItem = .item(.gitLFS)
-                    },
-                    onAuthorizeCommit: authorizeProtectedBranchCommit,
-                    onRequestPushAfterCommit: pushAfterCommit,
-                    onRunRepositoryOperation: runRepositoryOperation,
-                    onCustomActionSelectionChanged: { customActionFilePaths = $0 },
-                    onRunCustomAction: { id, paths in
-                        runCustomAction(
-                            id: id,
-                            context: CustomActionInvocationContext(
-                                repositoryURL: repositoryURL,
-                                filePaths: paths,
-                                commitHashes: []
-                            ),
-                            surface: .selectedFiles
-                        )
-                    }
-                )
+                EmptyView()
             case .item(.history), .branch, .worktree, .tag, .remoteBranch, .head:
                 if let referenceDiffBase, let referenceDiffTarget, let referenceDiffTitle {
                     ReferenceDiffView(
@@ -1373,48 +1353,10 @@ struct MainWindowView: View {
                     )
                     .id("\(referenceDiffBase)→\(referenceDiffTarget)")
                 } else {
-                    HistoryScreen(
-                        repositoryURL: repositoryURL,
-                        selectedBranch: selectedBranchName,
-                        branchFilter: $appState.historyBranchFilter,
-                        includeRemotes: $appState.historyIncludeRemotes,
-                        dependencies: HistoryCommitActionController.Dependencies(
-                            repositoryURL: repositoryURL,
-                            undoManager: undoManager,
-                            syncState: syncState,
-                            runOperation: runRepositoryOperation,
-                            requestCheckout: checkoutRequest,
-                            requestExplain: explainCommitWithRepositoryAI,
-                            requestBrowseRevision: { revisionBrowserWindow.show(revision: $0.hash, in: repositoryURL, credentialResolver: providerCredentialResolver) },
-                            runCustomAction: { id, hashes in
-                                runCustomAction(
-                                    id: id,
-                                    context: CustomActionInvocationContext(
-                                        repositoryURL: repositoryURL,
-                                        filePaths: [],
-                                        commitHashes: hashes
-                                    ),
-                                    surface: .selectedCommits
-                                )
-                            },
-                            headHash: { nil }
-                        ),
-                        selectionSink: historySelectionSink,
-                        onOpenFile: prepareToOpenSearchFile
-                    )
-                    .id(repositoryURL)
+                    EmptyView()
                 }
             case .item(.reflog):
-                ReflogView(
-                    repositoryURL: repositoryURL,
-                    onShowCommit: { hash in
-                        appState.historyBranchFilter = .branch(hash)
-                        selectedItem = .branch(hash)
-                    },
-                    onCreateBranch: { entry in
-                        presentBranchSheet(startPoint: .commit(hash: entry.hash, message: entry.message))
-                    }
-                )
+                EmptyView()
             case .item(.pullRequests):
                 switch pullRequestAccessDecision {
                 case .allowed:
@@ -1493,7 +1435,101 @@ struct MainWindowView: View {
                 )
             case .none:
                 EmptyStateView(message: "Select an item from the sidebar")
+                }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var cachedRepositoryScreens: some View {
+        FileStatusView(
+            repositoryURL: repositoryURL,
+            isActive: isFileStatusActive,
+            aiProviderController: aiProviderController,
+            syncState: syncState,
+            undoManager: undoManager,
+            preferredRemote: repoSettings.defaultRemoteName,
+            gitFlowConfiguration: gitFlowConfiguration,
+            canUpdateCurrentBranch: canUpdateCurrentBranch,
+            onRequestUpdateCurrentBranch: requestCurrentBranchIntegrationUpdate,
+            onRequestApplyStash: { ref in requestStashAction(ref: ref, action: .apply) },
+            onRequestComparePath: { pathComparisonWindow.show(path: $0, in: repositoryURL) },
+            onRequestTrackLFS: { path in
+                lfsTrackingPath = path
+                selectedItem = .item(.gitLFS)
+            },
+            onAuthorizeCommit: authorizeProtectedBranchCommit,
+            onRequestPushAfterCommit: pushAfterCommit,
+            onRunRepositoryOperation: runRepositoryOperation,
+            onCustomActionSelectionChanged: { customActionFilePaths = $0 },
+            onRunCustomAction: { id, paths in
+                runCustomAction(
+                    id: id,
+                    context: CustomActionInvocationContext(
+                        repositoryURL: repositoryURL,
+                        filePaths: paths,
+                        commitHashes: []
+                    ),
+                    surface: .selectedFiles
+                )
+            }
+        )
+        .repositoryScreenVisibility(isActive: isFileStatusActive)
+
+        HistoryScreen(
+            repositoryURL: repositoryURL,
+            isActive: isHistoryActive,
+            selectedBranch: selectedBranchName,
+            branchFilter: $appState.historyBranchFilter,
+            includeRemotes: $appState.historyIncludeRemotes,
+            dependencies: HistoryCommitActionController.Dependencies(
+                repositoryURL: repositoryURL,
+                undoManager: undoManager,
+                syncState: syncState,
+                runOperation: runRepositoryOperation,
+                requestCheckout: checkoutRequest,
+                requestExplain: explainCommitWithRepositoryAI,
+                requestBrowseRevision: { revisionBrowserWindow.show(revision: $0.hash, in: repositoryURL, credentialResolver: providerCredentialResolver) },
+                runCustomAction: { id, hashes in
+                    runCustomAction(
+                        id: id,
+                        context: CustomActionInvocationContext(
+                            repositoryURL: repositoryURL,
+                            filePaths: [],
+                            commitHashes: hashes
+                        ),
+                        surface: .selectedCommits
+                    )
+                },
+                headHash: { nil }
+            ),
+            selectionSink: historySelectionSink,
+            onOpenFile: prepareToOpenSearchFile
+        )
+        .id(repositoryURL)
+        .repositoryScreenVisibility(isActive: isHistoryActive)
+
+        ReflogView(
+            repositoryURL: repositoryURL,
+            isActive: isReflogActive,
+            onShowCommit: { hash in
+                appState.historyBranchFilter = .branch(hash)
+                selectedItem = .branch(hash)
+            },
+            onCreateBranch: { entry in
+                presentBranchSheet(startPoint: .commit(hash: entry.hash, message: entry.message))
+            }
+        )
+        .repositoryScreenVisibility(isActive: isReflogActive)
+    }
+
+    private var isFileStatusActive: Bool { selectedItem == .item(.fileStatus) }
+    private var isReflogActive: Bool { selectedItem == .item(.reflog) }
+    private var isHistoryActive: Bool {
+        guard referenceDiffBase == nil else { return false }
+        return switch selectedItem {
+        case .item(.history), .branch, .worktree, .tag, .remoteBranch, .head: true
+        default: false
         }
     }
 
