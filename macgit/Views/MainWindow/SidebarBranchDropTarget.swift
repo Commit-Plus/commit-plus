@@ -401,7 +401,7 @@ struct SidebarBranchDropTarget: NSViewRepresentable {
             return item
         }
 
-        private static func dragImage(title: String) -> NSImage {
+        static func dragImage(title: String) -> NSImage {
             let displayTitle = title.isEmpty ? "Branch" : title
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: 12, weight: .semibold),

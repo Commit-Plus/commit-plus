@@ -254,6 +254,15 @@ struct SidebarNativeList: NSViewRepresentable {
                 rows[row].select?()
             }
         }
+        func completePrimaryClick(row: Int, clickCount: Int) {
+            guard rows.indices.contains(row) else { return }
+            mouseSelection = true
+            mouseDown(row: row)
+            mouseSelection = false
+            if clickCount == 2 {
+                rows[row].activate?()
+            }
+        }
         @objc func click() {
             guard let table, rows.indices.contains(table.clickedRow), rows[table.clickedRow].selection == nil else { return }
             rows[table.clickedRow].select?()
@@ -275,7 +284,11 @@ struct SidebarNativeList: NSViewRepresentable {
             return menu
         }
         func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
-            guard let payload = rows[row].payload?(), let data = try? GitDragPayload.encodeTransferData(payload) else { return nil }
+            dragPasteboardItem(for: row)
+        }
+        func dragPasteboardItem(for row: Int) -> NSPasteboardItem? {
+            guard rows.indices.contains(row), let payload = rows[row].payload?(),
+                  let data = try? GitDragPayload.encodeTransferData(payload) else { return nil }
             dragPayload = payload
             SidebarSignpost.event("NativeDragEncode")
             GitDragPayloadStore.set(payload)
@@ -284,6 +297,9 @@ struct SidebarNativeList: NSViewRepresentable {
             return item
         }
         func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+            finishDrag()
+        }
+        func finishDrag() {
             if let dragPayload { GitDragPayloadStore.clear(ifMatching: dragPayload) }
             dragPayload = nil
             incomingPayload = nil
@@ -374,13 +390,66 @@ struct SidebarNativeList: NSViewRepresentable {
         override func mouseDown(with event: NSEvent) {
             let hit = row(at: convert(event.locationInWindow, from: nil))
             if let owner, owner.rows.indices.contains(hit), owner.rows[hit].selection == nil {
-                if event.clickCount == 1 { owner.rows[hit].select?() }
+                let row = owner.rows[hit]
+                if row.id.kind == "header" || row.id.kind == "folder" || event.clickCount == 1 {
+                    row.select?()
+                }
+                return
+            }
+            if let owner, owner.rows.indices.contains(hit), owner.rows[hit].payload != nil {
+                trackClickOrDrag(from: event, row: hit, owner: owner)
                 return
             }
             owner?.mouseSelection = true
             owner?.mouseDown(row: hit)
             super.mouseDown(with: event)
             owner?.mouseSelection = false
+        }
+        private func trackClickOrDrag(from mouseDownEvent: NSEvent, row: Int, owner: Coordinator) {
+            guard let window else { return }
+            let start = mouseDownEvent.locationInWindow
+            while let event = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+                switch event.type {
+                case .leftMouseDragged:
+                    let location = event.locationInWindow
+                    guard hypot(location.x - start.x, location.y - start.y) >= 4 else { continue }
+                    beginNativeDrag(row: row, event: event, owner: owner)
+                    return
+                case .leftMouseUp:
+                    let releaseRow = self.row(at: convert(event.locationInWindow, from: nil))
+                    guard releaseRow == row else { return }
+                    owner.completePrimaryClick(row: row, clickCount: mouseDownEvent.clickCount)
+                    return
+                default:
+                    continue
+                }
+            }
+        }
+        private func beginNativeDrag(row: Int, event: NSEvent, owner: Coordinator) {
+            guard let item = owner.dragPasteboardItem(for: row) else { return }
+            let dragItem = NSDraggingItem(pasteboardWriter: item)
+            let rowFrame = rect(ofRow: row)
+            let image = SidebarBranchDropTarget.DropTargetView.dragImage(
+                title: owner.rows[row].appearance.title
+            )
+            dragItem.setDraggingFrame(
+                NSRect(x: rowFrame.minX, y: rowFrame.minY, width: image.size.width, height: image.size.height),
+                contents: image
+            )
+            beginDraggingSession(with: [dragItem], event: event, source: self)
+        }
+        override func draggingSession(
+            _ session: NSDraggingSession,
+            sourceOperationMaskFor context: NSDraggingContext
+        ) -> NSDragOperation {
+            .copy
+        }
+        override func draggingSession(
+            _ session: NSDraggingSession,
+            endedAt screenPoint: NSPoint,
+            operation: NSDragOperation
+        ) {
+            owner?.finishDrag()
         }
         override func resetCursorRects() {
             super.resetCursorRects()
@@ -480,7 +549,8 @@ struct SidebarNativeList: NSViewRepresentable {
         override func layout() {
             super.layout()
             guard let appearance = rowAppearance else { return }
-            let start = 8 + CGFloat(appearance.indent) * 16 * scale
+            let sectionChildInset: CGFloat = appearance.header ? 0 : 10 * scale
+            let start = 8 + sectionChildInset + CGFloat(appearance.indent) * 16 * scale
             let iconSize = 14 * scale
             icon.frame = NSRect(x: start, y: (bounds.height - iconSize) / 2, width: iconSize, height: iconSize)
             let progressWidth: CGFloat = appearance.spinning ? 18 : 0
