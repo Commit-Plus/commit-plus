@@ -1,25 +1,5 @@
-//
-//  CommitFileListView.swift
-//  macgit
-//
-
-//
-//  macgit (Commit+) - a macOS Git client built with Swift and SwiftUI.
-//  Copyright (C) 2026  Thanh Tran <trantienthanh2412@gmail.com>
-//
-//  This program is free software: you can redistribute it and/or modify
-//  it under the terms of the GNU Affero General Public License as published by
-//  the Free Software Foundation, either version 3 of the License, or
-//  (at your option) any later version.
-//
-//  This program is distributed in the hope that it will be useful,
-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-//  GNU Affero General Public License for more details.
-//
-//  You should have received a copy of the GNU Affero General Public License
-//  along with this program.  If not, see <https://www.gnu.org/licenses/>.
-//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import AppKit
 import SwiftUI
 
 struct CommitFileListView: View {
@@ -31,157 +11,56 @@ struct CommitFileListView: View {
     var onPatch: (([CommitFileChange], CommitPatchRequest.Direction) -> Void)? = nil
     var patchDisabledReason: (([CommitFileChange]) -> String?)? = nil
     @State private var selectedFiles: Set<CommitFileChange> = []
-    @State private var visibleFileCount = 200
-    private let pageSize = 200
-    
+
     var body: some View {
-        Group {
-            if onPatch != nil {
-                List(selection: $selectedFiles) { fileRows }
-                    .onChange(of: selectedFiles) { old, new in
-                        let addedFiles = new.subtracting(old)
-                        if let added = changes.first(where: { addedFiles.contains($0) }) {
-                            selectedFile = added
-                        } else if let selectedFile, !new.contains(selectedFile) {
-                            self.selectedFile = changes.first(where: { new.contains($0) })
-                        }
-                    }
-            } else {
-                List(selection: $selectedFile) { fileRows }
+        CommitFileNativeList(
+            rows: changes.map { .init(change: $0, count: lineCounts[$0.path]) },
+            selectedIDs: Set(selectedFiles.map(\.id)),
+            primarySelectedID: selectedFile?.id,
+            allowsMultipleSelection: onPatch != nil,
+            textScale: textScale,
+            onSelectionChange: updateSelection,
+            onOpenFile: onOpenFile,
+            makeContextMenu: onPatch == nil ? nil : { change in
+                NSHostingMenu(rootView: patchMenu(for: change))
             }
-        }
-        .listStyle(.inset)
+        )
         .onAppear { synchronizeSelection() }
         .onChange(of: changes) {
-            visibleFileCount = pageSize
             selectedFiles = selectedFiles.intersection(Set(changes))
             synchronizeSelection()
-            revealSelectedFile()
         }
-        .onChange(of: selectedFile) {
-            synchronizeSelection()
-            revealSelectedFile()
+        .onChange(of: selectedFile) { synchronizeSelection() }
+    }
+
+    private func updateSelection(_ files: [CommitFileChange], primary: CommitFileChange?) {
+        selectedFiles = Set(files)
+        if let primary, selectedFiles.contains(primary) {
+            selectedFile = primary
+        } else {
+            selectedFile = files.first
         }
     }
 
     private func synchronizeSelection() {
-        if let selectedFile, !selectedFiles.contains(selectedFile) { selectedFiles = [selectedFile] }
-        if selectedFile == nil { selectedFiles = [] }
-    }
-
-    private var fileRows: some View {
-        Group {
-            ForEach(changes.prefix(visibleFileCount)) { change in
-                HStack(spacing: 8) {
-                    Image(systemName: statusSymbol(for: change.status))
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(statusColor(for: change.status))
-                        .frame(width: 18, alignment: .center)
-                        .help(change.status.displayText)
-                        .accessibilityLabel(change.status.displayText)
-                    
-                    VStack(alignment: .leading, spacing: 1) {
-                        FileChangeLabel(
-                            name: fileName(from: change.path),
-                            path: directory(from: change.path),
-                            counts: lineCounts[change.path],
-                            nameFontSize: 12,
-                            pathColor: .tertiary
-                        ) { EmptyView() }
-                        if let oldPath = change.oldPath {
-                            Text("From: \(oldPath)")
-                                .font(.caption2.scaled(by: textScale))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .help(oldPath)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    if let onOpenFile {
-                        Button("Open with application", systemImage: "arrow.up.forward.app") {
-                            onOpenFile(change)
-                        }
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.borderless)
-                        .help("Open the working-copy file with your preferred application, or choose an application")
-                        .accessibilityLabel("Open \(fileName(from: change.path)) with an application")
-                        .onContinuousHover { phase in
-                            switch phase {
-                            case .active: NSCursor.pointingHand.set()
-                            case .ended: NSCursor.arrow.set()
-                            }
-                        }
-                    } else {
-                        Text(change.status.displayText)
-                            .font(.system(size: 10, weight: .medium).scaled(by: textScale))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(statusColor(for: change.status).opacity(0.12))
-                            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                    }
-                }
-                .padding(.vertical, 2)
-                .tag(change)
-                .contextMenu {
-                    if let onPatch {
-                        let files = selectedFiles.contains(change) ? changes.filter { selectedFiles.contains($0) } : [change]
-                        let reason = patchDisabledReason?(files)
-                        Button("Apply Selected Changes") { onPatch(files, .apply) }
-                            .disabled(reason != nil)
-                        Button("Revert Selected Changes") { onPatch(files, .revert) }
-                            .disabled(reason != nil)
-                        if let reason { Text(reason) }
-
-                    }
-                }
+        if let selectedFile, changes.contains(selectedFile) {
+            if onPatch == nil || !selectedFiles.contains(selectedFile) {
+                selectedFiles = [selectedFile]
             }
-            if visibleFileCount < changes.count {
-                Text("Loading more files… (\(visibleFileCount) of \(changes.count))")
-                    .font(.caption.scaled(by: textScale))
-                    .foregroundStyle(.secondary)
-                    .selectionDisabled()
-                    .id(visibleFileCount)
-                    .onAppear {
-                        visibleFileCount = min(visibleFileCount + pageSize, changes.count)
-                    }
-            }
+        } else {
+            selectedFiles = []
+            if selectedFile != nil { selectedFile = nil }
         }
     }
 
-    private func revealSelectedFile() {
-        guard let selectedFile,
-              let index = changes.firstIndex(where: { $0.id == selectedFile.id }) else { return }
-        visibleFileCount = max(visibleFileCount, index + 1)
-    }
-    
-    private func fileName(from path: String) -> String {
-        URL(fileURLWithPath: path).lastPathComponent
-    }
-    
-    private func directory(from path: String) -> String {
-        let url = URL(fileURLWithPath: path)
-        return url.deletingLastPathComponent().path
-    }
-    
-    private func statusSymbol(for status: CommitFileStatus) -> String {
-        switch status {
-        case .added: return "plus.circle.fill"
-        case .modified: return "pencil.circle.fill"
-        case .deleted: return "minus.circle.fill"
-        case .renamed: return "arrow.right.circle.fill"
-        case .copied: return "doc.on.doc.fill"
-        }
-    }
-    
-    private func statusColor(for status: CommitFileStatus) -> Color {
-        switch status {
-        case .added: return .green
-        case .modified: return .orange
-        case .deleted: return .red
-        case .renamed: return .blue
-        case .copied: return .purple
-        }
+    @ViewBuilder
+    private func patchMenu(for change: CommitFileChange) -> some View {
+        let files = selectedFiles.contains(change) ? changes.filter { selectedFiles.contains($0) } : [change]
+        let reason = patchDisabledReason?(files)
+        Button("Apply Selected Changes") { onPatch?(files, .apply) }
+            .disabled(reason != nil)
+        Button("Revert Selected Changes") { onPatch?(files, .revert) }
+            .disabled(reason != nil)
+        if let reason { Text(reason) }
     }
 }

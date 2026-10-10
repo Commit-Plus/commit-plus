@@ -8,8 +8,11 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
     let hunks: [DiffHunk]
     let textScale: CGFloat
     let syntaxHighlighting: Bool
+    let fileExtension: String
     let selectedLineIDs: Set<UUID>
-    @ViewBuilder let content: (DiffHunk, Int?, CGRect) -> Content
+    let onLineTap: (DiffHunk, Int, NSEvent.ModifierFlags) -> Void
+    let lineMenu: (DiffHunk, Int) -> NSMenu
+    @ViewBuilder let content: (DiffHunk) -> Content
     @Environment(\.colorScheme) private var colorScheme
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -23,10 +26,15 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
         scroll.drawsBackground = false
         scroll.documentView = context.coordinator.document
         context.coordinator.observe(scroll)
+        context.coordinator.connectTextStore()
         return scroll
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        let appearanceName: NSAppearance.Name = colorScheme == .dark ? .darkAqua : .aqua
+        if scroll.appearance?.name != appearanceName {
+            scroll.appearance = NSAppearance(named: appearanceName)
+        }
         context.coordinator.apply(self, scroll: scroll)
     }
 
@@ -40,6 +48,8 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
         private var model: DiffNativeTable?
         private var geometry = DiffHunkGeometry(lineCounts: [], scale: 1)
         private var hunkIDs: [UUID] = []
+        private var revisions: [DiffContentRevision] = []
+        private let textStore = DiffNativeTextStore()
         private var scale: CGFloat = 0
         private var widths: [CGFloat] = []
         private var offsets: [Int: CGFloat] = [:]
@@ -49,9 +59,26 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
         private var observer: NSObjectProtocol?
         private var updating = false
 
+        /// Keep one viewport of fully configured content on either side of the
+        /// clip. This moves hosting-view reuse away from the hunk boundary the
+        /// user is currently watching while keeping memory bounded.
+        private let renderOverscanViewports: CGFloat = 1
+        private let retentionViewports: CGFloat = 2
+
         func apply(_ model: DiffNativeTable, scroll: NSScrollView) {
             let ids = model.hunks.map(\.id)
-            let changed = ids != hunkIDs || scale != model.textScale
+            let revisions = model.hunks.map(\.contentRevision)
+            let changed = ids != hunkIDs || revisions != self.revisions || scale != model.textScale
+            if changed || self.model?.syntaxHighlighting != model.syntaxHighlighting
+                || self.model?.fileExtension != model.fileExtension
+                || self.model?.colorScheme != model.colorScheme
+            {
+                textStore.reset(
+                    fontSize: 12 * model.textScale,
+                    fileExtension: model.fileExtension,
+                    syntaxHighlighting: model.syntaxHighlighting)
+            }
+            self.revisions = revisions
             self.model = model
             if changed {
                 if ids != hunkIDs {
@@ -61,7 +88,8 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
                 }
                 hunkIDs = ids
                 scale = model.textScale
-                geometry = DiffHunkGeometry(lineCounts: model.hunks.map { $0.lines.count }, scale: scale)
+                geometry = DiffHunkGeometry(
+                    lineCounts: model.hunks.map { $0.lines.count }, scale: scale)
                 widths = Array(repeating: 0, count: ids.count)
                 for panel in panels.values { panel.removeFromSuperview() }
                 panels.removeAll()
@@ -83,24 +111,38 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
                         var width: CGFloat = 0
                         for line in hunk.lines {
                             guard !Task.isCancelled else { return widths }
-                            width = max(width, DiffLongLineLayout.measuredWidth(
-                                text: line.text, fontName: fontName, fontSize: fontSize))
+                            width = max(
+                                width,
+                                DiffLongLineLayout.measuredWidth(
+                                    text: line.text, fontName: fontName, fontSize: fontSize))
                         }
                         widths.append(ceil(width) + 114)
                     }
                     return widths
                 }
-                let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+                let result = await withTaskCancellationHandler {
+                    await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
                 guard !Task.isCancelled, let self else { return }
                 widths = result
                 if let scroll = document.enclosingScrollView { layout(scroll) }
             }
         }
 
+        func connectTextStore() {
+            textStore.onReady = { [weak self] ids in
+                guard let self else { return }
+                for panel in self.panels.values { panel.canvas.invalidateLines(ids) }
+            }
+        }
+
         func observe(_ scroll: NSScrollView) {
             scroll.contentView.postsBoundsChangedNotifications = true
             observer = NotificationCenter.default.addObserver(
-                forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: .main
+                forName: NSView.boundsDidChangeNotification, object: scroll.contentView,
+                queue: .main
             ) { [weak self, weak scroll] _ in
                 MainActor.assumeIsolated {
                     guard let self, let scroll else { return }
@@ -114,18 +156,30 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
             updating = true
             defer { updating = false }
             let bounds = scroll.contentView.bounds
-            let size = CGSize(width: max(1, bounds.width), height: max(bounds.height, geometry.height))
+            let size = CGSize(
+                width: max(1, bounds.width), height: max(bounds.height, geometry.height))
             if document.frame.size != size { document.setFrameSize(size) }
-            let visible = geometry.visibleHunks(in: bounds)
-            for index in Array(panels.keys) where !visible.contains(index) {
+            let renderBounds = bounds.insetBy(
+                dx: 0,
+                dy: -bounds.height * renderOverscanViewports
+            )
+            let retentionBounds = bounds.insetBy(
+                dx: 0,
+                dy: -bounds.height * retentionViewports
+            )
+            let rendered = geometry.visibleHunks(in: renderBounds)
+            let retained = geometry.visibleHunks(in: retentionBounds)
+            for index in Array(panels.keys) where !retained.contains(index) {
                 if let panel = panels.removeValue(forKey: index) {
                     offsets[index] = panel.horizontalOffset
-                    panel.onHorizontalScroll = nil
+                    panel.canvas.onLineTap = nil
+                    panel.canvas.lineMenu = nil
+                    panel.canvas.cancelPendingWork()
                     panel.removeFromSuperview()
                     recycledPanels.append(panel)
                 }
             }
-            for index in visible {
+            for index in rendered {
                 let panel: DiffNativeHunkView
                 let isNew: Bool
                 if let existing = panels[index] {
@@ -141,56 +195,63 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
                 let hunk = model.hunks[index]
                 let frame = geometry.frame(at: index, width: size.width)
                 if panel.frame != frame { panel.frame = frame }
-                let localVisible = bounds.offsetBy(dx: -panel.frame.minX, dy: -panel.frame.minY)
+                let localVisible = renderBounds.offsetBy(
+                    dx: -panel.frame.minX, dy: -panel.frame.minY)
                 panel.updateGeometry(
                     visible: localVisible, headerHeight: geometry.headerHeight,
                     lineHeight: geometry.lineHeight, lineCount: hunk.lines.count,
-                    contentWidth: widths[index], restoredOffset: isNew ? offsets[index, default: 0] : nil
+                    contentWidth: widths[index],
+                    restoredOffset: isNew ? offsets[index, default: 0] : nil
                 )
                 if refresh || isNew {
-                    configure(panel.header, hunk: hunk, line: nil, viewport: panel.horizontalViewport)
-                }
-                panel.updateLines(lineCount: hunk.lines.count, lineHeight: geometry.lineHeight,
-                                  refresh: refresh || isNew) { cell, line, created in
-                    if refresh || isNew || created {
-                        configure(cell, hunk: hunk, line: line, viewport: panel.horizontalViewport)
+                    configureHeader(panel.header, hunk: hunk)
+                    panel.canvas.configure(
+                        hunk: hunk, textStore: textStore,
+                        selectedLineIDs: model.selectedLineIDs,
+                        lineHeight: geometry.lineHeight)
+                    // Read the coordinator's latest model when the event occurs.
+                    // A hosted header and native rows share exactly the same actions.
+                    panel.canvas.onLineTap = { [weak self] line, flags in
+                        guard let model = self?.model, model.hunks.indices.contains(index) else {
+                            return
+                        }
+                        model.onLineTap(model.hunks[index], line, flags)
+                    }
+                    panel.canvas.lineMenu = { [weak self] line in
+                        guard let model = self?.model, model.hunks.indices.contains(index) else {
+                            return nil
+                        }
+                        return model.lineMenu(model.hunks[index], line)
                     }
                 }
-                if isNew {
-                    // Rebind only after old row indices and content have been
-                    // replaced, so width notifications cannot access the old hunk.
-                    panel.onHorizontalScroll = { [weak self, weak panel] viewport in
-                        guard let self, let panel else { return }
-                        self.offsets[index] = panel.horizontalOffset
-                        self.refreshLongLines(panel, hunk: index, viewport: viewport)
-                    }
-                }
-            }
-            // A bounded spare pool absorbs changes in visible hunk count without
-            // retaining every hosting tree visited during a long scroll.
-            if recycledPanels.count > 2 { recycledPanels.removeFirst(recycledPanels.count - 2) }
-        }
 
-        private func refreshLongLines(_ panel: DiffNativeHunkView, hunk index: Int, viewport: CGRect) {
-            guard let model, model.hunks.indices.contains(index) else { return }
-            let hunk = model.hunks[index]
-            for (line, cell) in panel.cells where DiffLongLineLayout.isLong(hunk.lines[line].text) {
-                configure(cell, hunk: hunk, line: line, viewport: viewport)
+            }
+            // Match the spare pool to the current render window. Files with many
+            // small hunks can then reuse a warm panel instead of rebuilding its
+            // hosting tree at every boundary, without retaining the whole diff.
+            let spareLimit = max(2, rendered.count)
+            if recycledPanels.count > spareLimit {
+                recycledPanels.removeFirst(recycledPanels.count - spareLimit)
             }
         }
 
-        private func configure(_ cell: DiffNativeCell, hunk: DiffHunk, line: Int?, viewport: CGRect) {
+        private func configureHeader(_ cell: DiffNativeCell, hunk: DiffHunk) {
             guard let model else { return }
-            let identity = line.map { hunk.lines[$0].id } ?? hunk.id
-            cell.host.rootView = AnyView(model.content(hunk, line, viewport)
-                .id(identity)
-                .environment(\.appTextScale, model.textScale)
-                .environment(\.colorScheme, model.colorScheme))
+            #if DEBUG
+                DiffRenderStats.headerHostAssignments += 1
+            #endif
+            cell.host.rootView = AnyView(
+                model.content(hunk)
+                    .id(hunk.id)
+                    .environment(\.appTextScale, model.textScale)
+                    .environment(\.colorScheme, model.colorScheme))
         }
 
         func stop() {
             widthTask?.cancel()
             widthTask = nil
+            for panel in panels.values { panel.canvas.cancelPendingWork() }
+            textStore.cancel()
             if let observer { NotificationCenter.default.removeObserver(observer) }
             observer = nil
         }

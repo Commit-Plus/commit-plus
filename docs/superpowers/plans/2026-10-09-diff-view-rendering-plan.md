@@ -18,6 +18,11 @@
 - Test (narrow): `rtk proxy xcodebuild -project macgit.xcodeproj -scheme macgit -destination 'platform=macOS' -only-testing:macgitTests/<TestClass> test`
 - Run builds and tests sequentially. Do not commit, stash or push unless the user asks; the “Checkpoint” step marks a good commit point.
 
+**Implementation status (2026-10-09):** Tasks 0–1 foundations and Task 3 are implemented on
+`codex/diff-canvas-renderer`; the app build succeeds. Narrow XCTest execution is currently blocked
+because the test target compiles unrelated existing Swift 6 actor-isolation errors before applying
+`-only-testing`. Task 0's Instruments baseline and the canvas switch remain pending.
+
 ---
 
 ### Task 0: Fixtures and instrumentation
@@ -62,11 +67,12 @@ enum DiffRenderStats {
 - [ ] **Step 4: Baseline** — run the script, open the repo in a Release build, record Instruments (Time Profiler + Animation Hitches + `DiffView` signposts are not there yet, so Time Profiler only) while scrolling each file. Save the numbers in the PR description as “before”.
 - [ ] **Step 5:** Build. Checkpoint.
 
-### Task 1: Stable identity and header counts
+### Task 1: Presentation identity, content revisions and line matching
 
 **Files:**
 - Modify: `macgit/Services/GitDiffModels.swift`
 - Create: `macgitTests/DiffIdentityTests.swift`
+- Create: `macgitTests/DiffLineIdentityMatcherTests.swift`
 
 - [ ] **Step 1: Write failing tests**
 
@@ -98,7 +104,7 @@ final class DiffIdentityTests: XCTestCase {
         XCTAssertNotEqual(hunk.lines[0].id, hunk.lines[1].id)
     }
 
-    func testEditedLineChangesOnlyItsOwnID() {
+    func testEditedLineChangesHunkRevisionWithoutChangingHunkIdentity() {
         let a = DiffHunk(header: "@@ -1,2 +1,2 @@", lines: [
             DiffLine(oldLineNumber: nil, newLineNumber: 1, text: "one", type: .added),
             DiffLine(oldLineNumber: nil, newLineNumber: 2, text: "two", type: .added)])
@@ -106,9 +112,7 @@ final class DiffIdentityTests: XCTestCase {
             DiffLine(oldLineNumber: nil, newLineNumber: 1, text: "one", type: .added),
             DiffLine(oldLineNumber: nil, newLineNumber: 2, text: "TWO", type: .added)])
         XCTAssertEqual(a.id, b.id)
-        XCTAssertEqual(a.lines[0].id, b.lines[0].id)
-        XCTAssertNotEqual(a.lines[1].id, b.lines[1].id)
-        XCTAssertNotEqual(a.lines[1].contentKey, b.lines[1].contentKey)
+        XCTAssertNotEqual(a.contentRevision, b.contentRevision)
     }
 
     func testHeaderCounts() {
@@ -119,24 +123,17 @@ final class DiffIdentityTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2:** Run `DiffIdentityTests` → FAIL (`contentKey`, `addedCount` missing; ids differ).
+Add matcher tests proving that inserting a row above preserves IDs for unambiguous unchanged lines, duplicate equal lines are matched by occurrence plus neighbour context, an ambiguous match receives a new ID, and selected IDs never move to different text. Add a fingerprint test using two values with an injected equal precomputed hash and verify dictionary lookup still distinguishes their exact strings.
+
+- [ ] **Step 2:** Run both identity suites → FAIL (`contentRevision`, `DiffTextFingerprint`, matcher and counts missing).
 - [ ] **Step 3: Implement** (spec §5.1)
 
-```swift
-nonisolated enum DiffIdentity {
-    static func uuid(_ high: Int, _ low: Int) -> UUID {
-        let h = UInt64(bitPattern: Int64(high)), l = UInt64(bitPattern: Int64(low))
-        func b(_ v: UInt64, _ i: Int) -> UInt8 { UInt8(truncatingIfNeeded: v >> (8 * i)) }
-        return UUID(uuid: (b(h,0), b(h,1), b(h,2), b(h,3), b(h,4), b(h,5), b(h,6), b(h,7),
-                           b(l,0), b(l,1), b(l,2), b(l,3), b(l,4), b(l,5), b(l,6), b(l,7)))
-    }
-}
-```
-
-  - `DiffLineType: Hashable`.
-  - `DiffLine`: `fileprivate(set) var id = UUID()`, `let contentKey: Int` computed in the existing initializer (`text.hashValue`).
-  - `DiffHunk`: `let id: UUID` (no default); in `init(header:lines:)` compute `hunkSeed = Hasher.combine(header, lines.count)`, set `id = DiffIdentity.uuid(hunkSeed, 0x48554e4b)`, copy `lines` into a `var`, re-stamp each `id` with `DiffIdentity.uuid(hash(hunkSeed, index, type, old, new), contentKey)`, and compute `addedCount`/`removedCount` in the existing run loop.
-- [ ] **Step 4:** Run `DiffIdentityTests`, `DiffPatchBuilderTests`, `CommitPatchIntegrationTests` → PASS.
+  - Add `DiffTextFingerprint` with exact-string equality and a precomputed hash used only to accelerate hashing.
+  - Add `DiffHunkIdentity` from parsed old/new starts plus occurrence ordinal; standalone hunks keep random identity unless supplied.
+  - Add `DiffHunk.contentRevision` over header and the complete ordered line payload. Do not use `hashValue` as the revision itself; store a value whose equality verifies all inputs.
+  - Add `DiffLineIdentityMatcher`, applied by the coordinator before selection intersection, using exact text/type, occurrence and neighbour context. Index and displayed numbers are tie-breakers, not primary identity.
+  - Compute `addedCount`/`removedCount` in the existing run loop.
+- [ ] **Step 4:** Run `DiffIdentityTests`, `DiffLineIdentityMatcherTests`, `DiffPatchBuilderTests`, `CommitPatchIntegrationTests` → PASS.
 - [ ] **Step 5:** Build. Checkpoint.
 
 ### Task 2: `SyntaxTokenizer` (off-main tokenization)
@@ -254,7 +251,7 @@ nonisolated enum DiffTextMetrics {
 - Create: `macgitTests/DiffTextLayoutStoreTests.swift`
 
 - [ ] **Step 1: `DiffRenderContext`** (`@MainActor final class`, spec §5.2). `update(textScale:syntaxHighlighting:fileExtension:appearance:) -> Bool` returns whether anything changed and bumps `styleVersion`. Resolve every color with `appearance.performAsCurrentDrawingAppearance { NSColor.x.cgColor }`: backgrounds (accent 0.12, `systemGreen` 0.08, `systemRed` 0.08, `systemPurple` 0.10), line colors (added `0.12/0.55/0.18`, removed `0.75/0.18/0.18`, header `secondaryLabelColor`, conflict `systemPurple`, primary `labelColor`), number color `tertiaryLabelColor`, token colors via `SyntaxHighlighter.color(for:)`. Constants: `contentInset = 106`, `trailingInset = 8`, `rowHeight = 22 * scale`, `headerHeight = 32 * scale`, `advance` = advance of the space glyph in the content font.
-- [ ] **Step 2: Failing tests** for the store: same `(contentKey, type, highlighted, styleVersion)` returns the identical `CTLine` object (`===`) and increments `DiffRenderStats.lineBuilds` once; bumping `styleVersion` rebuilds; a line with tokens applies a different foreground color at a token range than outside it (read back with `CTLineGetGlyphRuns` + `CTRunGetAttributes`).
+- [ ] **Step 2: Failing tests** for the store: same `(DiffTextFingerprint, type, highlighted, styleVersion)` returns the identical `CTLine` object (`===`); equal injected hashes with different exact strings do not share a line; bumping `styleVersion` rebuilds; token colors differ from surrounding text.
 - [ ] **Step 3: Implement `DiffTextLayoutStore`** (`@MainActor final class`): `func line(for line: DiffLine, tokens: [SyntaxToken]?, context: DiffRenderContext) -> CTLine` using `DiffGenerationalCache` (capacity 4 000). Build an `NSAttributedString` of `DiffTextMetrics.displayString` (or the expanded ASCII) with `kCTFontAttributeName` and `kCTForegroundColorAttributeName` (CGColor), then `CTLineCreateWithAttributedString`. Token ranges are mapped through the tab expansion (keep an offset map only when the text contains tabs). Also `func label(_ string: String, font: CTFont, color: CGColor, version: Int) -> CTLine` for numbers/prefix (cache by string + version). Wrap builds in `DiffSignpost.interval("lineBuild")` and bump the debug counter.
 - [ ] **Step 4:** Run → PASS. Build. Checkpoint.
 
@@ -276,7 +273,7 @@ nonisolated enum DiffTextMetrics {
 @MainActor
 final class DiffLongLineStore {
     enum Prepared: Sendable { case ascii(bytes: [UInt8], columns: Int), chunked(DiffLongLineLayout) }
-    struct Key: Hashable { let contentKey: Int; let fontKey: Int }
+    struct Key: Hashable { let fingerprint: DiffTextFingerprint; let fontKey: Int }
     static let shared = DiffLongLineStore()           // used by DiffLongLineContent
 
     private var prepared = DiffGenerationalCache<Key, Prepared>(capacity: 64)
@@ -302,7 +299,7 @@ final class DiffLongLineStore {
 
 - [ ] **Step 1: Failing tests** — `prefetch` of 100 short lines runs one batch (one detached task) and afterwards `tokens(for:)` returns non-nil for all; long lines (> 4096 bytes) are never tokenized; a batch started with identity `A` is discarded after `reset(identity: B)`; when disabled (`isEnabled = false`) nothing is scheduled.
 - [ ] **Step 2:** Run → FAIL.
-- [ ] **Step 3: Implement** (spec §5.6): cache `DiffGenerationalCache<TokenKey, [SyntaxToken]>(capacity: 8_000)` keyed by `(contentKey, language)`; `inFlight: Set<TokenKey>`; `onTokensReady: (() -> Void)?` set by the coordinator (redraws visible canvases). Batch body runs `SyntaxTokenizer.tokens` for each `(key, text)` inside `DiffSignpost.interval("highlightBatch")` and returns `[(TokenKey, [SyntaxToken])]`.
+- [ ] **Step 3: Implement** (spec §5.6): cache by `(DiffTextFingerprint, language)`; `inFlight: Set<TokenKey>`; every batch captures the coordinator presentation generation and discards results when it no longer matches. Batch body tokenizes off-main and returns immutable results for main-actor insertion.
 - [ ] **Step 4:** Run → PASS. Build. Checkpoint.
 
 ### Task 7: `DiffWidthIndex`
@@ -311,9 +308,9 @@ final class DiffLongLineStore {
 - Create: `macgit/Views/Common/Diff/DiffWidthIndex.swift`
 - Create: `macgitTests/DiffWidthIndexTests.swift`
 
-- [ ] **Step 1: Failing tests** — `width(for:)` is non-zero immediately after `reset(hunks:)` (estimate from `widestLineCandidate`); after `measure(priority: [visible indices])` completes, the visible hunks report exact width first (order of `onWidthChanged` callbacks starts with the visible indices); an ASCII hunk's exact width equals `maxColumns × advance + 114`; re-`reset` with the same hunk ids keeps exact widths without recomputation.
+- [ ] **Step 1: Failing tests** — width is non-zero immediately; visible hunks finish first; ASCII width is exact; equal `contentRevision` reuses width; the same stable hunk id with a changed same-count revision recomputes width.
 - [ ] **Step 2:** Run → FAIL.
-- [ ] **Step 3: Implement** (spec §5.7). Off-main loop checks `Task.isCancelled` per line; ASCII via `DiffTextMetrics.asciiColumns`, long non-ASCII via `DiffLongLineLayout.measuredWidth`, short non-ASCII via `CTLineGetTypographicBounds`. Results keyed by `(hunk.id, fontKey)`. Callback `onWidthChanged: (Int) -> Void` per finished hunk.
+- [ ] **Step 3: Implement** (spec §5.7). Off-main loop checks cancellation per line. Results are keyed by `(hunk.contentRevision, fontKey)`; hunk id is used only to find the panel receiving the callback.
 - [ ] **Step 4:** Run → PASS. Build. Checkpoint.
 
 ### Task 8: `DiffLineSelection` and `DiffMenuModel`
@@ -416,7 +413,7 @@ final class DiffHunkCanvasView: NSView {
   - `viewDidChangeEffectiveAppearance` → ask the coordinator (closure `onAppearanceChange`) to update `DiffRenderContext`.
 - [ ] **Step 4:** Run → PASS. Build. Checkpoint.
 
-### Task 11: Rework `DiffNativeHunkView`
+### Task 11: Prepare `DiffNativeHunkView` canvas path without switching rendering
 
 **Files:**
 - Modify: `macgit/Views/Common/DiffNativeHunkView.swift`
@@ -428,16 +425,16 @@ final class DiffHunkCanvasView: NSView {
   - Keep `testHunksOwnIndependentNativeHorizontalOffsets` and `testRestoredOffsetWaitsForAsynchronousWidthMeasurement` unchanged.
   - `testHorizontalScrollMovesCanvasWithClip`: scrolling the clip to x = 50 000 sets `canvas.frame.minX == 50 000` and `canvas.source?.offset == 50 000`.
 - [ ] **Step 2:** Run → FAIL.
-- [ ] **Step 3: Implement** (spec §5.11)
+- [ ] **Step 3: Add the canvas path alongside the active row path** (spec §5.11)
   - `header` becomes `let header = NSHostingView<DiffHunkHeaderView?>(rootView: nil)` (or an `Optional`-wrapping container view) with `sizingOptions = []`; `func setHeader(_ input: DiffHunkHeaderInput, view: () -> DiffHunkHeaderView)` assigns `rootView` only when `input != lastHeaderInput` (bump `DiffRenderStats.headerHostAssignments`).
   - `lines` → `DiffHunkLinesView` (spacer) containing `canvas`.
-  - Remove `cells`, `spareCells`, `rowLayout`, `rowRange`, `updateLines`.
+  - Keep `cells`, `spareCells`, `rowLayout`, `rowRange` and `updateLines` fully functional until Task 12. The canvas exists but is not installed as the active document child yet.
   - In `updateGeometry` and in the horizontal bounds observer: `canvas.frame = CGRect(x: clip.bounds.minX, y: 0, width: clip.bounds.width, height: sliceHeight)`; when `sliceStart` or offset changed, set a new `canvas.source` (with the new `sliceStart`/`offset`). `onHorizontalScroll` now reports the raw offset (no 256 pt quantization needed for long lines; the store quantizes).
-  - Remove `draw(_:)`; in `init`: `wantsLayer = true; layer?.cornerRadius = 8; layer?.borderWidth = 1; layer?.masksToBounds = true`; set `borderColor` in `viewDidChangeEffectiveAppearance` and `init` via `effectiveAppearance.performAsCurrentDrawingAppearance`.
-- [ ] **Step 4: Temporary shim** so the old `DiffNativeTable` keeps building until Task 12: keep `var cells: [Int: DiffNativeCell] { [:] }` and `func updateLines(lineCount:lineHeight:refresh:configure:) {}` marked `@available(*, deprecated)`. (The old table renders headers only during this window; that is expected and lasts one task.) Run `DiffNativeHunkViewTests`, `DiffHunkGeometryTests` → PASS.
+  - Keep the existing border drawing until the atomic switch; layer-border replacement happens in Task 12 when the old path is removed.
+- [ ] **Step 4:** Run the existing row-path tests plus new canvas geometry tests. Both paths must work; no no-op compatibility shim is allowed.
 - [ ] **Step 5:** Build. Checkpoint.
 
-### Task 12: Coordinator rework and `DiffView` switch
+### Task 12: Atomic coordinator switch, refresh hardening and parity verification
 
 **Files:**
 - Modify: `macgit/Views/Common/DiffNativeTable.swift`
@@ -448,7 +445,7 @@ final class DiffHunkCanvasView: NSView {
 ```swift
 struct DiffNativeTable: NSViewRepresentable {
     let hunks: [DiffHunk]
-    let contentIdentity: AnyHashable?
+    let presentationIdentity: AnyHashable
     let textScale: CGFloat
     let syntaxHighlighting: Bool
     let fileExtension: String
@@ -460,21 +457,22 @@ struct DiffNativeTable: NSViewRepresentable {
 ```
 
 - [ ] **Step 2: Coordinator**
+  - Switch the panel to the canvas and remove `cells`, `spareCells`, `rowLayout`, `rowRange`, `updateLines` and `draw(_:)` in this same checkpoint. Install the layer border here. There is no intermediate header-only state.
   - Own `DiffRenderContext`, `DiffTextLayoutStore`, `DiffLongLineStore` (per table instance; `DiffLongLineContent` keeps `.shared`), `DiffHighlightStore`, `DiffWidthIndex`.
-  - `offsets: [UUID: CGFloat]` keyed by hunk id.
-  - `apply()` implements the five-step comparison of spec §5.10. On identity change call `scroll.contentView.scroll(to: .zero)` and `reflectScrolledClipView`. On same-identity hunk change, capture `bounds.minY` before rebuilding geometry and restore it clamped to `max(0, geometry.height - bounds.height)`.
+  - `offsets: [UUID: CGFloat]` keyed by stable hunk id; width/layout work is keyed by content revision.
+  - `apply()` implements spec §5.10. On presentation change increment the generation and reset. On same-presentation refresh, match line identities before intersecting selection; compare both hunk ids and revisions; preserve vertical position and unchanged offsets.
   - `layout(_:)` no longer takes `refresh`; for each visible panel: `updateGeometry` (width from `DiffWidthIndex`), header via `setHeader` (input compared), canvas wiring (stores, `actions`, `onSelectionChange`) only when the panel is new/recycled, `canvas.source` updated.
   - `DiffWidthIndex.onWidthChanged(index)` → if that hunk is visible, `updateGeometry` for that panel only.
   - `DiffHighlightStore.onTokensReady` and long-line `onReady` → `needsDisplay = true` on visible canvases.
   - Observer: `addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: nil)` and wrap `layout` in `DiffSignpost.interval("layout")`.
   - `stop()` cancels width/highlight/long-line tasks owned by this table.
 - [ ] **Step 3: `DiffView`**
-  - Add `contentIdentity: AnyHashable?` init parameter with default `nil`; compute `effectiveIdentity = contentIdentity ?? AnyHashable(file?.path ?? filePath ?? "")` combined with `gitRef`.
+  - Add `presentationIdentity: AnyHashable?` init parameter with default `nil`; compute the effective identity from repository identity, file path, git ref and display mode. Do not use an empty path as a shared identity for unrelated surfaces.
   - Create `@State private var actions = DiffActionController()`; update its properties in `body` (cheap assignments, no observation).
   - Replace the `DiffNativeTable { … }` closure with the new initializer. `onSelectionChange` writes `selectedLineIDs`/`lastSelectedLineID`.
   - Remove `.id(hunks.first?.id)` and the `highlightCache` state/`onChange` handlers.
-  - `.onChange(of: effectiveIdentity)` → clear selection and anchor. `.onChange(of: hunks.map(\.id))` → `selectedLineIDs.formIntersection(Set(hunks.lazy.flatMap(\.lines).map(\.id)))` only when the selection is non-empty.
-- [ ] **Step 4:** Build. Run all diff tests: `DiffIdentityTests`, `DiffTextMetricsTests`, `DiffGenerationalCacheTests`, `SyntaxTokenizerTests`, `DiffTextLayoutStoreTests`, `DiffLongLineStoreTests`, `DiffHighlightStoreTests`, `DiffWidthIndexTests`, `DiffLineSelectionTests`, `DiffMenuModelTests`, `DiffHunkCanvasViewTests`, `DiffNativeHunkViewTests`, `DiffHunkGeometryTests`, `DiffLongLineLayoutTests`, `DiffPatchBuilderTests`, `CommitPatchIntegrationTests`.
+  - On presentation change clear selection and anchor. On same-presentation content change, run line matching first, then intersect selection with the restored IDs.
+- [ ] **Step 4:** Build. Run all diff tests: `DiffIdentityTests`, `DiffLineIdentityMatcherTests`, `DiffTextMetricsTests`, `DiffGenerationalCacheTests`, `SyntaxTokenizerTests`, `DiffTextLayoutStoreTests`, `DiffLongLineStoreTests`, `DiffHighlightStoreTests`, `DiffWidthIndexTests`, `DiffLineSelectionTests`, `DiffMenuModelTests`, `DiffHunkCanvasViewTests`, `DiffNativeHunkViewTests`, `DiffHunkGeometryTests`, `DiffLongLineLayoutTests`, `DiffPatchBuilderTests`, `CommitPatchIntegrationTests`.
 - [ ] **Step 5: Visual parity check** — before deleting anything, stash a screenshot of the old build (from `main`) and the new build for: unstaged file (light + dark), staged file, untracked file, conflict file, history commit with Apply/Revert menu, text scale min/max, syntax highlighting on/off. Fix every difference against spec §4.1.
 - [ ] **Step 6:** Checkpoint.
 

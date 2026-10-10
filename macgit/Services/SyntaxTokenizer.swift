@@ -1,0 +1,245 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import Foundation
+import Synchronization
+
+/// Immutable regex rules and UTF-16 token ranges can be used off the UI actor.
+/// Both the SwiftUI highlighter and the native diff use the same tokenizer.
+nonisolated struct SyntaxTokenizer: Sendable {
+    enum TokenType: Sendable {
+        case keyword
+        case string
+        case comment
+        case number
+        case type
+        case attribute
+        case normal
+    }
+
+    struct TokenRules: Sendable {
+        let regex: NSRegularExpression
+        let groups: [(name: String, type: TokenType)]
+    }
+
+    private static let keywordPattern: String = {
+        let commonKeywords = Array(
+            Set([
+                "func", "var", "let", "if", "else", "for", "while", "return", "import", "class",
+                "struct",
+                "enum",
+                "protocol", "extension", "init", "switch", "case", "default", "break", "continue",
+                "in",
+                "where", "typealias", "operator", "throws", "throw", "try", "catch", "do", "guard",
+                "defer",
+                "self", "Self", "super", "static", "final", "override", "open", "public",
+                "internal",
+                "private",
+                "fileprivate", "weak", "inout", "await", "async", "actor", "some", "any", "macro",
+                "const", "goto", "typedef", "union", "extern", "auto", "register", "volatile",
+                "sizeof",
+                "inline", "restrict",
+                "function", "interface", "extends", "implements", "new", "this", "typeof",
+                "instanceof",
+                "of", "yield", "export", "from",
+                "package", "namespace", "module", "protected", "abstract", "synchronized",
+                "finally",
+                "def", "elif", "as", "with", "except", "raise", "assert", "lambda",
+                "nonlocal", "global", "pass", "del", "and", "or", "not", "is", "True", "False",
+                "None", "match", "print", "println", "mut", "fn",
+                "impl", "trait", "pub", "use", "mod", "crate", "unsafe",
+                "move", "loop", "delete", "void",
+            ]))
+        return commonKeywords.map { NSRegularExpression.escapedPattern(for: $0) }.joined(
+            separator: "|")
+    }()
+
+    private static let rulesCache = Mutex<[String: TokenRules]>([:])
+
+    private let rules: TokenRules?
+
+    init(fileExtension: String) {
+        rules = Self.rules(for: fileExtension)
+    }
+
+    func tokenRanges(in text: String) -> [(NSRange, TokenType)] {
+        guard let rules else { return [] }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        var tokens: [(NSRange, TokenType)] = []
+        // One combined expression consumes strings/comments atomically, without
+        // rescanning the entire remaining line once for every individual token.
+        rules.regex.enumerateMatches(in: text, range: range) { match, _, _ in
+            guard let match else { return }
+            for group in rules.groups where match.range(withName: group.name).location != NSNotFound
+            {
+                tokens.append((match.range, group.type))
+                break
+            }
+        }
+        return tokens
+    }
+
+    private static func rules(for ext: String) -> TokenRules? {
+        if let cached = rulesCache.withLock({ $0[ext] }) { return cached }
+
+        let strings: [(String, TokenType)] = [
+            (#""(?:[^"\\]|\\.)*""#, .string),
+            (#"'(?:[^'\\]|\\.)*'"#, .string),
+        ]
+        let cComments: [(String, TokenType)] = [
+            (#"//[^\n]*"#, .comment), (#"/\*[\s\S]*?\*/"#, .comment),
+        ]
+        let hashComments: [(String, TokenType)] = [(#"#[^\n]*"#, .comment)]
+        let numbers: [(String, TokenType)] = [
+            (
+                #"\b(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?)\b"#,
+                .number
+            )
+        ]
+        let types: [(String, TokenType)] = [(#"\b[A-Z][A-Za-z0-9_]*\b"#, .type)]
+        let attributes: [(String, TokenType)] = [(#"@\w+"#, .attribute)]
+        func keywords(_ words: String) -> [(String, TokenType)] {
+            [(#"\b(?:"# + words.split(separator: " ").joined(separator: "|") + #")\b"#, .keyword)]
+        }
+        let common = [("\\b(?:\(keywordPattern)|true|false|null|nil)\\b", TokenType.keyword)]
+        var patterns: [(String, TokenType)]
+
+        switch ext {
+        case "swift":
+            patterns = cComments + strings + attributes + common + types + numbers
+        case "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx":
+            patterns =
+                cComments + strings + [(#"`(?:[^`\\]|\\.)*`"#, .string)]
+                + common
+                + keywords(
+                    "boolean number string undefined null keyof infer readonly declare satisfies")
+                + types + numbers
+        case "py", "pyw", "pyi":
+            patterns =
+                hashComments + [
+                    (#"\"\"\"[\s\S]*?\"\"\""#, .string), (#"'''[\s\S]*?'''"#, .string),
+                ] + strings + attributes + common + numbers
+        case "c", "cpp", "cc", "cxx", "h", "hpp", "hh", "hxx", "m", "mm":
+            patterns =
+                cComments + strings + [(#"#\s*\w+"#, .attribute)] + common
+                + keywords(
+                    "int char float double bool short long signed unsigned template typename constexpr nullptr virtual friend"
+                )
+                + types + numbers
+        case "go":
+            patterns =
+                cComments + strings + [(#"`[^`]*`"#, .string)] + common
+                + keywords("chan defer fallthrough go map range select type int string bool")
+                + types
+                + numbers
+        case "rs":
+            patterns =
+                cComments + strings + [(#"#\!?\[[^\]]*\]"#, .attribute)] + common
+                + keywords("dyn ref enum unsafe async where bool str usize i32 u32") + types
+                + numbers
+        case "java", "kt", "kts", "cs", "dart":
+            patterns =
+                cComments + strings + attributes + common
+                + keywords(
+                    "val fun object when data sealed suspend companion constructor boolean int double bool string using get set record event delegate lock params out ref is as dynamic required late factory mixin"
+                )
+                + types + numbers
+        case "rb", "rake", "gemspec":
+            patterns =
+                hashComments + strings + common
+                + keywords(
+                    "end unless until then elsif begin rescue ensure require include attr_reader attr_accessor puts yield"
+                ) + types + numbers
+        case "php", "phtml":
+            patterns =
+                cComments + hashComments + strings + [(#"\$[A-Za-z_]\w*"#, .attribute)]
+                + common
+                + keywords(
+                    "echo require require_once include include_once foreach endif endfor endforeach null"
+                )
+                + types + numbers
+        case "sh", "bash", "zsh":
+            patterns =
+                hashComments + strings + [(#"\$\{[^}]*\}|\$[A-Za-z_]\w*"#, .attribute)]
+                + common
+                + keywords("then fi done esac elif until echo local export source function")
+                + numbers
+        case "json", "jsonc", "json5":
+            patterns =
+                (ext == "json" ? [] : cComments)
+                + [(#""(?:[^"\\]|\\.)*"(?=\s*:)"#, .attribute)]
+                + strings + keywords("true false null") + numbers
+        case "yaml", "yml":
+            patterns =
+                hashComments + [(#"[\w.-]+(?=\s*:(?:\s|$))"#, .attribute)]
+                + strings + [(#"[&*][\w.-]+|![!\w!:/.-]+"#, .type)]
+                + keywords("true false null yes no on off") + numbers
+        case "sql":
+            patterns =
+                [(#"--[^\n]*|/\*[\s\S]*?\*/"#, .comment)]
+                + [(#"'(?:[^']|'')*'"#, .string)] + strings
+                + [
+                    (
+                        #"(?i)\b(?:select|insert|update|delete|from|where|join|left|right|inner|outer|on|group|by|order|having|limit|offset|union|all|distinct|create|table|index|drop|alter|add|column|values|set|and|or|not|null|is|in|between|like|exists|case|when|then|else|end|as|with|recursive|returning|into|using|natural|cross|full|fetch|for|of|nowait|skip|locked|share|key|primary|foreign|references|constraint|check|default|unique|view|trigger|procedure|function|database|schema|transaction|commit|rollback|savepoint|release|grant|revoke|privileges|to|identified|password|account|lock|unlock|if|cascade|restrict|true|false)\b"#,
+                        .keyword
+                    )
+                ] + numbers
+        case "md", "markdown", "mdx":
+            patterns = [
+                (#"<!--[\s\S]*?-->"#, .comment),
+                (#"(?m)^\s{0,3}#{1,6}\s+.*$"#, .keyword),
+                (#"`+[^`]*`+|(?m)^\s*`{3,}.*$|^\s*~{3,}.*$"#, .string),
+                (#"!?\[[^\]]*\]\([^)]*\)"#, .attribute),
+                (#"\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_"#, .type),
+                (#"(?m)^\s*(?:[-+*>]|\d+\.)\s"#, .keyword),
+            ]
+        case "dockerfile", "docker":
+            patterns =
+                [(#"(?m)^\s*#[^\n]*"#, .comment)] + strings
+                + [
+                    (
+                        #"(?im)^\s*(?:FROM|RUN|CMD|LABEL|MAINTAINER|EXPOSE|ENV|ADD|COPY|ENTRYPOINT|VOLUME|USER|WORKDIR|ARG|ONBUILD|STOPSIGNAL|HEALTHCHECK|SHELL)\b"#,
+                        .keyword
+                    )
+                ]
+                + [(#"\$\{[^}]*\}|\$[A-Za-z_]\w*|--[\w-]+"#, .attribute)] + numbers
+        case "html", "htm", "xml", "xhtml", "plist":
+            patterns =
+                [(#"<!--[\s\S]*?-->"#, .comment)] + strings
+                + [(#"</?[\w:.-]+|/?>"#, .keyword), (#"[\w:.-]+(?=\s*=)"#, .attribute)]
+        case "css", "scss", "sass", "less":
+            patterns =
+                (ext == "css" ? Array(cComments.dropFirst()) : cComments) + strings
+                + [
+                    (#"#[0-9a-fA-F]{3,8}\b"#, .number),
+                    (#"--[\w-]+|[\w-]+(?=\s*:)"#, .attribute),
+                    (#"[@$.#][A-Za-z_][\w-]*"#, .type),
+                    (#"!important\b"#, .keyword),
+                ] + numbers
+        case "toml", "ini", "cfg", "conf", "env", "properties":
+            patterns =
+                [(#"(?m)^\s*[#;][^\n]*"#, .comment)] + strings
+                + [(#"(?m)^\s*\[.*?\]"#, .type), (#"[\w.-]+(?=\s*=)"#, .attribute)]
+                + hashComments + keywords("true false") + numbers
+        case "makefile", "mk":
+            patterns =
+                hashComments + strings
+                + [(#"\$\([^)]+\)|\$[@<^?*]"#, .attribute), (#"^[\w./% -]+(?=:)"#, .type)]
+                + keywords(
+                    "include ifdef ifndef ifeq ifneq else endif export override define endef")
+                + numbers
+        default:
+            patterns = cComments + hashComments + strings + common + types + numbers
+        }
+
+        let groups = patterns.enumerated().map { (name: "token\($0.offset)", type: $0.element.1) }
+        let pattern = zip(patterns, groups).map { entry, group in
+            "(?<\(group.name)>\(entry.0))"
+        }.joined(separator: "|")
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            assertionFailure("Invalid syntax highlighting pattern for \(ext)")
+            return nil
+        }
+        let result = TokenRules(regex: regex, groups: groups)
+        rulesCache.withLock { $0[ext] = result }
+        return result
+    }
+}
