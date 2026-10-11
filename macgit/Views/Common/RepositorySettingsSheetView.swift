@@ -435,6 +435,15 @@ struct RepositorySettingsSheetView: View {
             .disabled(!gitFlowConfiguration.isEnabled)
 
             Section {
+                switch gitFlowConfiguration.defaultStartDestination {
+                case .currentWorkingCopy:
+                    Toggle("Delete local branch", isOn: $gitFlowConfiguration.deleteLocalBranchOnFinish)
+                        .toggleStyle(.switch)
+                case .newWorktree:
+                    Toggle("Remove local worktree", isOn: $gitFlowConfiguration.removeLocalWorktreeOnFinish)
+                        .toggleStyle(.switch)
+                }
+
                 Picker("Feature & Bugfix", selection: $gitFlowConfiguration.topicFinishStrategy) {
                     ForEach(GitFlowTopicFinishStrategy.allCases) { strategy in
                         Text(strategy.displayName).tag(strategy)

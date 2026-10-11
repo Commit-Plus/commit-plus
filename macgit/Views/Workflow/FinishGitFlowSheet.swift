@@ -31,6 +31,7 @@ struct FinishGitFlowSheet: View {
     @State private var tagName: String
     @State private var tagValidationMessage: String?
     @State private var isValidatingTag = false
+    @State private var removeWorktree: Bool
     @State private var deleteSourceBranch: Bool
     @FocusState private var isTagNameFocused: Bool
 
@@ -44,6 +45,7 @@ struct FinishGitFlowSheet: View {
         self.onRunRepositoryOperation = onRunRepositoryOperation
         self.onValidateTag = onValidateTag
         self.onFinish = onFinish
+        _removeWorktree = State(initialValue: plan.removeWorktree)
         _strategy = State(initialValue: plan.strategy)
         _createTag = State(initialValue: plan.createTag)
         _tagName = State(initialValue: plan.tagName ?? "")
@@ -61,8 +63,21 @@ struct FinishGitFlowSheet: View {
             finishControls
             executionPreview
 
-            Toggle("Delete local branch after a successful finish", isOn: $deleteSourceBranch)
+            Toggle("Delete local branch", isOn: $deleteSourceBranch)
+                .toggleStyle(.switch)
                 .accessibilityHint("Deletes only the local topic branch after every finish step succeeds.")
+
+            if let path = initialPlan.worktreePath {
+                Toggle("Remove local worktree", isOn: $removeWorktree)
+                    .toggleStyle(.switch)
+                Text(path.path)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                Text("Only clean, unlocked worktrees are removed after Finish succeeds.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             HStack(spacing: 12) {
                 Spacer()
@@ -198,6 +213,8 @@ struct FinishGitFlowSheet: View {
             tagName: shouldCreateTag ? tagName.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
             createTag: shouldCreateTag,
             deleteSourceBranch: deleteSourceBranch,
+            worktreePath: initialPlan.worktreePath,
+            removeWorktree: removeWorktree,
             strategy: initialPlan.kind.requiresReleaseTag ? .mergeNoFastForward : strategy
         )
         onRunRepositoryOperation("Finishing \(plan.sourceBranch)…") {

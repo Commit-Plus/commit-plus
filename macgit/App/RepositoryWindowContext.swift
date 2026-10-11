@@ -21,6 +21,8 @@ import AppKit
 final class RepositoryWindowContext {
     private static let contexts = NSHashTable<RepositoryWindowContext>.weakObjects()
     private static var pendingRepositories = Set<URL>()
+    private static var pendingUndoEntries: [URL: [GitUndoEntry]] = [:]
+    weak var gitUndoManager: GitUndoManager?
     weak var window: NSWindow?
     var repositoryURL: URL? {
         didSet {
@@ -48,6 +50,25 @@ final class RepositoryWindowContext {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         return true
+    }
+
+    func attachUndoManager(_ manager: GitUndoManager, for url: URL) {
+        gitUndoManager = manager
+        let key = url.resolvingSymlinksInPath().standardizedFileURL
+        for entry in Self.pendingUndoEntries.removeValue(forKey: key) ?? [] {
+            manager.register(entry)
+        }
+    }
+
+    static func registerTransferredUndo(_ entry: GitUndoEntry) {
+        let key = entry.repositoryURL.resolvingSymlinksInPath().standardizedFileURL
+        if let manager = contexts.allObjects.first(where: {
+            $0.repositoryURL?.resolvingSymlinksInPath().standardizedFileURL == key && $0.gitUndoManager != nil
+        })?.gitUndoManager {
+            manager.register(entry)
+        } else {
+            pendingUndoEntries[key, default: []].append(entry)
+        }
     }
 
     func owns(_ notification: Notification) -> Bool {

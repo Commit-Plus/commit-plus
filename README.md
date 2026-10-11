@@ -20,6 +20,7 @@
 
 <p align="center">
   <a href="https://commitplus.app/" target="_blank">Website</a> •
+  <a href="https://x.com/commitplus" target="_blank">X</a> •
   <a href="https://github.com/Commit-Plus/commit-plus/releases/latest" target="_blank">Download</a> •
   <a href="https://docs.commitplus.app/" target="_blank">Documentation</a>
 </p>

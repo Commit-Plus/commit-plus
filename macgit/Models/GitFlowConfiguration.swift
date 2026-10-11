@@ -32,6 +32,8 @@ struct GitFlowConfiguration: Codable, Equatable {
     var defaultStartDestination: GitFlowStartDestination
     var topicFinishStrategy: GitFlowTopicFinishStrategy
     var createReleaseTagOnFinish: Bool
+    var deleteLocalBranchOnFinish: Bool
+    var removeLocalWorktreeOnFinish: Bool
     var createHotfixTagOnFinish: Bool
 
     init(
@@ -46,8 +48,12 @@ struct GitFlowConfiguration: Codable, Equatable {
         defaultStartDestination: GitFlowStartDestination = .currentWorkingCopy,
         topicFinishStrategy: GitFlowTopicFinishStrategy = .mergeNoFastForward,
         createReleaseTagOnFinish: Bool = true,
+        deleteLocalBranchOnFinish: Bool = true,
+        removeLocalWorktreeOnFinish: Bool = false,
         createHotfixTagOnFinish: Bool = true
     ) {
+        self.deleteLocalBranchOnFinish = deleteLocalBranchOnFinish
+        self.removeLocalWorktreeOnFinish = removeLocalWorktreeOnFinish
         self.schemaVersion = schemaVersion
         self.isEnabled = isEnabled
         self.mainBranch = mainBranch
@@ -64,6 +70,8 @@ struct GitFlowConfiguration: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        deleteLocalBranchOnFinish = try container.decodeIfPresent(Bool.self, forKey: .deleteLocalBranchOnFinish) ?? true
+        removeLocalWorktreeOnFinish = try container.decodeIfPresent(Bool.self, forKey: .removeLocalWorktreeOnFinish) ?? false
         schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? false
         mainBranch = try container.decodeIfPresent(String.self, forKey: .mainBranch) ?? "main"
@@ -128,6 +136,8 @@ struct GitFlowConfiguration: Codable, Equatable {
             defaultStartDestination: defaultStartDestination,
             topicFinishStrategy: topicFinishStrategy,
             createReleaseTagOnFinish: createReleaseTagOnFinish,
+            deleteLocalBranchOnFinish: deleteLocalBranchOnFinish,
+            removeLocalWorktreeOnFinish: removeLocalWorktreeOnFinish,
             createHotfixTagOnFinish: createHotfixTagOnFinish
         )
     }

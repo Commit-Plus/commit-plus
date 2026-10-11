@@ -404,7 +404,7 @@ struct GitFlowService {
 
         var didDelete = false
         var deletionWarning: String?
-        if plan.deleteSourceBranch {
+        if plan.deleteSourceBranch && !plan.removeWorktree {
             do {
                 _ = try await git.deleteBranch(name: plan.sourceBranch, force: false, in: repositoryURL)
                 didDelete = true
@@ -462,7 +462,7 @@ struct GitFlowService {
 
         var didDelete = false
         var deletionWarning: String?
-        if checkpoint.plan.deleteSourceBranch {
+        if checkpoint.plan.deleteSourceBranch && !checkpoint.plan.removeWorktree {
             do {
                 _ = try await git.deleteBranch(name: checkpoint.plan.sourceBranch, force: false, in: repositoryURL)
                 didDelete = true
@@ -816,7 +816,7 @@ struct GitFlowService {
         _ plan: GitFlowFinishPlan,
         in repositoryURL: URL
     ) async -> (didDelete: Bool, warning: String?) {
-        guard plan.deleteSourceBranch else { return (false, nil) }
+        guard plan.deleteSourceBranch && !plan.removeWorktree else { return (false, nil) }
         do {
             _ = try await GitStatusService.shared.deleteBranch(
                 name: plan.sourceBranch,
