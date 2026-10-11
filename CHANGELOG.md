@@ -2,25 +2,26 @@
 
 Changes in the latest Commit+ release compared with the previous release.
 
-## v1.1.13
+## v1.1.14
 
-Changes since `v1.1.12`.
+Changes since `v1.1.13`.
 
 ### Added
 
-- **View release notes again** — Open the changelog for your installed version from the GitHub notifications popover.
+- **Tag toolbar button** — Create tags from the repository toolbar, with visibility controls in Appearance settings and the View menu.
+- **Git Flow cleanup options** — Choose whether to delete the local branch and remove its local worktree after a successful Finish. Worktree cleanup checks that it is clean, unlocked, and unchanged before removal.
 
 ### Improved
 
-- **Diff browsing** — Canvas-backed rendering, cached text layout, and stable line identities reduce rendering work for large diffs and long lines.
-- **Native sidebar and file lists** — AppKit tables handle sidebar navigation, changed files, and commit files with reusable rows and native click and drag handling.
-- **Repository screen switching** — File Status, History, and Reflog retain their screen state when switching views and defer refresh work while inactive.
-- **Branch names** — Creating and renaming branches preserves capitalization and non-whitespace characters, while replacing whitespace with hyphens.
+- **Git LFS browsing** — View a storage overview, file details, local content state, and recent author and commit metadata, with controls that adapt to the available width.
+- **Git LFS tracking rules** — Distinguish wildcard patterns from exact filenames and remove rules directly from the list.
+- **Account sign-in** — A refreshed login layout adapts to its content, and Forgot Password opens the password reset flow on the web.
+- **Repository layout** — Minimum window and sidebar widths account for the selected text size.
 
 ### Fixed
 
-- Fetch uses the current branch's tracked remote, falling back to origin or an available remote, without resolving credentials for unrelated remotes.
-- Fetching all remotes continues after an individual failure, retains successful updates, and reports failures by remote.
-- Release notes match the installed app version instead of loading the latest changelog from main.
+- Removing an exact Git LFS tracking rule preserves other wildcard rules and unrelated attributes.
+- Git LFS downloads select the tracked remote when available, then fall back to origin or another available remote.
+- Sidebar badges reserve enough space to avoid clipping text edges.
 
-[Compare v1.1.12 to v1.1.13](https://github.com/Commit-Plus/commit-plus/compare/v1.1.12...v1.1.13)
+[Compare v1.1.13 to v1.1.14](https://github.com/Commit-Plus/commit-plus/compare/v1.1.13...v1.1.14)
