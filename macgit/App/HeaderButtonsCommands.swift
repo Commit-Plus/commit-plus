@@ -27,6 +27,7 @@ struct HeaderButtonsCommands: Commands {
                 Toggle("Branch", isOn: $appState.showHeaderBranchButton)
                 Toggle("Merge", isOn: $appState.showHeaderMergeButton)
                 Toggle("Stash", isOn: $appState.showHeaderStashButton)
+                Toggle("Tag", isOn: $appState.showHeaderTagButton)
             }
         }
     }

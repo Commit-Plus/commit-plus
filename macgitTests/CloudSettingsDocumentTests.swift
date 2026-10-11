@@ -35,6 +35,7 @@ final class CloudSettingsDocumentTests: XCTestCase {
         showHeaderBranchButton: true,
         showHeaderMergeButton: false,
         showHeaderStashButton: true,
+        showHeaderTagButton: false,
         showHeaderUndoButton: true,
         showHeaderRemoteButton: false,
         showHeaderFinderButton: true,
@@ -69,6 +70,7 @@ final class CloudSettingsDocumentTests: XCTestCase {
                 "showHeaderBranchButton",
                 "showHeaderMergeButton",
                 "showHeaderStashButton",
+                "showHeaderTagButton",
                 "showHeaderUndoButton",
                 "showHeaderRemoteButton",
                 "showHeaderFinderButton",
@@ -96,6 +98,7 @@ final class CloudSettingsDocumentTests: XCTestCase {
         XCTAssertEqual(document["showHeaderBranchButton"] as? Bool, true)
         XCTAssertEqual(document["showHeaderMergeButton"] as? Bool, false)
         XCTAssertEqual(document["showHeaderStashButton"] as? Bool, true)
+        XCTAssertEqual(document["showHeaderTagButton"] as? Bool, false)
         XCTAssertEqual(document["showHeaderUndoButton"] as? Bool, true)
         XCTAssertEqual(document["showHeaderRemoteButton"] as? Bool, false)
         XCTAssertEqual(document["showHeaderFinderButton"] as? Bool, true)
@@ -111,6 +114,7 @@ final class CloudSettingsDocumentTests: XCTestCase {
 
     func testDecodingDefaultsMissingHeaderButtonsToTrue() throws {
         var document = validDocument()
+        document.removeValue(forKey: "showHeaderTagButton")
         document.removeValue(forKey: "showHeaderBranchButton")
         document.removeValue(forKey: "showHeaderUndoButton")
         document.removeValue(forKey: "showHeaderRemoteButton")
@@ -119,6 +123,7 @@ final class CloudSettingsDocumentTests: XCTestCase {
 
         let decoded = try CloudSettingsDocument.decode(document)
 
+        XCTAssertTrue(decoded.showHeaderTagButton)
         XCTAssertTrue(decoded.showHeaderBranchButton)
         XCTAssertFalse(decoded.showHeaderUndoButton)
         XCTAssertTrue(decoded.showHeaderRemoteButton)

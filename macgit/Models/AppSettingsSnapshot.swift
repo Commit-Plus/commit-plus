@@ -33,6 +33,7 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
     var showHeaderBranchButton: Bool
     var showHeaderMergeButton: Bool
     var showHeaderStashButton: Bool
+    var showHeaderTagButton: Bool
     var showHeaderUndoButton: Bool
     var showHeaderRemoteButton: Bool
     var showHeaderFinderButton: Bool
@@ -58,6 +59,7 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         showHeaderBranchButton: Bool = true,
         showHeaderMergeButton: Bool = true,
         showHeaderStashButton: Bool = true,
+        showHeaderTagButton: Bool = true,
         showHeaderUndoButton: Bool = false,
         showHeaderRemoteButton: Bool = true,
         showHeaderFinderButton: Bool = true,
@@ -83,6 +85,7 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         self.showHeaderBranchButton = showHeaderBranchButton
         self.showHeaderMergeButton = showHeaderMergeButton
         self.showHeaderStashButton = showHeaderStashButton
+        self.showHeaderTagButton = showHeaderTagButton
         self.showHeaderUndoButton = showHeaderUndoButton
         self.showHeaderRemoteButton = showHeaderRemoteButton
         self.showHeaderFinderButton = showHeaderFinderButton
@@ -111,6 +114,7 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         showHeaderBranchButton = try container.decode(Bool.self, forKey: .showHeaderBranchButton)
         showHeaderMergeButton = try container.decode(Bool.self, forKey: .showHeaderMergeButton)
         showHeaderStashButton = try container.decode(Bool.self, forKey: .showHeaderStashButton)
+        showHeaderTagButton = try container.decodeIfPresent(Bool.self, forKey: .showHeaderTagButton) ?? true
         showHeaderUndoButton = try container.decodeIfPresent(Bool.self, forKey: .showHeaderUndoButton) ?? false
         showHeaderRemoteButton = try container.decode(Bool.self, forKey: .showHeaderRemoteButton)
         showHeaderFinderButton = try container.decode(Bool.self, forKey: .showHeaderFinderButton)

@@ -88,6 +88,13 @@ struct AppearanceSettingsView: View {
                     isOn: $appState.showHeaderStashButton
                 )
 
+                SettingsToggleRow(
+                    title: "Tag",
+                    detail: "Show the Tag action in the repository header.",
+                    systemImage: "tag",
+                    isOn: $appState.showHeaderTagButton
+                )
+
             } header: {
                 Label("Header Shortcuts", systemImage: "rectangle.topthird.inset.filled")
             } footer: {
@@ -129,5 +136,6 @@ struct AppearanceSettingsView: View {
         appState.showHeaderBranchButton = true
         appState.showHeaderMergeButton = true
         appState.showHeaderStashButton = true
+        appState.showHeaderTagButton = true
     }
 }

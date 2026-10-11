@@ -34,6 +34,7 @@ final class AppState: ObservableObject {
     private static let showHeaderBranchButtonKey = "showHeaderBranchButton"
     private static let showHeaderMergeButtonKey = "showHeaderMergeButton"
     private static let showHeaderStashButtonKey = "showHeaderStashButton"
+    private static let showHeaderTagButtonKey = "showHeaderTagButton"
     private static let showHeaderUndoButtonKey = "showHeaderUndoButton"
     private static let showHeaderRemoteButtonKey = "showHeaderRemoteButton"
     private static let showHeaderFinderButtonKey = "showHeaderFinderButton"
@@ -158,6 +159,14 @@ final class AppState: ObservableObject {
     @Published var showHeaderStashButton: Bool {
         didSet {
             userDefaults.set(showHeaderStashButton, forKey: Self.showHeaderStashButtonKey)
+            if !isApplyingSnapshot {
+                currentSettingsSnapshot = snapshot
+            }
+        }
+    }
+    @Published var showHeaderTagButton: Bool {
+        didSet {
+            userDefaults.set(showHeaderTagButton, forKey: Self.showHeaderTagButtonKey)
             if !isApplyingSnapshot {
                 currentSettingsSnapshot = snapshot
             }
@@ -295,6 +304,7 @@ final class AppState: ObservableObject {
         let showHeaderBranchButton = userDefaults.object(forKey: Self.showHeaderBranchButtonKey) as? Bool ?? true
         let showHeaderMergeButton = userDefaults.object(forKey: Self.showHeaderMergeButtonKey) as? Bool ?? true
         let showHeaderStashButton = userDefaults.object(forKey: Self.showHeaderStashButtonKey) as? Bool ?? true
+        let showHeaderTagButton = userDefaults.object(forKey: Self.showHeaderTagButtonKey) as? Bool ?? true
         let showHeaderUndoButton = userDefaults.object(forKey: Self.showHeaderUndoButtonKey) as? Bool ?? false
         let showHeaderRemoteButton = userDefaults.object(forKey: Self.showHeaderRemoteButtonKey) as? Bool ?? true
         let showHeaderFinderButton = userDefaults.object(forKey: Self.showHeaderFinderButtonKey) as? Bool ?? true
@@ -329,6 +339,7 @@ final class AppState: ObservableObject {
             showHeaderBranchButton: showHeaderBranchButton,
             showHeaderMergeButton: showHeaderMergeButton,
             showHeaderStashButton: showHeaderStashButton,
+            showHeaderTagButton: showHeaderTagButton,
             showHeaderUndoButton: showHeaderUndoButton,
             showHeaderRemoteButton: showHeaderRemoteButton,
             showHeaderFinderButton: showHeaderFinderButton,
@@ -355,6 +366,7 @@ final class AppState: ObservableObject {
         self.showHeaderBranchButton = showHeaderBranchButton
         self.showHeaderMergeButton = showHeaderMergeButton
         self.showHeaderStashButton = showHeaderStashButton
+        self.showHeaderTagButton = showHeaderTagButton
         self.showHeaderUndoButton = loadedSnapshot.showHeaderUndoButton
         self.showHeaderRemoteButton = loadedSnapshot.showHeaderRemoteButton
         self.showHeaderFinderButton = loadedSnapshot.showHeaderFinderButton
@@ -387,6 +399,7 @@ final class AppState: ObservableObject {
             showHeaderBranchButton: showHeaderBranchButton,
             showHeaderMergeButton: showHeaderMergeButton,
             showHeaderStashButton: showHeaderStashButton,
+            showHeaderTagButton: showHeaderTagButton,
             showHeaderUndoButton: showHeaderUndoButton,
             showHeaderRemoteButton: showHeaderRemoteButton,
             showHeaderFinderButton: showHeaderFinderButton,
@@ -417,6 +430,7 @@ final class AppState: ObservableObject {
         showHeaderBranchButton = snapshot.showHeaderBranchButton
         showHeaderMergeButton = snapshot.showHeaderMergeButton
         showHeaderStashButton = snapshot.showHeaderStashButton
+        showHeaderTagButton = snapshot.showHeaderTagButton
         showHeaderUndoButton = snapshot.showHeaderUndoButton
         showHeaderRemoteButton = snapshot.showHeaderRemoteButton
         showHeaderFinderButton = snapshot.showHeaderFinderButton

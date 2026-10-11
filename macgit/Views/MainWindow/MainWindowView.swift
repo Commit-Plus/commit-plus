@@ -697,7 +697,7 @@ struct MainWindowView: View {
         ))
         .focusedSceneValue(\.gitFlowCommandState, gitFlowCommandState)
         .focusedSceneValue(\.customActionCommandState, customActionCommandState)
-        .frame(minWidth: 900, minHeight: 600)
+        .frame(minWidth: 1100 * appState.textSize.scale, minHeight: 600)
             .task { await performInitialLoad() }
             .task {
                 releaseNotesPresentation = await ReleaseNotesPresentationStore.shared.claimPresentation()
@@ -1266,7 +1266,11 @@ struct MainWindowView: View {
             },
             onRunRepositoryOperation: runRepositoryOperation
         )
-        .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 600)
+        .navigationSplitViewColumnWidth(
+            min: 200 * appState.textSize.scale,
+            ideal: 220 * appState.textSize.scale,
+            max: 600
+        )
     }
 
     private var currentBranchFallbackSyncStatus: BranchSyncStatus? {
@@ -1942,6 +1946,9 @@ struct MainWindowView: View {
             }
             if appState.showHeaderStashButton {
                 toolbarButton(icon: "archivebox", label: "Stash", showText: showText, isLoading: syncState.isStashing, disabled: syncing || operationInProgress || syncState.stashableCount == 0, action: { showingStashSheet = true })
+            }
+            if appState.showHeaderTagButton {
+                toolbarButton(icon: "tag", label: "Tag", showText: showText, disabled: syncing || operationInProgress, action: { showingNewTagSheet = true })
             }
         }
     }

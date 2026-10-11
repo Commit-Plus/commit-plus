@@ -557,8 +557,11 @@ struct SidebarNativeList: NSViewRepresentable {
             let accessoryWidth: CGFloat = (button.isHidden ? 0 : 24) + progressWidth
             button.frame = NSRect(x: bounds.width - 28, y: (bounds.height - 22) / 2, width: 22, height: 22)
             progress.frame = NSRect(x: bounds.width - 8 - accessoryWidth, y: (bounds.height - 16) / 2, width: 16, height: 16)
-            let badgeWidth = min(badge.intrinsicContentSize.width, bounds.width * 0.45)
-            badge.frame = NSRect(x: bounds.width - 8 - accessoryWidth - badgeWidth, y: (bounds.height - 16 * scale) / 2, width: badgeWidth, height: 16 * scale)
+            // Leave room for glyph edges when AppKit rounds the label's drawing rect.
+            let badgeSize = badge.intrinsicContentSize
+            let badgeWidth = appearance.badge.isEmpty ? 0 : min(ceil(badgeSize.width) + 2, floor(bounds.width * 0.45))
+            let badgeHeight = ceil(max(badgeSize.height, 16 * scale))
+            badge.frame = NSRect(x: floor(bounds.width - 8 - accessoryWidth - badgeWidth), y: floor((bounds.height - badgeHeight) / 2), width: badgeWidth, height: badgeHeight)
             let x = start + iconSize + 6
             let width = max(0, bounds.width - x - badgeWidth - accessoryWidth - 14)
             title.frame = NSRect(x: x, y: appearance.subtitle.isEmpty ? (bounds.height - 18 * scale) / 2 : bounds.height / 2, width: width, height: 18 * scale)
