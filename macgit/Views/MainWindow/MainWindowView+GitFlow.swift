@@ -300,7 +300,13 @@ extension MainWindowView {
                 guard sourceTip == (result.rewrittenSourceTip ?? result.sourceTip) else {
                     throw GitFlowFinishError.sourceRefMoved(plan.sourceBranch)
                 }
-                _ = try await git.deleteBranch(name: plan.sourceBranch, force: false, in: main.path)
+                guard let target = result.targetResults.last else {
+                    throw GitFlowFinishError.targetRefMoved(plan.targetBranch)
+                }
+                try await git.deleteFinishedGitFlowBranch(
+                    name: plan.sourceBranch, expectedTip: sourceTip,
+                    targetTip: target.tipAfterMerge, in: main.path
+                )
                 didDelete = true
             } catch {
                 warning = "Finish succeeded and the worktree was removed, but the local branch could not be deleted: \(error.localizedDescription)"
@@ -312,7 +318,13 @@ extension MainWindowView {
             deletionWarning: warning, rewrittenSourceTip: result.rewrittenSourceTip
         )
         await registerCompletedGitFlowFinish(cleanedResult, undoRepositoryURL: main.path)
+        await git.invalidateBranchListCache(in: main.path)
+        await RepositoryWindowContext.refreshRepository(at: main.path)
         await MainActor.run {
+            NotificationCenter.default.post(
+                name: .repositoryDidChange, object: nil,
+                userInfo: ["repositoryURL": main.path]
+            )
             if let warning { syncState.showError(warning) }
             windowContext.window?.close()
         }

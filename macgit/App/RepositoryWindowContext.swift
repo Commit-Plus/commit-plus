@@ -23,6 +23,7 @@ final class RepositoryWindowContext {
     private static var pendingRepositories = Set<URL>()
     private static var pendingUndoEntries: [URL: [GitUndoEntry]] = [:]
     weak var gitUndoManager: GitUndoManager?
+    weak var syncState: SyncState?
     weak var window: NSWindow?
     var repositoryURL: URL? {
         didSet {
@@ -52,8 +53,9 @@ final class RepositoryWindowContext {
         return true
     }
 
-    func attachUndoManager(_ manager: GitUndoManager, for url: URL) {
+    func attachUndoManager(_ manager: GitUndoManager, syncState: SyncState, for url: URL) {
         gitUndoManager = manager
+        self.syncState = syncState
         let key = url.resolvingSymlinksInPath().standardizedFileURL
         for entry in Self.pendingUndoEntries.removeValue(forKey: key) ?? [] {
             manager.register(entry)
@@ -68,6 +70,14 @@ final class RepositoryWindowContext {
             manager.register(entry)
         } else {
             pendingUndoEntries[key, default: []].append(entry)
+        }
+    }
+
+    static func refreshRepository(at url: URL) async {
+        let key = url.resolvingSymlinksInPath().standardizedFileURL
+        for context in contexts.allObjects where
+            context.repositoryURL?.resolvingSymlinksInPath().standardizedFileURL == key {
+            await context.syncState?.refresh(repositoryURL: url)
         }
     }
 

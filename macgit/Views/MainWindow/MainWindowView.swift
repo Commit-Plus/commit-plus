@@ -782,7 +782,7 @@ struct MainWindowView: View {
                     entitlement: accountController.entitlement
                 )
             }
-            windowContext.attachUndoManager(undoManager, for: repositoryURL)
+            windowContext.attachUndoManager(undoManager, syncState: syncState, for: repositoryURL)
             OpenRepositoryRegistry.shared.register(repositoryURL)
         }
         .onDisappear {

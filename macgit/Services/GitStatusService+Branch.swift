@@ -123,6 +123,21 @@ extension GitStatusService {
         return output
     }
 
+    func deleteFinishedGitFlowBranch(
+        name: String, expectedTip: String, targetTip: String, in repositoryURL: URL
+    ) async throws {
+        _ = try await runGit(
+            arguments: ["merge-base", "--is-ancestor", expectedTip, targetTip],
+            in: repositoryURL
+        )
+        guard try await GitBranchUndoSupport().tip(of: name, in: repositoryURL) == expectedTip else {
+            throw GitFlowFinishError.sourceRefMoved(name)
+        }
+        // The completed target, rather than this worktree's HEAD or upstream,
+        // establishes that the source commits are preserved.
+        _ = try await deleteBranch(name: name, force: true, in: repositoryURL)
+    }
+
     func renameBranch(from oldName: String, to newName: String, in repositoryURL: URL) async throws -> String {
         let output = try await runGit(arguments: ["branch", "-m", oldName, newName], in: repositoryURL)
         await invalidateBranchListCache(in: repositoryURL)
