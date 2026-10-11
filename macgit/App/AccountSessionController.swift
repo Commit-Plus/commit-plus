@@ -220,6 +220,18 @@ final class AccountSessionController: ObservableObject {
         }
     }
 
+    func openPasswordResetOnWeb() {
+        guard !isLoading else { return }
+        do {
+            let url = try CommitPlusWebConfiguration.baseURL()
+                .appending(path: "auth")
+                .appending(queryItems: [URLQueryItem(name: "tab", value: "reset-pw")])
+            guard openWebURL(url) else { throw WebAccountSessionError.unableToOpenBrowser }
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
+
     func signInOnWeb() {
         guard cloudFeaturesAvailable, !isLoading, account == nil, pendingLinkEmail == nil else { return }
         errorMessage = nil

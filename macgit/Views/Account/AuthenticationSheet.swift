@@ -22,6 +22,7 @@ import SwiftUI
 struct AuthenticationSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var controller: AccountSessionController
+    @State private var contentHeight: CGFloat = 420
     @State private var mode: AuthenticationMode
     @State private var email = ""
     @State private var password = ""
@@ -38,42 +39,41 @@ struct AuthenticationSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
-            ScrollView {
-                VStack(spacing: 20) {
-                    Text(title)
-                        .font(.title2.bold())
-                        .multilineTextAlignment(.center)
-                        .padding(.top, 12)
+        ScrollView {
+            VStack(spacing: 20) {
+                Text(title)
+                    .font(.title2.bold())
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 12)
 
-                    if controller.pendingLinkEmail == nil {
-                        Picker("Account action", selection: $mode) {
-                            Text("Login").tag(AuthenticationMode.signIn)
-                            Text("Sign Up").tag(AuthenticationMode.createAccount)
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        .onContinuousHover { updateCursor($0, enabled: !controller.isLoading) }
-                        .disabled(controller.isLoading)
-                        .onChange(of: mode) {
-                            controller.errorMessage = nil
-                            emailValidationMessage = nil
-                            showingPassword = false
-                            password = ""
-                        }
-                    } else {
-                        Text("Enter the password for your existing Commit+ account. Google will be linked to the same account.")
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+                if controller.pendingLinkEmail == nil {
+                    Picker("Account action", selection: $mode) {
+                        Text("Login").tag(AuthenticationMode.signIn)
+                        Text("Sign Up").tag(AuthenticationMode.createAccount)
                     }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .onContinuousHover { updateCursor($0, enabled: !controller.isLoading) }
+                    .disabled(controller.isLoading)
+                    .onChange(of: mode) {
+                        controller.errorMessage = nil
+                        emailValidationMessage = nil
+                        showingPassword = false
+                        password = ""
+                    }
+                } else {
+                    Text("Enter the password for your existing Commit+ account. Google will be linked to the same account.")
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Email")
-                            .font(.headline)
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(spacing: 0) {
                         TextField("Your email address", text: $email)
                             .textContentType(.emailAddress)
-                            .textFieldStyle(.roundedBorder)
-                            .controlSize(.large)
+                            .textFieldStyle(.plain)
+                            .padding(14)
+                            .accessibilityLabel("Email")
                             .focused($emailFocused)
                             .disabled(controller.pendingLinkEmail != nil || controller.isLoading)
                             .onSubmit(submit)
@@ -95,129 +95,137 @@ struct AuthenticationSheet: View {
                                 }
                             }
 
-                        if let emailValidationMessage {
-                            Text(emailValidationMessage)
-                                .font(.callout)
-                                .foregroundStyle(.red)
-                                .accessibilityLabel("Error: \(emailValidationMessage)")
-                        }
-
                         if showingPassword || controller.pendingLinkEmail != nil {
-                            Text("Password")
-                                .font(.headline)
-                                .padding(.top, 6)
+                            Divider()
                             SecureField("Your password", text: $password)
                                 .textContentType(mode == .createAccount && controller.pendingLinkEmail == nil ? .newPassword : .password)
-                                .textFieldStyle(.roundedBorder)
-                                .controlSize(.large)
+                                .textFieldStyle(.plain)
+                                .padding(14)
+                                .accessibilityLabel("Password")
                                 .focused($passwordFocused)
                                 .disabled(controller.isLoading)
                                 .onSubmit(submit)
-
-                            if mode == .signIn, controller.pendingLinkEmail == nil {
-                                Button("Forgot Password?", action: sendPasswordReset)
-                                    .buttonStyle(.link)
-                                    .onContinuousHover {
-                                        updateCursor($0, enabled: isEmailValid && !controller.isLoading)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
-                                    .disabled(!isEmailValid || controller.isLoading)
-                            } else if controller.pendingLinkEmail == nil {
-                                Text("Use at least 6 characters.")
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                            }
                         }
                     }
+                    .background(.background, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(emailFocused || passwordFocused ? Color.accentColor : Color.secondary.opacity(0.4),
+                                          lineWidth: emailFocused || passwordFocused ? 2 : 1)
+                    }
 
-                    if let errorMessage = controller.errorMessage {
-                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    if let emailValidationMessage {
+                        Text(emailValidationMessage)
+                            .font(.callout)
                             .foregroundStyle(.red)
-                            .multilineTextAlignment(.center)
-                            .accessibilityLabel("Error: \(errorMessage)")
+                            .accessibilityLabel("Error: \(emailValidationMessage)")
                     }
 
-                    if mode == .signIn, let passwordResetMessage = controller.passwordResetMessage {
-                        Label(passwordResetMessage, systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .multilineTextAlignment(.center)
+                    if mode == .signIn, controller.pendingLinkEmail == nil {
+                        Button("Forgot Password?", action: controller.openPasswordResetOnWeb)
+                            .buttonStyle(.link)
+                            .onContinuousHover { updateCursor($0, enabled: !controller.isLoading) }
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .disabled(controller.isLoading)
+                    } else if showingPassword, controller.pendingLinkEmail == nil {
+                        Text("Use at least 6 characters.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .frame(maxWidth: .infinity)
-            }
 
-            Button(action: submit) {
-                HStack(spacing: 8) {
-                    if controller.isLoading {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                    Text(primaryActionTitle)
+                if let errorMessage = controller.errorMessage {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .accessibilityLabel("Error: \(errorMessage)")
                 }
-                .frame(maxWidth: .infinity, minHeight: 28)
-            }
-            .buttonStyle(.glassProminent)
-            .buttonBorderShape(.roundedRectangle(radius: 12))
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
-            .disabled(primaryActionDisabled)
-            .onContinuousHover { updateCursor($0, enabled: !primaryActionDisabled) }
 
-            if controller.pendingLinkEmail == nil {
-                HStack(spacing: 12) {
-                    Rectangle().frame(height: 1).foregroundStyle(.separator)
-                    Text("or").foregroundStyle(.secondary)
-                    Rectangle().frame(height: 1).foregroundStyle(.separator)
+                if mode == .signIn, let passwordResetMessage = controller.passwordResetMessage {
+                    Label(passwordResetMessage, systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .multilineTextAlignment(.center)
                 }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Or")
 
-                VStack(spacing: 12) {
-                    Button(action: signInWithGoogle) {
-                        Label {
-                            Text("Continue with Google")
-                        } icon: {
-                            Image("google")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 20, height: 20)
-                                .accessibilityHidden(true)
+                Button(action: submit) {
+                    HStack(spacing: 8) {
+                        if controller.isLoading {
+                            ProgressView()
+                                .controlSize(.small)
                         }
-                            .frame(maxWidth: .infinity, minHeight: 28)
+                        Text(primaryActionTitle)
                     }
-                    .onContinuousHover {
-                        updateCursor($0, enabled: !controller.isLoading && controller.cloudFeaturesAvailable)
-                    }
-                    Button(action: controller.signInOnWeb) {
-                        Label {
-                            Text("Continue on web")
-                        } icon: {
-                            Image("commitplus-logo")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 20, height: 20)
-                                .accessibilityHidden(true)
-                        }
-                            .frame(maxWidth: .infinity, minHeight: 28)
-                    }
-                    .onContinuousHover {
-                        updateCursor($0, enabled: !controller.isLoading && controller.cloudFeaturesAvailable)
-                    }
+                    .frame(maxWidth: .infinity, minHeight: 28)
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.glassProminent)
                 .buttonBorderShape(.roundedRectangle(radius: 12))
                 .controlSize(.large)
-                .disabled(controller.isLoading || !controller.cloudFeaturesAvailable)
-            }
+                .keyboardShortcut(.defaultAction)
+                .disabled(primaryActionDisabled)
+                .onContinuousHover { updateCursor($0, enabled: !primaryActionDisabled) }
 
-            Text("You can keep using Commit+ and all local Git features without an account.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                if controller.pendingLinkEmail == nil {
+                    HStack(spacing: 12) {
+                        Rectangle().frame(height: 1).foregroundStyle(.separator)
+                        Text("or").foregroundStyle(.secondary)
+                        Rectangle().frame(height: 1).foregroundStyle(.separator)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Or")
+
+                    VStack(spacing: 12) {
+                        Button(action: signInWithGoogle) {
+                            Label {
+                                Text("Continue with Google")
+                            } icon: {
+                                Image("google")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 20, height: 20)
+                                    .accessibilityHidden(true)
+                            }
+                                .frame(maxWidth: .infinity, minHeight: 28)
+                        }
+                        .onContinuousHover {
+                            updateCursor($0, enabled: !controller.isLoading && controller.cloudFeaturesAvailable)
+                        }
+                        Button(action: controller.signInOnWeb) {
+                            Label {
+                                Text("Continue on web")
+                            } icon: {
+                                Image("commitplus-logo")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 20, height: 20)
+                                    .accessibilityHidden(true)
+                            }
+                                .frame(maxWidth: .infinity, minHeight: 28)
+                        }
+                        .onContinuousHover {
+                            updateCursor($0, enabled: !controller.isLoading && controller.cloudFeaturesAvailable)
+                        }
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.roundedRectangle(radius: 12))
+                    .controlSize(.large)
+                    .disabled(controller.isLoading || !controller.cloudFeaturesAvailable)
+                }
+
+                Text("You can keep using Commit+ and all local Git features without an account.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(32)
+            .frame(maxWidth: .infinity)
+            .onGeometryChange(for: CGFloat.self) { geometry in
+                geometry.size.height
+            } action: { height in
+                contentHeight = height
+            }
         }
-        .padding(32)
-        .frame(width: 440)
-        .frame(minHeight: 440, idealHeight: 620, maxHeight: 680)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(width: 440, height: min(contentHeight, 680))
         .overlay(alignment: .topTrailing) {
             Button(action: cancel) {
                 Label("Close", systemImage: "xmark")
@@ -320,13 +328,6 @@ struct AuthenticationSheet: View {
             } else {
                 await controller.createAccount(email: trimmedEmail, password: password)
             }
-        }
-    }
-
-    private func sendPasswordReset() {
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        Task {
-            await controller.sendPasswordReset(email: trimmedEmail)
         }
     }
 
