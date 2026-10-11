@@ -183,10 +183,15 @@ extension MainWindowView {
             guard await authorizeGitFlowAccess() else { return }
             let currentBranch = await GitStatusService.shared.currentBranch(in: repositoryURL) ?? ""
             do {
+                let worktrees = await GitStatusService.shared.worktrees(in: repositoryURL)
+                let localWorktree = worktrees.dropFirst().first {
+                    $0.path.standardizedFileURL == repositoryURL.standardizedFileURL && $0.branch == currentBranch
+                }
                 let plan = try GitFlowPlanner().finishPlan(
                     kind: kind,
                     currentBranch: currentBranch,
-                    configuration: gitFlowConfiguration
+                    configuration: gitFlowConfiguration,
+                    worktreePath: localWorktree?.path
                 )
                 await MainActor.run {
                     gitFlowCurrentBranch = currentBranch
@@ -202,6 +207,7 @@ extension MainWindowView {
         guard await authorizeGitFlowAccess() else { return false }
         do {
             let result = try await GitFlowService().finish(plan, in: repositoryURL)
+            if await cleanUpFinishedGitFlowWorktree(result) { return true }
             await registerCompletedGitFlowFinish(result)
             await refreshAfterGitFlowMutation()
             return true
@@ -226,6 +232,7 @@ extension MainWindowView {
         runRepositoryOperation("Resuming Git Flow finish…") {
             do {
                 let result = try await GitFlowService().resumeFinish(in: repositoryURL)
+                if await cleanUpFinishedGitFlowWorktree(result) { return }
                 await registerCompletedGitFlowFinish(result)
                 await refreshAfterGitFlowMutation()
             } catch {
@@ -258,9 +265,85 @@ extension MainWindowView {
         }
     }
 
-    private func registerCompletedGitFlowFinish(_ result: GitFlowFinishResult) async {
+    private func cleanUpFinishedGitFlowWorktree(_ result: GitFlowFinishResult) async -> Bool {
+        let plan = result.plan
+        guard plan.removeWorktree, let path = plan.worktreePath else { return false }
+        let git = GitStatusService.shared
+        let entries = await git.worktrees(in: repositoryURL)
+        guard let main = entries.first,
+              let entry = entries.dropFirst().first(where: { $0.path.standardizedFileURL == path.standardizedFileURL }),
+              path.standardizedFileURL == repositoryURL.standardizedFileURL,
+              !entry.isLocked, entry.dirtyCount == 0,
+              entry.branch == result.targetResults.last?.branch,
+              entry.head == result.targetResults.last?.tipAfterMerge else {
+            await MainActor.run {
+                syncState.showError("Finish succeeded. Local cleanup was skipped because the worktree is dirty, locked, or its state changed. The local branch was kept.")
+            }
+            return false
+        }
+        do {
+            await MainActor.run {
+                if !RepositoryWindowContext.focusRepository(at: main.path.resolvingSymlinksInPath().standardizedFileURL) {
+                    openWorktreeInNewWindow(at: main.path)
+                }
+            }
+            try await git.removeWorktree(at: path, force: false, in: main.path)
+        } catch {
+            await MainActor.run { syncState.showError("Finish succeeded, but local cleanup failed: \(error.localizedDescription). The local branch was kept.") }
+            return false
+        }
+        var didDelete = false
+        var warning: String?
+        if plan.deleteSourceBranch {
+            do {
+                let sourceTip = try await GitBranchUndoSupport().tip(of: plan.sourceBranch, in: main.path)
+                guard sourceTip == (result.rewrittenSourceTip ?? result.sourceTip) else {
+                    throw GitFlowFinishError.sourceRefMoved(plan.sourceBranch)
+                }
+                guard let target = result.targetResults.last else {
+                    throw GitFlowFinishError.targetRefMoved(plan.targetBranch)
+                }
+                try await git.deleteFinishedGitFlowBranch(
+                    name: plan.sourceBranch, expectedTip: sourceTip,
+                    targetBranch: target.branch, targetTip: target.tipAfterMerge, in: main.path
+                )
+                didDelete = true
+            } catch {
+                warning = "Finish succeeded and the worktree was removed, but the local branch could not be deleted: \(error.localizedDescription)"
+            }
+        }
+        let cleanedResult = GitFlowFinishResult(
+            plan: plan, sourceTip: result.sourceTip, targetResults: result.targetResults,
+            createdTagName: result.createdTagName, didDeleteSourceBranch: didDelete,
+            deletionWarning: warning, rewrittenSourceTip: result.rewrittenSourceTip
+        )
+        await registerCompletedGitFlowFinish(cleanedResult, undoRepositoryURL: main.path)
+        await git.invalidateBranchListCache(in: main.path)
+        await RepositoryWindowContext.refreshRepository(at: main.path)
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .repositoryDidChange, object: nil,
+                userInfo: ["repositoryURL": main.path]
+            )
+            if let warning { syncState.showError(warning) }
+            windowContext.window?.close()
+        }
+        return true
+    }
+
+    @MainActor
+    private func registerGitFlowUndo(_ entry: GitUndoEntry) {
+        if entry.repositoryURL.standardizedFileURL == repositoryURL.standardizedFileURL {
+            undoManager.register(entry)
+        } else {
+            RepositoryWindowContext.registerTransferredUndo(entry)
+        }
+    }
+
+    private func registerCompletedGitFlowFinish(_ result: GitFlowFinishResult, undoRepositoryURL: URL? = nil) async {
+        let repositoryURL = undoRepositoryURL ?? self.repositoryURL
         if let rewrittenSourceTip = result.rewrittenSourceTip {
-            await registerCompletedRebaseFinish(result, rewrittenSourceTip: rewrittenSourceTip)
+            await registerCompletedRebaseFinish(result, rewrittenSourceTip: rewrittenSourceTip, undoRepositoryURL: repositoryURL)
             return
         }
         let plan = result.plan
@@ -315,7 +398,7 @@ extension MainWindowView {
         }
 
         await MainActor.run {
-            undoManager.register(
+            registerGitFlowUndo(
                 GitUndoEntry(
                     repositoryURL: repositoryURL,
                     label: "Finish \(plan.kind.displayName) \(plan.sourceBranch)",
@@ -336,8 +419,10 @@ extension MainWindowView {
 
     private func registerCompletedRebaseFinish(
         _ result: GitFlowFinishResult,
-        rewrittenSourceTip: String
+        rewrittenSourceTip: String,
+        undoRepositoryURL: URL? = nil
     ) async {
+        let repositoryURL = undoRepositoryURL ?? self.repositoryURL
         guard let target = result.targetResults.first else { return }
         let plan = result.plan
         var undoOperations: [GitUndoOperation] = [.requireCleanWorkingTree]
@@ -394,7 +479,7 @@ extension MainWindowView {
         }
 
         await MainActor.run {
-            undoManager.register(
+            registerGitFlowUndo(
                 GitUndoEntry(
                     repositoryURL: repositoryURL,
                     label: "Finish \(plan.kind.displayName) \(plan.sourceBranch)",

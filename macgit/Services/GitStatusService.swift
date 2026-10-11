@@ -38,6 +38,7 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
     private let directory: URL
     private let environment: [String: String]
     private let outputByteLimit: Int?
+    private let inputData: Data?
     private let lock = NSLock()
     private let outputLock = NSLock()
     private let outputGroup = DispatchGroup()
@@ -57,13 +58,15 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
         arguments: [String],
         directory: URL,
         environment: [String: String],
-        outputByteLimit: Int? = nil
+        outputByteLimit: Int? = nil,
+        inputData: Data? = nil
     ) {
         self.executable = executable
         self.arguments = arguments
         self.directory = directory
         self.environment = environment
         self.outputByteLimit = outputByteLimit
+        self.inputData = inputData
     }
 
     func run() async throws -> GitProcessResult {
@@ -87,6 +90,8 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
         let stderr = Pipe()
         task.standardOutput = stdout
         task.standardError = stderr
+        let stdin = inputData == nil ? nil : Pipe()
+        if let stdin { task.standardInput = stdin }
 
         lock.lock()
         self.task = task
@@ -107,6 +112,12 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
 
         do {
             try task.run()
+            if let stdin, let inputData {
+                DispatchQueue.global(qos: .utility).async {
+                    defer { try? stdin.fileHandleForWriting.close() }
+                    try? stdin.fileHandleForWriting.write(contentsOf: inputData)
+                }
+            }
             drain(stdout.fileHandleForReading, intoStandardError: false)
             drain(stderr.fileHandleForReading, intoStandardError: true)
             lock.lock()
@@ -455,7 +466,7 @@ actor GitStatusService {
         )
     }
 
-    func runGitRaw(arguments: [String], in directory: URL, environment: [String: String], outputByteLimit: Int? = nil) async throws -> Data {
+    func runGitRaw(arguments: [String], in directory: URL, environment: [String: String], outputByteLimit: Int? = nil, inputData: Data? = nil) async throws -> Data {
         let startedAt = Date()
         do {
             let context = try await gitExecutionContext(
@@ -466,7 +477,8 @@ actor GitStatusService {
                 arguments: arguments,
                 directory: directory,
                 environment: context.environment,
-                outputByteLimit: outputByteLimit
+                outputByteLimit: outputByteLimit,
+                inputData: inputData
             ).run()
             guard !result.isTruncated else {
                 throw GitError.commandFailed("Git object exceeds the preview limit.")

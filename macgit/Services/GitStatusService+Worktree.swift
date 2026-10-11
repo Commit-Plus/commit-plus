@@ -249,14 +249,14 @@ extension GitStatusService {
         await postRepositoryDidChange(for: repositoryURL)
     }
 
-    private struct ParsedWorktree {
+    struct ParsedWorktree {
         let path: URL
         let head: String
         let branch: String?
         let isLocked: Bool
     }
 
-    private func parseWorktreePorcelain(_ output: String) -> [ParsedWorktree] {
+    func parseWorktreePorcelain(_ output: String) -> [ParsedWorktree] {
         var entries: [ParsedWorktree] = []
         var path: URL?
         var head = ""

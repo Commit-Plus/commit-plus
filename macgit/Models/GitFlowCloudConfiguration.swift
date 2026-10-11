@@ -86,6 +86,8 @@ struct GitFlowCloudConfiguration: Equatable {
             defaultStartDestination: localConfiguration.defaultStartDestination,
             topicFinishStrategy: topicFinishStrategy,
             createReleaseTagOnFinish: createReleaseTagOnFinish,
+            deleteLocalBranchOnFinish: localConfiguration.deleteLocalBranchOnFinish,
+            removeLocalWorktreeOnFinish: localConfiguration.removeLocalWorktreeOnFinish,
             createHotfixTagOnFinish: createHotfixTagOnFinish
         ).normalized()
     }

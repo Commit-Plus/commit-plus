@@ -78,7 +78,8 @@ struct GitFlowPlanner {
         kind: GitFlowTopicKind,
         currentBranch: String,
         configuration: GitFlowConfiguration,
-        deleteSourceBranch: Bool = true
+        deleteSourceBranch: Bool? = nil,
+        worktreePath: URL? = nil
     ) throws -> GitFlowFinishPlan {
         let configuration = configuration.normalized()
         guard configuration.isEnabled else { throw GitFlowPlannerError.disabled }
@@ -108,7 +109,9 @@ struct GitFlowPlanner {
             secondaryTargetBranch: kind.requiresReleaseTag ? configuration.developBranch : nil,
             tagName: tagName,
             createTag: createTag,
-            deleteSourceBranch: deleteSourceBranch,
+            deleteSourceBranch: deleteSourceBranch ?? configuration.deleteLocalBranchOnFinish,
+            worktreePath: worktreePath,
+            removeWorktree: worktreePath != nil && configuration.removeLocalWorktreeOnFinish,
             strategy: kind.requiresReleaseTag ? .mergeNoFastForward : configuration.topicFinishStrategy
         )
     }

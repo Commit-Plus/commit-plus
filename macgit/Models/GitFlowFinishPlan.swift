@@ -26,6 +26,8 @@ final class GitFlowFinishPlan: Identifiable, Codable, Equatable, Sendable {
     let tagName: String?
     let createTag: Bool
     let deleteSourceBranch: Bool
+    let worktreePath: URL?
+    let removeWorktree: Bool
     let strategy: GitFlowTopicFinishStrategy
 
     var id: String { "\(kind.rawValue):\(sourceBranch)" }
@@ -47,8 +49,12 @@ final class GitFlowFinishPlan: Identifiable, Codable, Equatable, Sendable {
         tagName: String? = nil,
         createTag: Bool = false,
         deleteSourceBranch: Bool,
+        worktreePath: URL? = nil,
+        removeWorktree: Bool = false,
         strategy: GitFlowTopicFinishStrategy = .mergeNoFastForward
     ) {
+        self.worktreePath = worktreePath
+        self.removeWorktree = removeWorktree
         self.kind = kind
         self.sourceBranch = sourceBranch
         self.primaryTargetBranch = targetBranch
@@ -67,6 +73,8 @@ final class GitFlowFinishPlan: Identifiable, Codable, Equatable, Sendable {
             && lhs.tagName == rhs.tagName
             && lhs.createTag == rhs.createTag
             && lhs.deleteSourceBranch == rhs.deleteSourceBranch
+            && lhs.worktreePath == rhs.worktreePath
+            && lhs.removeWorktree == rhs.removeWorktree
             && lhs.strategy == rhs.strategy
     }
 
@@ -81,17 +89,21 @@ final class GitFlowFinishPlan: Identifiable, Codable, Equatable, Sendable {
                 : nil,
             createTag: createTag,
             deleteSourceBranch: deleteSourceBranch,
+            worktreePath: worktreePath,
+            removeWorktree: removeWorktree,
             strategy: strategy
         )
     }
 
     private enum CodingKeys: String, CodingKey {
         case kind, sourceBranch, primaryTargetBranch, secondaryTargetBranch
-        case tagName, createTag, deleteSourceBranch, strategy
+        case tagName, createTag, deleteSourceBranch, strategy, worktreePath, removeWorktree
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        worktreePath = try container.decodeIfPresent(URL.self, forKey: .worktreePath)
+        removeWorktree = try container.decodeIfPresent(Bool.self, forKey: .removeWorktree) ?? false
         kind = try container.decode(GitFlowTopicKind.self, forKey: .kind)
         sourceBranch = try container.decode(String.self, forKey: .sourceBranch)
         primaryTargetBranch = try container.decode(String.self, forKey: .primaryTargetBranch)
