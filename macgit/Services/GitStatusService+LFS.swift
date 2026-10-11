@@ -81,11 +81,28 @@ extension GitStatusService {
             if conflictPaths.contains(files[index].name) { files[index].modification = "Conflict" }
             else if changedPaths.contains(files[index].name) { files[index].modification = "Modified" }
         }
+        // One bounded history read for all files; staged-only files have no commit metadata.
+        if !files.isEmpty, let history = try? await runGit(arguments: ["log", "-n", "500", "--no-renames", "--format=%x1e%an%x00%aI%x00", "--name-only", "-z", "HEAD"], in: repository) {
+            var metadata: [String: (String, String)] = [:]
+            let names = Set(files.map(\.name))
+            for record in history.split(separator: "\u{1e}") {
+                let fields = record.components(separatedBy: "\0")
+                guard fields.count >= 3 else { continue }
+                for rawPath in fields.dropFirst(2) {
+                    let path = rawPath.hasPrefix("\n") ? String(rawPath.dropFirst()) : rawPath
+                    if names.contains(path), metadata[path] == nil { metadata[path] = (fields[0], fields[1]) }
+                }
+            }
+            for index in files.indices {
+                files[index].lastAuthor = metadata[files[index].name]?.0
+                files[index].lastCommitDate = metadata[files[index].name]?.1
+            }
+        }
         let rules = try await runLFS(["track"], in: repository)
         let branch = await currentBranch(in: repository) ?? "Detached HEAD"
         let remotes = await remotes(in: repository)
         let upstream = try? await runGit(arguments: ["config", "--get", "branch.\(branch).remote"], in: repository).trimmingCharacters(in: .whitespacesAndNewlines)
-        let remote = upstream.flatMap { remotes.contains($0) ? $0 : nil } ?? (remotes.count == 1 ? remotes.first : nil)
+        let remote = upstream.flatMap { remotes.contains($0) ? $0 : nil } ?? (remotes.contains("origin") ? "origin" : remotes.first)
         let issue = try await lfsSetupIssue(in: repository)
         return GitLFSSnapshot(files: files, rules: rules, branch: branch, remotes: remotes, suggestedRemote: remote, setupIssue: issue)
     }
@@ -245,7 +262,19 @@ extension GitStatusService {
         guard try readLFSAttributes(in: repository) == review.attributes else {
             throw GitError.commandFailed(".gitattributes changed. Review the tracking rule again.")
         }
-        _ = try await runLFS([review.removing ? "untrack" : "track"] + (review.literal ? ["--filename"] : []) + [review.pattern], in: repository)
+        if review.removing {
+            let attributes = review.attributes ?? Data()
+            guard let contents = String(data: attributes, encoding: .utf8) else {
+                throw GitError.commandFailed("Open .gitattributes manually: it is not valid UTF-8.")
+            }
+            let updated = GitLFSTrackingRule.removingRootRule(review.pattern, literal: review.literal, from: contents)
+            guard updated != contents else {
+                throw GitError.commandFailed("The root tracking rule was not found. Refresh and select the rule again.")
+            }
+            try Data(updated.utf8).write(to: repository.appendingPathComponent(".gitattributes"), options: .atomic)
+        } else {
+            _ = try await runLFS(["track"] + (review.literal ? ["--filename"] : []) + [review.pattern], in: repository)
+        }
     }
 
     func downloadLFS(remote: String, in repository: URL, credentialResolver: GitProviderCredentialResolver?, paths: [String]? = nil, onProgress: (@Sendable (GitLFSTransferProgress) -> Void)? = nil) async throws {

@@ -8,6 +8,8 @@ nonisolated struct GitLFSFile: Decodable, Identifiable, Sendable {
     let downloaded: Bool
     let oid: String
     var modification: String? = nil
+    var lastAuthor: String? = nil
+    var lastCommitDate: String? = nil
     var id: String { name }
     var localState: String { modification ?? (checkout ? "Available" : downloaded ? "Cached · Restore Content" : "Not downloaded") }
 }

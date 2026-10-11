@@ -10,6 +10,10 @@ struct GitLFSView: View {
     @State private var runtime = GitLFSRuntimeController.shared
     @State private var tab = "Files"
     @State private var search = ""
+    @State private var isSearchExpanded = false
+    @State private var contentWidth: CGFloat = 0
+    @FocusState private var isSearchFocused: Bool
+    @FocusState private var isPatternFocused: Bool
     @State private var sortOrder = [KeyPathComparator(\GitLFSFile.name)]
     @State private var stateFilter = "All states"
     @State private var selection = Set<String>()
@@ -17,6 +21,7 @@ struct GitLFSView: View {
     @State private var literal = false
     @State private var minimumMiB = 50
     @State private var showingSetup = false
+    @State private var showingFileDetails = false
     @State private var isInitialLoadPending = true
 
     init(repositoryURL: URL, initialPath: String? = nil, credentialResolver: @escaping @MainActor (String) async -> GitProviderCredentialResolver?,
@@ -65,10 +70,11 @@ struct GitLFSView: View {
                         Button("Set Up Git LFS…") { showingSetup = true }
                     }
                 }
+                overview(snapshot)
                 Picker("Git LFS view", selection: $tab) {
                     Text("Files").tag("Files")
                     Text("Tracking Rules").tag("Tracking Rules")
-                }.pickerStyle(.segmented)
+                }.pickerStyle(.segmented).fixedSize()
                 if tab == "Files" { fileTable } else { rules(snapshot.rules) }
             } else {
                 ContentUnavailableView("Unable to Read Git LFS", systemImage: "exclamationmark.triangle", description: Text("Check the message above, then Refresh to try again."))
@@ -92,6 +98,7 @@ struct GitLFSView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding()
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
         .task {
             await controller.load(promptForRuntime: true)
             isInitialLoadPending = false
@@ -100,6 +107,12 @@ struct GitLFSView: View {
             let url = (notification.userInfo?["repositoryURL"] as? URL) ?? (notification.object as? URL)
             guard let url, url.standardizedFileURL == repositoryURL.standardizedFileURL else { return }
             Task { await controller.load() }
+        }
+        .sheet(isPresented: $showingFileDetails) {
+            VStack(alignment: .trailing, spacing: 12) {
+                Button("Done") { showingFileDetails = false }
+                fileInspector
+            }.padding().frame(width: 380, height: 430)
         }
         .alert("Download Git LFS?", isPresented: $controller.showingRuntimePrompt) {
             Button("Download & Continue") {
@@ -162,90 +175,343 @@ struct GitLFSView: View {
         HStack {
             VStack(alignment: .leading) {
                 Label("Git LFS", systemImage: "externaldrive").font(.title2)
-                Text("Current branch: \(controller.snapshot?.branch ?? "—") · Remote availability is checked when downloading.")
+                Text("Branch: \(controller.snapshot?.branch ?? "—")")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+            Button("Track Pattern", systemImage: "plus") { tab = "Tracking Rules" }
+                .buttonStyle(.borderedProminent)
+                .disabled(controller.operationLabel != nil)
             Button("Refresh", systemImage: "arrow.clockwise") { Task { await controller.load() } }
                 .disabled(controller.isLoading || controller.operationLabel != nil)
         }
     }
 
+    private func overview(_ snapshot: GitLFSSnapshot) -> some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: 12), count: contentWidth >= 800 ? 4 : contentWidth >= 420 ? 2 : 1), spacing: 12) {
+            metric("Tracked files", value: "\(snapshot.files.count)", detail: "In the current checkout", icon: "doc.on.doc")
+            metric("Referenced size", value: ByteCountFormatter.string(fromByteCount: snapshot.files.reduce(0) { $0 + $1.size }, countStyle: .file), detail: "Size of tracked content", icon: "externaldrive")
+            metric("Not downloaded", value: "\(snapshot.files.filter { !$0.checkout && !$0.downloaded }.count)", detail: "Content missing locally", icon: "arrow.down.circle")
+            metric("Tracking rules", value: "\(GitLFSTrackingRule.displayRules(snapshot.rules).filter { !$0.excluded }.count)", detail: "From attributes files", icon: "line.3.horizontal.decrease")
+        }
+    }
+
+    private func metric(_ title: String, value: String, detail: String, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(title, systemImage: icon).font(.caption).foregroundStyle(.secondary)
+            Text(value).font(.title2).bold()
+            Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(.background, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator))
+    }
+
+    private var selectedFile: GitLFSFile? {
+        guard selection.count == 1 else { return nil }
+        return files.first { selection.contains($0.id) }
+    }
+
     private var fileTable: some View {
-        @Bindable var controller = controller
-        return VStack(alignment: .leading) {
-            HStack {
-                TextField("Search files", text: $search)
-                Picker("State", selection: $stateFilter) {
-                    ForEach(["All states", "Available", "Not downloaded", "Modified", "Conflict"], id: \.self) { Text($0).tag($0) }
-                }.frame(maxWidth: 150)
-            }
-            HStack {
-                Picker("Remote", selection: $controller.remote) {
-                    Text("Choose remote").tag("")
-                    ForEach(controller.snapshot?.remotes ?? [], id: \.self) { Text($0).tag($0) }
-                }.frame(maxWidth: 240)
-                Spacer(minLength: 12)
-                Button("Download Missing", systemImage: "arrow.down.circle") { download() }
-                    .disabled(controller.remote.isEmpty || controller.operationLabel != nil)
-                Menu("More", systemImage: "ellipsis.circle") {
-                    Button("Download Selected") { download(paths: Array(selection)) }
-                        .disabled(selection.isEmpty || controller.remote.isEmpty)
-                    Button("Restore Cached Content") {
-                        let repository = repositoryURL
-                        controller.perform("Restoring cached content…", refresh: refreshRepository) {
-                            try await GitStatusService.shared.restoreLFS(in: repository)
-                        }
+        VStack(alignment: .leading, spacing: 8) {
+            if isSearchExpanded {
+                searchField
+                    .onSubmit { isSearchFocused = false }
+                    .onExitCommand { isSearchFocused = false }
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        searchField.frame(minWidth: 180, idealWidth: 220, maxWidth: .infinity)
+                        fileControls(compact: false)
                     }
-                }.disabled(controller.operationLabel != nil)
-            }
-            Table(files, selection: $selection, sortOrder: $sortOrder) {
-                TableColumn("File", value: \.name)
-                TableColumn("Size", value: \.size) { file in Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file)) }
-                    .width(min: 70, ideal: 90, max: 120)
-                TableColumn("Local Content", value: \.localState)
-            }
-            .overlay {
-                if files.isEmpty {
-                    ContentUnavailableView("No LFS Files", systemImage: "externaldrive", description: Text("Add a tracking rule, then stage matching files in File Status."))
+                    HStack(spacing: 12) {
+                        searchButton
+                        Spacer(minLength: 0)
+                        fileControls(compact: true)
+                    }
+                    HStack {
+                        searchButton
+                        Spacer(minLength: 0)
+                        compactActions
+                    }
                 }
             }
-            if selection.count == 1, let file = files.first(where: { selection.contains($0.id) }) {
-                HStack {
-                    Text("SHA-256: \(file.oid)").font(.caption).textSelection(.enabled)
-                    Spacer()
-                    Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([repositoryURL.appendingPathComponent(file.name)]) }
+            if !search.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "line.3.horizontal.decrease")
+                    Text("Filtering: \(search)").lineLimit(1).truncationMode(.middle)
+                    Button {
+                        search = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }.buttonStyle(.plain).accessibilityLabel("Clear search")
+                }.font(.caption).foregroundStyle(.secondary)
+            }
+            GeometryReader { geometry in
+                HStack(alignment: .top, spacing: 12) {
+                    fileList
+                    if geometry.size.width >= 1000 { fileInspector.frame(width: 280) }
                 }
             }
-            Text("\(files.count) files · \(ByteCountFormatter.string(fromByteCount: files.reduce(0) { $0 + $1.size }, countStyle: .file)) referenced by this view. Local availability is not upload status.")
-                .font(.caption).foregroundStyle(.secondary)
+
+        }
+        .onChange(of: isSearchFocused) { _, focused in
+            if !focused { isSearchExpanded = false }
+        }
+    }
+
+    private var searchButton: some View {
+        Button {
+            isSearchExpanded = true
+            isSearchFocused = true
+        } label: {
+            Image(systemName: "magnifyingglass")
+        }.accessibilityLabel("Search files").help("Search files")
+    }
+
+    private var compactActions: some View {
+        Menu {
+            Picker("State", selection: $stateFilter) {
+                ForEach(["All states", "Available", "Not downloaded", "Cached · Restore Content", "Modified", "Conflict"], id: \.self) { Text($0).tag($0) }
+            }
+            remotePicker
+            Divider()
+            Button("Download Missing") { download() }
+                .disabled(controller.remote.isEmpty || controller.operationLabel != nil)
+            Button("Download Selected") { download(paths: Array(selection)) }
+                .disabled(selection.isEmpty || controller.remote.isEmpty || controller.operationLabel != nil)
+            Button("Restore Cached Content") { restoreCachedContent() }
+                .disabled(controller.operationLabel != nil)
+            Button("File Details") { showingFileDetails = true }
+                .disabled(selectedFile == nil)
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }.accessibilityLabel("Filters and file actions")
+    }
+
+    private var searchField: some View {
+        TextField("Search files", text: $search)
+            .textFieldStyle(.roundedBorder)
+            .focused($isSearchFocused)
+    }
+
+    private func fileControls(compact: Bool) -> some View {
+        @Bindable var controller = controller
+        return HStack(spacing: 12) {
+            Picker("State", selection: $stateFilter) {
+                ForEach(["All states", "Available", "Not downloaded", "Cached · Restore Content", "Modified", "Conflict"], id: \.self) { Text($0).tag($0) }
+            }.labelsHidden().frame(width: compact ? 135 : 155)
+            VStack(spacing: 0) {
+                if compact {
+                    remotePicker.labelsHidden()
+                } else {
+                    remotePicker
+                }
+            }.fixedSize()
+            Button { download() } label: {
+                if compact {
+                    Image(systemName: "arrow.down.circle")
+                } else {
+                    Label("Download Missing", systemImage: "arrow.down.circle")
+                }
+            }
+            .accessibilityLabel("Download Missing")
+            .help("Download missing Git LFS content")
+            .disabled(controller.remote.isEmpty || controller.operationLabel != nil)
+            Menu {
+                Button("File Details") { showingFileDetails = true }
+                    .disabled(selectedFile == nil)
+                Button("Download Selected") { download(paths: Array(selection)) }
+                    .disabled(selection.isEmpty || controller.remote.isEmpty)
+                Button("Restore Cached Content") { restoreCachedContent() }
+            } label: {
+                if compact { Image(systemName: "ellipsis.circle") }
+                else { Label("More", systemImage: "ellipsis.circle") }
+            }.accessibilityLabel("More file actions").disabled(controller.operationLabel != nil)
+        }.fixedSize()
+    }
+
+    private var remotePicker: some View {
+        @Bindable var controller = controller
+        return Picker("Download from", selection: $controller.remote) {
+            if controller.remote.isEmpty { Text("No download remote").tag("") }
+            ForEach(controller.snapshot?.remotes ?? [], id: \.self) { Text($0).tag($0) }
+        }.help("Remote used to download Git LFS content. This does not change file tracking.")
+    }
+
+    private var fileList: some View {
+        Table(files, selection: $selection, sortOrder: $sortOrder) {
+            TableColumn("File", value: \.name) { file in
+                HStack(spacing: 8) {
+                    Image(systemName: "doc").foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(URL(fileURLWithPath: file.name).lastPathComponent).lineLimit(1).truncationMode(.middle)
+                        Text((file.name as NSString).deletingLastPathComponent).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    }.padding(.vertical, 4)
+                }
+            }.width(min: 180, ideal: 210, max: 240)
+            TableColumn("Size", value: \.size) { file in
+                Text(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file)).monospacedDigit()
+            }.width(min: 65, ideal: 80, max: 85)
+            TableColumn("Local Content", value: \.localState) { file in
+                fileState(file)
+            }.width(min: 100, ideal: 110, max: 120)
+            TableColumn("Author") { file in Text(file.lastAuthor ?? "—").lineLimit(1) }
+                .width(min: 80, ideal: 95, max: 100)
+            TableColumn("Last Commit") { file in Text(commitDate(file)).font(.caption) }
+                .width(min: 85, ideal: 90, max: 95)
+            TableColumn("OID") { file in Text(String(file.oid.prefix(10))).font(.system(.caption, design: .monospaced)).help(file.oid) }
+                .width(min: 85, ideal: 85, max: 90)
+        }
+        .overlay {
+            if files.isEmpty {
+                ContentUnavailableView("No LFS Files", systemImage: "externaldrive", description: Text(search.isEmpty && stateFilter == "All states" ? "Add a tracking rule, then stage matching files in File Status." : "Try another search or state filter."))
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator))
+    }
+
+    private func fileState(_ file: GitLFSFile) -> some View {
+        let color: Color = file.modification != nil ? .orange : file.checkout ? .green : .secondary
+        return Label(file.localState, systemImage: file.modification != nil ? "exclamationmark.circle" : file.checkout ? "checkmark.circle.fill" : "arrow.down.circle")
+            .font(.caption).foregroundStyle(color).lineLimit(1)
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background(color.opacity(0.1), in: Capsule())
+    }
+
+    private var fileInspector: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if let file = selectedFile {
+                    Label(URL(fileURLWithPath: file.name).lastPathComponent, systemImage: "doc")
+                        .font(.headline).textSelection(.enabled)
+                    Text(file.name).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    fileState(file)
+                    Divider()
+                    LabeledContent("Size", value: ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file))
+                    LabeledContent("Local cache", value: file.downloaded ? "Available" : "Missing")
+                    LabeledContent("Last author", value: file.lastAuthor ?? "—")
+                    LabeledContent("Last commit", value: commitDate(file))
+                    if file.lastCommitDate == nil {
+                        Text("No commit metadata found in the latest 500 commits.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Object ID · SHA-256").font(.caption).foregroundStyle(.secondary)
+                        Text(file.oid).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                    }
+                    Text("Remote availability is checked when downloading.").font(.caption).foregroundStyle(.secondary)
+                    Divider()
+                    VStack(spacing: 8) {
+                        Button { reveal(file) } label: {
+                            Label("Show in Finder", systemImage: "folder").frame(maxWidth: .infinity)
+                        }
+                        Button { download(paths: [file.name]) } label: {
+                            Label("Download Selected", systemImage: "arrow.down.circle").frame(maxWidth: .infinity)
+                        }
+                        .disabled(controller.remote.isEmpty || controller.operationLabel != nil)
+                    }.buttonStyle(.bordered).controlSize(.regular)
+
+                } else {
+                    ContentUnavailableView(selection.isEmpty ? "File Details" : "\(selection.count) Files Selected", systemImage: "doc.text.magnifyingglass", description: Text("Select one file to inspect its content and object ID."))
+                }
+            }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(.background, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator))
+    }
+
+    private func commitDate(_ file: GitLFSFile) -> String {
+        guard let value = file.lastCommitDate, let date = ISO8601DateFormatter().date(from: value) else { return "—" }
+        return date.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    private func reveal(_ file: GitLFSFile) {
+        NSWorkspace.shared.activateFileViewerSelecting([repositoryURL.appendingPathComponent(file.name)])
+    }
+
+    private func restoreCachedContent() {
+        let repository = repositoryURL
+        controller.perform("Restoring cached content…", refresh: refreshRepository) {
+            try await GitStatusService.shared.restoreLFS(in: repository)
         }
     }
 
     private func rules(_ rules: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Track large assets by filename or pattern. Rules are shared through .gitattributes.")
-            TextField("Pattern, for example *.psd", text: $pattern)
-                .disabled(controller.operationLabel != nil || controller.snapshot?.setupIssue != nil)
-            HStack {
-                Toggle("Exact filename", isOn: $literal)
-                    .fixedSize()
-                Spacer(minLength: 12)
-                Button("Add…") { Task { await controller.prepareRule(pattern: pattern, literal: literal, removing: false) } }
-                Button("Remove…") { Task { await controller.prepareRule(pattern: pattern, literal: literal, removing: true) } }
-            }.disabled(controller.operationLabel != nil || controller.snapshot?.setupIssue != nil)
-            Table(GitLFSTrackingRule.displayRules(rules)) {
-                TableColumn("Pattern", value: \.pattern)
-                TableColumn("Source", value: \.source)
-                TableColumn("Action") { rule in
-                    if rule.canRemove {
-                        Button("Remove…") { Task { await controller.prepareRule(pattern: rule.pattern, literal: false, removing: true) } }
-                            .disabled(controller.operationLabel != nil)
-                    } else {
-                        Text(rule.excluded ? "Excluded · edit source" : "Edit source file").foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Tracking Rules").font(.headline)
+                Text("Choose which files Git LFS should track. Rules are shared through .gitattributes.").font(.caption).foregroundStyle(.secondary)
+            }
+            HStack(spacing: 6) {
+                TextField("Pattern, for example *.mp4", text: $pattern)
+                    .textFieldStyle(.plain)
+                    .focused($isPatternFocused)
+                if !pattern.isEmpty {
+                    Button { pattern = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear pattern")
+                    .help("Clear input")
                 }
             }
+            .padding(.horizontal, 6).padding(.vertical, 5)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(isPatternFocused ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: isPatternFocused ? 2 : 1))
+            .disabled(controller.operationLabel != nil || controller.snapshot?.setupIssue != nil)
+            HStack {
+                Toggle("Match exact filename", isOn: $literal)
+                    .fixedSize()
+                Spacer(minLength: 12)
+                Button("Add Pattern…", systemImage: "plus") {
+                    Task { await controller.prepareRule(pattern: pattern, literal: literal, removing: false) }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(pattern.isEmpty)
+            }.disabled(controller.operationLabel != nil || controller.snapshot?.setupIssue != nil)
+            Text(literal
+                 ? "Matches one filename exactly, for example video.mp4. Wildcards such as * are treated as part of the filename."
+                 : "Matches a filename or wildcard pattern. For example, *.mp4 tracks all MP4 files.")
+                .font(.caption).foregroundStyle(.secondary)
+            Table(GitLFSTrackingRule.displayRules(rules)) {
+                TableColumn("Pattern") { rule in
+                    Text(rule.pattern).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                }.width(min: 160, ideal: 280)
+                TableColumn("Type", value: \.patternKind)
+                    .width(min: 65, ideal: 80, max: 95)
+                TableColumn("Source", value: \.source)
+                TableColumn("Status") { rule in
+                    Text(rule.excluded ? "Excluded" : "Tracked")
+                        .font(.caption)
+                        .foregroundStyle(rule.excluded ? Color.orange : Color.green)
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background((rule.excluded ? Color.orange : Color.green).opacity(0.1), in: Capsule())
+                }.width(min: 75, ideal: 90, max: 100)
+                TableColumn("Action") { rule in
+                    if rule.canRemove {
+                        Button {
+                            Task { await controller.prepareRule(pattern: rule.pattern, literal: false, removing: true) }
+                        } label: {
+                            Image(systemName: "trash").foregroundStyle(.red)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("Remove \(rule.pattern)")
+                        .help("Remove this tracking rule")
+                        .disabled(controller.operationLabel != nil)
+                    } else {
+                        Image(systemName: "doc.text")
+                            .foregroundStyle(.secondary)
+                            .help("Edit this rule in \(rule.source)")
+                            .accessibilityLabel("Edit source file: \(rule.source)")
+                    }
+                }.width(50)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator))
+            Text("Pattern uses wildcards; Filename matches a literal name. Tracked describes the rule, not upload status.")
+                .font(.caption).foregroundStyle(.secondary)
             DisclosureGroup("Raw tracking rules") {
                 ScrollView { Text(rules).font(.system(.caption, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
                     .frame(maxHeight: 120)

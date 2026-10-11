@@ -59,6 +59,14 @@ final class GitLFSTests: XCTestCase {
         XCTAssertTrue(rules[2].excluded)
         XCTAssertFalse(rules[2].canRemove)
     }
+    func testRemovingEscapedTrackingRulePreservesWildcardAndOtherLines() {
+        let contents = "# Keep this comment\n*.mp4 filter=lfs diff=lfs merge=lfs -text\n\\*.mp4 filter=lfs diff=lfs merge=lfs -text\nother.dat text\n"
+        let expected = "# Keep this comment\n*.mp4 filter=lfs diff=lfs merge=lfs -text\nother.dat text\n"
+        XCTAssertEqual(GitLFSTrackingRule.removingRootRule("\\*.mp4", literal: false, from: contents), expected)
+        XCTAssertEqual(GitLFSTrackingRule.removingRootRule("*.mp4", literal: true, from: contents), expected)
+        XCTAssertEqual(GitLFSTrackingRule.removingRootRule("missing", literal: false, from: contents), contents)
+    }
+
     func testDiagnosticsRemoveURLCredentialsAndSignedQueries() {
         let safe = GitLFSErrorMessage.sanitized("download https://user:secret@example.com/object?signature=private failed")
         XCTAssertFalse(safe.contains("secret"))

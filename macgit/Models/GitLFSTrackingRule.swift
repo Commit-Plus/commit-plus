@@ -8,6 +8,28 @@ nonisolated struct GitLFSTrackingRule: Identifiable, Sendable {
     var id: String { source + "\0" + pattern + "\0" + String(excluded) }
     var canRemove: Bool { source == ".gitattributes" && !excluded && !pattern.hasPrefix("\"") }
 
+    var patternKind: String {
+        var escaped = false
+        for character in pattern {
+            if escaped { escaped = false; continue }
+            if character == "\\" { escaped = true; continue }
+            if "*?[".contains(character) { return "Pattern" }
+        }
+        return "Filename"
+    }
+
+    /// Match the stored attributes token exactly, including escaped glob characters.
+    static func removingRootRule(_ pattern: String, literal: Bool, from contents: String) -> String {
+        let token = literal ? pattern.reduce(into: "") { result, character in
+            if "*?[]".contains(character) { result.append("\\") }
+            result.append(character)
+        }.replacingOccurrences(of: " ", with: "[[:space:]]") : pattern
+        return contents.components(separatedBy: "\n").filter { line in
+            let fields = line.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\r" })
+            return !(fields.first.map(String.init) == token && fields.dropFirst().contains("filter=lfs"))
+        }.joined(separator: "\n")
+    }
+
     /// Presentation only. Git remains authoritative for effective attributes and edits.
     static func displayRules(_ listing: String) -> [Self] {
         var excluded = false
