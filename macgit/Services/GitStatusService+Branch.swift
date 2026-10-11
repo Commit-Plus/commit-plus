@@ -124,8 +124,10 @@ extension GitStatusService {
     }
 
     func deleteFinishedGitFlowBranch(
-        name: String, expectedTip: String, targetTip: String, in repositoryURL: URL
+        name: String, expectedTip: String, targetBranch: String, targetTip: String, in repositoryURL: URL
     ) async throws {
+        _ = try await runGit(arguments: ["check-ref-format", "refs/heads/\(name)"], in: repositoryURL)
+        _ = try await runGit(arguments: ["check-ref-format", "refs/heads/\(targetBranch)"], in: repositoryURL)
         _ = try await runGit(
             arguments: ["merge-base", "--is-ancestor", expectedTip, targetTip],
             in: repositoryURL
@@ -133,9 +135,30 @@ extension GitStatusService {
         guard try await GitBranchUndoSupport().tip(of: name, in: repositoryURL) == expectedTip else {
             throw GitFlowFinishError.sourceRefMoved(name)
         }
-        // The completed target, rather than this worktree's HEAD or upstream,
-        // establishes that the source commits are preserved.
-        _ = try await deleteBranch(name: name, force: true, in: repositoryURL)
+        let worktreeOutput = try await runGit(arguments: ["worktree", "list", "--porcelain"], in: repositoryURL)
+        let worktrees = parseWorktreePorcelain(worktreeOutput)
+        guard !worktrees.isEmpty,
+              !worktrees.contains(where: { $0.branch == name }) else {
+            throw GitError.commandFailed("Cannot delete '\(name)' because it is checked out in a worktree.")
+        }
+        for worktree in worktrees {
+            guard await inProgressOperation(in: worktree.path) == nil else {
+                throw GitError.commandFailed("Finish the active Git operation in all worktrees before deleting '\(name)'.")
+            }
+        }
+        let transaction = """
+        start
+        verify refs/heads/\(targetBranch) \(targetTip)
+        delete refs/heads/\(name) \(expectedTip)
+        prepare
+        commit
+
+        """
+        _ = try await runGitRaw(
+            arguments: ["update-ref", "--no-deref", "--stdin"], in: repositoryURL,
+            environment: ProcessInfo.processInfo.environment, inputData: Data(transaction.utf8)
+        )
+        await invalidateBranchListCache(in: repositoryURL)
     }
 
     func renameBranch(from oldName: String, to newName: String, in repositoryURL: URL) async throws -> String {

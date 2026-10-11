@@ -305,7 +305,7 @@ extension MainWindowView {
                 }
                 try await git.deleteFinishedGitFlowBranch(
                     name: plan.sourceBranch, expectedTip: sourceTip,
-                    targetTip: target.tipAfterMerge, in: main.path
+                    targetBranch: target.branch, targetTip: target.tipAfterMerge, in: main.path
                 )
                 didDelete = true
             } catch {
