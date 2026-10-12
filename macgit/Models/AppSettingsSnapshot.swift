@@ -44,6 +44,13 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
     var historyIncludeRemotes: Bool
     var autoFetchEnabled: Bool
     var refreshOnAppActive: Bool
+    var diffFontName: String
+    var diffFontSize: Double
+    var diffAddedBackgroundColor: String
+    var diffAddedTextColor: String
+    var diffRemovedBackgroundColor: String
+    var diffRemovedTextColor: String
+    var diffSyntaxHighlighting: Bool
 
     init(
         appearance: AppAppearance = .system,
@@ -69,7 +76,14 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         historyBranchFilter: HistoryBranchFilter = .all,
         historyIncludeRemotes: Bool = false,
         autoFetchEnabled: Bool = false,
-        refreshOnAppActive: Bool = true
+        refreshOnAppActive: Bool = true,
+        diffFontName: String = "Menlo-Regular",
+        diffFontSize: Double = 12,
+        diffAddedBackgroundColor: String = "#E6FAF0FF",
+        diffAddedTextColor: String = "#006E4FFF",
+        diffRemovedBackgroundColor: String = "#FFEDE8FF",
+        diffRemovedTextColor: String = "#C72E0DFF",
+        diffSyntaxHighlighting: Bool = false
     ) {
         schemaVersion = 1
         self.appearance = appearance
@@ -96,6 +110,13 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         self.historyIncludeRemotes = historyIncludeRemotes
         self.autoFetchEnabled = autoFetchEnabled
         self.refreshOnAppActive = refreshOnAppActive
+        self.diffFontName = diffFontName
+        self.diffFontSize = diffFontSize
+        self.diffAddedBackgroundColor = diffAddedBackgroundColor
+        self.diffAddedTextColor = diffAddedTextColor
+        self.diffRemovedBackgroundColor = diffRemovedBackgroundColor
+        self.diffRemovedTextColor = diffRemovedTextColor
+        self.diffSyntaxHighlighting = diffSyntaxHighlighting
     }
 
     init(from decoder: Decoder) throws {
@@ -125,5 +146,22 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         historyIncludeRemotes = try container.decode(Bool.self, forKey: .historyIncludeRemotes)
         autoFetchEnabled = try container.decode(Bool.self, forKey: .autoFetchEnabled)
         refreshOnAppActive = try container.decode(Bool.self, forKey: .refreshOnAppActive)
+        diffFontName = try container.decodeIfPresent(String.self, forKey: .diffFontName) ?? "Menlo-Regular"
+        diffFontSize = try container.decodeIfPresent(Double.self, forKey: .diffFontSize) ?? 12
+        diffAddedBackgroundColor = try container.decodeIfPresent(
+            String.self, forKey: .diffAddedBackgroundColor
+        ) ?? "#E6FAF0FF"
+        diffAddedTextColor = try container.decodeIfPresent(
+            String.self, forKey: .diffAddedTextColor
+        ) ?? "#006E4FFF"
+        diffRemovedBackgroundColor = try container.decodeIfPresent(
+            String.self, forKey: .diffRemovedBackgroundColor
+        ) ?? "#FFEDE8FF"
+        diffRemovedTextColor = try container.decodeIfPresent(
+            String.self, forKey: .diffRemovedTextColor
+        ) ?? "#C72E0DFF"
+        diffSyntaxHighlighting = try container.decodeIfPresent(
+            Bool.self, forKey: .diffSyntaxHighlighting
+        ) ?? false
     }
 }

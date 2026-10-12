@@ -27,8 +27,8 @@ private func isChangedDiffLine(_ line: DiffLine) -> Bool {
 }
 
 struct DiffView: View {
-    @Environment(\.appTextScale) private var textScale
     @ObservedObject private var advancedSettings = AdvancedSettingsStore.shared
+    @ObservedObject private var diffAppearance = DiffAppearanceSettingsStore.shared
     let hunks: [DiffHunk]
     let file: StatusFile?
     let repositoryURL: URL?
@@ -121,8 +121,9 @@ struct DiffView: View {
             }
         } else {
             DiffNativeTable(
-                hunks: hunks, textScale: textScale,
+                hunks: hunks, textScale: 1,
                 syntaxHighlighting: advancedSettings.diffSyntaxHighlighting,
+                appearance: diffAppearance,
                 fileExtension: syntaxFileExtension,
                 selectedLineIDs: selectedLineIDs,
                 onLineTap: { hunk, index, flags in
@@ -144,7 +145,7 @@ struct DiffView: View {
 
     private func hunkRenderer(_ hunk: DiffHunk) -> HunkView {
         HunkView(
-            textScale: textScale, hunk: hunk, file: file,
+            textScale: 1, hunk: hunk, file: file,
             repositoryURL: repositoryURL, undoManager: undoManager,
             selectedLineIDs: $selectedLineIDs, lastSelectedLineID: $lastSelectedLineID,
             onRefresh: onRefresh, onError: onError,
@@ -585,7 +586,6 @@ struct HunkView: View {
 }
 
 struct DiffLineView: View {
-    @Environment(\.appTextScale) private var textScale
     let line: DiffLine
     let fileExtension: String
     let isSelected: Bool
@@ -644,7 +644,7 @@ struct DiffLineView: View {
         HStack(spacing: 0) {
             if showsDiffGutter {
                 Text(line.oldLineNumber.map(String.init) ?? "")
-                    .font(.system(size: 10, design: .monospaced).scaled(by: textScale))
+                    .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .frame(width: 36, alignment: .trailing)
                     .padding(.trailing, 6)
@@ -652,7 +652,7 @@ struct DiffLineView: View {
 
             // New line number
             Text(line.newLineNumber.map(String.init) ?? "")
-                .font(.system(size: 10, design: .monospaced).scaled(by: textScale))
+                .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .frame(width: 36, alignment: .trailing)
                 .padding(.trailing, 6)
@@ -660,7 +660,7 @@ struct DiffLineView: View {
             // Prefix
             if showsDiffGutter && !prefix.isEmpty {
                 Text(prefix)
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced).scaled(by: textScale))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(textColor.opacity(0.7))
                     .frame(width: 14, alignment: .center)
             }
@@ -671,13 +671,13 @@ struct DiffLineView: View {
                     lineID: line.id,
                     text: line.text,
                     viewport: horizontalViewport.offsetBy(dx: -contentLeadingInset, dy: 0),
-                    fontSize: 12 * textScale
+                    fontSize: 12
                 )
             } else {
                 Text(highlightedText)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
-                    .task(id: "\(line.id)-\(textScale)-\(highlightCache != nil)") {
+                    .task(id: "\(line.id)-\(highlightCache != nil)") {
                         await loadHighlightedTextIfNeeded()
                     }
             }
@@ -703,11 +703,11 @@ struct DiffLineView: View {
             attributed = cached
         } else if highlightCache != nil {
             attributed = AttributedString(line.text)
-            attributed.font = Font(NSFont.monospacedSystemFont(ofSize: 12 * textScale, weight: .regular))
+            attributed.font = Font(NSFont.monospacedSystemFont(ofSize: 12, weight: .regular))
             attributed.foregroundColor = .primary
         } else {
             attributed = AttributedString(line.text)
-            attributed.font = Font(NSFont.monospacedSystemFont(ofSize: 12 * textScale, weight: .regular))
+            attributed.font = Font(NSFont.monospacedSystemFont(ofSize: 12, weight: .regular))
             attributed.foregroundColor = .primary
         }
 
@@ -732,7 +732,7 @@ struct DiffLineView: View {
         // Let the plain monospaced row reach the first frame before regex work.
         await Task.yield()
         guard !Task.isCancelled else { return }
-        let highlighted = highlightCache.text(for: line, fileExtension: fileExtension, fontSize: 12 * textScale)
+        let highlighted = highlightCache.text(for: line, fileExtension: fileExtension, fontSize: 12)
         guard !Task.isCancelled else { return }
         deferredHighlightedText = highlighted
     }

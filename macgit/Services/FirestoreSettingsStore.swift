@@ -50,6 +50,13 @@ enum CloudSettingsDocument {
             "historyIncludeRemotes": snapshot.historyIncludeRemotes,
             "autoFetchEnabled": snapshot.autoFetchEnabled,
             "refreshOnAppActive": snapshot.refreshOnAppActive,
+            "diffFontName": snapshot.diffFontName,
+            "diffFontSize": snapshot.diffFontSize,
+            "diffAddedBackgroundColor": snapshot.diffAddedBackgroundColor,
+            "diffAddedTextColor": snapshot.diffAddedTextColor,
+            "diffRemovedBackgroundColor": snapshot.diffRemovedBackgroundColor,
+            "diffRemovedTextColor": snapshot.diffRemovedTextColor,
+            "diffSyntaxHighlighting": snapshot.diffSyntaxHighlighting,
             "updatedAt": updatedAt
         ]
     }
@@ -77,6 +84,29 @@ enum CloudSettingsDocument {
             appearance = .system
         }
 
+        let diffFontName = try optionalString(
+            data, key: "diffFontName", defaultValue: "Menlo-Regular"
+        ) { !$0.isEmpty && $0.count <= 128 }
+        let diffFontSize = try optionalNumber(data, key: "diffFontSize", defaultValue: 12)
+        guard (8...32).contains(diffFontSize) else {
+            throw CloudSettingsError.invalidDocument
+        }
+        let diffAddedBackgroundColor = try optionalColor(
+            data, key: "diffAddedBackgroundColor", defaultValue: "#E6FAF0FF"
+        )
+        let diffAddedTextColor = try optionalColor(
+            data, key: "diffAddedTextColor", defaultValue: "#006E4FFF"
+        )
+        let diffRemovedBackgroundColor = try optionalColor(
+            data, key: "diffRemovedBackgroundColor", defaultValue: "#FFEDE8FF"
+        )
+        let diffRemovedTextColor = try optionalColor(
+            data, key: "diffRemovedTextColor", defaultValue: "#C72E0DFF"
+        )
+        let diffSyntaxHighlighting = try optionalBool(
+            data, key: "diffSyntaxHighlighting", defaultValue: false
+        )
+
         return AppSettingsSnapshot(
             appearance: appearance,
             showToolbarButtonText: showToolbarButtonText,
@@ -102,8 +132,54 @@ enum CloudSettingsDocument {
                 .flatMap(HistoryBranchFilter.init(storageValue:)) ?? .all,
             historyIncludeRemotes: data["historyIncludeRemotes"] as? Bool ?? false,
             autoFetchEnabled: data["autoFetchEnabled"] as? Bool ?? false,
-            refreshOnAppActive: data["refreshOnAppActive"] as? Bool ?? true
+            refreshOnAppActive: data["refreshOnAppActive"] as? Bool ?? true,
+            diffFontName: diffFontName,
+            diffFontSize: diffFontSize,
+            diffAddedBackgroundColor: diffAddedBackgroundColor,
+            diffAddedTextColor: diffAddedTextColor,
+            diffRemovedBackgroundColor: diffRemovedBackgroundColor,
+            diffRemovedTextColor: diffRemovedTextColor,
+            diffSyntaxHighlighting: diffSyntaxHighlighting
         )
+    }
+
+    private static func optionalString(
+        _ data: [String: Any],
+        key: String,
+        defaultValue: String,
+        isValid: (String) -> Bool
+    ) throws -> String {
+        guard let value = data[key] else { return defaultValue }
+        guard let value = value as? String, isValid(value) else {
+            throw CloudSettingsError.invalidDocument
+        }
+        return value
+    }
+
+    private static func optionalNumber(
+        _ data: [String: Any], key: String, defaultValue: Double
+    ) throws -> Double {
+        guard let value = data[key] else { return defaultValue }
+        guard !(value is Bool), let number = value as? NSNumber else {
+            throw CloudSettingsError.invalidDocument
+        }
+        return number.doubleValue
+    }
+
+    private static func optionalBool(
+        _ data: [String: Any], key: String, defaultValue: Bool
+    ) throws -> Bool {
+        guard let value = data[key] else { return defaultValue }
+        guard let value = value as? Bool else { throw CloudSettingsError.invalidDocument }
+        return value
+    }
+
+    private static func optionalColor(
+        _ data: [String: Any], key: String, defaultValue: String
+    ) throws -> String {
+        try optionalString(data, key: key, defaultValue: defaultValue) {
+            $0.range(of: "^#[0-9A-F]{8}$", options: .regularExpression) != nil
+        }
     }
 }
 

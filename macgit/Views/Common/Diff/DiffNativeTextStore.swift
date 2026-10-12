@@ -25,14 +25,24 @@ final class DiffNativeTextStore {
     private var task: Task<Void, Never>?
     private(set) var generation = 0
     private(set) var fontSize: CGFloat = 12
+    private var fontName = DiffAppearanceSettingsStore.defaultFontName
+    private var addedTextColor = NSColor.textColor
+    private var removedTextColor = NSColor.textColor
     private var fileExtension = ""
     private var syntaxHighlighting = false
     var onReady: ((Set<UUID>) -> Void)?
 
-    func reset(fontSize: CGFloat, fileExtension: String, syntaxHighlighting: Bool) {
+    func reset(
+        fontName: String, fontSize: CGFloat,
+        addedTextColor: NSColor, removedTextColor: NSColor,
+        fileExtension: String, syntaxHighlighting: Bool
+    ) {
         cancel()
         generation += 1
         self.fontSize = fontSize
+        self.fontName = fontName
+        self.addedTextColor = addedTextColor
+        self.removedTextColor = removedTextColor
         self.fileExtension = fileExtension
         self.syntaxHighlighting = syntaxHighlighting
         prepared.removeAll()
@@ -67,7 +77,7 @@ final class DiffNativeTextStore {
         inFlight = Set(batch.map(\.id))
         let generation = generation
         let fontSize = fontSize
-        let fontName = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular).fontName
+        let fontName = fontName
         let fileExtension = fileExtension
         task = Task { [weak self] in
             let worker = Task.detached(priority: .userInitiated) {
@@ -127,12 +137,11 @@ final class DiffNativeTextStore {
         let value = NSMutableAttributedString(
             string: string,
             attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular),
-                .foregroundColor: line.type == .header
-                    ? NSColor.secondaryLabelColor
-                    : line.type == .conflictMarker ? NSColor.systemPurple : NSColor.textColor,
+                .font: NSFont(name: fontName, size: fontSize)
+                    ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular),
+                .foregroundColor: foregroundColor(for: line.type),
             ])
-        if chunk == nil, syntaxHighlighting, line.type != .header, line.type != .conflictMarker,
+        if chunk == nil, syntaxHighlighting, line.type == .context,
             let tokens
         {
             for (range, type) in tokens {
@@ -149,5 +158,15 @@ final class DiffNativeTextStore {
             DiffRenderStats.lineBuilds += 1
         #endif
         return result
+    }
+
+    private func foregroundColor(for type: DiffLineType) -> NSColor {
+        switch type {
+        case .added: addedTextColor
+        case .removed: removedTextColor
+        case .header: .secondaryLabelColor
+        case .conflictMarker: .systemPurple
+        case .context: .textColor
+        }
     }
 }

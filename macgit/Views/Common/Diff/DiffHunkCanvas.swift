@@ -9,6 +9,8 @@ final class DiffHunkCanvas: DiffFlippedView {
     private var textStore: DiffNativeTextStore?
     private var storeGeneration = -1
     private var selectedLineIDs: Set<UUID> = []
+    private var addedBackgroundColor = NSColor.clear
+    private var removedBackgroundColor = NSColor.clear
     private(set) var lineHeight: CGFloat = 22
     private(set) var contentOrigin = CGPoint.zero
     var onLineTap: ((Int, NSEvent.ModifierFlags) -> Void)?
@@ -16,17 +18,23 @@ final class DiffHunkCanvas: DiffFlippedView {
 
     func configure(
         hunk: DiffHunk, textStore: DiffNativeTextStore,
-        selectedLineIDs: Set<UUID>, lineHeight: CGFloat
+        selectedLineIDs: Set<UUID>, lineHeight: CGFloat,
+        addedBackgroundColor: NSColor = .systemGreen.withAlphaComponent(0.08),
+        removedBackgroundColor: NSColor = .systemRed.withAlphaComponent(0.08)
     ) {
         let changed =
             self.hunk?.id != hunk.id || self.hunk?.contentRevision != hunk.contentRevision
             || storeGeneration != textStore.generation || self.lineHeight != lineHeight
+            || self.addedBackgroundColor != addedBackgroundColor
+            || self.removedBackgroundColor != removedBackgroundColor
         let selectionChanges = self.selectedLineIDs.symmetricDifference(selectedLineIDs)
         self.hunk = hunk
         self.textStore = textStore
         self.storeGeneration = textStore.generation
         self.selectedLineIDs = selectedLineIDs
         self.lineHeight = lineHeight
+        self.addedBackgroundColor = addedBackgroundColor
+        self.removedBackgroundColor = removedBackgroundColor
         if changed { needsDisplay = true } else { invalidateLines(selectionChanges) }
         prepareVisibleLines()
     }
@@ -178,8 +186,8 @@ final class DiffHunkCanvas: DiffFlippedView {
     private func background(for line: DiffLine) -> NSColor {
         if selectedLineIDs.contains(line.id) { return .controlAccentColor.withAlphaComponent(0.12) }
         switch line.type {
-        case .added: return .systemGreen.withAlphaComponent(0.08)
-        case .removed: return .systemRed.withAlphaComponent(0.08)
+        case .added: return addedBackgroundColor
+        case .removed: return removedBackgroundColor
         case .conflictMarker: return .systemPurple.withAlphaComponent(0.10)
         case .context, .header: return .clear
         }

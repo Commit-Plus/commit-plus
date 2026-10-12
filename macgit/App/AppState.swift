@@ -51,6 +51,8 @@ final class AppState: ObservableObject {
     private static let preferredSearchFileApplicationKey = "preferredSearchFileApplication"
 
     private let userDefaults: UserDefaults
+    private let diffAppearanceSettingsStore: DiffAppearanceSettingsStore
+    private let advancedSettingsStore: AdvancedSettingsStore
     private var isApplyingSnapshot = false
     @Published private var currentSettingsSnapshot: AppSettingsSnapshot =
         AppSettingsSnapshot(showToolbarButtonText: true, showSubmodules: false, showSubtrees: false)
@@ -286,8 +288,20 @@ final class AppState: ObservableObject {
             .eraseToAnyPublisher()
     }
 
-    init(userDefaults: UserDefaults = .standard) {
+    init(
+        userDefaults: UserDefaults = .standard,
+        diffAppearanceSettingsStore: DiffAppearanceSettingsStore? = nil,
+        advancedSettingsStore: AdvancedSettingsStore? = nil
+    ) {
         self.userDefaults = userDefaults
+        self.diffAppearanceSettingsStore = diffAppearanceSettingsStore
+            ?? (userDefaults === UserDefaults.standard
+                ? .shared
+                : DiffAppearanceSettingsStore(userDefaults: userDefaults))
+        self.advancedSettingsStore = advancedSettingsStore
+            ?? (userDefaults === UserDefaults.standard
+                ? .shared
+                : AdvancedSettingsStore(userDefaults: userDefaults))
         let appearance = userDefaults.string(forKey: Self.appearanceKey)
             .flatMap(AppAppearance.init(rawValue:)) ?? .system
         let textSize = userDefaults.string(forKey: Self.textSizeKey)
@@ -325,6 +339,7 @@ final class AppState: ObservableObject {
         let preferredSearchFileApplicationBundleIdentifier = userDefaults.string(
             forKey: Self.preferredSearchFileApplicationKey
         )
+        let diffAppearance = self.diffAppearanceSettingsStore.snapshotValues
         let loadedSnapshot = AppSettingsSnapshot(
             appearance: appearance,
             showToolbarButtonText: showToolbarButtonText,
@@ -349,7 +364,14 @@ final class AppState: ObservableObject {
             historyBranchFilter: historyBranchFilter,
             historyIncludeRemotes: historyIncludeRemotes,
             autoFetchEnabled: autoFetchEnabled,
-            refreshOnAppActive: refreshOnAppActive
+            refreshOnAppActive: refreshOnAppActive,
+            diffFontName: diffAppearance.fontName,
+            diffFontSize: diffAppearance.fontSize,
+            diffAddedBackgroundColor: diffAppearance.addedBackgroundColor,
+            diffAddedTextColor: diffAppearance.addedTextColor,
+            diffRemovedBackgroundColor: diffAppearance.removedBackgroundColor,
+            diffRemovedTextColor: diffAppearance.removedTextColor,
+            diffSyntaxHighlighting: self.advancedSettingsStore.diffSyntaxHighlighting
         ).normalizedRepositoryToolbarShortcuts()
 
         self.appearance = appearance
@@ -385,7 +407,8 @@ final class AppState: ObservableObject {
     }
 
     var snapshot: AppSettingsSnapshot {
-        AppSettingsSnapshot(
+        let diffAppearance = diffAppearanceSettingsStore.snapshotValues
+        return AppSettingsSnapshot(
             appearance: appearance,
             showToolbarButtonText: showToolbarButtonText,
             showGitFlow: showGitFlow,
@@ -409,8 +432,25 @@ final class AppState: ObservableObject {
             historyBranchFilter: historyBranchFilter,
             historyIncludeRemotes: historyIncludeRemotes,
             autoFetchEnabled: autoFetchEnabled,
-            refreshOnAppActive: refreshOnAppActive
+            refreshOnAppActive: refreshOnAppActive,
+            diffFontName: diffAppearance.fontName,
+            diffFontSize: diffAppearance.fontSize,
+            diffAddedBackgroundColor: diffAppearance.addedBackgroundColor,
+            diffAddedTextColor: diffAppearance.addedTextColor,
+            diffRemovedBackgroundColor: diffAppearance.removedBackgroundColor,
+            diffRemovedTextColor: diffAppearance.removedTextColor,
+            diffSyntaxHighlighting: advancedSettingsStore.diffSyntaxHighlighting
         )
+    }
+
+    func applyLocalDiffSettings(
+        appearance: DiffAppearanceSettingsDraft,
+        syntaxHighlighting: Bool
+    ) {
+        diffAppearanceSettingsStore.apply(appearance)
+        advancedSettingsStore.diffSyntaxHighlighting = syntaxHighlighting
+        guard !isApplyingSnapshot else { return }
+        currentSettingsSnapshot = snapshot
     }
 
     func apply(_ snapshot: AppSettingsSnapshot) {
@@ -441,6 +481,8 @@ final class AppState: ObservableObject {
         historyIncludeRemotes = snapshot.historyIncludeRemotes
         autoFetchEnabled = snapshot.autoFetchEnabled
         refreshOnAppActive = snapshot.refreshOnAppActive
+        diffAppearanceSettingsStore.apply(snapshot)
+        advancedSettingsStore.diffSyntaxHighlighting = snapshot.diffSyntaxHighlighting
         currentSettingsSnapshot = snapshot
     }
 

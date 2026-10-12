@@ -27,6 +27,8 @@ struct AppSettingsDetailView: View {
     @ObservedObject var customActionStore: CustomActionStore
     let restrictedAIProviderAccess: FeatureAccessDecision
     @Binding var aiProviderDrafts: [AIProviderConfigurationDraft]
+    @Binding var diffAppearanceDraft: DiffAppearanceSettingsDraft
+    @Binding var diffSyntaxHighlightingDraft: Bool
 
     var body: some View {
         switch section {
@@ -34,6 +36,11 @@ struct AppSettingsDetailView: View {
             GeneralSettingsView(appState: appState)
         case .appearance:
             AppearanceSettingsView(appState: appState)
+        case .diff:
+            DiffSettingsView(
+                draft: $diffAppearanceDraft,
+                syntaxHighlighting: $diffSyntaxHighlightingDraft
+            )
         case .git:
             GitSettingsView()
         case .accounts:

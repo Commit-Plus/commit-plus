@@ -10,9 +10,9 @@ nonisolated struct DiffHunkGeometry {
     let lineHeight: CGFloat
     let height: CGFloat
 
-    init(lineCounts: [Int], scale: CGFloat) {
+    init(lineCounts: [Int], scale: CGFloat, fontSize: CGFloat = 12) {
         headerHeight = 32 * scale
-        lineHeight = 22 * scale
+        lineHeight = max(22, fontSize + 8) * scale
         var starts: [CGFloat] = []
         var heights: [CGFloat] = []
         var y: CGFloat = 4
