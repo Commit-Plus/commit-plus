@@ -63,7 +63,7 @@ See `README.md` for features and `CONTRIBUTING.md` for setup and coding conventi
 
 ## Validation
 
-For app code changes, build first to verify compilation:
+For app code changes that do not require XCTest coverage, build to verify compilation:
 
 ```bash
 rtk proxy xcodebuild -project macgit.xcodeproj -scheme macgit -destination 'platform=macOS' build
@@ -75,6 +75,7 @@ For non-trivial logic changes, run relevant XCTest coverage; narrow the scope wi
 rtk proxy xcodebuild -project macgit.xcodeproj -scheme macgit -destination 'platform=macOS' -only-testing:macgitTests/GitUndoCommitIntegrationTests test
 ```
 
+- `xcodebuild test` already builds the app and test bundle. When running tests, do not run a separate app build before or afterward unless the test build is blocked by an unrelated test-target failure and app-only compilation evidence is still needed.
 - Run builds and tests sequentially to avoid Xcode build database locks.
 - Launch or relaunch the app when needed to review UI or interaction changes. Computer use is allowed for inspecting the running app, navigating to the affected UI, and checking layout and behavior. No additional permission is needed for this review within the requested task.
 - For layout changes, inspect the actual UI at relevant window sizes when needed. Review information hierarchy, spacing, alignment, and use of available space; widening a control alone does not resolve an unbalanced layout.
