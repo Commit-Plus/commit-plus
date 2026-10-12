@@ -31,6 +31,16 @@ final class RemoteBranchDeleteResolverTests: XCTestCase {
         XCTAssertEqual(target, RemoteBranchDeleteTarget(remote: "origin", branch: "feature/demo"))
     }
 
+    func testFallsBackWhenTrackedUpstreamNoLongerExists() {
+        let target = RemoteBranchDeleteResolver.target(
+            localBranch: "feature/demo",
+            upstream: "fork/review/demo",
+            branchesByRemote: ["origin": ["feature/demo"]]
+        )
+
+        XCTAssertEqual(target, RemoteBranchDeleteTarget(remote: "origin", branch: "feature/demo"))
+    }
+
     func testFallsBackToOnlyMatchingRemote() {
         let target = RemoteBranchDeleteResolver.target(
             localBranch: "feature/demo",

@@ -9,7 +9,8 @@ enum RemoteBranchDeleteResolver {
         branchesByRemote: [String: [String]]
     ) -> RemoteBranchDeleteTarget? {
         if let upstream,
-           let tracked = RemoteBranchDeleteTarget(fullPath: upstream) {
+           let tracked = RemoteBranchDeleteTarget(fullPath: upstream),
+           branchesByRemote[tracked.remote]?.contains(tracked.branch) == true {
             return tracked
         }
 

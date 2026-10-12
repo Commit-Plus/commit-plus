@@ -223,12 +223,12 @@ extension SidebarView {
         if let upstream {
             undoOperations.append(.setUpstream(branch: branch, upstream: upstream))
         }
-        if let remoteTarget, remoteHash != nil {
+        if let remoteTarget, let remoteHash {
             undoOperations.append(
                 .pushBranch(
                     remote: remoteTarget.remote,
-                    localBranch: branch,
-                    remoteBranch: remoteTarget.branch
+                    localBranch: remoteHash,
+                    remoteBranch: "refs/heads/\(remoteTarget.branch)"
                 )
             )
         }

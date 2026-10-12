@@ -145,10 +145,14 @@ final class DiffAppearanceSettingsStore: ObservableObject {
     func apply(_ draft: DiffAppearanceSettingsDraft) {
         fontName = draft.fontName
         fontSize = min(max(draft.fontSize, 8), 32)
-        addedBackgroundColor = draft.addedBackgroundColor
-        addedTextColor = draft.addedTextColor
-        removedBackgroundColor = draft.removedBackgroundColor
-        removedTextColor = draft.removedTextColor
+        addedBackgroundColor = draft.addedBackgroundColor.usingColorSpace(.sRGB)
+            ?? Defaults.addedBackgroundColor
+        addedTextColor = draft.addedTextColor.usingColorSpace(.sRGB)
+            ?? Defaults.addedTextColor
+        removedBackgroundColor = draft.removedBackgroundColor.usingColorSpace(.sRGB)
+            ?? Defaults.removedBackgroundColor
+        removedTextColor = draft.removedTextColor.usingColorSpace(.sRGB)
+            ?? Defaults.removedTextColor
     }
 
     func apply(_ snapshot: AppSettingsSnapshot) {
