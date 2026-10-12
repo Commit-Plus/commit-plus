@@ -592,13 +592,19 @@ final class SidebarNativeMenu: NSMenu, NSMenuDelegate {
         var canPerform: () -> Bool = { true }
     }
     private let validation = Validation()
+    private let maximumItemTitleWidth: CGFloat?
     var onClose: (() -> Void)?
     final class Action: NSObject {
         let perform: () -> Void
         init(_ perform: @escaping () -> Void) { self.perform = perform }
         @objc func invoke() { perform() }
     }
-    init() { super.init(title: ""); autoenablesItems = false; delegate = self }
+    init(maximumItemTitleWidth: CGFloat? = nil) {
+        self.maximumItemTitleWidth = maximumItemTitleWidth
+        super.init(title: "")
+        autoenablesItems = false
+        delegate = self
+    }
     required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func item(_ title: String, enabled: Bool = true, checked: Bool = false, _ perform: @escaping () -> Void) {
         let validation = validation
@@ -606,7 +612,13 @@ final class SidebarNativeMenu: NSMenu, NSMenuDelegate {
             guard validation.canPerform() else { return }
             perform()
         }
-        let item = NSMenuItem(title: title, action: #selector(Action.invoke), keyEquivalent: "")
+        let displayedTitle = constrainedTitle(title)
+        let item = NSMenuItem(
+            title: displayedTitle,
+            action: #selector(Action.invoke),
+            keyEquivalent: ""
+        )
+        if displayedTitle != title { item.toolTip = title }
         item.target = target
         item.representedObject = target
         item.isEnabled = enabled
@@ -620,11 +632,13 @@ final class SidebarNativeMenu: NSMenu, NSMenuDelegate {
     }
     func menuDidClose(_ menu: NSMenu) { onClose?() }
     func lazySubmenu(_ title: String, enabled: Bool, _ build: @escaping (SidebarNativeMenu) -> Void) {
-        let menu = SidebarNativeMenu()
+        let menu = SidebarNativeMenu(maximumItemTitleWidth: maximumItemTitleWidth)
         menu.populate = build
         menu.delegate = menu
         menu.item("Loading…", enabled: false) {}
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let displayedTitle = constrainedTitle(title)
+        let item = NSMenuItem(title: displayedTitle, action: nil, keyEquivalent: "")
+        if displayedTitle != title { item.toolTip = title }
         item.submenu = menu
         item.isEnabled = enabled
         addItem(item)
@@ -637,14 +651,41 @@ final class SidebarNativeMenu: NSMenu, NSMenuDelegate {
         installGuard(validation.canPerform)
     }
     func submenu(_ title: String, _ build: (SidebarNativeMenu) -> Void) {
-        let menu = SidebarNativeMenu()
+        let menu = SidebarNativeMenu(maximumItemTitleWidth: maximumItemTitleWidth)
         build(menu)
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let displayedTitle = constrainedTitle(title)
+        let item = NSMenuItem(title: displayedTitle, action: nil, keyEquivalent: "")
+        if displayedTitle != title { item.toolTip = title }
         item.submenu = menu
         item.isEnabled = !menu.items.isEmpty
         addItem(item)
     }
     func copy(_ title: String, value: String) {
         item(title) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(value, forType: .string) }
+    }
+
+    private func constrainedTitle(_ title: String) -> String {
+        guard let maximumItemTitleWidth else { return title }
+        let font = NSFont.menuFont(ofSize: 0)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        guard (title as NSString).size(withAttributes: attributes).width > maximumItemTitleWidth else {
+            return title
+        }
+
+        let ellipsis = "…"
+        var lowerBound = 0
+        var upperBound = title.count
+        while lowerBound < upperBound {
+            let candidateLength = (lowerBound + upperBound + 1) / 2
+            let endIndex = title.index(title.startIndex, offsetBy: candidateLength)
+            let candidate = String(title[..<endIndex]) + ellipsis
+            if (candidate as NSString).size(withAttributes: attributes).width <= maximumItemTitleWidth {
+                lowerBound = candidateLength
+            } else {
+                upperBound = candidateLength - 1
+            }
+        }
+        let endIndex = title.index(title.startIndex, offsetBy: lowerBound)
+        return String(title[..<endIndex]) + ellipsis
     }
 }
