@@ -125,42 +125,79 @@ extension SidebarView {
     func cancelDeleteConfirmation() {
         deleteConfirmationTarget = nil
         forceDeleteBranch = false
+        deleteRemoteBranchAlongsideLocal = false
     }
 
     func confirmDeleteBranch(_ branch: String) {
         let force = forceDeleteBranch
+        let remoteTarget = deleteRemoteBranchAlongsideLocal
+            ? matchingRemoteDeleteTarget(for: branch)
+            : nil
         deleteConfirmationTarget = nil
         forceDeleteBranch = false
+        deleteRemoteBranchAlongsideLocal = false
         onRunRepositoryOperation("Deleting \(branch)...") {
-            await deleteBranch(branch, force: force)
+            await deleteBranch(branch, force: force, remoteTarget: remoteTarget)
         }
     }
 
-    func deleteBranch(_ branch: String, force: Bool = false) async {
+    func matchingRemoteDeleteTarget(for branch: String) -> RemoteBranchDeleteTarget? {
+        RemoteBranchDeleteResolver.target(
+            localBranch: branch,
+            upstream: upstreamByBranch[branch],
+            branchesByRemote: branchesByRemote
+        )
+    }
+
+    func deleteBranch(
+        _ branch: String,
+        force: Bool = false,
+        remoteTarget: RemoteBranchDeleteTarget? = nil
+    ) async {
         do {
             let support = GitBranchUndoSupport()
             let tip = try await support.tip(of: branch, in: repositoryURL)
             let upstream = await support.upstream(of: branch, in: repositoryURL)
+            let remoteHash: String?
+            if let remoteTarget {
+                remoteHash = try await GitRemoteUndoSupport().remoteHash(
+                    remote: remoteTarget.remote,
+                    branch: remoteTarget.branch,
+                    in: repositoryURL
+                )
+            } else {
+                remoteHash = nil
+            }
             _ = try await GitStatusService.shared.deleteBranch(name: branch, force: force, in: repositoryURL)
 
-            await MainActor.run {
-                var undoOperations: [GitUndoOperation] = [
-                    .createLocalBranch(name: branch, startPoint: tip, checkout: false)
-                ]
-
-                if let upstream {
-                    undoOperations.append(.setUpstream(branch: branch, upstream: upstream))
-                }
-
-                undoManager?.register(
-                    GitUndoEntry(
-                        repositoryURL: repositoryURL,
-                        label: "Delete branch \(branch)",
-                        undoOperation: .sequence(undoOperations),
-                        redoOperation: .deleteLocalBranch(name: branch, force: force, expectedTip: tip)
+            do {
+                if let remoteTarget {
+                    _ = try await GitStatusService.shared.deleteRemoteBranch(
+                        remote: remoteTarget.remote,
+                        name: remoteTarget.branch,
+                        in: repositoryURL
                     )
+                }
+            } catch {
+                registerDeletedBranchUndo(
+                    branch: branch,
+                    force: force,
+                    tip: tip,
+                    upstream: upstream,
+                    remoteTarget: nil,
+                    remoteHash: nil
                 )
+                throw error
             }
+
+            registerDeletedBranchUndo(
+                branch: branch,
+                force: force,
+                tip: tip,
+                upstream: upstream,
+                remoteTarget: remoteTarget,
+                remoteHash: remoteHash
+            )
 
             NotificationCenter.default.post(name: .repositoryDidChange, object: nil, userInfo: ["repositoryURL": repositoryURL])
         } catch {
@@ -169,6 +206,54 @@ extension SidebarView {
                 showingError = true
             }
         }
+    }
+
+    @MainActor
+    private func registerDeletedBranchUndo(
+        branch: String,
+        force: Bool,
+        tip: String,
+        upstream: String?,
+        remoteTarget: RemoteBranchDeleteTarget?,
+        remoteHash: String?
+    ) {
+        var undoOperations: [GitUndoOperation] = [
+            .createLocalBranch(name: branch, startPoint: tip, checkout: false)
+        ]
+        if let upstream {
+            undoOperations.append(.setUpstream(branch: branch, upstream: upstream))
+        }
+        if let remoteTarget, remoteHash != nil {
+            undoOperations.append(
+                .pushBranch(
+                    remote: remoteTarget.remote,
+                    localBranch: branch,
+                    remoteBranch: remoteTarget.branch
+                )
+            )
+        }
+
+        var redoOperations: [GitUndoOperation] = [
+            .deleteLocalBranch(name: branch, force: force, expectedTip: tip)
+        ]
+        if let remoteTarget, let remoteHash {
+            redoOperations.append(
+                .deleteRemoteBranch(
+                    remote: remoteTarget.remote,
+                    branch: remoteTarget.branch,
+                    expectedHash: remoteHash
+                )
+            )
+        }
+
+        undoManager?.register(
+            GitUndoEntry(
+                repositoryURL: repositoryURL,
+                label: "Delete branch \(branch)",
+                undoOperation: .sequence(undoOperations),
+                redoOperation: .sequence(redoOperations)
+            )
+        )
     }
 
     func refreshAfterBranchDeletion() {

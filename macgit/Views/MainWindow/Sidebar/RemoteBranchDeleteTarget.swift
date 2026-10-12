@@ -17,10 +17,22 @@
 //
 import Foundation
 
-struct RemoteBranchDeleteTarget: Identifiable, Equatable {
+struct RemoteBranchDeleteTarget: Identifiable, Equatable, Hashable {
     let remote: String
     let branch: String
 
     var id: String { "\(remote)/\(branch)" }
     var fullPath: String { id }
+
+    init(remote: String, branch: String) {
+        self.remote = remote
+        self.branch = branch
+    }
+
+    init?(fullPath: String) {
+        let parts = fullPath.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
+        remote = String(parts[0])
+        branch = String(parts[1])
+    }
 }
