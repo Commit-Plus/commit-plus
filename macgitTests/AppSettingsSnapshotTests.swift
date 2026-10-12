@@ -70,6 +70,7 @@ final class AppSettingsSnapshotTests: XCTestCase {
                 "showHeaderBranchButton",
                 "showHeaderMergeButton",
                 "showHeaderStashButton",
+                "showHeaderTagButton",
                 "showHeaderUndoButton",
                 "showHeaderRemoteButton",
                 "showHeaderFinderButton",
