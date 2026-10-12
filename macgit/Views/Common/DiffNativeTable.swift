@@ -8,6 +8,7 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
     let hunks: [DiffHunk]
     let textScale: CGFloat
     let syntaxHighlighting: Bool
+    let appearance: DiffAppearanceSettingsStore
     let fileExtension: String
     let selectedLineIDs: Set<UUID>
     let onLineTap: (DiffHunk, Int, NSEvent.ModifierFlags) -> Void
@@ -51,6 +52,7 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
         private var revisions: [DiffContentRevision] = []
         private let textStore = DiffNativeTextStore()
         private var scale: CGFloat = 0
+        private var appearanceRevision = -1
         private var widths: [CGFloat] = []
         private var offsets: [Int: CGFloat] = [:]
         private var panels: [Int: DiffNativeHunkView] = [:]
@@ -69,18 +71,24 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
             let ids = model.hunks.map(\.id)
             let revisions = model.hunks.map(\.contentRevision)
             let changed = ids != hunkIDs || revisions != self.revisions || scale != model.textScale
+            let appearanceChanged = appearanceRevision != model.appearance.revision
             if changed || self.model?.syntaxHighlighting != model.syntaxHighlighting
                 || self.model?.fileExtension != model.fileExtension
                 || self.model?.colorScheme != model.colorScheme
+                || appearanceChanged
             {
                 textStore.reset(
-                    fontSize: 12 * model.textScale,
+                    fontName: model.appearance.font.fontName,
+                    fontSize: model.appearance.fontSize * model.textScale,
+                    addedTextColor: model.appearance.addedTextColor,
+                    removedTextColor: model.appearance.removedTextColor,
                     fileExtension: model.fileExtension,
                     syntaxHighlighting: model.syntaxHighlighting)
             }
             self.revisions = revisions
+            appearanceRevision = model.appearance.revision
             self.model = model
-            if changed {
+            if changed || appearanceChanged {
                 if ids != hunkIDs {
                     offsets.removeAll()
                 } else {
@@ -89,7 +97,8 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
                 hunkIDs = ids
                 scale = model.textScale
                 geometry = DiffHunkGeometry(
-                    lineCounts: model.hunks.map { $0.lines.count }, scale: scale)
+                    lineCounts: model.hunks.map { $0.lines.count }, scale: scale,
+                    fontSize: model.appearance.fontSize)
                 widths = Array(repeating: 0, count: ids.count)
                 for panel in panels.values { panel.removeFromSuperview() }
                 panels.removeAll()
@@ -102,8 +111,8 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
         private func measureWidths(_ model: DiffNativeTable) {
             widthTask?.cancel()
             let hunks = model.hunks
-            let fontSize = 12 * model.textScale
-            let fontName = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular).fontName
+            let fontSize = model.appearance.fontSize * model.textScale
+            let fontName = model.appearance.font.fontName
             widthTask = Task { [weak self] in
                 let worker = Task.detached(priority: .userInitiated) {
                     var widths: [CGFloat] = []
@@ -208,7 +217,9 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
                     panel.canvas.configure(
                         hunk: hunk, textStore: textStore,
                         selectedLineIDs: model.selectedLineIDs,
-                        lineHeight: geometry.lineHeight)
+                        lineHeight: geometry.lineHeight,
+                        addedBackgroundColor: model.appearance.addedBackgroundColor,
+                        removedBackgroundColor: model.appearance.removedBackgroundColor)
                     // Read the coordinator's latest model when the event occurs.
                     // A hosted header and native rows share exactly the same actions.
                     panel.canvas.onLineTap = { [weak self] line, flags in

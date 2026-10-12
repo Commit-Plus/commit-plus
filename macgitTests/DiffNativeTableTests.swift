@@ -72,6 +72,7 @@ final class DiffNativeTableTests: XCTestCase {
     private func makeModel(_ hunks: [DiffHunk]) -> DiffNativeTable<Text> {
         DiffNativeTable(
             hunks: hunks, textScale: 1, syntaxHighlighting: false,
+            appearance: .shared,
             fileExtension: "swift", selectedLineIDs: [],
             onLineTap: { _, _, _ in }, lineMenu: { _, _ in NSMenu() }
         ) { hunk in

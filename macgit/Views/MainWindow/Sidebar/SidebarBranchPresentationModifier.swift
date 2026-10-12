@@ -20,12 +20,14 @@ import SwiftUI
 struct SidebarBranchPresentationModifier: ViewModifier {
     @Binding var deleteConfirmationTarget: DeleteConfirmationTarget?
     @Binding var forceDeleteBranch: Bool
+    @Binding var deleteRemoteBranchAlongsideLocal: Bool
     @Binding var remoteBranchDeleteTarget: RemoteBranchDeleteTarget?
 
     let repositoryURL: URL
     let undoManager: GitUndoManager?
     let currentBranch: String
     let branchesUnderPrefix: (String) -> [String]
+    let remoteDeleteTarget: (String) -> RemoteBranchDeleteTarget?
     let cancelDeleteConfirmation: () -> Void
     let confirmDeleteBranch: (String) -> Void
     let onPrefixDeleteCompleted: () -> Void
@@ -50,6 +52,8 @@ struct SidebarBranchPresentationModifier: ViewModifier {
             SidebarDeleteBranchSheet(
                 branchName: branch,
                 forceDelete: $forceDeleteBranch,
+                remoteBranch: remoteDeleteTarget(branch),
+                deleteRemoteBranch: $deleteRemoteBranchAlongsideLocal,
                 onCancel: cancelDeleteConfirmation,
                 onDelete: { confirmDeleteBranch(branch) }
             )

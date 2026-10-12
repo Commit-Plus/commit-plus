@@ -79,7 +79,14 @@ final class AppSettingsSnapshotTests: XCTestCase {
                 "historyBranchFilter",
                 "historyIncludeRemotes",
                 "autoFetchEnabled",
-                "refreshOnAppActive"
+                "refreshOnAppActive",
+                "diffFontName",
+                "diffFontSize",
+                "diffAddedBackgroundColor",
+                "diffAddedTextColor",
+                "diffRemovedBackgroundColor",
+                "diffRemovedTextColor",
+                "diffSyntaxHighlighting"
             ]
         )
     }

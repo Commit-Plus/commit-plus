@@ -29,6 +29,8 @@ struct AppSettingsView: View {
     @ObservedObject var customActionStore: CustomActionStore
     @Binding private var selectedSection: AppSettingsSection
     @State private var aiProviderDrafts: [AIProviderConfigurationDraft]
+    @State private var diffAppearanceDraft: DiffAppearanceSettingsDraft
+    @State private var diffSyntaxHighlightingDraft: Bool
     @State private var saveErrorMessage: String?
     @State private var isShowingSaveError = false
 
@@ -51,6 +53,10 @@ struct AppSettingsView: View {
         self.customActionStore = customActionStore
         _selectedSection = selectedSection
         _aiProviderDrafts = State(initialValue: aiProviderController.configurationDrafts())
+        _diffAppearanceDraft = State(initialValue: DiffAppearanceSettingsStore.shared.draft)
+        _diffSyntaxHighlightingDraft = State(
+            initialValue: AdvancedSettingsStore.shared.diffSyntaxHighlighting
+        )
     }
 
     var body: some View {
@@ -77,7 +83,9 @@ struct AppSettingsView: View {
                     appUpdateController: appUpdateController,
                     customActionStore: customActionStore,
                     restrictedAIProviderAccess: restrictedAIProviderAccess,
-                    aiProviderDrafts: $aiProviderDrafts
+                    aiProviderDrafts: $aiProviderDrafts,
+                    diffAppearanceDraft: $diffAppearanceDraft,
+                    diffSyntaxHighlightingDraft: $diffSyntaxHighlightingDraft
                 )
 
                 Divider()
@@ -117,6 +125,10 @@ struct AppSettingsView: View {
                 aiProviderDrafts,
                 restrictedProviderAccess: restrictedAIProviderAccess
             )
+            appState.applyLocalDiffSettings(
+                appearance: diffAppearanceDraft,
+                syntaxHighlighting: diffSyntaxHighlightingDraft
+            )
             close()
             Task { await aiProviderController.refreshAvailability() }
         } catch {
@@ -126,6 +138,8 @@ struct AppSettingsView: View {
     }
 
     private func close() {
+        diffAppearanceDraft = DiffAppearanceSettingsStore.shared.draft
+        diffSyntaxHighlightingDraft = AdvancedSettingsStore.shared.diffSyntaxHighlighting
         dismissWindow(id: "settings")
     }
 

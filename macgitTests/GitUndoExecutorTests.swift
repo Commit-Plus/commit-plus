@@ -183,6 +183,29 @@ final class GitUndoExecutorTests: XCTestCase {
         ])
     }
 
+    func testPushBranchCanRestoreRemoteBranchFromExactHash() async throws {
+        let runner = RecordingGitRunner()
+        let executor = GitUndoExecutor(runner: runner)
+        let repoURL = URL(fileURLWithPath: "/tmp/repo")
+
+        try await executor.execute(
+            .pushBranch(
+                remote: "origin",
+                localBranch: "abc123",
+                remoteBranch: "refs/heads/feature"
+            ),
+            in: repoURL
+        )
+
+        let calls = await runner.recordedCalls()
+        XCTAssertEqual(calls, [
+            GitCommandCall(
+                arguments: ["push", "origin", "abc123:refs/heads/feature"],
+                directory: repoURL
+            )
+        ])
+    }
+
     func testSetUpstreamRunsGitBranchSetUpstreamTo() async throws {
         let runner = RecordingGitRunner()
         let executor = GitUndoExecutor(runner: runner)

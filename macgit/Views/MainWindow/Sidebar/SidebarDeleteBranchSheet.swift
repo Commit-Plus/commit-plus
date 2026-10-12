@@ -20,6 +20,8 @@ import SwiftUI
 struct SidebarDeleteBranchSheet: View {
     let branchName: String
     @Binding var forceDelete: Bool
+    let remoteBranch: RemoteBranchDeleteTarget?
+    @Binding var deleteRemoteBranch: Bool
     let onCancel: () -> Void
     let onDelete: () -> Void
 
@@ -42,6 +44,21 @@ struct SidebarDeleteBranchSheet: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let remoteBranch {
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle(
+                        "Also delete remote branch \(remoteBranch.fullPath)",
+                        isOn: $deleteRemoteBranch
+                    )
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 12))
+
+                    Text("This removes the branch from the remote repository for every collaborator.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
             }
 
             HStack(spacing: 12) {

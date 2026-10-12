@@ -196,6 +196,7 @@ struct SidebarView: View {
     @State var showingError = false
     @State var deleteConfirmationTarget: DeleteConfirmationTarget?
     @State var remoteBranchDeleteTarget: RemoteBranchDeleteTarget?
+    @State var deleteRemoteBranchAlongsideLocal = false
     @State var forceDeleteBranch = false
     @State var activeDropTarget: GitDragTarget?
     @State var activeDropLabel: String?
@@ -597,11 +598,13 @@ struct SidebarView: View {
                 SidebarBranchPresentationModifier(
                     deleteConfirmationTarget: $deleteConfirmationTarget,
                     forceDeleteBranch: $forceDeleteBranch,
+                    deleteRemoteBranchAlongsideLocal: $deleteRemoteBranchAlongsideLocal,
                     remoteBranchDeleteTarget: $remoteBranchDeleteTarget,
                     repositoryURL: repositoryURL,
                     undoManager: undoManager,
                     currentBranch: currentBranch,
                     branchesUnderPrefix: branchesUnderPrefix,
+                    remoteDeleteTarget: matchingRemoteDeleteTarget,
                     cancelDeleteConfirmation: cancelDeleteConfirmation,
                     confirmDeleteBranch: confirmDeleteBranch,
                     onPrefixDeleteCompleted: refreshAfterBranchDeletion,

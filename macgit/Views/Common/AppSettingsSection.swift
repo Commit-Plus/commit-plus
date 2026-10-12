@@ -20,6 +20,7 @@ import SwiftUI
 enum AppSettingsSection: String, CaseIterable, Identifiable {
     case general
     case appearance
+    case diff
     case git
     case accounts
     case connections
@@ -35,6 +36,7 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: "General"
         case .appearance: "Appearance"
+        case .diff: "Diff"
         case .git: "Git"
         case .accounts: "Account"
         case .connections: "Connections"
@@ -50,6 +52,7 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .appearance: "paintbrush"
+        case .diff: "plusminus"
         case .git: "point.3.connected.trianglepath.dotted"
         case .accounts: "person.crop.circle"
         case .connections: "network"
@@ -65,6 +68,7 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: .blue
         case .appearance: .orange
+        case .diff: .pink
         case .git: .green
         case .accounts: .indigo
         case .connections: .blue
@@ -82,6 +86,8 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
             "Configure the default behavior of Commit+."
         case .appearance:
             "Customize how Commit+ looks and presents repository information."
+        case .diff:
+            "Customize the font and colors used to display code changes."
         case .git:
             "Manage global Git behavior and command preferences."
         case .accounts:

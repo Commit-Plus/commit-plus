@@ -74,12 +74,6 @@ struct AdvancedSettingsView: View {
             }
 
             Section {
-                SettingsToggleRow(
-                    title: "Syntax highlighting in diffs",
-                    detail: "Color code syntax in diff views. This uses more CPU and memory, especially for large changes, so it is off by default.",
-                    isOn: $settings.diffSyntaxHighlighting
-                )
-
                 LabeledContent("History load size") {
                     Picker("History load size", selection: $settings.historyLoadSize) {
                         ForEach(HistoryLoadSize.allCases) { size in

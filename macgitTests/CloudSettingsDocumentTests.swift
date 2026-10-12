@@ -45,7 +45,14 @@ final class CloudSettingsDocumentTests: XCTestCase {
         historyBranchFilter: .branch("origin/feature/login"),
         historyIncludeRemotes: true,
         autoFetchEnabled: true,
-        refreshOnAppActive: false
+        refreshOnAppActive: false,
+        diffFontName: "SFMono-Regular",
+        diffFontSize: 14,
+        diffAddedBackgroundColor: "#11223344",
+        diffAddedTextColor: "#55667788",
+        diffRemovedBackgroundColor: "#99AABBCC",
+        diffRemovedTextColor: "#DDEEFF00",
+        diffSyntaxHighlighting: true
     )
 
     func testEncodingUsesExactDocumentSchema() throws {
@@ -81,6 +88,13 @@ final class CloudSettingsDocumentTests: XCTestCase {
                 "historyIncludeRemotes",
                 "autoFetchEnabled",
                 "refreshOnAppActive",
+                "diffFontName",
+                "diffFontSize",
+                "diffAddedBackgroundColor",
+                "diffAddedTextColor",
+                "diffRemovedBackgroundColor",
+                "diffRemovedTextColor",
+                "diffSyntaxHighlighting",
                 "updatedAt"
             ]
         )
@@ -109,6 +123,13 @@ final class CloudSettingsDocumentTests: XCTestCase {
         XCTAssertEqual(document["historyIncludeRemotes"] as? Bool, true)
         XCTAssertEqual(document["autoFetchEnabled"] as? Bool, true)
         XCTAssertEqual(document["refreshOnAppActive"] as? Bool, false)
+        XCTAssertEqual(document["diffFontName"] as? String, "SFMono-Regular")
+        XCTAssertEqual(document["diffFontSize"] as? Double, 14)
+        XCTAssertEqual(document["diffAddedBackgroundColor"] as? String, "#11223344")
+        XCTAssertEqual(document["diffAddedTextColor"] as? String, "#55667788")
+        XCTAssertEqual(document["diffRemovedBackgroundColor"] as? String, "#99AABBCC")
+        XCTAssertEqual(document["diffRemovedTextColor"] as? String, "#DDEEFF00")
+        XCTAssertEqual(document["diffSyntaxHighlighting"] as? Bool, true)
         XCTAssertEqual(document["updatedAt"] as? Timestamp, timestamp)
     }
 
@@ -195,6 +216,27 @@ final class CloudSettingsDocumentTests: XCTestCase {
         XCTAssertEqual(decoded.appearance, .system)
     }
 
+    func testDecodingDefaultsMissingDiffSettings() throws {
+        var document = validDocument()
+        document.removeValue(forKey: "diffFontName")
+        document.removeValue(forKey: "diffFontSize")
+        document.removeValue(forKey: "diffAddedBackgroundColor")
+        document.removeValue(forKey: "diffAddedTextColor")
+        document.removeValue(forKey: "diffRemovedBackgroundColor")
+        document.removeValue(forKey: "diffRemovedTextColor")
+        document.removeValue(forKey: "diffSyntaxHighlighting")
+
+        let decoded = try CloudSettingsDocument.decode(document)
+
+        XCTAssertEqual(decoded.diffFontName, "Menlo-Regular")
+        XCTAssertEqual(decoded.diffFontSize, 12)
+        XCTAssertEqual(decoded.diffAddedBackgroundColor, "#E6FAF0FF")
+        XCTAssertEqual(decoded.diffAddedTextColor, "#006E4FFF")
+        XCTAssertEqual(decoded.diffRemovedBackgroundColor, "#FFEDE8FF")
+        XCTAssertEqual(decoded.diffRemovedTextColor, "#C72E0DFF")
+        XCTAssertFalse(decoded.diffSyntaxHighlighting)
+    }
+
     func testDecodingRejectsInvalidAppearance() {
         var unsupported = validDocument()
         unsupported["appearance"] = "sepia"
@@ -203,6 +245,20 @@ final class CloudSettingsDocumentTests: XCTestCase {
 
         XCTAssertThrowsError(try CloudSettingsDocument.decode(unsupported))
         XCTAssertThrowsError(try CloudSettingsDocument.decode(wrongType))
+    }
+
+    func testDecodingRejectsInvalidDiffSettings() {
+        for (key, value) in [
+            ("diffFontName", "" as Any),
+            ("diffFontSize", 40 as Any),
+            ("diffFontSize", true as Any),
+            ("diffAddedBackgroundColor", "red" as Any),
+            ("diffSyntaxHighlighting", "true" as Any)
+        ] {
+            var document = validDocument()
+            document[key] = value
+            XCTAssertThrowsError(try CloudSettingsDocument.decode(document), key)
+        }
     }
 
     func testDecodingValidDocumentReturnsCompleteSnapshot() throws {

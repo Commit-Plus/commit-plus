@@ -18,7 +18,7 @@ extension SidebarView {
     }
 
     func nativeBranchMenu(_ branch: String) -> NSMenu {
-        let menu = SidebarNativeMenu()
+        let menu = SidebarNativeMenu(maximumItemTitleWidth: 520)
         let actions = branchSectionActions
         let upstream = upstreamByBranch[branch]
         let remotes = BranchUpstreamActionPolicy.pushRemotes(branch: branch, upstream: upstream, remotes: remoteNames)
