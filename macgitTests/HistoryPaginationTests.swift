@@ -276,18 +276,24 @@ final class HistoryPaginationTests: XCTestCase {
         let fileURL = repoURL.appendingPathComponent("tracked.txt")
         try "base\n".write(to: fileURL, atomically: true, encoding: .utf8)
         try runGit(["add", "tracked.txt"], in: repoURL)
-        try runGit(["commit", "-m", "base"], in: repoURL)
+        try runGit(["commit", "-m", "base"], in: repoURL,
+                   environment: ["GIT_AUTHOR_DATE": "2026-01-01T00:00:00Z",
+                                 "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z"])
 
         try runGit(["checkout", "-b", "feature"], in: repoURL)
         try "feature tip\n".write(to: fileURL, atomically: true, encoding: .utf8)
         try runGit(["add", "tracked.txt"], in: repoURL)
-        try runGit(["commit", "-m", "feature tip"], in: repoURL)
+        try runGit(["commit", "-m", "feature tip"], in: repoURL,
+                   environment: ["GIT_AUTHOR_DATE": "2026-01-01T00:01:00Z",
+                                 "GIT_COMMITTER_DATE": "2026-01-01T00:01:00Z"])
 
         try runGit(["checkout", "main"], in: repoURL)
         for index in 1...3 {
             try "main \(index)\n".write(to: fileURL, atomically: true, encoding: .utf8)
             try runGit(["add", "tracked.txt"], in: repoURL)
-            try runGit(["commit", "-m", "main \(index)"], in: repoURL)
+            let timestamp = "2026-01-01T00:0\(index + 1):00Z"
+            try runGit(["commit", "-m", "main \(index)"], in: repoURL,
+                       environment: ["GIT_AUTHOR_DATE": timestamp, "GIT_COMMITTER_DATE": timestamp])
         }
 
         return repoURL
@@ -382,11 +388,16 @@ final class HistoryPaginationTests: XCTestCase {
         try runGit(["config", "user.email", "tests@example.com"], in: repositoryURL)
     }
 
-    private func runGit(_ arguments: [String], in repositoryURL: URL) throws {
+    private func runGit(
+        _ arguments: [String],
+        in repositoryURL: URL,
+        environment: [String: String] = [:]
+    ) throws {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         task.arguments = arguments
         task.currentDirectoryURL = repositoryURL
+        task.environment = ProcessInfo.processInfo.environment.merging(environment) { _, override in override }
 
         let stdout = Pipe()
         let stderr = Pipe()

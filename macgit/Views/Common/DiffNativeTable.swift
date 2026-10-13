@@ -151,6 +151,7 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
         func observe(_ scroll: NSScrollView) {
             scroll.contentView.postsBoundsChangedNotifications = true
             scroll.contentView.postsFrameChangedNotifications = true
+            document.postsFrameChangedNotifications = true
             let center = NotificationCenter.default
             observers.append(center.addObserver(
                 forName: NSView.boundsDidChangeNotification, object: scroll.contentView,
@@ -163,6 +164,15 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
             })
             observers.append(center.addObserver(
                 forName: NSView.frameDidChangeNotification, object: scroll.contentView,
+                queue: .main
+            ) { [weak self, weak scroll] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let scroll else { return }
+                    self.layout(scroll)
+                }
+            })
+            observers.append(center.addObserver(
+                forName: NSView.frameDidChangeNotification, object: document,
                 queue: .main
             ) { [weak self, weak scroll] _ in
                 MainActor.assumeIsolated {
