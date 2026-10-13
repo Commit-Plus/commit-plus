@@ -2,26 +2,26 @@
 
 Changes in the latest Commit+ release compared with the previous release.
 
-## v1.1.14
+## v1.1.15
 
-Changes since `v1.1.13`.
+Changes since `v1.1.14`.
 
 ### Added
 
-- **Tag toolbar button** — Create tags from the repository toolbar, with visibility controls in Appearance settings and the View menu.
-- **Git Flow cleanup options** — Choose whether to delete the local branch and remove its local worktree after a successful Finish. Worktree cleanup checks that it is clean, unlocked, and unchanged before removal.
+- **Diff settings** — Customize the fixed-width font, text size, added and removed line colors, background opacity, and syntax highlighting, with Light and Dark previews and account settings sync.
+- **Remote branch cleanup** — Optionally delete the tracked or matching remote branch when deleting local branches, from the sidebar or branch manager.
 
 ### Improved
 
-- **Git LFS browsing** — View a storage overview, file details, local content state, and recent author and commit metadata, with controls that adapt to the available width.
-- **Git LFS tracking rules** — Distinguish wildcard patterns from exact filenames and remove rules directly from the list.
-- **Account sign-in** — A refreshed login layout adapts to its content, and Forgot Password opens the password reset flow on the web.
-- **Repository layout** — Minimum window and sidebar widths account for the selected text size.
+- **Pull request creation** — Create pull requests in a dedicated resizable window without first loading the pull request list.
+- **Stash details** — Show the stash description, branch, and creation time, keep a file selected, and display progress while its diff loads.
+- **Branch navigation** — Highlight folders containing the current branch and load branch-specific history when its tip is outside the loaded history page.
 
 ### Fixed
 
-- Removing an exact Git LFS tracking rule preserves other wildcard rules and unrelated attributes.
-- Git LFS downloads select the tracked remote when available, then fall back to origin or another available remote.
-- Sidebar badges reserve enough space to avoid clipping text edges.
+- Diff panels now relayout when the window or split view is resized.
+- Sidebar branch lists refresh after undo and redo, and branch selection receives keyboard focus.
+- Stash diff loading ignores results for files that are no longer selected.
+- Default diff text colors adapt to Dark appearance.
 
-[Compare v1.1.13 to v1.1.14](https://github.com/Commit-Plus/commit-plus/compare/v1.1.13...v1.1.14)
+[Compare v1.1.14 to v1.1.15](https://github.com/Commit-Plus/commit-plus/compare/v1.1.14...v1.1.15)
