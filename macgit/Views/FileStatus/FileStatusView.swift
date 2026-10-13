@@ -59,6 +59,7 @@ struct FileStatusView: View {
     @State private var lfsPaths = Set<String>()
     @State private var stagedLFSPaths = Set<String>()
     @State private var changedFiles: [StatusFile] = []
+    @State private var imageComparisonMode: ImageComparisonMode = .overlay
     @State private var selectedFile: StatusFile? = nil
     @State private var selectedFileKey: FileStatusSelectionKey? = nil
     @State private var diffRefreshID = UUID()
@@ -837,7 +838,11 @@ struct FileStatusView: View {
                         Text(file.path)
                             .font(.system(size: 14, weight: .semibold))
                             .lineLimit(1)
-                        Spacer()
+                            .truncationMode(.middle)
+                        Spacer(minLength: 8)
+                        if file.isImage && file.status != .added && file.status != .untracked {
+                            ImageComparisonModeButton(mode: $imageComparisonMode)
+                        }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -1358,26 +1363,8 @@ struct FileStatusView: View {
     }
 
     private func imagePreview(file: StatusFile) -> some View {
-        let fileURL = repositoryURL.appendingPathComponent(file.path)
-        return Group {
-            if let nsImage = NSImage(contentsOf: fileURL) {
-                GeometryReader { geo in
-                    ScrollView(.vertical) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: geo.size.width, alignment: .top)
-                            .clipped()
-                    }
-                }
-            } else {
-                EmptyStateView(
-                    icon: "photo",
-                    message: "Unable to preview image",
-                    detail: file.path
-                )
-            }
-        }
+        ImageComparisonView(request: .working(file, staged: selectedFileKey?.isStaged == true),
+                            repositoryURL: repositoryURL, mode: imageComparisonMode, refreshID: diffRefreshID)
     }
 
     private func videoPreview(file: StatusFile) -> some View {

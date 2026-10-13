@@ -326,8 +326,8 @@ struct RepoPickerView: View {
     private var dashboardActions: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                if let icon = NSApp.applicationIconImage {
-                    Image(nsImage: icon)
+                Group {
+                    Image("commitplus-logo")
                         .resizable()
                         .scaledToFit()
                         .frame(width: 32, height: 32)
@@ -406,8 +406,8 @@ struct RepoPickerView: View {
     private var headerSection: some View {
         VStack(spacing: 18) {
             HStack(alignment: .top, spacing: 16) {
-                if showsApplicationIcon, let icon = NSApp.applicationIconImage {
-                    Image(nsImage: icon)
+                if showsApplicationIcon {
+                    Image("commitplus-logo")
                         .resizable()
                         .scaledToFit()
                         .frame(width: 56, height: 56)

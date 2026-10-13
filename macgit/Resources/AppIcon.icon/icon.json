@@ -1,0 +1,67 @@
+{
+  "fill" : {
+    "automatic-gradient" : "extended-srgb:0.00000,0.53333,1.00000,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "fill" : {
+            "linear-gradient" : [
+              "extended-srgb:1.00000,0.21961,0.23529,1.00000",
+              "extended-srgb:1.00000,0.55294,0.15686,1.00000"
+            ],
+            "orientation" : {
+              "start" : {
+                "x" : 0.5,
+                "y" : 0
+              },
+              "stop" : {
+                "x" : 0.5,
+                "y" : 0.7
+              }
+            }
+          },
+          "glass" : true,
+          "image-name" : "Branch (1).png",
+          "name" : "Branch (1)",
+          "position" : {
+            "scale" : 1.62,
+            "translation-in-points" : [
+              95.921875,
+              -75.0703125
+            ]
+          }
+        },
+        {
+          "blend-mode" : "lighten",
+          "fill" : "automatic",
+          "glass" : true,
+          "image-name" : "Commit (1).png",
+          "name" : "Commit (1)",
+          "position" : {
+            "scale" : 1.35,
+            "translation-in-points" : [
+              -108.4921875,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

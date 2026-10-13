@@ -35,6 +35,8 @@ struct StashView: View {
     @State private var errorMessage: String?
     @State private var showingError = false
 
+    @State private var imageComparisonMode: ImageComparisonMode = .overlay
+
     var body: some View {
         VStack(spacing: 0) {
             stashHeader
@@ -155,7 +157,11 @@ struct StashView: View {
                         Text(file.path)
                             .font(.system(size: 13, weight: .semibold))
                             .lineLimit(1)
-                        Spacer()
+                            .truncationMode(.middle)
+                        Spacer(minLength: 8)
+                        if file.status != .added && StatusFile(path: file.path, status: .modified, originalPath: nil).isImage {
+                            ImageComparisonModeButton(mode: $imageComparisonMode)
+                        }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
@@ -178,7 +184,8 @@ struct StashView: View {
                             onRefresh: {},
                             onError: { _ in },
                             filePath: file.path,
-                            gitRef: stashRef
+                            gitRef: stashRef,
+                            imageComparisonMode: imageComparisonMode, imageOldPath: file.oldPath, imageFileStatus: file.status
                         )
                     }
                 }
