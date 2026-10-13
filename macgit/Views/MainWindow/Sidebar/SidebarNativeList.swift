@@ -55,6 +55,7 @@ struct SidebarNativeList: NSViewRepresentable {
         table.headerView = nil
         table.backgroundColor = .clear
         table.style = .sourceList
+        table.selectionHighlightStyle = .regular
         table.intercellSpacing = NSSize(width: 0, height: 0)
         table.usesAutomaticRowHeights = false
         table.allowsEmptySelection = true
@@ -397,6 +398,8 @@ struct SidebarNativeList: NSViewRepresentable {
                 return
             }
             if let owner, owner.rows.indices.contains(hit), owner.rows[hit].payload != nil {
+                // Custom click/drag tracking bypasses NSTableView's focus handling.
+                window?.makeFirstResponder(self)
                 trackClickOrDrag(from: event, row: hit, owner: owner)
                 return
             }
