@@ -7,6 +7,7 @@ struct CommitFileListView: View {
     let changes: [CommitFileChange]
     var lineCounts: [String: FileLineChangeCount] = [:]
     @Binding var selectedFile: CommitFileChange?
+    var allowsEmptySelection = true
     var onOpenFile: ((CommitFileChange) -> Void)? = nil
     var onPatch: (([CommitFileChange], CommitPatchRequest.Direction) -> Void)? = nil
     var patchDisabledReason: (([CommitFileChange]) -> String?)? = nil
@@ -18,6 +19,7 @@ struct CommitFileListView: View {
             selectedIDs: Set(selectedFiles.map(\.id)),
             primarySelectedID: selectedFile?.id,
             allowsMultipleSelection: onPatch != nil,
+            allowsEmptySelection: allowsEmptySelection,
             textScale: textScale,
             onSelectionChange: updateSelection,
             onOpenFile: onOpenFile,

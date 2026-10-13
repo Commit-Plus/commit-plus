@@ -12,6 +12,7 @@ struct CommitFileNativeList: NSViewRepresentable {
     let selectedIDs: Set<UUID>
     let primarySelectedID: UUID?
     let allowsMultipleSelection: Bool
+    let allowsEmptySelection: Bool
     let textScale: CGFloat
     let onSelectionChange: ([CommitFileChange], CommitFileChange?) -> Void
     let onOpenFile: ((CommitFileChange) -> Void)?
@@ -73,6 +74,10 @@ struct CommitFileNativeList: NSViewRepresentable {
             let oldPrimaryID = self.model?.primarySelectedID
             self.model = model
             tableView.allowsMultipleSelection = model.allowsMultipleSelection
+            tableView.allowsEmptySelection = model.allowsEmptySelection
+
+            isApplyingSelection = true
+            defer { isApplyingSelection = false }
 
             let scaleChanged = appliedScale != model.textScale
             appliedScale = model.textScale
@@ -139,9 +144,7 @@ struct CommitFileNativeList: NSViewRepresentable {
         private func applySelection(_ selectedIDs: Set<UUID>) {
             let indexes = IndexSet(rows.indices.filter { selectedIDs.contains(rows[$0].change.id) })
             guard tableView.selectedRowIndexes != indexes else { return }
-            isApplyingSelection = true
             tableView.selectRowIndexes(indexes, byExtendingSelection: false)
-            isApplyingSelection = false
         }
 
         private func contextMenu(for row: Int) -> NSMenu? {
