@@ -74,25 +74,22 @@ extension MainWindowView {
 
     func prepareCreatePullRequest(branch: String) async {
         guard await authorizePullRequestAccess() else { return }
-        await MainActor.run {
-            selectedItem = .item(.pullRequests)
-        }
+        guard !createPullRequestWindow.activateIfPresented() else { return }
         do {
             let remote = try await prepareRemoteBranchForPullRequest(branch: branch)
-            await pullRequestController.loadPullRequests(repositoryURL: repositoryURL, remoteName: remote)
-            if let errorMessage = pullRequestController.errorMessage {
-                await MainActor.run {
-                    syncState.showError(errorMessage)
-                }
-                return
-            }
-            await pullRequestController.presentCreatePullRequest(sourceBranch: branch)
+            await pullRequestController.prepareCreatePullRequest(
+                repositoryURL: repositoryURL,
+                remoteName: remote,
+                sourceBranch: branch
+            )
             if pullRequestController.createDraftSeed == nil,
                let detailErrorMessage = pullRequestController.detailErrorMessage {
                 await MainActor.run {
                     syncState.showError(detailErrorMessage)
                     pullRequestController.detailErrorMessage = nil
                 }
+            } else {
+                presentCreatePullRequestWindow()
             }
         } catch {
             await MainActor.run {
@@ -103,47 +100,70 @@ extension MainWindowView {
 
     func prepareCreatePullRequest() async {
         guard await authorizePullRequestAccess() else { return }
-        await MainActor.run {
-            selectedItem = .item(.pullRequests)
-        }
-        await pullRequestController.loadPullRequests(repositoryURL: repositoryURL)
-        if let errorMessage = pullRequestController.errorMessage {
-            await MainActor.run {
-                syncState.showError(errorMessage)
-            }
-            return
-        }
-        await pullRequestController.presentCreatePullRequest()
+        guard !createPullRequestWindow.activateIfPresented() else { return }
+        await pullRequestController.prepareCreatePullRequest(repositoryURL: repositoryURL)
         if pullRequestController.createDraftSeed == nil,
            let detailErrorMessage = pullRequestController.detailErrorMessage {
             await MainActor.run {
                 syncState.showError(detailErrorMessage)
                 pullRequestController.detailErrorMessage = nil
             }
+        } else {
+            presentCreatePullRequestWindow()
         }
     }
 
     func submitCreatePullRequest(_ draft: PullRequestDraft) async {
         guard await authorizePullRequestAccess() else { return }
         do {
-            let remote = try await prepareRemoteBranchForPullRequest(branch: draft.sourceBranch)
-            await pullRequestController.loadPullRequests(
-                repositoryURL: repositoryURL,
-                remoteName: remote,
-                forceRefresh: true
-            )
-            if let errorMessage = pullRequestController.errorMessage {
-                await MainActor.run {
-                    syncState.showError(errorMessage)
-                }
-                return
-            }
+            _ = try await prepareRemoteBranchForPullRequest(branch: draft.sourceBranch)
             await pullRequestController.createPullRequest(draft)
+            if pullRequestController.createDraftSeed == nil {
+                await MainActor.run {
+                    createPullRequestWindow.close()
+                    if let detailErrorMessage = pullRequestController.detailErrorMessage {
+                        syncState.showError(detailErrorMessage)
+                        pullRequestController.detailErrorMessage = nil
+                    }
+                }
+            }
         } catch {
             await MainActor.run {
                 syncState.showError(error.localizedDescription)
             }
         }
+    }
+
+    @MainActor
+    private func presentCreatePullRequestWindow() {
+        guard let seed = pullRequestController.createDraftSeed else { return }
+        createPullRequestWindow.show(
+            repositoryName: repositoryURL.lastPathComponent,
+            content: CreatePullRequestWindowContent(
+                controller: pullRequestController,
+                windowController: createPullRequestWindow,
+                seed: seed,
+                repositoryURL: repositoryURL,
+                authorizeAction: { await authorizePullRequestAccess() },
+                onGenerateText: { field, sourceBranch, targetBranch in
+                    try await generatePullRequestText(
+                        field: field,
+                        sourceBranch: sourceBranch,
+                        targetBranch: targetBranch
+                    )
+                },
+                onCancel: {
+                    pullRequestController.dismissCreatePullRequest()
+                    createPullRequestWindow.close()
+                },
+                onCreate: { draft in
+                    await submitCreatePullRequest(draft)
+                }
+            ),
+            onClose: {
+                pullRequestController.dismissCreatePullRequest()
+            }
+        )
     }
 
     @MainActor

@@ -256,11 +256,21 @@ final class HistoryListModel {
         storeSnapshot()
     }
 
-    func selectBranchTipIfPossible() {
-        guard branchFilter == .all, activeSearchQuery.isEmpty, publishedKey == loadKey,
-              let selectedBranch, let hash = branchTips[selectedBranch], let tip = commit(hash) else { return }
+    func selectReferenceTipIfLoaded(_ reference: String) async -> Bool {
+        guard branchFilter == .all, activeSearchQuery.isEmpty, publishedKey == loadKey else { return false }
+        let requestedGeneration = generation
+        let requestedKey = loadKey
+        let hash: String?
+        if let loadedHash = branchTips[reference] {
+            hash = loadedHash
+        } else {
+            hash = await GitStatusService.shared.tipHash(for: reference, in: repositoryURL)
+        }
+        guard generation == requestedGeneration, loadKey == requestedKey,
+              selectedBranch == reference, let hash, let tip = commit(hash) else { return false }
         select(tip, focus: true)
         storeSnapshot()
+        return true
     }
 
     func clearCache() { cache.removeAll() }

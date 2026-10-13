@@ -172,6 +172,7 @@ struct MainWindowView: View {
     @State private var pullPreselectedBranch: String? = nil
     @State var showingSearchModal = false
     @State private var repositorySettingsWindow = RepositorySettingsWindowController()
+    @State var createPullRequestWindow = CreatePullRequestWindowController()
     @State var showingRepositorySettings = false
     @State var initiallySelectGitFlowSettings = false
     @State var pendingSearchFileOpenRequest: SearchFileOpenRequest?
@@ -788,6 +789,7 @@ struct MainWindowView: View {
         .onDisappear {
             repositorySettingsWindow.close()
             branchComparisonWindow.close()
+            createPullRequestWindow.close()
             isPromotionHostVisible = false
             if promotionPresentation != nil {
                 ProPromotionPresentationStore.shared.releasePresentation()
@@ -1033,7 +1035,7 @@ struct MainWindowView: View {
                 showingRenameBranchSheet = true
             },
             onRequestCreatePullRequest: { branch in
-                runRepositoryOperation("Preparing pull request for \(branch)...") {
+                Task {
                     await prepareCreatePullRequest(branch: branch)
                 }
             },
@@ -1177,7 +1179,7 @@ struct MainWindowView: View {
                 showingNewTagSheet = true
             },
             onRequestCreatePullRequestFromWorkspace: {
-                runRepositoryOperation("Preparing pull request...") {
+                Task {
                     await prepareCreatePullRequest()
                 }
             },
@@ -1372,21 +1374,9 @@ struct MainWindowView: View {
                         accountConnectionErrorMessage: providerAccountController.errorMessage,
                         onReconnectAccount: onOpenConnections,
                         onRequestCreatePullRequest: {
-                            runRepositoryOperation("Preparing pull request...") {
+                            Task {
                                 await prepareCreatePullRequest()
                             }
-                        },
-                        onSubmitCreatePullRequest: { draft in
-                            runRepositoryOperation("Creating pull request...") {
-                                await submitCreatePullRequest(draft)
-                            }
-                        },
-                        onGenerateCreatePullRequestText: { field, sourceBranch, targetBranch in
-                            try await generatePullRequestText(
-                                field: field,
-                                sourceBranch: sourceBranch,
-                                targetBranch: targetBranch
-                            )
                         },
                         authorizeAction: { await authorizePullRequestAccess() }
                     )

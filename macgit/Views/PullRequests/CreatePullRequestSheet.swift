@@ -45,6 +45,8 @@ struct CreatePullRequestView: View {
     var onCancel: () -> Void
     var onBranchesChanged: (String, String?) -> Void
     var onCreate: (PullRequestDraft) -> Void
+    var isPresentedInWindow: Bool = false
+    var cancelRequestID: UUID?
 
     @State private var sourceBranch: String
     @State private var targetBranch: String?
@@ -72,7 +74,9 @@ struct CreatePullRequestView: View {
         onGenerateText: @escaping PullRequestAIGenerationAction,
         onCancel: @escaping () -> Void,
         onBranchesChanged: @escaping (String, String?) -> Void,
-        onCreate: @escaping (PullRequestDraft) -> Void
+        onCreate: @escaping (PullRequestDraft) -> Void,
+        isPresentedInWindow: Bool = false,
+        cancelRequestID: UUID? = nil
     ) {
         self.seed = seed
         self.repositoryURL = repositoryURL
@@ -89,6 +93,8 @@ struct CreatePullRequestView: View {
         self.onCancel = onCancel
         self.onBranchesChanged = onBranchesChanged
         self.onCreate = onCreate
+        self.isPresentedInWindow = isPresentedInWindow
+        self.cancelRequestID = cancelRequestID
         _sourceBranch = State(initialValue: seed.sourceBranch)
         _targetBranch = State(initialValue: seed.targetBranch)
         _title = State(initialValue: seed.suggestedTitle)
@@ -124,6 +130,9 @@ struct CreatePullRequestView: View {
         .onChange(of: targetBranch) { _, _ in
             reloadChanges()
         }
+        .onChange(of: cancelRequestID) { _, _ in
+            requestCancel()
+        }
         .confirmationDialog(
             "Discard Pull Request Draft?",
             isPresented: $showingDiscardConfirmation
@@ -137,8 +146,10 @@ struct CreatePullRequestView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Button("Back to Pull Requests", systemImage: "chevron.left", action: requestCancel)
-                .buttonStyle(.borderless)
+            if !isPresentedInWindow {
+                Button("Back to Pull Requests", systemImage: "chevron.left", action: requestCancel)
+                    .buttonStyle(.borderless)
+            }
             Text("Create Pull Request")
                 .font(.headline)
             Spacer()
@@ -372,6 +383,7 @@ struct CreatePullRequestView: View {
     }
 
     private func requestCancel() {
+        guard !isSubmitting else { return }
         if hasDraftChanges {
             showingDiscardConfirmation = true
         } else {

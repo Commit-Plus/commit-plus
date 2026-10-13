@@ -106,7 +106,13 @@ struct HistoryScreen: View {
         .onChange(of: baseBranch) { _, value in listModel.baseBranch = value }
         .onChange(of: selectedBranch) { _, value in
             listModel.selectedBranch = value
-            listModel.selectBranchTipIfPossible()
+            guard let value else { return }
+            Task {
+                let selectedLoadedTip = await listModel.selectReferenceTipIfLoaded(value)
+                guard !Task.isCancelled, !selectedLoadedTip,
+                      selectedBranch == value, branchFilter == .all else { return }
+                branchFilter = .branch(value)
+            }
         }
         .onChange(of: searchText) { _, value in listModel.setSearchText(value) }
         .onChange(of: historyLoadSizeRaw) { _, value in
