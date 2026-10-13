@@ -53,6 +53,29 @@ final class HistoryPaginationTests: XCTestCase {
         XCTAssertEqual(featurePage.first?.message, "feature tip")
     }
 
+    func testOldBranchTipFallsBackToBranchScopedHistoryWhenOutsideLoadedPage() async throws {
+        let repoURL = try makeRepoWithOlderFeatureBranchTip()
+        defer { try? FileManager.default.removeItem(at: repoURL) }
+        let model = HistoryListModel(
+            repositoryURL: repoURL,
+            branchFilter: .all,
+            selectedBranch: "feature",
+            pageSize: 1
+        )
+
+        await model.load()
+
+        XCTAssertEqual(model.rows.commits.map(\.message), ["main 3"])
+        let selectedLoadedTip = await model.selectReferenceTipIfLoaded("feature")
+        XCTAssertFalse(selectedLoadedTip)
+
+        model.branchFilter = .branch("feature")
+        await model.load()
+
+        XCTAssertEqual(model.rows.commits.first?.message, "feature tip")
+        XCTAssertEqual(model.selectedCommit?.message, "feature tip")
+    }
+
     func testHistoryPagingStateTracksLoadedPages() {
         var state = HistoryPagingState(pageSize: 100)
         XCTAssertTrue(state.beginLoadingMore())
