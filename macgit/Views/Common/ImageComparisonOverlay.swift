@@ -12,6 +12,9 @@ struct ImageComparisonOverlay: View {
             let width = max(before.size.width, after.size.width, 1)
             let height = max(before.size.height, after.size.height, 1)
             let scale = max(0, min(size.width / width, size.height / height))
+            let imageWidth = width * scale
+            let imageOffset = (size.width - imageWidth) / 2
+            let dividerX = imageOffset + imageWidth * fraction
             ZStack {
                 Color(nsColor: .textBackgroundColor)
                 image(after, scale: scale)
@@ -23,19 +26,19 @@ struct ImageComparisonOverlay: View {
                 }
                     .frame(width: size.width, height: size.height)
                     .mask(alignment: .leading) {
-                        Rectangle().frame(width: size.width * fraction)
+                        Rectangle().frame(width: dividerX)
                     }
                 Rectangle().fill(.primary).frame(width: 2)
-                    .position(x: size.width * fraction, y: size.height / 2)
+                    .position(x: dividerX, y: size.height / 2)
                 Image(systemName: "arrow.left.and.right")
                     .font(.caption.bold()).padding(8)
                     .background(.regularMaterial, in: Circle())
-                    .position(x: size.width * fraction, y: size.height / 2)
+                    .position(x: dividerX, y: size.height / 2)
             }
             .clipped()
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).onChanged { value in
-                fraction = min(1, max(0, value.location.x / max(size.width, 1)))
+                fraction = min(1, max(0, (value.location.x - imageOffset) / max(imageWidth, 1)))
             })
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Before and after image comparison")

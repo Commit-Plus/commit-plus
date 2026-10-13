@@ -5,6 +5,7 @@ nonisolated struct ImageComparisonRequest: Hashable, Sendable {
     enum Source: Hashable, Sendable {
         case revision(String, String)
         case index(String)
+        case indexWithFallback(String, String)
         case disk(String)
     }
     let before: Source?
@@ -12,7 +13,8 @@ nonisolated struct ImageComparisonRequest: Hashable, Sendable {
 
     static func working(_ file: StatusFile, staged: Bool) -> Self {
         Self(before: file.status == .untracked || file.status == .added ? nil :
-                (staged ? .revision("HEAD", file.originalPath ?? file.path) : .index(file.status == .renamed ? (file.originalPath ?? file.path) : file.path)),
+                (staged ? .revision("HEAD", file.originalPath ?? file.path) :
+                    (file.status == .renamed ? .indexWithFallback(file.path, file.originalPath ?? file.path) : .index(file.path))),
              after: file.status == .deleted ? nil : (staged ? .index(file.path) : .disk(file.path)))
     }
 
