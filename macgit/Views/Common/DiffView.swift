@@ -37,6 +37,9 @@ struct DiffView: View {
     let onError: (String) -> Void
     let filePath: String?
     let gitRef: String?
+    let imageComparisonMode: ImageComparisonMode
+    let imageOldPath: String?
+    let imageFileStatus: CommitFileStatus?
     let commitPatchDisabledReason: String?
     let prefersTextDiff: Bool
     let onCommitPatch: (([DiffLine], CommitPatchRequest.Direction, String) -> Void)?
@@ -50,6 +53,9 @@ struct DiffView: View {
         onError: @escaping (String) -> Void = { _ in },
         filePath: String? = nil,
         gitRef: String? = nil,
+        imageComparisonMode: ImageComparisonMode = .overlay,
+        imageOldPath: String? = nil,
+        imageFileStatus: CommitFileStatus? = nil,
         prefersTextDiff: Bool = false,
         commitPatchDisabledReason: String? = nil,
         onCommitPatch: (([DiffLine], CommitPatchRequest.Direction, String) -> Void)? = nil
@@ -62,6 +68,9 @@ struct DiffView: View {
         self.onError = onError
         self.filePath = filePath
         self.gitRef = gitRef
+        self.imageComparisonMode = imageComparisonMode
+        self.imageOldPath = imageOldPath
+        self.imageFileStatus = imageFileStatus
         self.prefersTextDiff = prefersTextDiff
         self.commitPatchDisabledReason = commitPatchDisabledReason
         self.onCommitPatch = onCommitPatch
@@ -69,7 +78,6 @@ struct DiffView: View {
 
     @State private var selectedLineIDs: Set<UUID> = []
     @State private var lastSelectedLineID: UUID?
-    @State private var loadedImage: NSImage?
 
     private static let imageExtensions: Set<String> = [
         "png", "jpg", "jpeg", "gif", "svg", "webp", "bmp",
@@ -171,48 +179,14 @@ struct DiffView: View {
 
     @ViewBuilder
     private var imagePreview: some View {
-        if let file = file, let url = repositoryURL {
-            let fileURL = url.appendingPathComponent(file.path)
-            diskImagePreview(fileURL: fileURL, filePath: file.path)
-        } else if let ref = gitRef, let url = repositoryURL, let path = filePath {
-            gitImagePreview(ref: ref, url: url, path: path)
+        if let file, let repositoryURL {
+            ImageComparisonView(request: .working(file, staged: file.status == .staged || file.status == .added || file.status == .renamed),
+                                repositoryURL: repositoryURL, mode: imageComparisonMode)
+        } else if let ref = gitRef, let repositoryURL, let path = filePath {
+            ImageComparisonView(request: .commit(path: path, oldPath: imageOldPath, status: imageFileStatus, ref: ref),
+                                repositoryURL: repositoryURL, mode: imageComparisonMode)
         } else {
             EmptyStateView(icon: "photo", message: "Unable to preview image")
-        }
-    }
-
-    private func diskImagePreview(fileURL: URL, filePath: String) -> some View {
-        Group {
-            if let nsImage = NSImage(contentsOf: fileURL) {
-                FileImagePreview(image: nsImage)
-            } else {
-                EmptyStateView(icon: "photo", message: "Unable to preview image", detail: filePath)
-            }
-        }
-    }
-
-    private func gitImagePreview(ref: String, url: URL, path: String) -> some View {
-        Group {
-            if let image = loadedImage {
-                FileImagePreview(image: image)
-            } else {
-                ProgressView("Loading image…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .task {
-            await loadImageFromGit(ref: ref, url: url, path: path)
-        }
-    }
-
-    private func loadImageFromGit(ref: String, url: URL, path: String) async {
-        do {
-            let data = try await GitStatusService.shared.showFile(at: path, ref: ref, in: url)
-            if let image = NSImage(data: data) {
-                loadedImage = image
-            }
-        } catch {
-            onError("Failed to load image: \(error.localizedDescription)")
         }
     }
 

@@ -10,6 +10,8 @@ struct HistoryCommitDetailView: View {
     @Environment(\.appTextScale) private var textScale
     let onOpenFile: (String) -> Void
 
+    @State private var imageComparisonMode: ImageComparisonMode = .overlay
+
     var body: some View {
         @Bindable var patch = model.patchController
         Group {
@@ -127,7 +129,11 @@ struct HistoryCommitDetailView: View {
                         .foregroundStyle(.primary).font(.system(size: 14, weight: .medium))
                     Text(file.path).font(.system(size: 13, weight: .semibold).scaled(by: textScale))
                         .lineLimit(1)
-                    Spacer()
+                        .truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    if StatusFile(path: file.path, status: .modified, originalPath: nil).isImage {
+                        ImageComparisonModeButton(mode: $imageComparisonMode)
+                    }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 6)
                 .background(.ultraThinMaterial)
@@ -139,6 +145,7 @@ struct HistoryCommitDetailView: View {
                     DiffView(hunks: model.diff?.hunks ?? [], file: nil,
                         repositoryURL: repositoryURL, undoManager: nil, onRefresh: {}, onError: { _ in },
                         filePath: file.path, gitRef: commit.hash,
+                        imageComparisonMode: imageComparisonMode, imageOldPath: file.oldPath, imageFileStatus: file.status,
                         commitPatchDisabledReason: model.patchDisabledReason(for: [file]),
                         onCommitPatch: { lines, direction, scope in
                             guard model.commit?.hash == commit.hash, model.selectedFile == file,
