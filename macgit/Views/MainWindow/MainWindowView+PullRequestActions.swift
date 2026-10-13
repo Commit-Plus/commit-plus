@@ -154,9 +154,7 @@ extension MainWindowView {
                     createPullRequestWindow.close()
                 },
                 onCreate: { draft in
-                    runRepositoryOperation("Creating pull request...") {
-                        await submitCreatePullRequest(draft)
-                    }
+                    await submitCreatePullRequest(draft)
                 }
             ),
             onClose: {

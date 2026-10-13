@@ -1034,7 +1034,7 @@ struct MainWindowView: View {
                 showingRenameBranchSheet = true
             },
             onRequestCreatePullRequest: { branch in
-                runRepositoryOperation("Preparing pull request for \(branch)...") {
+                Task {
                     await prepareCreatePullRequest(branch: branch)
                 }
             },
@@ -1178,7 +1178,7 @@ struct MainWindowView: View {
                 showingNewTagSheet = true
             },
             onRequestCreatePullRequestFromWorkspace: {
-                runRepositoryOperation("Preparing pull request...") {
+                Task {
                     await prepareCreatePullRequest()
                 }
             },
@@ -1373,7 +1373,7 @@ struct MainWindowView: View {
                         accountConnectionErrorMessage: providerAccountController.errorMessage,
                         onReconnectAccount: onOpenConnections,
                         onRequestCreatePullRequest: {
-                            runRepositoryOperation("Preparing pull request...") {
+                            Task {
                                 await prepareCreatePullRequest()
                             }
                         },

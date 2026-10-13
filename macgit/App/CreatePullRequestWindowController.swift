@@ -69,13 +69,14 @@ struct CreatePullRequestWindowContent: View {
     let authorizeAction: () async -> Bool
     let onGenerateText: PullRequestAIGenerationAction
     let onCancel: () -> Void
-    let onCreate: (PullRequestDraft) -> Void
+    let onCreate: (PullRequestDraft) async -> Void
+    @State private var isSubmitting = false
 
     var body: some View {
         CreatePullRequestView(
             seed: seed,
             repositoryURL: repositoryURL,
-            isSubmitting: controller.isPerformingAction,
+            isSubmitting: isSubmitting || controller.isPerformingAction,
             changedFileCount: controller.createDraftChangedFileCount,
             isLoadingChanges: controller.isLoadingCreateDraftChanges,
             changesErrorMessage: controller.createDraftChangesErrorMessage,
@@ -103,9 +104,27 @@ struct CreatePullRequestWindowContent: View {
                     }
                 }
             },
-            onCreate: onCreate,
+            onCreate: { draft in
+                guard !isSubmitting else { return }
+                isSubmitting = true
+                Task {
+                    await onCreate(draft)
+                    isSubmitting = false
+                }
+            },
             isPresentedInWindow: true
         )
+        .overlay {
+            if isSubmitting || controller.isPerformingAction {
+                ZStack {
+                    Color(nsColor: .windowBackgroundColor)
+                        .opacity(0.72)
+                    ProgressView("Creating pull request…")
+                        .controlSize(.large)
+                }
+                .ignoresSafeArea()
+            }
+        }
         .alert("Pull Request", isPresented: detailErrorPresented) {
             Button("OK", role: .cancel) {
                 controller.detailErrorMessage = nil
