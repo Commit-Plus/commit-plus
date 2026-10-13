@@ -79,9 +79,9 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         refreshOnAppActive: Bool = true,
         diffFontName: String = "Menlo-Regular",
         diffFontSize: Double = 12,
-        diffAddedBackgroundColor: String = "#E6FAF0FF",
+        diffAddedBackgroundColor: String = "#00A6661F",
         diffAddedTextColor: String = "#006E4FFF",
-        diffRemovedBackgroundColor: String = "#FFEDE8FF",
+        diffRemovedBackgroundColor: String = "#E6331F1F",
         diffRemovedTextColor: String = "#C72E0DFF",
         diffSyntaxHighlighting: Bool = false
     ) {
@@ -150,13 +150,13 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         diffFontSize = try container.decodeIfPresent(Double.self, forKey: .diffFontSize) ?? 12
         diffAddedBackgroundColor = try container.decodeIfPresent(
             String.self, forKey: .diffAddedBackgroundColor
-        ) ?? "#E6FAF0FF"
+        ) ?? "#00A6661F"
         diffAddedTextColor = try container.decodeIfPresent(
             String.self, forKey: .diffAddedTextColor
         ) ?? "#006E4FFF"
         diffRemovedBackgroundColor = try container.decodeIfPresent(
             String.self, forKey: .diffRemovedBackgroundColor
-        ) ?? "#FFEDE8FF"
+        ) ?? "#E6331F1F"
         diffRemovedTextColor = try container.decodeIfPresent(
             String.self, forKey: .diffRemovedTextColor
         ) ?? "#C72E0DFF"

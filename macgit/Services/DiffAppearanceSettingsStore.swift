@@ -100,13 +100,13 @@ final class DiffAppearanceSettingsStore: ObservableObject {
 
     private enum Defaults {
         static let addedBackgroundColor = NSColor(
-            srgbRed: 0.90, green: 0.98, blue: 0.94, alpha: 1
+            srgbRed: 0.00, green: 0.65, blue: 0.40, alpha: 0.12
         )
         static let addedTextColor = NSColor(
             srgbRed: 0.00, green: 0.43, blue: 0.31, alpha: 1
         )
         static let removedBackgroundColor = NSColor(
-            srgbRed: 1.00, green: 0.93, blue: 0.91, alpha: 1
+            srgbRed: 0.90, green: 0.20, blue: 0.12, alpha: 0.12
         )
         static let removedTextColor = NSColor(
             srgbRed: 0.78, green: 0.18, blue: 0.05, alpha: 1
@@ -136,6 +136,8 @@ final class DiffAppearanceSettingsStore: ObservableObject {
             storedIn: userDefaults, key: Keys.removedTextColor,
             fallback: Defaults.removedTextColor
         )
+        addedBackgroundColor = Self.updatedBackground(addedBackgroundColor, added: true)
+        removedBackgroundColor = Self.updatedBackground(removedBackgroundColor, added: false)
     }
 
     func restoreDefaults() {
@@ -145,11 +147,11 @@ final class DiffAppearanceSettingsStore: ObservableObject {
     func apply(_ draft: DiffAppearanceSettingsDraft) {
         fontName = draft.fontName
         fontSize = min(max(draft.fontSize, 8), 32)
-        addedBackgroundColor = draft.addedBackgroundColor.usingColorSpace(.sRGB)
+        addedBackgroundColor = Self.updatedBackground(draft.addedBackgroundColor, added: true).usingColorSpace(.sRGB)
             ?? Defaults.addedBackgroundColor
         addedTextColor = draft.addedTextColor.usingColorSpace(.sRGB)
             ?? Defaults.addedTextColor
-        removedBackgroundColor = draft.removedBackgroundColor.usingColorSpace(.sRGB)
+        removedBackgroundColor = Self.updatedBackground(draft.removedBackgroundColor, added: false).usingColorSpace(.sRGB)
             ?? Defaults.removedBackgroundColor
         removedTextColor = draft.removedTextColor.usingColorSpace(.sRGB)
             ?? Defaults.removedTextColor
@@ -189,6 +191,21 @@ final class DiffAppearanceSettingsStore: ObservableObject {
             removedBackgroundColor: Defaults.removedBackgroundColor,
             removedTextColor: Defaults.removedTextColor
         )
+    }
+
+    // Upgrade the previous opaque defaults without replacing custom palettes.
+    private static func updatedBackground(_ color: NSColor, added: Bool) -> NSColor {
+        let previous = added ? "#E6FAF0FF" : "#FFEDE8FF"
+        guard hexString(from: color) == previous else { return color }
+        return added ? Defaults.addedBackgroundColor : Defaults.removedBackgroundColor
+    }
+
+    static func resolvedTextColor(_ color: NSColor, added: Bool, dark: Bool) -> NSColor {
+        let defaultColor = added ? Defaults.addedTextColor : Defaults.removedTextColor
+        guard dark, hexString(from: color) == hexString(from: defaultColor) else { return color }
+        return added
+            ? NSColor(srgbRed: 0.35, green: 0.90, blue: 0.66, alpha: 1)
+            : NSColor(srgbRed: 1, green: 0.48, blue: 0.40, alpha: 1)
     }
 
     private func save(_ color: NSColor, forKey key: String) {

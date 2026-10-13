@@ -81,8 +81,10 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
                 textStore.reset(
                     fontName: model.appearance.font.fontName,
                     fontSize: model.appearance.fontSize * model.textScale,
-                    addedTextColor: model.appearance.addedTextColor,
-                    removedTextColor: model.appearance.removedTextColor,
+                    addedTextColor: DiffAppearanceSettingsStore.resolvedTextColor(
+                        model.appearance.addedTextColor, added: true, dark: model.colorScheme == .dark),
+                    removedTextColor: DiffAppearanceSettingsStore.resolvedTextColor(
+                        model.appearance.removedTextColor, added: false, dark: model.colorScheme == .dark),
                     fileExtension: model.fileExtension,
                     syntaxHighlighting: model.syntaxHighlighting)
             }

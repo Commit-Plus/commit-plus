@@ -230,9 +230,9 @@ final class CloudSettingsDocumentTests: XCTestCase {
 
         XCTAssertEqual(decoded.diffFontName, "Menlo-Regular")
         XCTAssertEqual(decoded.diffFontSize, 12)
-        XCTAssertEqual(decoded.diffAddedBackgroundColor, "#E6FAF0FF")
+        XCTAssertEqual(decoded.diffAddedBackgroundColor, "#00A6661F")
         XCTAssertEqual(decoded.diffAddedTextColor, "#006E4FFF")
-        XCTAssertEqual(decoded.diffRemovedBackgroundColor, "#FFEDE8FF")
+        XCTAssertEqual(decoded.diffRemovedBackgroundColor, "#E6331F1F")
         XCTAssertEqual(decoded.diffRemovedTextColor, "#C72E0DFF")
         XCTAssertFalse(decoded.diffSyntaxHighlighting)
     }

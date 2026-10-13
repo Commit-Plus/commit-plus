@@ -92,13 +92,13 @@ enum CloudSettingsDocument {
             throw CloudSettingsError.invalidDocument
         }
         let diffAddedBackgroundColor = try optionalColor(
-            data, key: "diffAddedBackgroundColor", defaultValue: "#E6FAF0FF"
+            data, key: "diffAddedBackgroundColor", defaultValue: "#00A6661F"
         )
         let diffAddedTextColor = try optionalColor(
             data, key: "diffAddedTextColor", defaultValue: "#006E4FFF"
         )
         let diffRemovedBackgroundColor = try optionalColor(
-            data, key: "diffRemovedBackgroundColor", defaultValue: "#FFEDE8FF"
+            data, key: "diffRemovedBackgroundColor", defaultValue: "#E6331F1F"
         )
         let diffRemovedTextColor = try optionalColor(
             data, key: "diffRemovedTextColor", defaultValue: "#C72E0DFF"

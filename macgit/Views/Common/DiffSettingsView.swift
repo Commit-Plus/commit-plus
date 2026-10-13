@@ -60,6 +60,8 @@ struct DiffSettingsView: View {
                     }
                 }
 
+                opacityControl("Added background opacity", color: $draft.addedBackgroundColor)
+
                 LabeledContent("Removed line") {
                     HStack(spacing: 14) {
                         colorControl("Background", color: $draft.removedBackgroundColor)
@@ -67,12 +69,22 @@ struct DiffSettingsView: View {
                     }
                 }
 
-                DiffSettingsPreview(draft: draft)
+                opacityControl("Removed background opacity", color: $draft.removedBackgroundColor)
+
+                ForEach([ColorScheme.light, .dark], id: \.self) { scheme in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(scheme == .dark ? "Dark preview" : "Light preview")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        DiffSettingsPreview(draft: draft)
+                            .environment(\.colorScheme, scheme)
+                    }
                     .padding(.vertical, 6)
+                }
             } header: {
                 Label("Diff Colors", systemImage: "paintpalette")
             } footer: {
-                Text("Changed-line text colors take priority over syntax highlighting so additions and removals remain easy to distinguish.")
+                Text("Background opacity blends colors with the diff surface. Default text colors adapt to Light and Dark appearance; custom text colors take priority over syntax highlighting.")
             }
 
             Section {
@@ -111,6 +123,22 @@ struct DiffSettingsView: View {
         }
     }
 
+    private func opacityControl(_ title: String, color: Binding<NSColor>) -> some View {
+        LabeledContent(title) {
+            HStack {
+                Slider(value: Binding(
+                    get: { Double(color.wrappedValue.alphaComponent) },
+                    set: { color.wrappedValue = color.wrappedValue.withAlphaComponent($0) }
+                ), in: 0...1, step: 0.01)
+                .frame(width: 180)
+                .accessibilityLabel(title)
+                Text("\(Int((color.wrappedValue.alphaComponent * 100).rounded()))%")
+                    .monospacedDigit()
+                    .frame(width: 42, alignment: .trailing)
+            }
+        }
+    }
+
     private func displayName(for fontName: String) -> String {
         NSFont(name: fontName, size: 12)?.displayName ?? fontName
     }
@@ -127,20 +155,24 @@ struct DiffSettingsView: View {
 
 private struct DiffSettingsPreview: View {
     let draft: DiffAppearanceSettingsDraft
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 0) {
             previewLine(
                 prefix: "−", text: "let oldValue = calculate()",
                 background: draft.removedBackgroundColor,
-                foreground: draft.removedTextColor
+                foreground: DiffAppearanceSettingsStore.resolvedTextColor(
+                    draft.removedTextColor, added: false, dark: colorScheme == .dark)
             )
             previewLine(
                 prefix: "+", text: "let newValue = calculate()",
                 background: draft.addedBackgroundColor,
-                foreground: draft.addedTextColor
+                foreground: DiffAppearanceSettingsStore.resolvedTextColor(
+                    draft.addedTextColor, added: true, dark: colorScheme == .dark)
             )
         }
+        .background(Color(nsColor: .windowBackgroundColor))
         .clipShape(.rect(cornerRadius: 6))
         .overlay {
             RoundedRectangle(cornerRadius: 6)

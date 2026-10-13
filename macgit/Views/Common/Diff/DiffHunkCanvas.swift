@@ -101,6 +101,8 @@ final class DiffHunkCanvas: DiffFlippedView {
         #if DEBUG
             DiffRenderStats.canvasDraws += 1
         #endif
+        NSColor.windowBackgroundColor.setFill()
+        dirtyRect.fill(using: .copy)
         DiffSignpost.interval("CanvasDraw") {
             for index in rows(in: dirtyRect.intersection(bounds)) {
                 let line = hunk.lines[index]
@@ -108,7 +110,7 @@ final class DiffHunkCanvas: DiffFlippedView {
                 let row = CGRect(x: 0, y: y, width: bounds.width, height: lineHeight)
                 guard needsToDraw(row) else { continue }
                 background(for: line).setFill()
-                row.fill()
+                row.fill(using: .sourceOver)
                 let x = 8 - contentOrigin.x
                 drawNumber(line.oldLineNumber, at: CGPoint(x: x, y: y), scale: lineHeight / 22)
                 drawNumber(line.newLineNumber, at: CGPoint(x: x + 42, y: y), scale: lineHeight / 22)
