@@ -74,6 +74,7 @@ extension MainWindowView {
 
     func prepareCreatePullRequest(branch: String) async {
         guard await authorizePullRequestAccess() else { return }
+        guard !createPullRequestWindow.activateIfPresented() else { return }
         do {
             let remote = try await prepareRemoteBranchForPullRequest(branch: branch)
             await pullRequestController.prepareCreatePullRequest(
@@ -99,6 +100,7 @@ extension MainWindowView {
 
     func prepareCreatePullRequest() async {
         guard await authorizePullRequestAccess() else { return }
+        guard !createPullRequestWindow.activateIfPresented() else { return }
         await pullRequestController.prepareCreatePullRequest(repositoryURL: repositoryURL)
         if pullRequestController.createDraftSeed == nil,
            let detailErrorMessage = pullRequestController.detailErrorMessage {
@@ -139,6 +141,7 @@ extension MainWindowView {
             repositoryName: repositoryURL.lastPathComponent,
             content: CreatePullRequestWindowContent(
                 controller: pullRequestController,
+                windowController: createPullRequestWindow,
                 seed: seed,
                 repositoryURL: repositoryURL,
                 authorizeAction: { await authorizePullRequestAccess() },

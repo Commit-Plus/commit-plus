@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
-final class CreatePullRequestWindowController: NSWindowController, NSWindowDelegate {
+final class CreatePullRequestWindowController: NSWindowController, NSWindowDelegate, ObservableObject {
     private var onClose: (() -> Void)?
+    @Published private(set) var cancelRequestID = UUID()
 
     init() {
         super.init(window: nil)
@@ -54,6 +56,20 @@ final class CreatePullRequestWindowController: NSWindowController, NSWindowDeleg
         window?.close()
     }
 
+    func activateIfPresented() -> Bool {
+        guard let window else { return false }
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        window.makeKeyAndOrderFront(nil)
+        return true
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        cancelRequestID = UUID()
+        return false
+    }
+
     func windowWillClose(_ notification: Notification) {
         let callback = onClose
         onClose = nil
@@ -64,6 +80,7 @@ final class CreatePullRequestWindowController: NSWindowController, NSWindowDeleg
 
 struct CreatePullRequestWindowContent: View {
     @ObservedObject var controller: PullRequestController
+    @ObservedObject var windowController: CreatePullRequestWindowController
     let seed: PullRequestDraftSeed
     let repositoryURL: URL
     let authorizeAction: () async -> Bool
@@ -112,7 +129,8 @@ struct CreatePullRequestWindowContent: View {
                     isSubmitting = false
                 }
             },
-            isPresentedInWindow: true
+            isPresentedInWindow: true,
+            cancelRequestID: windowController.cancelRequestID
         )
         .overlay {
             if isSubmitting || controller.isPerformingAction {

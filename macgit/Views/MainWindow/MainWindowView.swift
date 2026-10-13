@@ -789,6 +789,7 @@ struct MainWindowView: View {
         .onDisappear {
             repositorySettingsWindow.close()
             branchComparisonWindow.close()
+            createPullRequestWindow.close()
             isPromotionHostVisible = false
             if promotionPresentation != nil {
                 ProPromotionPresentationStore.shared.releasePresentation()

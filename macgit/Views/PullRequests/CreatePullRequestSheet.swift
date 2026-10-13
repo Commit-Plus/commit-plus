@@ -46,6 +46,7 @@ struct CreatePullRequestView: View {
     var onBranchesChanged: (String, String?) -> Void
     var onCreate: (PullRequestDraft) -> Void
     var isPresentedInWindow: Bool = false
+    var cancelRequestID: UUID?
 
     @State private var sourceBranch: String
     @State private var targetBranch: String?
@@ -74,7 +75,8 @@ struct CreatePullRequestView: View {
         onCancel: @escaping () -> Void,
         onBranchesChanged: @escaping (String, String?) -> Void,
         onCreate: @escaping (PullRequestDraft) -> Void,
-        isPresentedInWindow: Bool = false
+        isPresentedInWindow: Bool = false,
+        cancelRequestID: UUID? = nil
     ) {
         self.seed = seed
         self.repositoryURL = repositoryURL
@@ -92,6 +94,7 @@ struct CreatePullRequestView: View {
         self.onBranchesChanged = onBranchesChanged
         self.onCreate = onCreate
         self.isPresentedInWindow = isPresentedInWindow
+        self.cancelRequestID = cancelRequestID
         _sourceBranch = State(initialValue: seed.sourceBranch)
         _targetBranch = State(initialValue: seed.targetBranch)
         _title = State(initialValue: seed.suggestedTitle)
@@ -126,6 +129,9 @@ struct CreatePullRequestView: View {
         }
         .onChange(of: targetBranch) { _, _ in
             reloadChanges()
+        }
+        .onChange(of: cancelRequestID) { _, _ in
+            requestCancel()
         }
         .confirmationDialog(
             "Discard Pull Request Draft?",
@@ -377,6 +383,7 @@ struct CreatePullRequestView: View {
     }
 
     private func requestCancel() {
+        guard !isSubmitting else { return }
         if hasDraftChanges {
             showingDiscardConfirmation = true
         } else {
