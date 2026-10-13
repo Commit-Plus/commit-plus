@@ -5,6 +5,7 @@ import SwiftUI
 extension SidebarView {
     var nativeRows: [SidebarNativeRow] {
         var result: [SidebarNativeRow] = []
+        let currentBranchFolderPaths = SidebarTreeBuilder.expandedFolderPaths(revealing: currentBranch)
         func header(_ section: SidebarSection, expanded: Bool, target: GitDragTarget? = nil,
                     accessory: String = "", label: String = "", action: ((NSView) -> Void)? = nil) {
             var row = SidebarNativeRow(id: .init(section: section, kind: "header", key: ""),
@@ -30,8 +31,11 @@ extension SidebarView {
                 appearance: .init(title: loading ? "Loading…" : "No \(section.rawValue.lowercased())", spinning: loading)))
         }
         func folder(_ item: BranchRowItem, section: SidebarSection, expanded: Set<String>, toggle: @escaping (String) -> Void) -> SidebarNativeRow {
+            let containsCurrentBranch = section == .branches
+                && currentBranchFolderPaths.contains(item.fullPath)
             var row = SidebarNativeRow(id: .init(section: section, kind: "folder", key: item.fullPath),
-                appearance: .init(title: item.name, icon: expanded.contains(item.fullPath) ? "chevron.down" : "chevron.right", indent: item.indent))
+                appearance: .init(title: item.name, icon: expanded.contains(item.fullPath) ? "chevron.down" : "chevron.right",
+                    indent: item.indent, emphasized: containsCurrentBranch, accentedTitle: containsCurrentBranch))
             row.select = { toggle(item.fullPath) }
             if section == .branches {
                 row.menu = {

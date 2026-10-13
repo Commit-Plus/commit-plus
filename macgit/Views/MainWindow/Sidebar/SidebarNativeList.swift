@@ -18,6 +18,7 @@ struct SidebarNativeRow {
         var indent = 0
         var header = false
         var emphasized = false
+        var accentedTitle = false
         var accessory = ""
         var accessoryLabel = ""
         var tint = "secondary"
@@ -531,7 +532,7 @@ struct SidebarNativeList: NSViewRepresentable {
             title.stringValue = value.title
             title.font = .systemFont(ofSize: (value.header ? 11 : 12) * scale, weight: value.header || value.emphasized ? .semibold : .regular)
             if value.italic, let font = title.font { title.font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
-            title.textColor = value.header ? .secondaryLabelColor : .labelColor
+            title.textColor = value.accentedTitle ? .controlAccentColor : value.header ? .secondaryLabelColor : .labelColor
             subtitle.stringValue = value.subtitle
             subtitle.font = .systemFont(ofSize: 10 * scale)
             subtitle.textColor = .secondaryLabelColor
