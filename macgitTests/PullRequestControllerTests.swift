@@ -622,6 +622,41 @@ final class PullRequestControllerTests: XCTestCase {
         XCTAssertEqual(controller.createDraftSeed?.suggestedTitle, "Context Menu Pr")
     }
 
+    func testPrepareCreatePullRequestDoesNotLoadPullRequestList() async throws {
+        let account = makeAccount()
+        let token = makeToken()
+        let service = FakePullRequestProvider(result: .success([makeSummary()]))
+        let accountController = GitProviderAccountController(
+            store: FakePullRequestAccountStore(accounts: [account]),
+            tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token])
+        )
+        await accountController.updateMacgitAccount(AccountSnapshot(
+            uid: "macgit-user-1",
+            email: "user@example.com",
+            displayName: nil,
+            providerIDs: []
+        ))
+        let repositoryURL = URL(fileURLWithPath: "/tmp/macgit-pr-window")
+        let controller = PullRequestController(
+            providerAccountController: accountController,
+            tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
+            services: [.github: service],
+            remoteNameProvider: { _ in "origin" },
+            remoteURLProvider: { _, _ in "https://github.com/octocat/Hello-World.git" },
+            currentBranchProvider: { _ in "feature/pr-window" },
+            defaultBranchProvider: { _ in "main" }
+        )
+
+        await controller.prepareCreatePullRequest(
+            repositoryURL: repositoryURL,
+            sourceBranch: "feature/pr-window"
+        )
+
+        XCTAssertEqual(service.listCallCount, 0)
+        XCTAssertEqual(controller.createDraftSeed?.sourceBranch, "feature/pr-window")
+        XCTAssertEqual(controller.createDraftSeed?.targetBranch, "main")
+    }
+
     func testLoadCreateDraftSourceBranchesReturnsLocalBranchesFilteredByQuery() async throws {
         let account = makeAccount()
         let token = makeToken()

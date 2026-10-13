@@ -45,6 +45,7 @@ struct CreatePullRequestView: View {
     var onCancel: () -> Void
     var onBranchesChanged: (String, String?) -> Void
     var onCreate: (PullRequestDraft) -> Void
+    var isPresentedInWindow: Bool = false
 
     @State private var sourceBranch: String
     @State private var targetBranch: String?
@@ -72,7 +73,8 @@ struct CreatePullRequestView: View {
         onGenerateText: @escaping PullRequestAIGenerationAction,
         onCancel: @escaping () -> Void,
         onBranchesChanged: @escaping (String, String?) -> Void,
-        onCreate: @escaping (PullRequestDraft) -> Void
+        onCreate: @escaping (PullRequestDraft) -> Void,
+        isPresentedInWindow: Bool = false
     ) {
         self.seed = seed
         self.repositoryURL = repositoryURL
@@ -89,6 +91,7 @@ struct CreatePullRequestView: View {
         self.onCancel = onCancel
         self.onBranchesChanged = onBranchesChanged
         self.onCreate = onCreate
+        self.isPresentedInWindow = isPresentedInWindow
         _sourceBranch = State(initialValue: seed.sourceBranch)
         _targetBranch = State(initialValue: seed.targetBranch)
         _title = State(initialValue: seed.suggestedTitle)
@@ -137,8 +140,10 @@ struct CreatePullRequestView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Button("Back to Pull Requests", systemImage: "chevron.left", action: requestCancel)
-                .buttonStyle(.borderless)
+            if !isPresentedInWindow {
+                Button("Back to Pull Requests", systemImage: "chevron.left", action: requestCancel)
+                    .buttonStyle(.borderless)
+            }
             Text("Create Pull Request")
                 .font(.headline)
             Spacer()

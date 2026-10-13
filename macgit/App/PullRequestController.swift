@@ -274,6 +274,74 @@ final class PullRequestController: ObservableObject {
         await loadPullRequests(remoteURLString: remoteURLString, page: page, forceRefresh: forceRefresh)
     }
 
+    func prepareCreatePullRequest(
+        repositoryURL: URL,
+        remoteName requestedRemoteName: String? = nil,
+        sourceBranch: String? = nil
+    ) async {
+        activeRepositoryURL = repositoryURL
+        detailErrorMessage = nil
+
+        let remoteName = if let requestedRemoteName {
+            requestedRemoteName
+        } else {
+            await remoteNameProvider(repositoryURL)
+        }
+        guard let remoteName,
+              let remoteURLString = await remoteURLProvider(repositoryURL, remoteName) else {
+            detailErrorMessage = "No remotes configured."
+            return
+        }
+        guard let remoteIdentity = GitRemoteIdentityResolver.identity(
+            from: remoteURLString,
+            knownGitLabHosts: connectedGitLabHosts,
+            knownHosts: providerAccountController.accounts.map {
+                GitProviderHost(kind: $0.provider, baseURL: $0.hostURL)
+            }
+        ) else {
+            detailErrorMessage = PullRequestProviderError.unsupportedProvider.localizedDescription
+            return
+        }
+
+        let repository = GitRepositoryIdentity(
+            provider: remoteIdentity.provider,
+            hostURL: remoteIdentity.hostURL,
+            owner: remoteIdentity.ownerPath,
+            name: remoteIdentity.repositoryName
+        )
+        let matchingAccounts = matchingAccounts(for: repository)
+        guard !matchingAccounts.isEmpty else {
+            accountConnectionHost = GitProviderHost(
+                kind: repository.provider,
+                baseURL: repository.hostURL
+            ).normalized
+            detailErrorMessage = "Connect Account..."
+            return
+        }
+        guard let apiCredential = apiCredential(for: matchingAccounts) else {
+            accountConnectionHost = GitProviderHost(
+                kind: repository.provider,
+                baseURL: repository.hostURL
+            ).normalized
+            detailErrorMessage = matchingAccounts.contains(where: supportsProviderAPI)
+                ? "Reconnect..."
+                : "Connect Account..."
+            return
+        }
+        guard services[repository.provider] != nil else {
+            detailErrorMessage = PullRequestProviderError.unsupportedProvider.localizedDescription
+            return
+        }
+
+        activeRemoteName = remoteName
+        activeRemoteURLString = remoteURLString
+        activeRepository = repository
+        activeToken = apiCredential.token
+        selectedProviderAccountID = apiCredential.account.id
+        accountConnectionHost = nil
+        await presentCreatePullRequest(sourceBranch: sourceBranch)
+    }
+
     func loadPullRequests(
         repositoryURL: URL,
         remoteName: String,

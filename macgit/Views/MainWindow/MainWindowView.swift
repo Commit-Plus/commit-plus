@@ -172,6 +172,7 @@ struct MainWindowView: View {
     @State private var pullPreselectedBranch: String? = nil
     @State var showingSearchModal = false
     @State private var repositorySettingsWindow = RepositorySettingsWindowController()
+    @State var createPullRequestWindow = CreatePullRequestWindowController()
     @State var showingRepositorySettings = false
     @State var initiallySelectGitFlowSettings = false
     @State var pendingSearchFileOpenRequest: SearchFileOpenRequest?
@@ -1375,18 +1376,6 @@ struct MainWindowView: View {
                             runRepositoryOperation("Preparing pull request...") {
                                 await prepareCreatePullRequest()
                             }
-                        },
-                        onSubmitCreatePullRequest: { draft in
-                            runRepositoryOperation("Creating pull request...") {
-                                await submitCreatePullRequest(draft)
-                            }
-                        },
-                        onGenerateCreatePullRequestText: { field, sourceBranch, targetBranch in
-                            try await generatePullRequestText(
-                                field: field,
-                                sourceBranch: sourceBranch,
-                                targetBranch: targetBranch
-                            )
                         },
                         authorizeAction: { await authorizePullRequestAccess() }
                     )
