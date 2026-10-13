@@ -209,9 +209,9 @@ private struct IndeterminateRepositoryProgressBar: View {
                 Capsule()
                     .fill(Color.accentColor)
                     .frame(width: segmentWidth)
-                    .offset(x: isAnimating ? width - segmentWidth : 0)
+                    .offset(x: isAnimating ? width : -segmentWidth)
                     .animation(
-                        .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
+                        .linear(duration: 1.6).repeatForever(autoreverses: false),
                         value: isAnimating
                     )
             }

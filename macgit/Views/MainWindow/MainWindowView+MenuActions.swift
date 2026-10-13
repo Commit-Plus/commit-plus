@@ -136,6 +136,9 @@ extension MainWindowView {
             } else {
                 try await undoExecutor.execute(operation, in: entry.repositoryURL)
             }
+            // Undo/redo executes Git commands directly, bypassing the branch
+            // service methods that normally invalidate sidebar list caches.
+            await GitStatusService.shared.invalidateBranchListCache(in: entry.repositoryURL)
             await syncState.refresh(repositoryURL: repositoryURL)
             NotificationCenter.default.post(
                 name: .repositoryDidChange,

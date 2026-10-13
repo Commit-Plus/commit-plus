@@ -552,7 +552,8 @@ struct SidebarNativeList: NSViewRepresentable {
             let sectionChildInset: CGFloat = appearance.header ? 0 : 10 * scale
             let start = 8 + sectionChildInset + CGFloat(appearance.indent) * 16 * scale
             let iconSize = 14 * scale
-            icon.frame = NSRect(x: start, y: (bounds.height - iconSize) / 2, width: iconSize, height: iconSize)
+            let glyphSize = appearance.icon == "circle.fill" ? 7 * scale : iconSize
+            icon.frame = NSRect(x: start + (iconSize - glyphSize) / 2, y: (bounds.height - glyphSize) / 2, width: glyphSize, height: glyphSize)
             let progressWidth: CGFloat = appearance.spinning ? 18 : 0
             let accessoryWidth: CGFloat = (button.isHidden ? 0 : 24) + progressWidth
             button.frame = NSRect(x: bounds.width - 28, y: (bounds.height - 22) / 2, width: 22, height: 22)
