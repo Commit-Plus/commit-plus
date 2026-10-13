@@ -58,7 +58,7 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
         private var panels: [Int: DiffNativeHunkView] = [:]
         private var recycledPanels: [DiffNativeHunkView] = []
         private var widthTask: Task<Void, Never>?
-        private var observer: NSObjectProtocol?
+        private var observers: [NSObjectProtocol] = []
         private var updating = false
 
         /// Keep one viewport of fully configured content on either side of the
@@ -149,7 +149,9 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
 
         func observe(_ scroll: NSScrollView) {
             scroll.contentView.postsBoundsChangedNotifications = true
-            observer = NotificationCenter.default.addObserver(
+            scroll.contentView.postsFrameChangedNotifications = true
+            let center = NotificationCenter.default
+            observers.append(center.addObserver(
                 forName: NSView.boundsDidChangeNotification, object: scroll.contentView,
                 queue: .main
             ) { [weak self, weak scroll] _ in
@@ -157,7 +159,16 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
                     guard let self, let scroll else { return }
                     self.layout(scroll)
                 }
-            }
+            })
+            observers.append(center.addObserver(
+                forName: NSView.frameDidChangeNotification, object: scroll.contentView,
+                queue: .main
+            ) { [weak self, weak scroll] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let scroll else { return }
+                    self.layout(scroll)
+                }
+            })
         }
 
         private func layout(_ scroll: NSScrollView, refresh: Bool = false) {
@@ -263,8 +274,8 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
             widthTask = nil
             for panel in panels.values { panel.canvas.cancelPendingWork() }
             textStore.cancel()
-            if let observer { NotificationCenter.default.removeObserver(observer) }
-            observer = nil
+            for observer in observers { NotificationCenter.default.removeObserver(observer) }
+            observers.removeAll()
         }
     }
 }
