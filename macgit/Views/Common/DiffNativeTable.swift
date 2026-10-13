@@ -60,6 +60,7 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
         private var widthTask: Task<Void, Never>?
         private var observers: [NSObjectProtocol] = []
         private var updating = false
+        private var needsRelayout = false
 
         /// Keep one viewport of fully configured content on either side of the
         /// clip. This moves hosting-view reuse away from the hunk boundary the
@@ -172,9 +173,19 @@ struct DiffNativeTable<Content: View>: NSViewRepresentable {
         }
 
         private func layout(_ scroll: NSScrollView, refresh: Bool = false) {
-            guard let model, !updating else { return }
+            guard let model else { return }
+            guard !updating else {
+                needsRelayout = true
+                return
+            }
             updating = true
-            defer { updating = false }
+            defer {
+                updating = false
+                if needsRelayout {
+                    needsRelayout = false
+                    layout(scroll)
+                }
+            }
             let bounds = scroll.contentView.bounds
             let size = CGSize(
                 width: max(1, bounds.width), height: max(bounds.height, geometry.height))
