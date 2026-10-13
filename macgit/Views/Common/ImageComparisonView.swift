@@ -24,6 +24,9 @@ struct ImageComparisonView: View {
             if isLoading {
                 ProgressView("Loading images…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if request.before == nil {
+                ImageComparisonSide(title: nil, image: after, error: afterError,
+                                    isMissing: request.after == nil)
             } else if mode == .overlay, let before, let after {
                 VStack(spacing: 12) {
                     HStack {
@@ -31,7 +34,9 @@ struct ImageComparisonView: View {
                         Spacer()
                         Text("After").foregroundStyle(.green)
                     }.font(.caption.weight(.semibold))
-                    ImageComparisonOverlay(before: before, after: after, fraction: $fraction)
+                    ImagePreviewViewport {
+                        ImageComparisonOverlay(before: before, after: after, fraction: $fraction)
+                    }
                     Slider(value: $fraction, in: 0...1)
                         .accessibilityLabel("Image comparison divider")
                         .help("Drag to reveal the before and after images")

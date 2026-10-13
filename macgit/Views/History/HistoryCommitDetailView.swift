@@ -131,7 +131,7 @@ struct HistoryCommitDetailView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 8)
-                    if StatusFile(path: file.path, status: .modified, originalPath: nil).isImage {
+                    if file.status != .added && StatusFile(path: file.path, status: .modified, originalPath: nil).isImage {
                         ImageComparisonModeButton(mode: $imageComparisonMode)
                     }
                 }

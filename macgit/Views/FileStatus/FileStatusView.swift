@@ -840,7 +840,7 @@ struct FileStatusView: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Spacer(minLength: 8)
-                        if file.isImage {
+                        if file.isImage && file.status != .added && file.status != .untracked {
                             ImageComparisonModeButton(mode: $imageComparisonMode)
                         }
                     }
