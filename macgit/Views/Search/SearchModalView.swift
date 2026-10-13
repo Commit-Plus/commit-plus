@@ -71,7 +71,7 @@ struct SearchModalView: View {
         .frame(width: Self.modalWidth)
         .fixedSize(horizontal: false, vertical: true)
         .glassEffect(
-            .regular.tint(Color(nsColor: .controlBackgroundColor).opacity(0.28)),
+            .regular.tint(Color(nsColor: .controlBackgroundColor).opacity(0.72)),
             in: RoundedRectangle(cornerRadius: 28)
         )
         .overlay {

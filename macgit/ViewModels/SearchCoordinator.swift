@@ -36,7 +36,7 @@ final class SearchCoordinator: ObservableObject {
         self.selectedFilter = selectedFilter
         
         $query
-            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .debounce(for: .milliseconds(800), scheduler: DispatchQueue.main)
             .removeDuplicates()
             .sink { [weak self] query in
                 self?.performSearch(query: query)
