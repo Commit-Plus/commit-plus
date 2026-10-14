@@ -18,7 +18,7 @@
 
 import Foundation
 
-nonisolated struct PullRequestChangedFile: Identifiable, Equatable, Codable {
+nonisolated struct PullRequestChangedFile: Identifiable, Hashable, Codable {
     var id: String { "\(previousPath ?? "")->\(path)" }
 
     let path: String

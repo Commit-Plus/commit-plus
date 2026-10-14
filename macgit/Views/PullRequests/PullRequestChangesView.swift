@@ -85,57 +85,89 @@ struct PullRequestChangesView: View {
     }
 
     private var fileList: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text("\(files.count) file\(files.count == 1 ? "" : "s")")
-                    .font(.subheadline.scaled(by: textScale))
-                    .bold()
-                Spacer()
-                Button("Refresh changes", systemImage: "arrow.clockwise", action: onRefresh)
-                    .buttonStyle(.borderless)
-                    .labelStyle(.iconOnly)
-                    .disabled(isLoading)
-                    .help("Refresh changes")
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(Color(nsColor: .controlBackgroundColor))
-
-            Divider()
-
+        FilePathListView(items: files, path: \.path) {
+            Text("Files")
+                .font(.subheadline.scaled(by: textScale))
+                .bold()
+            Text("\(files.count)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+        } trailing: {
+            Button("Refresh changes", systemImage: "arrow.clockwise", action: onRefresh)
+                .buttonStyle(.borderless)
+                .labelStyle(.iconOnly)
+                .disabled(isLoading)
+                .help("Refresh changes")
+        } plainContent: {
             List(selection: $selectedFileID) {
                 ForEach(files) { file in
-                    HStack(spacing: 8) {
-                        Text(statusSymbol(for: file.status))
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(statusColor(for: file.status))
-                            .frame(width: 16)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(URL(fileURLWithPath: file.path).lastPathComponent)
-                                .font(.system(size: 12, weight: .medium).scaled(by: textScale))
-                                .lineLimit(1)
-                            Text(directory(for: file.path))
-                                .font(.system(size: 10).scaled(by: textScale))
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
-                        }
-
-                        Spacer(minLength: 4)
-
-                        if let additions = file.additions,
-                           let deletions = file.deletions {
-                            Text("+\(additions) −\(deletions)")
-                                .font(.system(size: 10, design: .monospaced).scaled(by: textScale))
+                    fileRow(file)
+                        .tag(file.id)
+                }
+            }
+            .listStyle(.inset)
+        } treeContent: { rows, toggleFolder in
+            List(selection: $selectedFileID) {
+                ForEach(rows) { row in
+                    Group {
+                        switch row.content {
+                        case .folder(let path, let name, _, let isExpanded):
+                            Button {
+                                toggleFolder(path)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                                    Image(systemName: "folder")
+                                    Text(name)
+                                        .lineLimit(1)
+                                }
+                                .font(.system(size: 12).scaled(by: textScale))
                                 .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        case .file(let file, _):
+                            fileRow(file, showsDirectory: false)
+                                .tag(file.id)
                         }
                     }
-                    .padding(.vertical, 2)
-                    .tag(file.id)
+                    .padding(.leading, CGFloat(row.depth) * 14)
                 }
             }
             .listStyle(.inset)
         }
+    }
+
+    private func fileRow(_ file: PullRequestChangedFile, showsDirectory: Bool = true) -> some View {
+        HStack(spacing: 8) {
+            Text(statusSymbol(for: file.status))
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(statusColor(for: file.status))
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(URL(fileURLWithPath: file.path).lastPathComponent)
+                    .font(.system(size: 12, weight: .medium).scaled(by: textScale))
+                    .lineLimit(1)
+                if showsDirectory {
+                    Text(directory(for: file.path))
+                        .font(.system(size: 10).scaled(by: textScale))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 4)
+
+            if let additions = file.additions,
+               let deletions = file.deletions {
+                Text("+\(additions) −\(deletions)")
+                    .font(.system(size: 10, design: .monospaced).scaled(by: textScale))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
     }
 
     @ViewBuilder
