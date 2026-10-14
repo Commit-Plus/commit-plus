@@ -84,20 +84,11 @@ struct PullRequestDraftChangesView: View {
         GeometryReader { geometry in
             let availableWidth = max(0, geometry.size.width - 6)
             HStack(spacing: 0) {
-                VStack(spacing: 0) {
-                    HStack {
-                        Text("\(changes.count) file\(changes.count == 1 ? "" : "s")")
-                            .font(.subheadline)
-                            .bold()
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .background(Color(nsColor: .controlBackgroundColor))
-
-                    Divider()
-                    CommitFileListView(changes: changes, selectedFile: $selectedFile)
-                }
+                CommitFileListView(
+                    changes: changes,
+                    selectedFile: $selectedFile,
+                    showsLayoutControls: true
+                )
                 .frame(width: CGFloat(fileListWidth))
 
                 ColumnResizer(

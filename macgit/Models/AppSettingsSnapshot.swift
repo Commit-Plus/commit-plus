@@ -18,6 +18,20 @@
 
 import Foundation
 
+enum FileListMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case list
+    case tree
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .list: "Plain list"
+        case .tree: "Tree"
+        }
+    }
+}
+
 struct AppSettingsSnapshot: Codable, Equatable, Sendable {
     let schemaVersion: Int
     var appearance: AppAppearance
@@ -44,6 +58,7 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
     var historyIncludeRemotes: Bool
     var autoFetchEnabled: Bool
     var refreshOnAppActive: Bool
+    var fileListMode: FileListMode
     var diffFontName: String
     var diffFontSize: Double
     var diffAddedBackgroundColor: String
@@ -77,6 +92,7 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         historyIncludeRemotes: Bool = false,
         autoFetchEnabled: Bool = false,
         refreshOnAppActive: Bool = true,
+        fileListMode: FileListMode = .list,
         diffFontName: String = "Menlo-Regular",
         diffFontSize: Double = 12,
         diffAddedBackgroundColor: String = "#00A6661F",
@@ -110,6 +126,7 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         self.historyIncludeRemotes = historyIncludeRemotes
         self.autoFetchEnabled = autoFetchEnabled
         self.refreshOnAppActive = refreshOnAppActive
+        self.fileListMode = fileListMode
         self.diffFontName = diffFontName
         self.diffFontSize = diffFontSize
         self.diffAddedBackgroundColor = diffAddedBackgroundColor
@@ -146,6 +163,7 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         historyIncludeRemotes = try container.decode(Bool.self, forKey: .historyIncludeRemotes)
         autoFetchEnabled = try container.decode(Bool.self, forKey: .autoFetchEnabled)
         refreshOnAppActive = try container.decode(Bool.self, forKey: .refreshOnAppActive)
+        fileListMode = try container.decodeIfPresent(FileListMode.self, forKey: .fileListMode) ?? .list
         diffFontName = try container.decodeIfPresent(String.self, forKey: .diffFontName) ?? "Menlo-Regular"
         diffFontSize = try container.decodeIfPresent(Double.self, forKey: .diffFontSize) ?? 12
         diffAddedBackgroundColor = try container.decodeIfPresent(

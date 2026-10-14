@@ -96,6 +96,19 @@ struct GeneralSettingsView: View {
             }
 
             Section {
+                Picker("File display", selection: $appState.fileListMode) {
+                    ForEach(FileListMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+            } header: {
+                Label("File Lists", systemImage: "list.bullet.indent")
+            } footer: {
+                Text("Controls the Staged, Changed, and commit file lists.")
+            }
+
+            Section {
                 SettingsToggleRow(
                     title: "Auto fetch",
                     detail: "Periodically fetch repositories that use the global setting.",
@@ -152,6 +165,7 @@ struct GeneralSettingsView: View {
         appState.showSubmodules = false
         appState.showSubtrees = false
         appState.historyIncludeRemotes = false
+        appState.fileListMode = .list
         appState.autoFetchEnabled = false
         appState.refreshOnAppActive = true
     }

@@ -124,7 +124,8 @@ extension MainWindowView {
                     createPullRequestWindow.close()
                 },
                 onCreate: { await submitCreatePullRequest($0) }
-            ),
+            )
+            .environmentObject(appState),
             onClose: { pullRequestController.dismissCreatePullRequest() }
         )
     }

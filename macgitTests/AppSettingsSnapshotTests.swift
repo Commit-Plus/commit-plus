@@ -81,6 +81,7 @@ final class AppSettingsSnapshotTests: XCTestCase {
                 "historyIncludeRemotes",
                 "autoFetchEnabled",
                 "refreshOnAppActive",
+                "fileListMode",
                 "diffFontName",
                 "diffFontSize",
                 "diffAddedBackgroundColor",

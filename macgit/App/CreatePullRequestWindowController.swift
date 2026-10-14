@@ -25,7 +25,7 @@ final class CreatePullRequestWindowController: NSWindowController, NSWindowDeleg
         let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)
         let size = NSSize(
             width: min(1080, visibleFrame.width - 40),
-            height: min(720, visibleFrame.height - 80)
+            height: min(800, visibleFrame.height - 80)
         )
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
@@ -36,12 +36,16 @@ final class CreatePullRequestWindowController: NSWindowController, NSWindowDeleg
         window.title = "Create Pull Request — \(repositoryName)"
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        window.contentMinSize = NSSize(width: min(820, size.width), height: min(520, size.height))
         window.delegate = self
 
-        let hostingView = NSHostingView(rootView: content)
+        let hostingView = NSHostingView(rootView: GeometryReader { geometry in
+            content
+                .frame(width: geometry.size.width, height: geometry.size.height)
+        })
+        // Window geometry owns the viewport, including the embedded split views.
         hostingView.sizingOptions = []
         window.contentView = hostingView
+        window.contentMinSize = NSSize(width: min(820, size.width), height: min(640, size.height))
         window.setContentSize(size)
         window.setFrameOrigin(NSPoint(
             x: visibleFrame.midX - window.frame.width / 2,

@@ -46,6 +46,7 @@ final class CloudSettingsDocumentTests: XCTestCase {
         historyIncludeRemotes: true,
         autoFetchEnabled: true,
         refreshOnAppActive: false,
+        fileListMode: .tree,
         diffFontName: "SFMono-Regular",
         diffFontSize: 14,
         diffAddedBackgroundColor: "#11223344",
@@ -88,6 +89,7 @@ final class CloudSettingsDocumentTests: XCTestCase {
                 "historyIncludeRemotes",
                 "autoFetchEnabled",
                 "refreshOnAppActive",
+                "fileListMode",
                 "diffFontName",
                 "diffFontSize",
                 "diffAddedBackgroundColor",
@@ -123,6 +125,7 @@ final class CloudSettingsDocumentTests: XCTestCase {
         XCTAssertEqual(document["historyIncludeRemotes"] as? Bool, true)
         XCTAssertEqual(document["autoFetchEnabled"] as? Bool, true)
         XCTAssertEqual(document["refreshOnAppActive"] as? Bool, false)
+        XCTAssertEqual(document["fileListMode"] as? String, "tree")
         XCTAssertEqual(document["diffFontName"] as? String, "SFMono-Regular")
         XCTAssertEqual(document["diffFontSize"] as? Double, 14)
         XCTAssertEqual(document["diffAddedBackgroundColor"] as? String, "#11223344")
@@ -214,6 +217,22 @@ final class CloudSettingsDocumentTests: XCTestCase {
         let decoded = try CloudSettingsDocument.decode(document)
 
         XCTAssertEqual(decoded.appearance, .system)
+    }
+
+    func testDecodingDefaultsMissingFileListModeToList() throws {
+        var document = validDocument()
+        document.removeValue(forKey: "fileListMode")
+
+        let decoded = try CloudSettingsDocument.decode(document)
+
+        XCTAssertEqual(decoded.fileListMode, .list)
+    }
+
+    func testDecodingRejectsInvalidFileListMode() {
+        var document = validDocument()
+        document["fileListMode"] = "columns"
+
+        XCTAssertThrowsError(try CloudSettingsDocument.decode(document))
     }
 
     func testDecodingDefaultsMissingDiffSettings() throws {
