@@ -20,7 +20,9 @@ import SwiftUI
 struct BranchForcePushConfirmationSheet: View {
     @Environment(\.dismiss) private var dismiss
     let plan: BranchForcePushPlan
-    let onConfirm: () -> Void
+    let onConfirm: @MainActor () async throws -> Void
+    @State private var isPushing = false
+    @State private var errorMessage: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -34,18 +36,32 @@ struct BranchForcePushConfirmationSheet: View {
             }
             Text("If the remote changes before the push completes, the push will be rejected. Server branch protection still applies.")
                 .foregroundStyle(.secondary)
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.red).textSelection(.enabled)
+            }
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .disabled(isPushing)
+                if isPushing { ProgressView().controlSize(.small) }
                 Button("Force Push", role: .destructive) {
-                    dismiss()
-                    onConfirm()
+                    guard !isPushing else { return }
+                    isPushing = true
+                    errorMessage = nil
+                    Task {
+                        defer { isPushing = false }
+                        do { try await onConfirm(); dismiss() }
+                        catch { errorMessage = error.localizedDescription }
+                    }
                 }
+                .disabled(isPushing)
             }
         }
         .padding(24)
         .frame(width: 480)
         .fixedSize(horizontal: false, vertical: true)
+        .interactiveDismissDisabled(isPushing)
     }
 }

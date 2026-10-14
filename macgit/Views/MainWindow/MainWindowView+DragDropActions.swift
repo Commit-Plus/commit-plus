@@ -41,19 +41,13 @@ extension MainWindowView {
                 await checkoutRemoteBranchFromDrop(fullPath)
             }
         case .createTagFromBranch(let sourceBranch):
-            Task {
-                await presentTagSheetFromBranchTip(sourceBranch)
-            }
+            presentTagSheetFromBranchTip(sourceBranch)
         case .createTagFromCommit(let commit):
             presentTagSheetFromCommit(commit)
         case .moveTag(let tagName, let commit):
-            Task {
-                await presentTagMoveConfirmation(tagName: tagName, commit: commit)
-            }
+            presentTagMoveConfirmation(tagName: tagName, commit: commit)
         case .pushBranchToRemote(let branch):
-            Task {
-                await presentPushBranchDropConfirmation(branch)
-            }
+            presentPushBranchDropConfirmation(branch)
         case .stashFiles(let paths):
             handleStashFilesDrop(paths: paths)
         case .applyStash(let ref):
@@ -115,28 +109,12 @@ extension MainWindowView {
         case .commit:
             presentBranchSheet(startPoint: startPoint)
         case .branch(let sourceBranch):
-            Task {
-                await presentBranchSheetFromBranchTip(sourceBranch)
-            }
+            presentBranchSheetFromBranchTip(sourceBranch)
         }
     }
 
-    func presentBranchSheetFromBranchTip(_ sourceBranch: String) async {
-        let commits = await GitStatusService.shared.commitHistory(
-            branch: sourceBranch,
-            limit: 1,
-            in: repositoryURL
-        )
-
-        await MainActor.run {
-            if let commit = commits.first {
-                presentBranchSheet(
-                    startPoint: .commit(hash: commit.hash, message: commit.message)
-                )
-            } else {
-                syncState.showError("Could not find the last commit for \(sourceBranch).")
-            }
-        }
+    func presentBranchSheetFromBranchTip(_ sourceBranch: String) {
+        presentBranchSheet(startPoint: .branch(sourceBranch))
     }
 
     func initializeSubmodule(at path: String) async {
@@ -181,19 +159,17 @@ extension MainWindowView {
         }
     }
 
-    func presentPushBranchDropConfirmation(_ branch: String) async {
-        let remotes = await GitStatusService.shared.remotes(in: repositoryURL)
-        await MainActor.run {
-            guard let remote = remotes.first(where: { $0 == "origin" }) ?? remotes.first else {
-                syncState.showError("No remotes configured.")
-                return
-            }
+    func presentPushBranchDropConfirmation(_ branch: String) {
+        pendingPushBranchDropConfirmation = RepositorySheetRequest(input: branch)
+    }
 
-            pendingPushBranchDropConfirmation = PendingPushBranchDropConfirmation(
-                branch: branch,
-                remote: remote
-            )
+    func loadPushBranchDropConfirmation(_ branch: String) async throws -> PendingPushBranchDropConfirmation {
+        let remotes = await GitStatusService.shared.remotes(in: repositoryURL)
+        try Task.checkCancellation()
+        guard let remote = remotes.first(where: { $0 == "origin" }) ?? remotes.first else {
+            throw GitError.commandFailed("No remotes configured.")
         }
+        return PendingPushBranchDropConfirmation(branch: branch, remote: remote)
     }
 
     func performConfirmedBranchPush(_ confirmation: PendingPushBranchDropConfirmation) async {

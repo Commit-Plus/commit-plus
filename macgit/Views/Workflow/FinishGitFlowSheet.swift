@@ -26,6 +26,7 @@ struct FinishGitFlowSheet: View {
     let onValidateTag: @MainActor (String) async -> String?
     let onFinish: @MainActor (GitFlowFinishPlan) async -> Bool
 
+    @State private var isFinishing = false
     @State private var strategy: GitFlowTopicFinishStrategy
     @State private var createTag: Bool
     @State private var tagName: String
@@ -83,6 +84,8 @@ struct FinishGitFlowSheet: View {
                 Spacer()
                 Button("Cancel", role: .cancel, action: dismiss.callAsFunction)
                     .keyboardShortcut(.cancelAction)
+                    .disabled(isFinishing)
+                if isFinishing { ProgressView().controlSize(.small) }
                 Button("Finish \(initialPlan.kind.displayName)", action: finish)
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(GlassProminentButtonStyle(tint: .accentColor, fontSize: 13))
@@ -91,6 +94,7 @@ struct FinishGitFlowSheet: View {
         }
         .padding(24)
         .frame(minWidth: 500, idealWidth: 540)
+        .interactiveDismissDisabled(isFinishing)
         .task(id: tagValidationKey) {
             await validateTagIfNeeded()
         }
@@ -187,9 +191,9 @@ struct FinishGitFlowSheet: View {
     }
 
     private var isFinishDisabled: Bool {
-        initialPlan.kind.requiresReleaseTag
+        isFinishing || (initialPlan.kind.requiresReleaseTag
             && createTag
-            && (isValidatingTag || tagValidationMessage != nil)
+            && (isValidatingTag || tagValidationMessage != nil))
     }
 
     private func validateTagIfNeeded() async {
@@ -199,11 +203,15 @@ struct FinishGitFlowSheet: View {
             return
         }
         isValidatingTag = true
-        tagValidationMessage = await onValidateTag(tagName)
+        let message = await onValidateTag(tagName)
+        guard !Task.isCancelled else { return }
+        tagValidationMessage = message
         isValidatingTag = false
     }
 
     private func finish() {
+        guard !isFinishing else { return }
+        isFinishing = true
         let shouldCreateTag = initialPlan.kind.requiresReleaseTag && createTag
         let plan = GitFlowFinishPlan(
             kind: initialPlan.kind,
@@ -218,8 +226,10 @@ struct FinishGitFlowSheet: View {
             strategy: initialPlan.kind.requiresReleaseTag ? .mergeNoFastForward : strategy
         )
         onRunRepositoryOperation("Finishing \(plan.sourceBranch)…") {
-            if await onFinish(plan) {
-                await MainActor.run { dismiss() }
+            let succeeded = await onFinish(plan)
+            await MainActor.run {
+                isFinishing = false
+                if succeeded { dismiss() }
             }
         }
     }

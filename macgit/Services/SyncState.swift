@@ -810,14 +810,16 @@ class SyncState: ObservableObject {
         }
     }
 
+    @discardableResult
     func performCommit(
         message: String,
         repositoryURL: URL,
         undoManager: GitUndoManager? = nil,
         noVerify: Bool = false,
         signOff: Bool = false,
-        commitAllChanges: Bool = false
-    ) async {
+        commitAllChanges: Bool = false,
+        onError: (@MainActor (String) -> Void)? = nil
+    ) async -> Bool {
         await MainActor.run { isCommitting = true }
         defer { Task { @MainActor in isCommitting = false } }
         do {
@@ -848,8 +850,11 @@ class SyncState: ObservableObject {
             }
             await refresh(repositoryURL: repositoryURL)
             notifyRepositoryChanged(repositoryURL)
+            return true
         } catch {
-            showError(error.localizedDescription)
+            if let onError { onError(error.localizedDescription) }
+            else { showError(error.localizedDescription) }
+            return false
         }
     }
 

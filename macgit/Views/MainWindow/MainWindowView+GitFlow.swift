@@ -76,31 +76,23 @@ extension MainWindowView {
     }
 
     func requestPresentGitFlowSettings() {
-        Task {
-            guard await authorizeGitFlowAccess() else { return }
-            await MainActor.run {
-                initiallySelectGitFlowSettings = true
-                presentRepositorySettingsWindow()
-            }
-        }
+        initiallySelectGitFlowSettings = true
+        presentRepositorySettingsWindow()
     }
 
     func requestStartGitFlow(_ kind: GitFlowTopicKind) {
-        Task {
-            guard await authorizeGitFlowAccess() else { return }
-            await MainActor.run {
-                if gitFlowConfiguration.isEnabled {
-                    pendingGitFlowTopicKind = kind
-                } else {
-                    initiallySelectGitFlowSettings = true
-                    presentRepositorySettingsWindow()
-                }
-            }
+        if gitFlowConfiguration.isEnabled {
+            pendingGitFlowTopicKind = kind
+        } else {
+            requestPresentGitFlowSettings()
         }
     }
 
     func startGitFlow(_ plan: GitFlowStartPlan, openAfterCreate: Bool) async -> Bool {
-        guard await authorizeGitFlowAccess() else { return false }
+        guard await authorizeGitFlowAccess(presentNotice: false) else {
+            syncState.showError("Git Flow access is unavailable for this repository.")
+            return false
+        }
         do {
             let result = try await GitFlowService().start(plan, in: repositoryURL)
             await MainActor.run {
@@ -179,32 +171,27 @@ extension MainWindowView {
     }
 
     func requestFinishGitFlow(_ kind: GitFlowTopicKind) {
-        Task {
-            guard await authorizeGitFlowAccess() else { return }
-            let currentBranch = await GitStatusService.shared.currentBranch(in: repositoryURL) ?? ""
-            do {
-                let worktrees = await GitStatusService.shared.worktrees(in: repositoryURL)
-                let localWorktree = worktrees.dropFirst().first {
-                    $0.path.standardizedFileURL == repositoryURL.standardizedFileURL && $0.branch == currentBranch
-                }
-                let plan = try GitFlowPlanner().finishPlan(
-                    kind: kind,
-                    currentBranch: currentBranch,
-                    configuration: gitFlowConfiguration,
-                    worktreePath: localWorktree?.path
-                )
-                await MainActor.run {
-                    gitFlowCurrentBranch = currentBranch
-                    pendingGitFlowFinishPlan = plan
-                }
-            } catch {
-                await MainActor.run { syncState.showError(error.localizedDescription) }
-            }
+        pendingGitFlowFinishPlan = RepositorySheetRequest(input: kind)
+    }
+
+    func loadGitFlowFinishPlan(_ kind: GitFlowTopicKind) async throws -> GitFlowFinishPlan {
+        let currentBranch = await GitStatusService.shared.currentBranch(in: repositoryURL) ?? ""
+        let worktrees = await GitStatusService.shared.worktrees(in: repositoryURL)
+        try Task.checkCancellation()
+        let localWorktree = worktrees.dropFirst().first {
+            $0.path.standardizedFileURL == repositoryURL.standardizedFileURL && $0.branch == currentBranch
         }
+        return try GitFlowPlanner().finishPlan(
+            kind: kind, currentBranch: currentBranch, configuration: gitFlowConfiguration,
+            worktreePath: localWorktree?.path
+        )
     }
 
     func finishGitFlow(_ plan: GitFlowFinishPlan) async -> Bool {
-        guard await authorizeGitFlowAccess() else { return false }
+        guard await authorizeGitFlowAccess(presentNotice: false) else {
+            syncState.showError("Git Flow access is unavailable for this repository.")
+            return false
+        }
         do {
             let result = try await GitFlowService().finish(plan, in: repositoryURL)
             if await cleanUpFinishedGitFlowWorktree(result) { return true }

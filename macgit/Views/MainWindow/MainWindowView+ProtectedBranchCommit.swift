@@ -41,11 +41,10 @@ extension MainWindowView {
         )
     }
 
-    func performPendingToolbarCommit() {
-        guard let pending = pendingToolbarCommit else { return }
-        pendingToolbarCommit = nil
-        runRepositoryOperation("Committing changes...") {
-            await commitFromToolbar(message: pending.message, commitAllChanges: pending.commitAllChanges)
-        }
+    var protectedBranchWarningOutsideCommit: Binding<ProtectedBranchCommitController.Warning?> {
+        Binding(
+            get: { showingCommitSheet ? nil : protectedBranchCommitController.warning },
+            set: { protectedBranchCommitController.warning = $0 }
+        )
     }
 }

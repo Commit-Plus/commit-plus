@@ -88,6 +88,8 @@ struct CreatePullRequestWindowContent: View {
     let onCancel: () -> Void
     let onCreate: (PullRequestDraft) async -> Void
     @State private var isSubmitting = false
+    @State private var sourceBranchForChanges: String?
+    @State private var targetBranchForChanges: String?
 
     var body: some View {
         CreatePullRequestView(
@@ -109,17 +111,8 @@ struct CreatePullRequestWindowContent: View {
             onGenerateText: onGenerateText,
             onCancel: onCancel,
             onBranchesChanged: { sourceBranch, targetBranch in
-                Task {
-                    guard await authorizeAction() else { return }
-                    if let targetBranch {
-                        await controller.loadCreateDraftChanges(
-                            sourceBranch: sourceBranch,
-                            targetBranch: targetBranch
-                        )
-                    } else {
-                        controller.resetCreateDraftChanges()
-                    }
-                }
+                sourceBranchForChanges = sourceBranch
+                targetBranchForChanges = targetBranch
             },
             onCreate: { draft in
                 guard !isSubmitting else { return }
@@ -132,6 +125,19 @@ struct CreatePullRequestWindowContent: View {
             isPresentedInWindow: true,
             cancelRequestID: windowController.cancelRequestID
         )
+        .task(id: [sourceBranchForChanges, targetBranchForChanges]) {
+            guard let sourceBranch = sourceBranchForChanges else { return }
+            guard await authorizeAction(), !Task.isCancelled else { return }
+            if let targetBranch = targetBranchForChanges {
+                await controller.loadCreateDraftChanges(sourceBranch: sourceBranch, targetBranch: targetBranch)
+            } else {
+                controller.resetCreateDraftChanges()
+            }
+        }
+        .task {
+            guard await authorizeAction(), !Task.isCancelled else { return }
+            await controller.loadCreateDraftParticipants()
+        }
         .overlay {
             if isSubmitting || controller.isPerformingAction {
                 ZStack {
