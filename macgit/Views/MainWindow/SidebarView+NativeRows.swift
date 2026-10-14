@@ -83,19 +83,20 @@ extension SidebarView {
                 let sync = SidebarBranchSyncBadgeResolver.status(for: item.fullPath, currentBranch: currentBranch,
                     branchSyncStatus: branchSyncStatus, currentBranchFallbackSyncStatus: currentBranchFallbackSyncStatus)
                 var badges: [String] = []
-                if let role = GitFlowBranchRoleResolver().role(for: item.fullPath, configuration: gitFlowConfiguration) { badges.append(role.rawValue) }
+                let role = GitFlowBranchRoleResolver().role(for: item.fullPath, configuration: gitFlowConfiguration)
                 if let sync {
                     if sync.ahead > 0 { badges.append("↑\(sync.ahead)") }
                     if sync.behind > 0 { badges.append("↓\(sync.behind)") }
                 }
                 if current { badges.append("HEAD") }
                 var row = SidebarNativeRow(id: .init(section: .branches, kind: "ref", key: item.fullPath),
-                    appearance: .init(title: item.name, icon: current ? "circle.fill" : "", badge: badges.joined(separator: "  "), indent: item.indent, emphasized: current),
+                    appearance: .init(title: item.name, icon: current ? "circle.fill" : "", badge: badges.joined(separator: "  "), gitFlowRole: role, indent: item.indent, emphasized: current),
                     selection: .branch(item.fullPath), select: { branchSectionActions.select(.branch(item.fullPath)) },
                     activate: { if !current { branchSectionActions.checkout(item.fullPath) } },
                     menu: { nativeBranchMenu(item.fullPath) },
                     payload: { GitDragPayload.branch(item.fullPath, repositoryURL: repositoryURL) },
                     dropTarget: .localBranch(name: item.fullPath, isCurrent: current))
+                row.appearance.gitFlowRoleDisplayMode = gitFlowRoleDisplayMode
                 if current, let status = currentBranchIntegrationStatus, status.predictsBaseConflict {
                     row.appearance.accessory = "exclamationmark.triangle.fill"
                     row.appearance.accessoryLabel = "Current branch integration status"

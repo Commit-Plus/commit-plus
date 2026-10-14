@@ -957,6 +957,7 @@ struct MainWindowView: View {
             currentBranchFallbackSyncStatus: currentBranchFallbackSyncStatus,
             defaultRemoteName: repoSettings.defaultRemoteName,
             isAccountMenuDisabled: operationProgress.activeOperation != nil,
+            gitFlowRoleDisplayMode: gitFlowConfiguration.roleDisplayMode,
             gitFlowConfiguration: gitFlowConfiguration,
             gitFlowFinishCheckpoint: gitFlowFinishCheckpoint,
             gitFlowRecoveryIssue: gitFlowRecoveryIssue,

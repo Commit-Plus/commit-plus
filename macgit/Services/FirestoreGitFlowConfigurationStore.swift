@@ -29,6 +29,7 @@ enum GitFlowCloudConfigurationDocumentError: LocalizedError {
 
 enum GitFlowCloudConfigurationDocument {
     private static let allowedKeys: Set<String> = [
+        "roleDisplayMode",
         "schemaVersion",
         "canonicalKey",
         "isEnabled",
@@ -49,6 +50,7 @@ enum GitFlowCloudConfigurationDocument {
         updatedAt: Any
     ) -> [String: Any] {
         [
+            "roleDisplayMode": configuration.roleDisplayMode.rawValue,
             "schemaVersion": GitFlowCloudConfiguration.schemaVersion,
             "canonicalKey": configuration.canonicalKey,
             "isEnabled": configuration.isEnabled,
@@ -67,7 +69,8 @@ enum GitFlowCloudConfigurationDocument {
 
     static func decode(_ data: [String: Any]?) throws -> GitFlowCloudConfiguration {
         guard let data,
-              Set(data.keys) == allowedKeys,
+              Set(data.keys).isSubset(of: allowedKeys),
+              Set(data.keys).isSuperset(of: allowedKeys.subtracting(["roleDisplayMode"])),
               let schemaVersion = data["schemaVersion"] as? Int,
               schemaVersion == GitFlowCloudConfiguration.schemaVersion,
               let canonicalKey = data["canonicalKey"] as? String,
@@ -89,6 +92,16 @@ enum GitFlowCloudConfigurationDocument {
             throw GitFlowCloudConfigurationDocumentError.invalidDocument
         }
 
+        let roleDisplayMode: GitFlowRoleDisplayMode
+        if let rawValue = data["roleDisplayMode"] {
+            guard let value = rawValue as? String, let mode = GitFlowRoleDisplayMode(rawValue: value) else {
+                throw GitFlowCloudConfigurationDocumentError.invalidDocument
+            }
+            roleDisplayMode = mode
+        } else {
+            roleDisplayMode = .full
+        }
+
         return GitFlowCloudConfiguration(
             canonicalKey: canonicalKey,
             isEnabled: isEnabled,
@@ -100,7 +113,8 @@ enum GitFlowCloudConfigurationDocument {
             hotfixPrefix: hotfixPrefix,
             topicFinishStrategy: topicFinishStrategy,
             createReleaseTagOnFinish: createReleaseTagOnFinish,
-            createHotfixTagOnFinish: createHotfixTagOnFinish
+            createHotfixTagOnFinish: createHotfixTagOnFinish,
+            roleDisplayMode: roleDisplayMode
         )
     }
 }
