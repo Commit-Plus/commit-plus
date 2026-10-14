@@ -170,8 +170,10 @@ final class HistoryCommitTableController: NSObject, NSTableViewDataSource, NSTab
     private func scroll(to y: CGFloat) {
         guard let scroll = tableView.enclosingScrollView else { return }
         let clip = scroll.contentView
-        let maximum = max(0, tableView.bounds.height - clip.bounds.height)
-        clip.scroll(to: NSPoint(x: clip.bounds.minX, y: min(maximum, max(0, y))))
+        var proposedBounds = clip.bounds
+        proposedBounds.origin.y = y
+        let constrainedBounds = clip.constrainBoundsRect(proposedBounds)
+        clip.scroll(to: constrainedBounds.origin)
         scroll.reflectScrolledClipView(clip)
     }
     func loadMoreIfNeeded() {
@@ -211,6 +213,14 @@ final class HistoryCommitTableController: NSObject, NSTableViewDataSource, NSTab
             return cell
         }
     }
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        let identifier = NSUserInterfaceItemIdentifier("HistoryCommitRow")
+        let view = tableView.makeView(withIdentifier: identifier, owner: self) as? HistoryCommitRowView
+            ?? HistoryCommitRowView()
+        view.identifier = identifier
+        return view
+    }
+
     func tableView(_ tableView: NSTableView, didAdd rowView: NSTableRowView, forRow row: Int) {
         rowView.alphaValue = rows.commits.indices.contains(row) && appliedDragActive.contains(rows.commits[row].hash) ? 0.4 : 1
     }

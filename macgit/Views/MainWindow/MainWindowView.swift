@@ -1367,7 +1367,11 @@ struct MainWindowView: View {
             case .item(.pullRequests):
                 EmptyView()
             case .stash(let ref):
-                StashView(repositoryURL: repositoryURL, stashRef: ref)
+                StashView(
+                    repositoryURL: repositoryURL,
+                    stashRef: ref,
+                    isWorkSuspended: pendingStashRef != nil && pendingStashAction != nil
+                )
             case .submodule(let path):
                 SubmoduleDetailPlaceholderView {
                     openWorktreeInNewWindow(
@@ -1485,7 +1489,8 @@ struct MainWindowView: View {
         HistoryScreen(
             repositoryURL: repositoryURL,
             isActive: isHistoryActive,
-            isWorkSuspended: showingCheckoutConfirmation || pendingRemoteBranchCheckout != nil,
+            isWorkSuspended: showingCheckoutConfirmation || pendingRemoteBranchCheckout != nil
+                || showingDetachedHeadConfirmation || pendingHistoryCheckout != nil,
             selectedBranch: selectedBranchName,
             branchFilter: $appState.historyBranchFilter,
             includeRemotes: $appState.historyIncludeRemotes,
