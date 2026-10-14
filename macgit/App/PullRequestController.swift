@@ -111,7 +111,7 @@ final class PullRequestController: ObservableObject {
     private var activeRemoteURLString: String?
     private var activeToken: GitProviderToken?
     private let pullRequestPageSize = 30
-    private let listCacheTTL: TimeInterval = 120
+    private let listCacheTTL: TimeInterval = 60
     private let detailCacheTTL: TimeInterval = 300
     private let changesCacheTTL: TimeInterval = 300
     private let commentRefreshAttempts = 3
@@ -477,6 +477,8 @@ final class PullRequestController: ObservableObject {
             displayedPage = cached.value
             displayedListKey = cacheKey
             hasLoadedList = true
+            if !forceRefresh, cached.expiresAt > .now,
+               cached.fetchedAt.addingTimeInterval(listCacheTTL) > .now { return }
         }
         guard listLoadID == loadID, !Task.isCancelled else { return }
 
