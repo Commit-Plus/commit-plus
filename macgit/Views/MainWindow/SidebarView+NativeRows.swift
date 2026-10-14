@@ -93,6 +93,7 @@ extension SidebarView {
                     appearance: .init(title: item.name, icon: current ? "circle.fill" : "", badge: badges.joined(separator: "  "), indent: item.indent, emphasized: current),
                     selection: .branch(item.fullPath), select: { branchSectionActions.select(.branch(item.fullPath)) },
                     activate: { if !current { branchSectionActions.checkout(item.fullPath) } },
+                    defersPrimarySelection: !current,
                     menu: { nativeBranchMenu(item.fullPath) },
                     payload: { GitDragPayload.branch(item.fullPath, repositoryURL: repositoryURL) },
                     dropTarget: .localBranch(name: item.fullPath, isCurrent: current))
@@ -150,6 +151,7 @@ extension SidebarView {
                     appearance: .init(title: item.name, indent: item.indent), selection: .remoteBranch(item.fullPath),
                     select: { remoteSectionActions.select(.remoteBranch(item.fullPath)) },
                     activate: { if !symbolic { remoteSectionActions.checkoutFromRow(item.fullPath) } },
+                    defersPrimarySelection: !symbolic,
                     menu: { nativeRemoteMenu(item.fullPath) },
                     payload: symbolic ? nil : { GitDragPayload.remoteBranch(item.fullPath, repositoryURL: repositoryURL) }))
             }

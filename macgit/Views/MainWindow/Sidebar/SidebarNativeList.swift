@@ -30,6 +30,7 @@ struct SidebarNativeRow {
     var selection: SidebarSelection?
     var select: (() -> Void)?
     var activate: (() -> Void)?
+    var defersPrimarySelection = false
     var menu: (() -> NSMenu)?
     var accessory: ((NSView) -> Void)?
     var payload: (() -> GitDragPayload)?
@@ -95,6 +96,7 @@ struct SidebarNativeList: NSViewRepresentable {
         if let payload = coordinator.dragPayload { GitDragPayloadStore.clear(ifMatching: payload) }
         coordinator.dragPayload = nil
         coordinator.incomingPayload = nil
+        coordinator.cancelPendingSelection()
         coordinator.table?.delegate = nil
         coordinator.table?.dataSource = nil
         coordinator.table?.owner = nil
@@ -109,6 +111,7 @@ struct SidebarNativeList: NSViewRepresentable {
         var installed = false
         var updating = false
         var mouseSelection = false
+        private var pendingSelection: Task<Void, Never>?
         var keyboardFocusID: SidebarNativeRow.ID?
         var dragPayload: GitDragPayload?
         var pasteboardKey: String?
@@ -124,6 +127,7 @@ struct SidebarNativeList: NSViewRepresentable {
             guard let table else { return }
             if parent.selection != next.selection || parent.repositoryURL != next.repositoryURL { keyboardFocusID = nil }
             let repositoryChanged = parent.repositoryURL != next.repositoryURL
+            if repositoryChanged || parent.selection != next.selection { cancelPendingSelection() }
             let scaleChanged = parent.textScale != next.textScale
             let contentChanged = !installed || repositoryChanged || parent.input != next.input
             if !contentChanged && !scaleChanged {
@@ -260,8 +264,34 @@ struct SidebarNativeList: NSViewRepresentable {
                 rows[row].select?()
             }
         }
+        func cancelPendingSelection() {
+            pendingSelection?.cancel()
+            pendingSelection = nil
+        }
         func completePrimaryClick(row: Int, clickCount: Int) {
             guard rows.indices.contains(row) else { return }
+            cancelPendingSelection()
+            if rows[row].defersPrimarySelection {
+                if clickCount == 2 {
+                    rows[row].activate?()
+                } else if clickCount == 1 {
+                    let id = rows[row].id
+                    let repository = parent.repositoryURL
+                    let interval = NSEvent.doubleClickInterval
+                    pendingSelection = Task { @MainActor [weak self] in
+                        do { try await Task.sleep(for: .seconds(interval)) }
+                        catch { return }
+                        guard let self, !Task.isCancelled,
+                              self.parent.repositoryURL == repository,
+                              let index = self.indices[id] else { return }
+                        self.pendingSelection = nil
+                        self.mouseSelection = true
+                        self.mouseDown(row: index)
+                        self.mouseSelection = false
+                    }
+                }
+                return
+            }
             mouseSelection = true
             mouseDown(row: row)
             mouseSelection = false
@@ -380,7 +410,8 @@ struct SidebarNativeList: NSViewRepresentable {
     final class Table: NSTableView {
         weak var owner: Coordinator?
         override func menu(for event: NSEvent) -> NSMenu? {
-            owner?.menu(row: row(at: convert(event.locationInWindow, from: nil)))
+            owner?.cancelPendingSelection()
+            return owner?.menu(row: row(at: convert(event.locationInWindow, from: nil)))
         }
         override func draggingExited(_ sender: NSDraggingInfo?) {
             super.draggingExited(sender)
@@ -394,6 +425,7 @@ struct SidebarNativeList: NSViewRepresentable {
             if let sender { owner?.preserveCommitPreview(sender) }
         }
         override func mouseDown(with event: NSEvent) {
+            owner?.cancelPendingSelection()
             let hit = row(at: convert(event.locationInWindow, from: nil))
             if let owner, owner.rows.indices.contains(hit), owner.rows[hit].selection == nil {
                 let row = owner.rows[hit]
@@ -469,6 +501,7 @@ struct SidebarNativeList: NSViewRepresentable {
             }
         }
         override func keyDown(with event: NSEvent) {
+            owner?.cancelPendingSelection()
             guard let owner, owner.rows.indices.contains(selectedRow) else { super.keyDown(with: event); return }
             let row = owner.rows[selectedRow]
             if event.keyCode == 123 { // Collapse or focus the nearest parent disclosure.
