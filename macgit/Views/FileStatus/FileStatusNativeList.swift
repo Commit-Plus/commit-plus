@@ -101,16 +101,38 @@ struct FileStatusNativeList: NSViewRepresentable {
             let oldRows = rows
             let structureChanged = oldRows.map(\.file.id) != model.rows.map(\.file.id)
             rows = model.rows
-            if structureChanged || scaleChanged {
+            if scaleChanged {
                 let anchor = viewportAnchor(in: oldRows)
                 tableView.reloadData()
                 restoreViewport(anchor)
                 return
             }
+            if structureChanged {
+                let anchor = viewportAnchor(in: oldRows)
+                let diff = rows.map(\.file.id).difference(from: oldRows.map(\.file.id))
+                var removed = IndexSet(), inserted = IndexSet()
+                for change in diff {
+                    switch change {
+                    case .remove(let index, _, _): removed.insert(index)
+                    case .insert(let index, _, _): inserted.insert(index)
+                    }
+                }
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0
+                    tableView.beginUpdates()
+                    tableView.removeRows(at: removed, withAnimation: [])
+                    tableView.insertRows(at: inserted, withAnimation: [])
+                    tableView.endUpdates()
+                }
+                restoreViewport(anchor)
+            }
 
+            let previousRows = Dictionary(uniqueKeysWithValues: oldRows.map { ($0.file.id, $0) })
             var changed = IndexSet()
-            for index in rows.indices where rows[index] != oldRows[index] {
-                changed.insert(index)
+            for index in rows.indices {
+                if let previous = previousRows[rows[index].file.id], previous != rows[index] {
+                    changed.insert(index)
+                }
             }
             if !changed.isEmpty {
                 tableView.reloadData(forRowIndexes: changed, columnIndexes: IndexSet(integer: 0))

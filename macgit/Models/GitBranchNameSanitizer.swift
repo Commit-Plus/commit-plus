@@ -20,6 +20,34 @@ import Foundation
 
 enum GitBranchNameSanitizer {
     nonisolated static func sanitize(_ input: String) -> String {
-        input.split(whereSeparator: { $0.isWhitespace }).joined(separator: "-")
+        let forbidden = CharacterSet(charactersIn: "~^:?*[\\")
+            .union(.controlCharacters)
+        var name = input.split(whereSeparator: { $0.isWhitespace }).joined(separator: "-")
+        name = String(name.unicodeScalars.map { forbidden.contains($0) ? "-" : String($0) }.joined())
+        name = name.replacingOccurrences(of: "@{", with: "-")
+        while name.contains("..") {
+            name = name.replacingOccurrences(of: "..", with: "-")
+        }
+        // Branch names are stricter than refs: an initial dash is forbidden.
+        while name.hasPrefix("-") || name.hasPrefix("/") { name.removeFirst() }
+
+        // A slash separates ref components; each component has its own rules.
+        let components = name.split(separator: "/").compactMap { component -> String? in
+            var value = String(component)
+            while value.hasPrefix(".") { value.removeFirst() }
+            // Removing one suffix can expose another forbidden suffix.
+            while value.hasSuffix(".") || value.hasSuffix(".lock") {
+                if value.hasSuffix(".") {
+                    value.removeLast()
+                } else {
+                    value.removeLast(5)
+                }
+            }
+            return value.isEmpty ? nil : value
+        }
+        name = components.joined(separator: "/")
+        if name.hasPrefix("-") { return sanitize(name) }
+        if name == "@" || name == "HEAD" { name += "-branch" }
+        return name
     }
 }

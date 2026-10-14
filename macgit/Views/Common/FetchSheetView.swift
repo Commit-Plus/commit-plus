@@ -40,47 +40,58 @@ struct FetchSheetView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Toggle("Fetch from all remotes", isOn: $fetchAllRemotes)
-                        .font(.system(size: 13))
-                        .toggleStyle(.checkbox)
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Fetch Changes")
+                    .font(.title2)
+                    .bold()
+                Text("Download remote updates without changing your local branches.")
+                    .foregroundStyle(.secondary)
+            }
 
-                    Toggle("Prune tracking branches no longer present on remote(s)", isOn: $pruneBranches)
-                        .font(.system(size: 13))
-                        .toggleStyle(.checkbox)
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle("Fetch from all remotes", isOn: $fetchAllRemotes)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Prune deleted remote branches", isOn: $pruneBranches)
+                        Text("Remove remote-tracking references that no longer exist on the remote.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 20)
+                    }
 
                     Toggle("Fetch and store all tags locally", isOn: $fetchTags)
-                        .font(.system(size: 13))
-                        .toggleStyle(.checkbox)
                 }
-                .padding(12)
-                .background(.quaternary.opacity(0.3))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .toggleStyle(.checkbox)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            } label: {
+                Text("Options")
+                    .bold()
             }
-            .padding(24)
 
-            Spacer()
-
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 Spacer()
                 Button("Cancel", role: .cancel) {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
+                .buttonStyle(.bordered)
 
-                Button("OK") {
+                Button("Fetch") {
                     dismiss()
                     onFetch(fetchOptions)
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(GlassProminentButtonStyle(tint: .accentColor, fontSize: 13))
+                .buttonStyle(.borderedProminent)
             }
-            .padding([.horizontal, .bottom], 24)
         }
-        .frame(minWidth: 420, idealWidth: 420, maxWidth: 420)
-        .frame(minHeight: 200, idealHeight: 220)
+        .font(.body)
+        .controlSize(.regular)
+        .padding(24)
+        .frame(width: 480)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 

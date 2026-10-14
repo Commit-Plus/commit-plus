@@ -20,6 +20,7 @@ import MarkdownUI
 import SwiftUI
 
 struct PullRequestListView: View {
+    @EnvironmentObject private var appState: AppState
     @Environment(\.appTextScale) private var textScale
     @ObservedObject var controller: PullRequestController
     let repositoryURL: URL
@@ -29,16 +30,23 @@ struct PullRequestListView: View {
     var authorizeAction: () async -> Bool = { true }
     @State private var pendingCommentPullRequest: PullRequestSummary?
     @State private var selectedPullRequestID: Int?
+    @State private var detailWindowController = PullRequestDetailWindowController()
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
+            if controller.hasLoadedList, let error = controller.errorMessage {
+                Text(error)
+                    .font(.callout.scaled(by: textScale))
+                    .foregroundStyle(.secondary)
+                    .padding(8)
+            }
 
-            if controller.isLoading {
+            if controller.isLoading && !controller.hasLoadedList {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let errorMessage = controller.errorMessage {
+            } else if let errorMessage = controller.errorMessage, !controller.hasLoadedList {
                 VStack(spacing: 12) {
                     Text(errorMessage)
                         .font(.headline.scaled(by: textScale))
@@ -74,23 +82,6 @@ struct PullRequestListView: View {
                     .font(.body.scaled(by: textScale))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if selectedPullRequestID != nil {
-                PersistentHSplit(
-                    autosaveName: "PullRequestMainSplit",
-                    left: {
-                        pullRequestListPanel
-                    },
-                    right: {
-                        detailPanel
-                            .frame(
-                                minWidth: 680,
-                                idealWidth: 820,
-                                maxWidth: .infinity,
-                                maxHeight: .infinity,
-                                alignment: .top
-                            )
-                    }
-                )
             } else {
                 pullRequestListPanel
             }
@@ -118,7 +109,10 @@ struct PullRequestListView: View {
         } message: {
             Text(controller.detailErrorMessage ?? "Could not load pull request details.")
         }
-        .onDisappear { controller.releaseVisibleData() }
+        .onDisappear {
+            closeDetail()
+            controller.releaseVisibleData()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .advancedClearSessionCaches)) { _ in
             closeDetail()
             Task {
@@ -167,10 +161,26 @@ struct PullRequestListView: View {
                 )
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    selectedPullRequestID = item.id
-                    controller.clearSelectedDetail()
                     Task {
                         guard await authorizeAction() else { return }
+                        if selectedPullRequestID == item.id,
+                           detailWindowController.activateIfPresented() { return }
+                        detailWindowController.close()
+                        controller.clearSelectedDetail()
+                        selectedPullRequestID = item.id
+                        detailWindowController.show(
+                            title: "Pull Request #\(item.number) — \(repositoryURL.lastPathComponent)",
+                            content: PullRequestDetailWindowContent(
+                                controller: controller,
+                                selectedPullRequestID: item.id,
+                                authorizeAction: authorizeAction,
+                                onClose: closeDetail
+                            )
+                            .environmentObject(appState)
+                            .environment(\.appTextScale, textScale)
+                            .sheetPresentationScope(),
+                            onClose: closeDetail
+                        )
                         await controller.loadPullRequestDetail(item)
                     }
                 }
@@ -183,76 +193,15 @@ struct PullRequestListView: View {
         .frame(minWidth: 280, idealWidth: 360, maxWidth: .infinity)
     }
 
-    @ViewBuilder
-    private var detailPanel: some View {
-        if controller.isLoadingDetail,
-           controller.selectedDetail?.id != selectedPullRequestID {
-            ProgressView("Loading pull request…")
-                .font(.body.scaled(by: textScale))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let detail = controller.selectedDetail,
-                  detail.id == selectedPullRequestID {
-            PullRequestDetailPane(
-                detail: detail,
-                onClose: closeDetail,
-                onOpenPullRequest: {
-                    Task {
-                        guard await authorizeAction() else { return }
-                        controller.openInBrowser(detail.summary)
-                    }
-                },
-                isRefreshingDetail: controller.isLoadingDetail,
-                onRefreshDetail: {
-                    Task {
-                        guard await authorizeAction() else { return }
-                        await controller.loadPullRequestDetail(detail.summary, forceRefresh: true)
-                    }
-                },
-                isSubmittingComment: controller.isPerformingAction,
-                onSubmitComment: { body in
-                    Task {
-                        guard await authorizeAction() else { return }
-                        await controller.comment(on: detail.summary, body: body)
-                    }
-                },
-                changes: controller.selectedChanges,
-                isLoadingChanges: controller.isLoadingChanges,
-                changesErrorMessage: controller.changesErrorMessage,
-                onLoadChanges: {
-                    Task {
-                        guard await authorizeAction() else { return }
-                        await controller.loadPullRequestChanges(detail.summary)
-                    }
-                },
-                onRefreshChanges: {
-                    Task {
-                        guard await authorizeAction() else { return }
-                        await controller.loadPullRequestChanges(detail.summary, forceRefresh: true)
-                    }
-                },
-                isMerging: controller.isPerformingAction,
-                onMerge: {
-                    Task {
-                        guard await authorizeAction() else { return }
-                        await controller.merge(detail.summary)
-                    }
-                }
-            )
-        } else {
-            ProgressView("Loading pull request…")
-                .font(.body.scaled(by: textScale))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
     private func closeDetail() {
+        detailWindowController.close()
         selectedPullRequestID = nil
         controller.clearSelectedDetail()
     }
 
     private var detailErrorPresented: Binding<Bool> {
         Binding(
-            get: { controller.detailErrorMessage != nil },
+            get: { selectedPullRequestID == nil && controller.detailErrorMessage != nil },
             set: { isPresented in
                 if !isPresented {
                     controller.detailErrorMessage = nil
@@ -345,6 +294,101 @@ struct PullRequestListView: View {
         case .closed:
             "No closed pull requests"
         }
+    }
+}
+
+private struct PullRequestDetailWindowContent: View {
+    @Environment(\.appTextScale) private var textScale
+    @ObservedObject var controller: PullRequestController
+    let selectedPullRequestID: Int
+    let authorizeAction: () async -> Bool
+    let onClose: () -> Void
+
+    var body: some View {
+        detailPanel
+            .alert("Pull Request", isPresented: detailErrorPresented) {
+                Button("OK", role: .cancel) {
+                    controller.detailErrorMessage = nil
+                    if controller.selectedDetail == nil { onClose() }
+                }
+            } message: {
+                Text(controller.detailErrorMessage ?? "Could not load pull request details.")
+            }
+    }
+
+    @ViewBuilder
+    private var detailPanel: some View {
+        if controller.isLoadingDetail,
+           controller.selectedDetail?.id != selectedPullRequestID {
+            ProgressView("Loading pull request…")
+                .font(.body.scaled(by: textScale))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let detail = controller.selectedDetail,
+                  detail.id == selectedPullRequestID {
+            PullRequestDetailPane(
+                detail: detail,
+                onOpenPullRequest: {
+                    Task {
+                        guard await authorizeAction() else { return }
+                        controller.openInBrowser(detail.summary)
+                    }
+                },
+                isRefreshingDetail: controller.isLoadingDetail,
+                onRefreshDetail: {
+                    Task {
+                        guard await authorizeAction() else { return }
+                        await controller.loadPullRequestDetail(detail.summary, forceRefresh: true)
+                    }
+                },
+                isSubmittingComment: controller.isPerformingAction,
+                onSubmitComment: { body in
+                    Task {
+                        guard await authorizeAction() else { return }
+                        await controller.comment(on: detail.summary, body: body)
+                    }
+                },
+                changes: controller.selectedChanges,
+                isLoadingChanges: controller.isLoadingChanges,
+                changesErrorMessage: controller.changesErrorMessage,
+                onLoadChanges: {
+                    Task {
+                        guard await authorizeAction() else { return }
+                        await controller.loadPullRequestChanges(detail.summary)
+                    }
+                },
+                onRefreshChanges: {
+                    Task {
+                        guard await authorizeAction() else { return }
+                        await controller.loadPullRequestChanges(detail.summary, forceRefresh: true)
+                    }
+                },
+                isMerging: controller.isPerformingAction,
+                onMerge: {
+                    Task {
+                        guard await authorizeAction() else { return }
+                        await controller.merge(detail.summary)
+                    }
+                }
+            )
+        } else if controller.detailErrorMessage != nil {
+            ContentUnavailableView(
+                "Could not load pull request",
+                systemImage: "exclamationmark.triangle",
+                description: Text("Close this window and select the pull request to try again.")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ProgressView("Loading pull request…")
+                .font(.body.scaled(by: textScale))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var detailErrorPresented: Binding<Bool> {
+        Binding(
+            get: { controller.detailErrorMessage != nil },
+            set: { if !$0 { controller.detailErrorMessage = nil } }
+        )
     }
 }
 
@@ -502,7 +546,6 @@ private struct PullRequestRow: View {
 private struct PullRequestDetailPane: View {
     @Environment(\.appTextScale) private var textScale
     let detail: PullRequestDetail
-    let onClose: () -> Void
     let onOpenPullRequest: () -> Void
     let isRefreshingDetail: Bool
     let onRefreshDetail: () -> Void
@@ -523,7 +566,13 @@ private struct PullRequestDetailPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PullRequestDetailHeader(summary: detail.summary, onClose: onClose)
+            PullRequestDetailHeader(
+                summary: detail.summary,
+                onOpenPullRequest: onOpenPullRequest,
+                onMerge: { isConfirmingMerge = true },
+                isMergeDisabled: !canMerge || isMerging,
+                mergeButtonHelp: mergeButtonHelp
+            )
             PullRequestDetailTabBar(selection: $selectedTab)
 
             if selectedTab == .overview {
@@ -537,7 +586,6 @@ private struct PullRequestDetailPane: View {
                 )
             }
 
-            footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: isCommentBarExpanded) { _, isExpanded in
@@ -569,104 +617,84 @@ private struct PullRequestDetailPane: View {
     }
 
     private var overviewContent: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        PullRequestConversationBlock(
-                            author: detail.summary.author,
-                            date: detail.summary.createdAt,
-                            action: "opened this pull request"
-                        ) {
-                            if detail.body.isEmpty {
-                                Text("No description provided.")
-                                    .font(.body.scaled(by: textScale))
-                                    .italic()
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Markdown(detail.body)
-                                    .markdownTheme(.gitHub)
-                                    .markdownTextStyle { FontSize(.em(textScale)) }
-                                    .textSelection(.enabled)
-                            }
-                        }
-
-                        ForEach(detail.comments) { comment in
+        PersistentHSplit(
+            autosaveName: "PullRequestOverviewSplit",
+            minimumLeftWidth: 440,
+            minimumRightWidth: 180,
+            left: {
+                VStack(spacing: 0) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
                             PullRequestConversationBlock(
-                                author: comment.author,
-                                date: comment.createdAt,
-                                action: "commented"
+                                author: detail.summary.author,
+                                date: detail.summary.createdAt,
+                                action: "opened this pull request"
                             ) {
-                                Markdown(comment.body)
-                                    .markdownTheme(.gitHub)
-                                    .markdownTextStyle { FontSize(.em(textScale)) }
-                                    .textSelection(.enabled)
+                                if detail.body.isEmpty {
+                                    Text("No description provided.")
+                                        .font(.body.scaled(by: textScale))
+                                        .italic()
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Markdown(detail.body)
+                                        .markdownTheme(.gitHub)
+                                        .markdownTextStyle { FontSize(.em(textScale)) }
+                                        .textSelection(.enabled)
+                                }
                             }
-                        }
 
-                        if detail.comments.isEmpty {
-                            Text("No comments yet")
-                                .font(.subheadline.scaled(by: textScale))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.vertical, 8)
-                        }
-
-                        Button(action: onRefreshDetail) {
-                            if isRefreshingDetail {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Label("Refresh comments", systemImage: "arrow.clockwise")
+                            ForEach(detail.comments) { comment in
+                                PullRequestConversationBlock(
+                                    author: comment.author,
+                                    date: comment.createdAt,
+                                    action: "commented"
+                                ) {
+                                    Markdown(comment.body)
+                                        .markdownTheme(.gitHub)
+                                        .markdownTextStyle { FontSize(.em(textScale)) }
+                                        .textSelection(.enabled)
+                                }
                             }
+
+                            if detail.comments.isEmpty {
+                                Text("No comments yet")
+                                    .font(.subheadline.scaled(by: textScale))
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .padding(.vertical, 8)
+                            }
+
+                            Button(action: onRefreshDetail) {
+                                if isRefreshingDetail {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Label("Refresh comments", systemImage: "arrow.clockwise")
+                                }
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.body.scaled(by: textScale))
+                            .foregroundStyle(.secondary)
+                            .disabled(isRefreshingDetail)
+                            .frame(maxWidth: .infinity, alignment: .center)
                         }
-                        .buttonStyle(.borderless)
-                        .font(.body.scaled(by: textScale))
-                        .foregroundStyle(.secondary)
-                        .disabled(isRefreshingDetail)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(20)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20)
+
+                    commentComposer
                 }
+                .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
 
-                commentComposer
+            },
+            right: {
+                PullRequestMetadataSidebar(
+                    reviewers: detail.reviewers,
+                    assignees: detail.assignees
+                )
+                .frame(minWidth: 180, idealWidth: 220, maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
-
-            Divider()
-
-            PullRequestMetadataSidebar(
-                reviewers: detail.reviewers,
-                assignees: detail.assignees
-            )
-            .frame(width: 220)
-            .frame(maxHeight: .infinity)
-        }
-    }
-
-    private var footer: some View {
-        HStack {
-            Button("Open PR", systemImage: "safari", action: onOpenPullRequest)
-            Button("Merge Pull Request", systemImage: "arrow.triangle.merge") {
-                isConfirmingMerge = true
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.green)
-            .disabled(!canMerge || isMerging)
-            .help(mergeButtonHelp)
-            Spacer()
-            Button("Close", action: onClose)
-                .keyboardShortcut(.cancelAction)
-        }
-        .font(.body.scaled(by: textScale))
-        .padding(16)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(.separator)
-                .frame(height: 0.5)
-        }
+        )
     }
 
     private var canMerge: Bool {

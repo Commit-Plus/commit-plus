@@ -730,12 +730,23 @@ struct SidebarView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh)) { notification in
+            guard let url = notification.userInfo?["repositoryURL"] as? URL,
+                  url == repositoryURL else { return }
+            Task {
+                // Local commits and tracking changes must refresh branch badges
+                // even when the subsequent automatic fetch cannot reach a remote.
+                await GitStatusService.shared.invalidateBranchListCache(in: repositoryURL)
+                await loadBranches(force: true)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryRemoteRefsDidRefresh)) { notification in
             if let url = notification.userInfo?["repositoryURL"] as? URL,
-               url == repositoryURL,
-               notification.userInfo?["userInitiated"] as? Bool == true {
+               url == repositoryURL {
                 Task {
-                    await loadRemotes()
+                    if notification.userInfo?["userInitiated"] as? Bool == true {
+                        await loadRemotes()
+                    }
                     await loadBranches(force: true)
                 }
             }

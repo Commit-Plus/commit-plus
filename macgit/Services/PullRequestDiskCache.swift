@@ -26,15 +26,32 @@ actor PullRequestDiskCache {
 
     func generation() -> UUID { epoch }
 
+    struct Entry<Value: Sendable>: Sendable {
+        let value: Value
+        let fetchedAt: Date
+        let expiresAt: Date
+    }
+
     func value<T: Decodable & Sendable>(_ type: T.Type, key: String, generation: UUID,
                                        now: Date = .now) -> T? {
+        guard let cached = entry(type, key: key, generation: generation, now: now),
+              cached.expiresAt > now else { return nil }
+        return cached.value
+    }
+
+    /// Expiration controls revalidation, not whether local data may be displayed.
+    func entry<T: Decodable & Sendable>(_ type: T.Type, key: String, generation: UUID,
+                                       now: Date = .now) -> Entry<T>? {
         guard generation == epoch else { return nil }
         return try? database { db in
-            var result: T?
-            try query(db, "SELECT payload FROM entries WHERE key = ? AND expires > ?", [key, String(now.timeIntervalSince1970)]) { statement in
+            var result: Entry<T>?
+            try query(db, "SELECT payload, fetched, expires FROM entries WHERE key = ?", [key]) { statement in
                 let count = Int(sqlite3_column_bytes(statement, 0))
-                guard count <= maximumEntryBytes, let bytes = sqlite3_column_blob(statement, 0) else { return }
-                result = try? JSONDecoder().decode(type, from: Data(bytes: bytes, count: count))
+                guard count <= maximumEntryBytes, let bytes = sqlite3_column_blob(statement, 0),
+                      let value = try? JSONDecoder().decode(type, from: Data(bytes: bytes, count: count)) else { return }
+                result = Entry(value: value,
+                               fetchedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 1)),
+                               expiresAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 2)))
             }
             if result != nil {
                 try query(db, "UPDATE entries SET accessed = ? WHERE key = ?", [String(now.timeIntervalSince1970), key])
@@ -57,10 +74,9 @@ actor PullRequestDiskCache {
         try? database { db in
             try query(db, "BEGIN IMMEDIATE")
             do {
-                try query(db, "DELETE FROM entries WHERE expires <= ?", [String(now.timeIntervalSince1970)])
-                try query(db, "INSERT OR REPLACE INTO entries (key, account, kind, number, expires, accessed, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                try query(db, "INSERT OR REPLACE INTO entries (key, account, kind, number, expires, accessed, fetched, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     [key, accountID, kind, String(number), String(now.addingTimeInterval(ttl).timeIntervalSince1970),
-                     String(now.timeIntervalSince1970), String(decoding: data, as: UTF8.self)])
+                     String(now.timeIntervalSince1970), String(now.timeIntervalSince1970), String(decoding: data, as: UTF8.self)])
                 var size = 0
                 var count = 0
                 try query(db, "SELECT COALESCE(SUM(length(CAST(payload AS BLOB))), 0), COUNT(*) FROM entries") {
@@ -118,9 +134,12 @@ actor PullRequestDiskCache {
         try query(db, "PRAGMA max_page_count = 10240")
         var version = 0
         try query(db, "PRAGMA user_version") { version = Int(sqlite3_column_int($0, 0)) }
-        guard version <= 1 else { throw CocoaError(.fileReadCorruptFile) }
+        guard version <= 2 else { throw CocoaError(.fileReadCorruptFile) }
         try query(db, "CREATE TABLE IF NOT EXISTS entries (key TEXT PRIMARY KEY, account TEXT NOT NULL, kind TEXT NOT NULL, number INTEGER NOT NULL, expires REAL NOT NULL, accessed REAL NOT NULL, payload TEXT NOT NULL)")
-        if version == 0 { try query(db, "PRAGMA user_version = 1") }
+        if version < 2 {
+            try query(db, "ALTER TABLE entries ADD COLUMN fetched REAL NOT NULL DEFAULT 0")
+            try query(db, "PRAGMA user_version = 2")
+        }
         return try operation(db)
     }
 

@@ -58,19 +58,28 @@ struct PullSheetView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    // Remote repository
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Pull from repository:")
-                            .font(.system(size: 13))
-                        Picker("", selection: $selectedRemote) {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Pull Changes")
+                    .font(.title2)
+                    .bold()
+                Text("Integrate changes from a remote branch into your current branch.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 14) {
+                GridRow(alignment: .firstTextBaseline) {
+                    Text("Remote:")
+                        .gridColumnAlignment(.trailing)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Picker("Remote", selection: $selectedRemote) {
                             ForEach(remotes, id: \.self) { remote in
                                 Text(remote).tag(remote)
                             }
                         }
                         .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .onChange(of: selectedRemote) { _, newValue in
                             guard !isLoading else { return }
                             Task {
@@ -81,86 +90,97 @@ struct PullSheetView: View {
 
                         if !remoteURL.isEmpty {
                             Text(remoteURL)
-                                .font(.system(size: 11))
+                                .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
+                                .truncationMode(.middle)
+                                .help(remoteURL)
                         }
                     }
-
-                    // Remote branch
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Remote branch to pull:")
-                                .font(.system(size: 13))
-                            HStack(spacing: 8) {
-                                SearchableReferencePicker(
-                                    title: "Remote branch to pull", selection: selectedBranch,
-                                    options: remoteBranches, searchPrompt: "Search remote branches",
-                                    onSelect: { selectedBranch = $0 })
-                                .pickerStyle(.menu)
-
-                                Button("Refresh") {
-                                    Task { await loadRemoteBranches(remote: selectedRemote) }
-                                }
-                                .buttonStyle(GlassButtonStyle(tint: .accentColor, fontSize: 11))
-                            }
-                        }
-                    }
-
-                    // Local branch
-                    HStack(spacing: 12) {
-                        Text("Pull into local branch:")
-                            .font(.system(size: 13))
-                        Text(localBranch)
-                            .font(.system(size: 13, weight: .medium))
-                        Spacer()
-                    }
-
-                    // Options
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Options")
-                            .font(.system(size: 13, weight: .semibold))
-                            .padding(.bottom, 2)
-
-                        Toggle("Commit merged changes immediately", isOn: $commitMerged)
-                            .font(.system(size: 12))
-
-                        Toggle("Include messages from commits being merged in merge commit", isOn: $includeMessages)
-                            .font(.system(size: 12))
-
-                        Toggle("Create new commit even if fast-forward merge", isOn: $noFastForward)
-                            .font(.system(size: 12))
-
-                        Toggle("Rebase instead of merge (WARNING: make sure you haven't pushed your changes)", isOn: $rebaseInstead)
-                            .font(.system(size: 12))
-                    }
-                    .padding(12)
-                    .background(.quaternary.opacity(0.3))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .gridColumnAlignment(.leading)
                 }
-                .padding(24)
+
+                GridRow(alignment: .firstTextBaseline) {
+                    Text("Remote branch:")
+                    HStack(spacing: 8) {
+                        SearchableReferencePicker(
+                            title: "Remote branch to pull", selection: selectedBranch,
+                            options: remoteBranches, searchPrompt: "Search remote branches",
+                            onSelect: { selectedBranch = $0 })
+                            .buttonStyle(.bordered)
+                            .help(selectedBranch)
+
+                        Button("Refresh", systemImage: "arrow.clockwise") {
+                            Task { await loadRemoteBranches(remote: selectedRemote) }
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("Refresh remote branches")
+                    }
+                }
+
+                GridRow(alignment: .firstTextBaseline) {
+                    Text("Local branch:")
+                    Text(localBranch.isEmpty ? "—" : localBranch)
+                        .fontWeight(.medium)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .help(localBranch)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
 
-            // Buttons
-            HStack(spacing: 12) {
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle("Commit merged changes immediately", isOn: $commitMerged)
+                    Toggle("Include merged commit messages", isOn: $includeMessages)
+                        .help("Include messages from commits being merged in the merge commit")
+                    Toggle("Create a merge commit even when fast-forward is possible", isOn: $noFastForward)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Rebase instead of merge", isOn: $rebaseInstead)
+                        Text("Only rebase changes you haven’t pushed.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 20)
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            } label: {
+                Text("Options")
+                    .bold()
+            }
+
+            HStack(spacing: 8) {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading branches…")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button("Cancel", role: .cancel) {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
+                .buttonStyle(.bordered)
 
-                Button("OK") {
+                Button("Pull") {
                     dismiss()
                     onPull(selectedRemote, selectedBranch, pullOptions)
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(GlassProminentButtonStyle(tint: .accentColor, fontSize: 13))
+                .buttonStyle(.borderedProminent)
                 .disabled(isLoading || selectedRemote.isEmpty || selectedBranch.isEmpty)
             }
-            .padding([.horizontal, .bottom], 24)
         }
-        .frame(minWidth: 520, idealWidth: 520, maxWidth: 520)
-        .frame(minHeight: 420, idealHeight: 460)
+        .font(.body)
+        .controlSize(.regular)
+        .padding(24)
+        .frame(width: 560)
+        .fixedSize(horizontal: false, vertical: true)
         .task {
             await loadData()
         }

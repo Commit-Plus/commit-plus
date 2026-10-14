@@ -67,6 +67,8 @@ private struct GitRepositoryIdentityKey: Hashable {
 final class PullRequestController: ObservableObject {
     @Published private(set) var items: [PullRequestSummary] = []
     @Published private(set) var isLoading = false
+    @Published private(set) var hasLoadedList = false
+    private var displayedListKey: PullRequestListCacheKey?
     @Published var errorMessage: String?
     @Published var detailErrorMessage: String?
     @Published var stateFilter: PullRequestListFilter = .open
@@ -389,6 +391,8 @@ final class PullRequestController: ObservableObject {
             knownGitLabHosts: connectedGitLabHosts,
             knownHosts: providerAccountController.accounts.map { GitProviderHost(kind: $0.provider, baseURL: $0.hostURL) }
         ) else {
+            hasLoadedList = false
+            displayedListKey = nil
             items = []
             resetPagination()
             selectedProviderAccountID = nil
@@ -409,6 +413,8 @@ final class PullRequestController: ObservableObject {
 
         let matchingAccounts = matchingAccounts(for: repository)
         guard !matchingAccounts.isEmpty else {
+            hasLoadedList = false
+            displayedListKey = nil
             items = []
             resetPagination()
             selectedProviderAccountID = nil
@@ -420,6 +426,8 @@ final class PullRequestController: ObservableObject {
         }
 
         guard let apiCredential = apiCredential(for: matchingAccounts) else {
+            hasLoadedList = false
+            displayedListKey = nil
             items = []
             resetPagination()
             selectedProviderAccountID = nil
@@ -437,6 +445,8 @@ final class PullRequestController: ObservableObject {
         let token = apiCredential.token
 
         guard let service = services[repository.provider] else {
+            hasLoadedList = false
+            displayedListKey = nil
             items = []
             resetPagination()
             activeRepository = nil
@@ -455,13 +465,18 @@ final class PullRequestController: ObservableObject {
             page: page,
             perPage: pullRequestPageSize
         )
-        if !forceRefresh,
-           let cached = await diskCache.value(PullRequestListPage.self, key: cacheKey.diskKey, generation: cacheGeneration) {
+        hasLoadedList = displayedListKey == cacheKey
+        var displayedPage: PullRequestListPage?
+        if displayedListKey == cacheKey {
+            displayedPage = PullRequestListPage(items: items, page: currentPage, perPage: pullRequestPageSize, hasPreviousPage: hasPreviousPage, hasNextPage: hasNextPage)
+            hasLoadedList = true
+        }
+        if let cached = await diskCache.entry(PullRequestListPage.self, key: cacheKey.diskKey, generation: cacheGeneration) {
             guard listLoadID == loadID, !Task.isCancelled else { return }
-            apply(cached)
-            accountConnectionHost = nil
-            errorMessage = nil
-            return
+            if displayedPage != cached.value { apply(cached.value) }
+            displayedPage = cached.value
+            displayedListKey = cacheKey
+            hasLoadedList = true
         }
         guard listLoadID == loadID, !Task.isCancelled else { return }
 
@@ -477,19 +492,25 @@ final class PullRequestController: ObservableObject {
             await diskCache.save(pageResult, key: cacheKey.diskKey, accountID: cacheKey.accountID,
                                  kind: "list", ttl: listCacheTTL, generation: cacheGeneration)
             guard listLoadID == loadID, !Task.isCancelled else { return }
-            apply(pageResult)
+            if displayedPage != pageResult { apply(pageResult) }
+            displayedListKey = cacheKey
+            hasLoadedList = true
             accountConnectionHost = nil
             errorMessage = nil
         } catch let error as PullRequestProviderError {
             guard listLoadID == loadID, !Task.isCancelled else { return }
-            items = []
-            resetPagination()
+            if !hasLoadedList {
+                items = []
+                resetPagination()
+            }
             accountConnectionHost = nil
             errorMessage = error.localizedDescription
         } catch {
             guard listLoadID == loadID, !Task.isCancelled else { return }
-            items = []
-            resetPagination()
+            if !hasLoadedList {
+                items = []
+                resetPagination()
+            }
             accountConnectionHost = nil
             errorMessage = error.localizedDescription
         }
@@ -531,11 +552,10 @@ final class PullRequestController: ObservableObject {
             accountID: selectedProviderAccountID ?? "",
             number: summary.number
         )
-        if !forceRefresh,
-           let cached = await diskCache.value(PullRequestDetail.self, key: cacheKey.diskKey, generation: cacheGeneration) {
+        if let cached = await diskCache.entry(PullRequestDetail.self, key: cacheKey.diskKey, generation: cacheGeneration) {
             guard detailLoadID == loadID, !Task.isCancelled else { return }
-            selectedDetail = cached
-            return
+            selectedDetail = cached.value
+            if !forceRefresh, cached.expiresAt > .now { return }
         }
         guard detailLoadID == loadID, !Task.isCancelled else { return }
 
@@ -1034,6 +1054,8 @@ final class PullRequestController: ObservableObject {
     }
 
     func releaseVisibleData() {
+        hasLoadedList = false
+        displayedListKey = nil
         listLoadID = UUID()
         isLoading = false
         items = []
