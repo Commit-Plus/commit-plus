@@ -21,6 +21,7 @@ import Foundation
 struct GitFlowCloudConfiguration: Equatable {
     static let schemaVersion = 1
 
+    var roleDisplayMode: GitFlowRoleDisplayMode
     var canonicalKey: String
     var isEnabled: Bool
     var mainBranch: String
@@ -35,6 +36,7 @@ struct GitFlowCloudConfiguration: Equatable {
 
     init(configuration: GitFlowConfiguration, canonicalKey: String) {
         let normalized = configuration.normalized()
+        roleDisplayMode = normalized.roleDisplayMode
         self.canonicalKey = canonicalKey
         isEnabled = normalized.isEnabled
         mainBranch = normalized.mainBranch
@@ -59,8 +61,10 @@ struct GitFlowCloudConfiguration: Equatable {
         hotfixPrefix: String,
         topicFinishStrategy: GitFlowTopicFinishStrategy,
         createReleaseTagOnFinish: Bool,
-        createHotfixTagOnFinish: Bool
+        createHotfixTagOnFinish: Bool,
+        roleDisplayMode: GitFlowRoleDisplayMode = .full
     ) {
+        self.roleDisplayMode = roleDisplayMode
         self.canonicalKey = canonicalKey
         self.isEnabled = isEnabled
         self.mainBranch = mainBranch
@@ -76,6 +80,7 @@ struct GitFlowCloudConfiguration: Equatable {
 
     func applying(to localConfiguration: GitFlowConfiguration) -> GitFlowConfiguration {
         GitFlowConfiguration(
+            roleDisplayMode: roleDisplayMode,
             isEnabled: isEnabled,
             mainBranch: mainBranch,
             developBranch: developBranch,

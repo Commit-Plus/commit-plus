@@ -72,49 +72,19 @@ extension MainWindowView {
         }
     }
 
-    func prepareCreatePullRequest(branch: String) async {
-        guard await authorizePullRequestAccess() else { return }
-        guard !createPullRequestWindow.activateIfPresented() else { return }
-        do {
-            let remote = try await prepareRemoteBranchForPullRequest(branch: branch)
-            await pullRequestController.prepareCreatePullRequest(
-                repositoryURL: repositoryURL,
-                remoteName: remote,
-                sourceBranch: branch
-            )
-            if pullRequestController.createDraftSeed == nil,
-               let detailErrorMessage = pullRequestController.detailErrorMessage {
-                await MainActor.run {
-                    syncState.showError(detailErrorMessage)
-                    pullRequestController.detailErrorMessage = nil
-                }
-            } else {
-                presentCreatePullRequestWindow()
-            }
-        } catch {
-            await MainActor.run {
-                syncState.showError(error.localizedDescription)
-            }
-        }
+    func prepareCreatePullRequest(branch: String) {
+        presentCreatePullRequestWindow(sourceBranch: branch)
     }
 
-    func prepareCreatePullRequest() async {
-        guard await authorizePullRequestAccess() else { return }
-        guard !createPullRequestWindow.activateIfPresented() else { return }
-        await pullRequestController.prepareCreatePullRequest(repositoryURL: repositoryURL)
-        if pullRequestController.createDraftSeed == nil,
-           let detailErrorMessage = pullRequestController.detailErrorMessage {
-            await MainActor.run {
-                syncState.showError(detailErrorMessage)
-                pullRequestController.detailErrorMessage = nil
-            }
-        } else {
-            presentCreatePullRequestWindow()
-        }
+    func prepareCreatePullRequest() {
+        presentCreatePullRequestWindow(sourceBranch: nil)
     }
 
     func submitCreatePullRequest(_ draft: PullRequestDraft) async {
-        guard await authorizePullRequestAccess() else { return }
+        guard await authorizePullRequestAccess(presentNotice: false) else {
+            pullRequestController.detailErrorMessage = "Pull request access is unavailable for this repository."
+            return
+        }
         do {
             _ = try await prepareRemoteBranchForPullRequest(branch: draft.sourceBranch)
             await pullRequestController.createPullRequest(draft)
@@ -129,41 +99,57 @@ extension MainWindowView {
             }
         } catch {
             await MainActor.run {
-                syncState.showError(error.localizedDescription)
+                pullRequestController.detailErrorMessage = error.localizedDescription
             }
         }
     }
 
     @MainActor
-    private func presentCreatePullRequestWindow() {
-        guard let seed = pullRequestController.createDraftSeed else { return }
+    private func presentCreatePullRequestWindow(sourceBranch: String?) {
+        guard !createPullRequestWindow.activateIfPresented() else { return }
+        pullRequestController.dismissCreatePullRequest()
         createPullRequestWindow.show(
             repositoryName: repositoryURL.lastPathComponent,
-            content: CreatePullRequestWindowContent(
+            content: CreatePullRequestPreparationView(
                 controller: pullRequestController,
                 windowController: createPullRequestWindow,
-                seed: seed,
                 repositoryURL: repositoryURL,
-                authorizeAction: { await authorizePullRequestAccess() },
+                loadDraft: { try await loadPullRequestDraft(sourceBranch: sourceBranch) },
+                authorizeAction: { await authorizePullRequestAccess(presentNotice: false) },
                 onGenerateText: { field, sourceBranch, targetBranch in
-                    try await generatePullRequestText(
-                        field: field,
-                        sourceBranch: sourceBranch,
-                        targetBranch: targetBranch
-                    )
+                    try await generatePullRequestText(field: field, sourceBranch: sourceBranch, targetBranch: targetBranch)
                 },
                 onCancel: {
                     pullRequestController.dismissCreatePullRequest()
                     createPullRequestWindow.close()
                 },
-                onCreate: { draft in
-                    await submitCreatePullRequest(draft)
-                }
+                onCreate: { await submitCreatePullRequest($0) }
             ),
-            onClose: {
-                pullRequestController.dismissCreatePullRequest()
-            }
+            onClose: { pullRequestController.dismissCreatePullRequest() }
         )
+    }
+
+    @MainActor
+    private func loadPullRequestDraft(sourceBranch: String?) async throws -> PullRequestDraftSeed {
+        let remote: String?
+        if let sourceBranch {
+            if let upstream = await GitStatusService.shared.upstreamBranch(for: sourceBranch, in: repositoryURL) {
+                remote = try parseRemoteBranch(upstream).remote
+            } else {
+                remote = try await defaultPullRequestRemote()
+            }
+        } else {
+            remote = nil
+        }
+        try Task.checkCancellation()
+        await pullRequestController.prepareCreatePullRequest(
+            repositoryURL: repositoryURL, remoteName: remote, sourceBranch: sourceBranch
+        )
+        try Task.checkCancellation()
+        guard let seed = pullRequestController.createDraftSeed else {
+            throw GitError.commandFailed(pullRequestController.detailErrorMessage ?? "Pull request creation is unavailable.")
+        }
+        return seed
     }
 
     @MainActor

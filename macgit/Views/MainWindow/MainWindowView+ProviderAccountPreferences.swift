@@ -61,6 +61,7 @@ extension MainWindowView {
 
         for remote in Set(remotes.filter { !$0.isEmpty }) {
             let remoteURL = await GitStatusService.shared.remoteURL(remote: remote, in: repositoryURL)
+            guard !Task.isCancelled else { return nil }
             let matchingAccounts = resolver.matchingAccounts(for: remoteURL)
             guard matchingAccounts.count > 1,
                   resolver.preferredAccountID(for: remoteURL) == nil,
@@ -76,6 +77,7 @@ extension MainWindowView {
                 continue
             }
 
+            guard !Task.isCancelled else { return nil }
             do {
                 try await providerAccountPreferenceStore.update(accountID: selectedAccountID, for: identity)
             } catch {
@@ -103,7 +105,8 @@ extension MainWindowView {
         identity: GitRemoteIdentity,
         accounts: [GitProviderAccount]
     ) async -> String? {
-        await withCheckedContinuation { continuation in
+        guard !Task.isCancelled else { return nil }
+        return await withCheckedContinuation { continuation in
             providerAccountSelectionContinuation = continuation
             pendingProviderAccountSelection = PendingGitProviderAccountSelection(
                 remoteName: remoteName,

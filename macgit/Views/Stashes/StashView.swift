@@ -25,6 +25,7 @@ import SwiftUI
 struct StashView: View {
     let repositoryURL: URL
     let stashRef: String
+    var isWorkSuspended = false
 
     @State private var fileChanges: [CommitFileChange] = []
     @State private var stashEntry: StashEntry?
@@ -34,6 +35,8 @@ struct StashView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var showingError = false
+    @State private var refreshVersion = 0
+    @State private var loadGeneration = UUID()
 
     @State private var imageComparisonMode: ImageComparisonMode = .overlay
 
@@ -73,10 +76,12 @@ struct StashView: View {
         .id(stashRef)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
-        .task(id: stashRef) {
+        .task(id: StashLoadRequest(ref: stashRef, suspended: isWorkSuspended, version: refreshVersion)) {
+            guard !isWorkSuspended else { return }
             await loadStash(for: stashRef)
         }
-        .task(id: selectedFile?.id) {
+        .task(id: StashDiffRequest(ref: stashRef, fileID: selectedFile?.id, suspended: isWorkSuspended)) {
+            guard !isWorkSuspended else { return }
             guard let selectedFile else {
                 diffHunks = []
                 isDiffLoading = false
@@ -86,9 +91,7 @@ struct StashView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange)) { notification in
             if let url = notification.userInfo?["repositoryURL"] as? URL, url == repositoryURL {
-                Task {
-                    await loadStash(for: stashRef)
-                }
+                refreshVersion += 1
             }
         }
         .alert("Error", isPresented: $showingError, actions: {
@@ -199,24 +202,38 @@ struct StashView: View {
         }
     }
 
-    private func loadStash(for ref: String) async {
-        isLoading = true
-        defer { isLoading = false }
+    private struct StashLoadRequest: Equatable {
+        let ref: String
+        let suspended: Bool
+        let version: Int
+    }
 
-        await MainActor.run {
-            fileChanges = []
-            selectedFile = nil
-            diffHunks = []
+    private struct StashDiffRequest: Equatable {
+        let ref: String
+        let fileID: UUID?
+        let suspended: Bool
+    }
+
+    private func loadStash(for ref: String) async {
+        guard !Task.isCancelled else { return }
+        let generation = UUID()
+        loadGeneration = generation
+        isLoading = true
+        defer {
+            if loadGeneration == generation, !Task.isCancelled { isLoading = false }
         }
+        fileChanges = []
+        stashEntry = nil
+        selectedFile = nil
+        diffHunks = []
 
         async let changesRequest = GitStatusService.shared.changedFiles(in: ref, in: repositoryURL)
         async let stashesRequest = GitStatusService.shared.stashes(in: repositoryURL)
         let (changes, stashes) = await (changesRequest, stashesRequest)
-        await MainActor.run {
-            fileChanges = changes
-            stashEntry = stashes.first { $0.ref == ref }
-            selectedFile = changes.first
-        }
+        guard !Task.isCancelled, loadGeneration == generation, stashRef == ref else { return }
+        fileChanges = changes
+        stashEntry = stashes.first { $0.ref == ref }
+        selectedFile = changes.first
     }
 
     private func loadDiff(for file: CommitFileChange, stashRef: String) async {

@@ -36,6 +36,7 @@ struct SidebarView: View {
     let currentBranchFallbackSyncStatus: BranchSyncStatus?
     let defaultRemoteName: String?
     let isAccountMenuDisabled: Bool
+    let gitFlowRoleDisplayMode: GitFlowRoleDisplayMode
     let gitFlowConfiguration: GitFlowConfiguration
     let gitFlowFinishCheckpoint: GitFlowFinishCheckpoint?
     let gitFlowRecoveryIssue: GitFlowLocalStateIssue?
@@ -210,6 +211,7 @@ struct SidebarView: View {
         currentBranchFallbackSyncStatus: BranchSyncStatus? = nil,
         defaultRemoteName: String? = nil,
         isAccountMenuDisabled: Bool = false,
+        gitFlowRoleDisplayMode: GitFlowRoleDisplayMode = .full,
         gitFlowConfiguration: GitFlowConfiguration = GitFlowConfiguration(),
         gitFlowFinishCheckpoint: GitFlowFinishCheckpoint? = nil,
         gitFlowRecoveryIssue: GitFlowLocalStateIssue? = nil,
@@ -283,6 +285,7 @@ struct SidebarView: View {
         self.currentBranchFallbackSyncStatus = currentBranchFallbackSyncStatus
         self.defaultRemoteName = defaultRemoteName
         self.isAccountMenuDisabled = isAccountMenuDisabled
+        self.gitFlowRoleDisplayMode = gitFlowRoleDisplayMode
         self.gitFlowConfiguration = gitFlowConfiguration
         self.gitFlowFinishCheckpoint = gitFlowFinishCheckpoint
         self.gitFlowRecoveryIssue = gitFlowRecoveryIssue

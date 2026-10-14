@@ -25,7 +25,14 @@ extension MainWindowView {
             repositoryURL: repositoryURL,
             hasStagedChanges: syncState.stagedBadgeCount > 0
         ) { message, commitAllChanges in
-            pendingToolbarCommit = (message, commitAllChanges)
+            try await commitFromToolbar(message: message, commitAllChanges: commitAllChanges)
+        }
+        .replacingSheet(item: $protectedBranchCommitController.warning,
+                        onDismiss: { protectedBranchCommitController.finish(.cancel) }) { warning in
+            ProtectedBranchCommitSheet(warning: warning, skipWarnings: $repoSettings.skipProtectedBranchCommitWarnings) { decision in
+                protectedBranchCommitController.finish(decision)
+            }
+            .onChange(of: repoSettings.skipProtectedBranchCommitWarnings) { _, _ in commitRulePreferenceChanged() }
         }
     }
 
@@ -145,42 +152,23 @@ extension MainWindowView {
 
     @ViewBuilder
     var tagSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Create Tag")
-                .font(.title2)
-                .fontWeight(.semibold)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Tag name:")
-                    .font(.system(size: 13))
-                TextField("Enter tag name...", text: $tagNameInput)
-                    .textFieldStyle(.roundedBorder)
-            }
-
-            if let startPoint = tagStartPoint {
-                Text("Create tag from commit: \(startPoint.message) - \(startPoint.shortHash)")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-            }
-
-            HStack(spacing: 12) {
-                Spacer()
-                Button("Cancel", role: .cancel) {
+        if let startPoint = tagStartPoint {
+            CreateTagAtReferenceSheet(
+                startPoint: startPoint, name: $tagNameInput,
+                onCancel: { showingTagSheet = false },
+                onCreate: { name in
+                    try await createTagAtReference(name: name, startPoint: startPoint)
+                },
+                onCompleted: {
                     showingTagSheet = false
+                    Task {
+                        await syncState.refresh(repositoryURL: repositoryURL)
+                        NotificationCenter.default.post(name: .repositoryDidChange, object: nil,
+                                                        userInfo: ["repositoryURL": repositoryURL])
+                    }
                 }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Create Tag") {
-                    Task { await createTagFromBranch() }
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(tagNameInput.trimmingCharacters(in: .whitespaces).isEmpty || tagStartPoint == nil)
-            }
+            )
         }
-        .padding(24)
-        .frame(minWidth: 360, idealWidth: 420)
     }
 
     @ViewBuilder
@@ -428,46 +416,59 @@ extension MainWindowView {
         )
     }
 
-    func tagMoveConfirmationSheet(for confirmation: PendingTagMoveConfirmation) -> some View {
-        MoveTagConfirmationSheet(
-            confirmation: confirmation,
-            onConfirm: { remote in
-                pendingTagMoveConfirmation = nil
-                runRepositoryOperation("Moving tag \(confirmation.tagName)...") {
-                    await performTagMove(confirmation, forcePushRemote: remote)
-                }
-            },
-            onCancel: {
-                pendingTagMoveConfirmation = nil
-            }
-        )
+    func tagMoveConfirmationSheet(for request: RepositorySheetRequest<(tag: String, commit: GitDraggedCommit)>) -> some View {
+        RepositorySheetLoadingView(title: "Move Tag \(request.input.tag)", load: {
+            try await loadTagMoveConfirmation(tagName: request.input.tag, commit: request.input.commit)
+        }, onCancel: { pendingTagMoveConfirmation = nil }) { confirmation in
+            MoveTagConfirmationSheet(
+                confirmation: confirmation,
+                onConfirm: { remote in
+                    try await performTagMove(confirmation, forcePushRemote: remote)
+                    pendingTagMoveConfirmation = nil
+                    refreshAfterTagAction()
+                },
+                onCancel: { pendingTagMoveConfirmation = nil }
+            )
+        }
+        .id(request.id)
     }
 
     func deleteTagConfirmationSheet(for confirmation: PendingTagDeletion) -> some View {
         DeleteTagConfirmationSheet(
             confirmation: confirmation,
+            loadRemotes: { await GitStatusService.shared.remotes(in: repositoryURL).sorted() },
             onConfirm: { remote in
+                try await deleteTag(confirmation.tag, remote: remote)
                 pendingTagDeletion = nil
-                let message = remote.map { "Deleting \(confirmation.tag) on \($0)..." }
-                    ?? "Deleting \(confirmation.tag)..."
-                runRepositoryOperation(message) {
-                    await deleteTag(confirmation.tag, remote: remote)
-                }
+                refreshAfterTagAction()
             },
             onCancel: {
+                if pendingProviderAccountSelection != nil { completeProviderAccountSelection(with: nil) }
                 pendingTagDeletion = nil
             }
         )
+        .replacingSheet(item: $pendingProviderAccountSelection) { selection in
+            GitProviderAccountSelectionSheet(
+                selection: selection,
+                onSelect: { completeProviderAccountSelection(with: $0) },
+                onCancel: { completeProviderAccountSelection(with: nil) }
+            )
+        }
+        .onDisappear {
+            if pendingProviderAccountSelection != nil { completeProviderAccountSelection(with: nil) }
+        }
     }
 }
 
 struct MoveTagConfirmationSheet: View {
     let confirmation: PendingTagMoveConfirmation
-    let onConfirm: (String?) -> Void
+    let onConfirm: @MainActor (String?) async throws -> Void
     let onCancel: () -> Void
 
     @State private var forcePush = false
     @State private var selectedRemote = ""
+    @State private var isPerforming = false
+    @State private var errorMessage: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -504,20 +505,35 @@ struct MoveTagConfirmationSheet: View {
                 }
             }
 
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.red).textSelection(.enabled)
+            }
             HStack(spacing: 12) {
                 Spacer()
                 Button("Cancel", role: .cancel, action: onCancel)
                     .keyboardShortcut(.cancelAction)
+                    .disabled(isPerforming)
+                if isPerforming { ProgressView().controlSize(.small) }
                 Button("Move Tag") {
-                    onConfirm(forcePush ? selectedRemote : nil)
+                    guard !isPerforming else { return }
+                    let remote = forcePush ? selectedRemote : nil
+                    isPerforming = true
+                    errorMessage = nil
+                    Task {
+                        defer { isPerforming = false }
+                        do { try await onConfirm(remote) }
+                        catch { errorMessage = error.localizedDescription }
+                    }
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(GlassProminentButtonStyle(tint: .accentColor, fontSize: 13))
-                .disabled(forcePush && selectedRemote.isEmpty)
+                .disabled(isPerforming || (forcePush && selectedRemote.isEmpty))
             }
         }
         .padding(24)
         .frame(minWidth: 440, idealWidth: 500, maxWidth: 560)
+        .interactiveDismissDisabled(isPerforming)
         .task {
             selectedRemote = confirmation.remotes.first ?? ""
         }
@@ -542,11 +558,16 @@ struct MoveTagConfirmationSheet: View {
 
 struct DeleteTagConfirmationSheet: View {
     let confirmation: PendingTagDeletion
-    let onConfirm: (String?) -> Void
+    let loadRemotes: @MainActor () async -> [String]
+    let onConfirm: @MainActor (String?) async throws -> Void
     let onCancel: () -> Void
 
     @State private var deleteOnRemote = false
     @State private var selectedRemote = ""
+    @State private var isPerforming = false
+    @State private var errorMessage: String?
+    @State private var remotes: [String] = []
+    @State private var isLoadingRemotes = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -561,11 +582,14 @@ struct DeleteTagConfirmationSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 Toggle("Also delete on remote", isOn: $deleteOnRemote)
                     .toggleStyle(.checkbox)
-                    .disabled(confirmation.remotes.isEmpty)
+                    .disabled(isLoadingRemotes || remotes.isEmpty)
 
+                if isLoadingRemotes {
+                    ProgressView("Loading remotes…").controlSize(.small)
+                }
                 if deleteOnRemote {
                     Picker("Remote", selection: $selectedRemote) {
-                        ForEach(confirmation.remotes, id: \.self) { remote in
+                        ForEach(remotes, id: \.self) { remote in
                             Text(remote).tag(remote)
                         }
                     }
@@ -573,22 +597,41 @@ struct DeleteTagConfirmationSheet: View {
                 }
             }
 
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.red).textSelection(.enabled)
+            }
             HStack(spacing: 12) {
                 Spacer()
                 Button("Cancel", role: .cancel, action: onCancel)
                     .keyboardShortcut(.cancelAction)
+                    .disabled(isPerforming)
+                if isPerforming { ProgressView().controlSize(.small) }
 
                 Button("Delete", role: .destructive) {
-                    onConfirm(deleteOnRemote ? selectedRemote : nil)
+                    guard !isPerforming else { return }
+                    let remote = deleteOnRemote ? selectedRemote : nil
+                    isPerforming = true
+                    errorMessage = nil
+                    Task {
+                        defer { isPerforming = false }
+                        do { try await onConfirm(remote) }
+                        catch { errorMessage = error.localizedDescription }
+                    }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(deleteOnRemote && selectedRemote.isEmpty)
+                .disabled(isPerforming || (deleteOnRemote && selectedRemote.isEmpty))
             }
         }
         .padding(24)
         .frame(minWidth: 420, idealWidth: 480)
+        .interactiveDismissDisabled(isPerforming)
         .task {
-            selectedRemote = confirmation.remotes.first ?? ""
+            let loaded = await loadRemotes()
+            guard !Task.isCancelled else { return }
+            remotes = loaded
+            selectedRemote = loaded.first ?? ""
+            isLoadingRemotes = false
         }
     }
 }

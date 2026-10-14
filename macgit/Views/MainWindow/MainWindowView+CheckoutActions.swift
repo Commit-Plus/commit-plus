@@ -42,6 +42,15 @@ extension MainWindowView {
                 )
             }
             await syncState.refresh(repositoryURL: repositoryURL)
+            if await GitStatusService.shared.currentBranch(in: repositoryURL) == ref {
+                selectedItem = .branch(ref)
+                selectedBranchName = ref
+                appState.historyBranchFilter = SidebarView.historyFilter(
+                    afterSelecting: ref,
+                    currentBranch: ref,
+                    currentFilter: appState.historyBranchFilter
+                )
+            }
             NotificationCenter.default.post(
                 name: .repositoryDidChange,
                 object: nil,
@@ -53,6 +62,8 @@ extension MainWindowView {
     }
 
     func performTagCheckout(tag: String) async {
+        activeTagCheckoutCount += 1
+        defer { activeTagCheckoutCount -= 1 }
         await performCheckout(ref: tag, stash: false)
     }
 
@@ -84,6 +95,12 @@ extension MainWindowView {
             await syncState.refresh(repositoryURL: repositoryURL)
             await MainActor.run {
                 selectedItem = .branch(checkedOutBranch)
+                selectedBranchName = checkedOutBranch
+                appState.historyBranchFilter = SidebarView.historyFilter(
+                    afterSelecting: checkedOutBranch,
+                    currentBranch: checkedOutBranch,
+                    currentFilter: appState.historyBranchFilter
+                )
             }
             NotificationCenter.default.post(
                 name: .repositoryDidChange,

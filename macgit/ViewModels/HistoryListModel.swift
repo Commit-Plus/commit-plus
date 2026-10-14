@@ -266,12 +266,14 @@ final class HistoryListModel {
         } else {
             hash = await GitStatusService.shared.tipHash(for: reference, in: repositoryURL)
         }
-        guard generation == requestedGeneration, loadKey == requestedKey,
+        guard !Task.isCancelled, generation == requestedGeneration, loadKey == requestedKey,
               selectedBranch == reference, let hash, let tip = commit(hash) else { return false }
-        select(tip, focus: true)
+        select(tip, focus: false)
         storeSnapshot()
         return true
     }
+
+    func suspendLoading() { invalidateLoad() }
 
     func clearCache() { cache.removeAll() }
 

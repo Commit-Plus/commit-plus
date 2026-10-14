@@ -34,7 +34,9 @@ struct CommitSheetView: View {
     @State private var isAIGenerationRequested = false
     let repositoryURL: URL
     let hasStagedChanges: Bool
-    let onCommit: (String, Bool) -> Void
+    let onCommit: @MainActor (String, Bool) async throws -> Bool
+    @State private var isCommitting = false
+    @State private var commitErrorMessage: String?
 
     var body: some View {
         VStack(spacing: 20) {
@@ -59,7 +61,7 @@ struct CommitSheetView: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 400)
                         .lineLimit(3...6)
-                        .disabled(aiProviderController.isGenerating)
+                        .disabled(aiProviderController.isGenerating || isCommitting)
                         .onKeyPress(.return, phases: .down) { keyPress in
                             guard keyPress.modifiers == .shift else { return .ignored }
                             insertNewlineInMessage()
@@ -84,24 +86,41 @@ struct CommitSheetView: View {
                 }
             }
 
+            if let commitErrorMessage {
+                Label(commitErrorMessage, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.red).textSelection(.enabled).frame(width: 400, alignment: .leading)
+            }
+
             HStack(spacing: 12) {
                 Button("Cancel", role: .cancel) {
                     dismiss()
                 }
                 .font(.body.scaled(by: textScale))
                 .keyboardShortcut(.cancelAction)
+                .disabled(isCommitting)
+                if isCommitting { ProgressView().controlSize(.small) }
 
                 Button(message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Commit Without Message" : "Commit") {
-                    onCommit(message, !hasStagedChanges && commitAllChanges)
-                    dismiss()
+                    guard !isCommitting else { return }
+                    let requestedMessage = message
+                    let requestedAllChanges = !hasStagedChanges && commitAllChanges
+                    isCommitting = true
+                    commitErrorMessage = nil
+                    Task {
+                        defer { isCommitting = false }
+                        do {
+                            if try await onCommit(requestedMessage, requestedAllChanges) { dismiss() }
+                        } catch { commitErrorMessage = error.localizedDescription }
+                    }
                 }
                 .font(.body.scaled(by: textScale))
                 .keyboardShortcut(.defaultAction)
-                .disabled(!hasStagedChanges && !commitAllChanges)
+                .disabled(isCommitting || (!hasStagedChanges && !commitAllChanges))
             }
         }
         .padding(30)
         .frame(minWidth: 480)
+        .interactiveDismissDisabled(isCommitting)
         .task {
             await aiProviderController.refreshAvailability(selectedOnly: true)
         }
@@ -138,7 +157,7 @@ struct CommitSheetView: View {
             .frame(width: 14, height: 14)
         }
         .buttonStyle(GlassButtonStyle(tint: .accentColor, fontSize: 11))
-        .disabled(aiProviderController.isGenerating)
+        .disabled(aiProviderController.isGenerating || isCommitting)
         .help(generateCommitMessageHelp)
         .accessibilityLabel(aiProviderController.isGenerating
             ? "Generating commit message"

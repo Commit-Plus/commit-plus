@@ -28,6 +28,7 @@ struct StartGitFlowSheet: View {
     let onStart: @MainActor (GitFlowStartPlan, Bool) async -> Bool
 
     @State private var topicName = ""
+    @State private var isStarting = false
     @State private var destination: GitFlowStartDestination
     @State private var worktreePath = ""
     @State private var worktreeLabel = ""
@@ -205,24 +206,28 @@ struct StartGitFlowSheet: View {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
+                .disabled(isStarting)
+                if isStarting { ProgressView().controlSize(.small) }
 
                 Button("Start \(kind.displayName)") {
-                    guard let plan else { return }
+                    guard let plan, !isStarting else { return }
+                    isStarting = true
                     onRunRepositoryOperation("Starting \(plan.branchName)...") {
-                        if await onStart(plan, destination == .newWorktree && openAfterCreate) {
-                            await MainActor.run {
-                                dismiss()
-                            }
+                        let succeeded = await onStart(plan, destination == .newWorktree && openAfterCreate)
+                        await MainActor.run {
+                            isStarting = false
+                            if succeeded { dismiss() }
                         }
                     }
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(GlassProminentButtonStyle(tint: .accentColor, fontSize: 13))
-                .disabled(plan == nil)
+                .disabled(isStarting || plan == nil)
             }
         }
         .padding(24)
         .frame(minWidth: 480, idealWidth: 520)
+        .interactiveDismissDisabled(isStarting)
         .onAppear {
             isTopicNameFocused = true
             if destination == .newWorktree, worktreePath.isEmpty {

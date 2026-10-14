@@ -15,6 +15,8 @@ struct SidebarNativeRow {
         var subtitle = ""
         var icon = ""
         var badge = ""
+        var gitFlowRole: GitFlowBranchRole?
+        var gitFlowRoleDisplayMode: GitFlowRoleDisplayMode = .full
         var indent = 0
         var header = false
         var emphasized = false
@@ -380,7 +382,7 @@ struct SidebarNativeList: NSViewRepresentable {
     final class Table: NSTableView {
         weak var owner: Coordinator?
         override func menu(for event: NSEvent) -> NSMenu? {
-            owner?.menu(row: row(at: convert(event.locationInWindow, from: nil)))
+            return owner?.menu(row: row(at: convert(event.locationInWindow, from: nil)))
         }
         override func draggingExited(_ sender: NSDraggingInfo?) {
             super.draggingExited(sender)
@@ -499,6 +501,7 @@ struct SidebarNativeList: NSViewRepresentable {
         let title = NSTextField(labelWithString: "")
         let subtitle = NSTextField(labelWithString: "")
         let badge = NSTextField(labelWithString: "")
+        let rolePill = SidebarGitFlowRolePill()
         let button = NSButton()
         let progress = NSProgressIndicator()
         var onAccessory: (() -> Void)?
@@ -509,6 +512,7 @@ struct SidebarNativeList: NSViewRepresentable {
             super.init(frame: frameRect)
             SidebarSignpost.event("NativeCellCreate")
             for view in [icon, title, subtitle, badge, button, progress] { addSubview(view) }
+            addSubview(rolePill)
             progress.style = .spinning
             progress.controlSize = .small
             progress.isDisplayedWhenStopped = false
@@ -540,6 +544,7 @@ struct SidebarNativeList: NSViewRepresentable {
             subtitle.stringValue = value.subtitle
             subtitle.font = .systemFont(ofSize: 10 * scale)
             subtitle.textColor = .secondaryLabelColor
+            rolePill.configure(role: value.gitFlowRole, mode: value.gitFlowRoleDisplayMode, scale: scale)
             badge.stringValue = value.badge
             badge.font = .systemFont(ofSize: 10 * scale)
             badge.textColor = .secondaryLabelColor
@@ -550,7 +555,7 @@ struct SidebarNativeList: NSViewRepresentable {
             button.isHidden = value.accessory.isEmpty
             button.toolTip = value.accessoryLabel
             button.setAccessibilityLabel(value.accessoryLabel)
-            setAccessibilityLabel([value.title, value.subtitle, value.badge].filter { !$0.isEmpty }.joined(separator: ", "))
+            setAccessibilityLabel([value.title, value.subtitle, value.gitFlowRole?.rawValue ?? "", value.badge].filter { !$0.isEmpty }.joined(separator: ", "))
             toolTip = value.subtitle.isEmpty ? value.title : "\(value.title)\n\(value.subtitle)"
             needsLayout = true
         }
@@ -570,9 +575,18 @@ struct SidebarNativeList: NSViewRepresentable {
             let badgeSize = badge.intrinsicContentSize
             let badgeWidth = appearance.badge.isEmpty ? 0 : min(ceil(badgeSize.width) + 2, floor(bounds.width * 0.45))
             let badgeHeight = ceil(max(badgeSize.height, 16 * scale))
-            badge.frame = NSRect(x: floor(bounds.width - 8 - accessoryWidth - badgeWidth), y: floor((bounds.height - badgeHeight) / 2), width: badgeWidth, height: badgeHeight)
+            let pillWidth = rolePill.isHidden ? 0 : rolePill.intrinsicContentSize.width
+            let pillGap: CGFloat = pillWidth > 0 ? 6 * scale : 0
+            let statusGap: CGFloat = badgeWidth > 0 && pillWidth > 0 ? 6 * scale : 0
+            let pillRight = bounds.width - 8 - accessoryWidth
+            badge.frame = NSRect(x: floor(pillRight - pillWidth - statusGap - badgeWidth),
+                                 y: floor((bounds.height - badgeHeight) / 2),
+                                 width: badgeWidth, height: badgeHeight)
+            rolePill.frame = NSRect(x: pillRight - pillWidth,
+                                    y: (bounds.height - rolePill.intrinsicContentSize.height) / 2,
+                                    width: pillWidth, height: rolePill.intrinsicContentSize.height)
             let x = start + iconSize + 6
-            let width = max(0, bounds.width - x - badgeWidth - accessoryWidth - 14)
+            let width = max(0, bounds.width - x - badgeWidth - accessoryWidth - pillWidth - pillGap - statusGap - 14)
             title.frame = NSRect(x: x, y: appearance.subtitle.isEmpty ? (bounds.height - 18 * scale) / 2 : bounds.height / 2, width: width, height: 18 * scale)
             subtitle.frame = NSRect(x: x, y: bounds.height / 2 - 15 * scale, width: width, height: 15 * scale)
         }

@@ -4,6 +4,7 @@ import SwiftUI
 
 struct GitLFSView: View {
     let repositoryURL: URL
+    let initialPath: String?
     let credentialResolver: @MainActor (String) async -> GitProviderCredentialResolver?
     let refreshRepository: @MainActor @Sendable () async -> Void
     @State private var controller: RepositoryLFSController
@@ -20,6 +21,7 @@ struct GitLFSView: View {
     @State private var pattern = ""
     @State private var literal = false
     @State private var minimumMiB = 50
+    @State private var pendingRuleDeletion: GitLFSTrackingRule?
     @State private var showingSetup = false
     @State private var showingFileDetails = false
     @State private var isInitialLoadPending = true
@@ -28,6 +30,7 @@ struct GitLFSView: View {
          refreshRepository: @escaping @MainActor @Sendable () async -> Void,
          authorizeAction: @escaping @MainActor () async -> Bool) {
         self.repositoryURL = repositoryURL
+        self.initialPath = initialPath
         self.credentialResolver = credentialResolver
         self.refreshRepository = refreshRepository
         _pattern = State(initialValue: initialPath ?? "")
@@ -99,6 +102,12 @@ struct GitLFSView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding()
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+        .onChange(of: initialPath) { _, path in
+            guard let path else { return }
+            pattern = path
+            literal = true
+            tab = "Tracking Rules"
+        }
         .task {
             await controller.load(promptForRuntime: true)
             isInitialLoadPending = false
@@ -149,6 +158,22 @@ struct GitLFSView: View {
                     }.buttonStyle(.borderedProminent)
                 }
             }.padding(24).frame(width: 500)
+        }
+        .sheet(item: $pendingRuleDeletion) { rule in
+            RepositorySheetLoadingView(
+                title: "Remove Tracking Rule",
+                load: { try await controller.prepareRuleRemoval(pattern: rule.pattern) },
+                onCancel: { pendingRuleDeletion = nil }
+            ) { review in
+                GitLFSRemoveRuleSheet(
+                    rule: rule,
+                    onCancel: { pendingRuleDeletion = nil },
+                    onRemove: {
+                        try await controller.removeRule(review: review, refresh: refreshRepository)
+                        pendingRuleDeletion = nil
+                    }
+                )
+            }
         }
         .sheet(item: $controller.review) { review in
             VStack(alignment: .leading, spacing: 16) {
@@ -492,7 +517,7 @@ struct GitLFSView: View {
                 TableColumn("Action") { rule in
                     if rule.canRemove {
                         Button {
-                            Task { await controller.prepareRule(pattern: rule.pattern, literal: false, removing: true) }
+                            pendingRuleDeletion = rule
                         } label: {
                             Image(systemName: "trash").foregroundStyle(.red)
                         }

@@ -22,6 +22,7 @@ struct SidebarNativeInput: Equatable {
     let stashes: [StashEntry]
     let submodules: [GitSubmoduleEntry]
     let subtrees: [GitSubtreeEntry]
+    var gitFlowRoleDisplayMode: GitFlowRoleDisplayMode = .full
     var dataRepositoryURL: URL? = nil
 }
 
@@ -43,6 +44,7 @@ extension SidebarView {
             remotes: remoteNames, remoteBranches: branchesByRemote, upstream: upstreamByBranch,
             gitFlow: gitFlowConfiguration, gitFlowCommands: gitFlowCommandState,
             worktrees: worktreeEntries, stashes: stashEntries, submodules: submoduleEntries, subtrees: subtreeEntries,
+            gitFlowRoleDisplayMode: gitFlowRoleDisplayMode,
             dataRepositoryURL: sidebarDataRepositoryURL)
     }
 }

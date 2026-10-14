@@ -21,6 +21,7 @@ import Foundation
 struct GitFlowConfiguration: Codable, Equatable {
     static let supportedSchemaVersion = 1
 
+    var roleDisplayMode: GitFlowRoleDisplayMode
     var schemaVersion: Int
     var isEnabled: Bool
     var mainBranch: String
@@ -37,6 +38,7 @@ struct GitFlowConfiguration: Codable, Equatable {
     var createHotfixTagOnFinish: Bool
 
     init(
+        roleDisplayMode: GitFlowRoleDisplayMode = .full,
         schemaVersion: Int = GitFlowConfiguration.supportedSchemaVersion,
         isEnabled: Bool = false,
         mainBranch: String = "main",
@@ -54,6 +56,7 @@ struct GitFlowConfiguration: Codable, Equatable {
     ) {
         self.deleteLocalBranchOnFinish = deleteLocalBranchOnFinish
         self.removeLocalWorktreeOnFinish = removeLocalWorktreeOnFinish
+        self.roleDisplayMode = roleDisplayMode
         self.schemaVersion = schemaVersion
         self.isEnabled = isEnabled
         self.mainBranch = mainBranch
@@ -72,6 +75,7 @@ struct GitFlowConfiguration: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         deleteLocalBranchOnFinish = try container.decodeIfPresent(Bool.self, forKey: .deleteLocalBranchOnFinish) ?? true
         removeLocalWorktreeOnFinish = try container.decodeIfPresent(Bool.self, forKey: .removeLocalWorktreeOnFinish) ?? false
+        roleDisplayMode = try container.decodeIfPresent(GitFlowRoleDisplayMode.self, forKey: .roleDisplayMode) ?? .full
         schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? false
         mainBranch = try container.decodeIfPresent(String.self, forKey: .mainBranch) ?? "main"
@@ -125,6 +129,7 @@ struct GitFlowConfiguration: Codable, Equatable {
 
     func normalized() -> GitFlowConfiguration {
         GitFlowConfiguration(
+            roleDisplayMode: roleDisplayMode,
             schemaVersion: Self.supportedSchemaVersion,
             isEnabled: isEnabled,
             mainBranch: mainBranch.trimmingCharacters(in: .whitespacesAndNewlines),

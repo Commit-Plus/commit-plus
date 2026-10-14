@@ -50,6 +50,7 @@ final class GitFlowConfigurationSyncTests: XCTestCase {
         XCTAssertEqual(
             Set(document.keys),
             [
+                "roleDisplayMode",
                 "schemaVersion",
                 "canonicalKey",
                 "isEnabled",
@@ -78,6 +79,20 @@ final class GitFlowConfigurationSyncTests: XCTestCase {
         XCTAssertThrowsError(
             try GitFlowCloudConfigurationDocument.decode(documentWithLocalState)
         )
+    }
+
+    func testRoleDisplayModeRoundTripsAndAcceptsLegacyDocuments() throws {
+        for mode in GitFlowRoleDisplayMode.allCases {
+            let local = GitFlowConfiguration(roleDisplayMode: mode)
+            let cloud = GitFlowCloudConfiguration(configuration: local, canonicalKey: "github.com/example/repo")
+            var document = GitFlowCloudConfigurationDocument.encode(cloud, updatedAt: Timestamp(date: Date()))
+            let decoded = try GitFlowCloudConfigurationDocument.decode(document)
+            XCTAssertEqual(decoded.applying(to: GitFlowConfiguration()).roleDisplayMode, mode)
+            document.removeValue(forKey: "roleDisplayMode")
+            XCTAssertEqual(try GitFlowCloudConfigurationDocument.decode(document).roleDisplayMode, .full)
+            document["roleDisplayMode"] = "invalid"
+            XCTAssertThrowsError(try GitFlowCloudConfigurationDocument.decode(document))
+        }
     }
 
     func testApplyingCloudConfigurationPreservesMachineStartDestination() {

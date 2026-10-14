@@ -5,6 +5,7 @@ import Combine
 struct HistoryScreen: View {
     let repositoryURL: URL
     let isActive: Bool
+    let isWorkSuspended: Bool
     let selectedBranch: String?
     @Binding var branchFilter: HistoryBranchFilter
     @Binding var includeRemotes: Bool
@@ -22,13 +23,16 @@ struct HistoryScreen: View {
     @State private var searchText = ""
     @State private var needsRefresh = true
     @State private var historyCommitSetFingerprint: String?
+    @State private var resolvedReference: String?
 
-    init(repositoryURL: URL, isActive: Bool, selectedBranch: String?, branchFilter: Binding<HistoryBranchFilter>,
+    init(repositoryURL: URL, isActive: Bool, isWorkSuspended: Bool = false, selectedBranch: String?, branchFilter: Binding<HistoryBranchFilter>,
          includeRemotes: Binding<Bool>, dependencies: HistoryCommitActionController.Dependencies,
          selectionSink: HistoryCommitSelectionSink, onOpenFile: @escaping (String) -> Void) {
         self.repositoryURL = repositoryURL
         self.isActive = isActive
+        self.isWorkSuspended = isWorkSuspended
         self.selectedBranch = selectedBranch
+        _resolvedReference = State(initialValue: selectedBranch)
         _branchFilter = branchFilter
         _includeRemotes = includeRemotes
         self.dependencies = dependencies
@@ -105,36 +109,42 @@ struct HistoryScreen: View {
         .onChange(of: branchFilter) { _, value in listModel.branchFilter = value }
         .onChange(of: onlyThisBranch) { _, value in listModel.onlyThisBranch = value }
         .onChange(of: baseBranch) { _, value in listModel.baseBranch = value }
-        .onChange(of: selectedBranch) { _, value in
-            listModel.selectedBranch = value
-            guard let value else { return }
-            Task {
-                let selectedLoadedTip = await listModel.selectReferenceTipIfLoaded(value)
-                guard !Task.isCancelled, !selectedLoadedTip,
-                      selectedBranch == value, branchFilter == .all else { return }
-                branchFilter = .branch(value)
+        .task(id: ReferenceSelectionRequest(reference: selectedBranch, active: isActive, suspended: isWorkSuspended)) {
+            guard isActive, !isWorkSuspended else { return }
+            listModel.selectedBranch = selectedBranch
+            guard selectedBranch != resolvedReference else { return }
+            guard let reference = selectedBranch else {
+                resolvedReference = nil
+                return
             }
+            let selectedLoadedTip = await listModel.selectReferenceTipIfLoaded(reference)
+            guard !Task.isCancelled else { return }
+            resolvedReference = reference
+            if !selectedLoadedTip, branchFilter == .all { branchFilter = .branch(reference) }
         }
         .onChange(of: searchText) { _, value in listModel.setSearchText(value) }
         .onChange(of: historyLoadSizeRaw) { _, value in
             listModel.setPageSize(HistoryLoadSize(rawValue: value)?.rawValue ?? HistoryLoadSize.balanced.rawValue)
         }
         .onChange(of: listModel.selectedCommit?.hash) { _, _ in
+            guard !isWorkSuspended else { return }
             detailModel.show(
                 listModel.selectedCommit,
                 debounce: listModel.shouldDebounceDetailSelection
             )
         }
         .onChange(of: listModel.selectedHashesInDisplayOrder) { _, hashes in selectionSink.update(hashes) }
-        .task(id: listModel.loadKey) {
-            guard isActive else {
+        .task(id: HistoryLoadRequest(key: listModel.loadKey, suspended: isWorkSuspended)) {
+            guard isActive, !isWorkSuspended else {
                 needsRefresh = true
                 return
             }
             await listModel.load()
+            guard !Task.isCancelled else { return }
             historyCommitSetFingerprint = await GitStatusService.shared.historyCommitSetFingerprint(
                 in: repositoryURL
             )
+            guard !Task.isCancelled else { return }
             needsRefresh = false
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange)) { notification in
@@ -149,8 +159,17 @@ struct HistoryScreen: View {
             listModel.clearCache()
             requestRefresh()
         }
+        .onChange(of: isWorkSuspended) { _, suspended in
+            if suspended {
+                listModel.suspendLoading()
+                detailModel.suspend()
+            } else if isActive {
+                detailModel.show(listModel.selectedCommit, debounce: false)
+                detailModel.resume()
+            }
+        }
         .onChange(of: isActive) { _, active in
-            if active {
+            if active && !isWorkSuspended {
                 detailModel.resume()
                 selectionSink.update(listModel.selectedHashesInDisplayOrder)
                 if needsRefresh { requestRefresh() }
@@ -161,7 +180,7 @@ struct HistoryScreen: View {
             }
         }
         .onAppear {
-            if isActive {
+            if isActive && !isWorkSuspended {
                 detailModel.resume()
                 selectionSink.update(listModel.selectedHashesInDisplayOrder)
             } else {
@@ -183,9 +202,20 @@ struct HistoryScreen: View {
         } message: { Text(listModel.errorMessage ?? "") }
     }
 
+    private struct ReferenceSelectionRequest: Equatable {
+        let reference: String?
+        let active: Bool
+        let suspended: Bool
+    }
+
+    private struct HistoryLoadRequest: Equatable {
+        let key: String
+        let suspended: Bool
+    }
+
     private func requestRefresh() {
         needsRefresh = true
-        guard isActive else { return }
+        guard isActive, !isWorkSuspended else { return }
         Task {
             await listModel.refresh()
             guard !Task.isCancelled else { return }

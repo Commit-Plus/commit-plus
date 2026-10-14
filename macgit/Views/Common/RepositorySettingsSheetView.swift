@@ -392,6 +392,12 @@ struct RepositorySettingsSheetView: View {
         Group {
             Section("Git Flow") {
                 Toggle("Enable Git Flow", isOn: $gitFlowConfiguration.isEnabled)
+                Picker("Sidebar branch labels", selection: $gitFlowConfiguration.roleDisplayMode) {
+                    ForEach(GitFlowRoleDisplayMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.menu)
             }
 
             Section("Branches") {

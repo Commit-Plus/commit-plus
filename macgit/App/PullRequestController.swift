@@ -287,8 +287,14 @@ final class PullRequestController: ObservableObject {
         } else {
             await remoteNameProvider(repositoryURL)
         }
-        guard let remoteName,
-              let remoteURLString = await remoteURLProvider(repositoryURL, remoteName) else {
+        guard !Task.isCancelled else { return }
+        guard let remoteName else {
+            detailErrorMessage = "No remotes configured."
+            return
+        }
+        let resolvedRemoteURL = await remoteURLProvider(repositoryURL, remoteName)
+        guard !Task.isCancelled else { return }
+        guard let remoteURLString = resolvedRemoteURL else {
             detailErrorMessage = "No remotes configured."
             return
         }
@@ -339,7 +345,7 @@ final class PullRequestController: ObservableObject {
         activeToken = apiCredential.token
         selectedProviderAccountID = apiCredential.account.id
         accountConnectionHost = nil
-        await presentCreatePullRequest(sourceBranch: sourceBranch)
+        await presentCreatePullRequest(sourceBranch: sourceBranch, loadParticipants: false)
     }
 
     func loadPullRequests(
@@ -672,7 +678,7 @@ final class PullRequestController: ObservableObject {
         _ = openURL(detail.changesURL)
     }
 
-    func presentCreatePullRequest(sourceBranch requestedSourceBranch: String? = nil) async {
+    func presentCreatePullRequest(sourceBranch requestedSourceBranch: String? = nil, loadParticipants: Bool = true) async {
         guard let repository = activeRepository,
               let repositoryURL = activeRepositoryURL else {
             detailErrorMessage = "Pull request creation is unavailable."
@@ -681,6 +687,7 @@ final class PullRequestController: ObservableObject {
 
         let currentBranch = await currentBranchProvider(repositoryURL)
         let defaultBranch = await defaultBranchProvider(repositoryURL)
+        guard !Task.isCancelled else { return }
         let normalizedRequestedSource = requestedSourceBranch?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let sourceBranch = (normalizedRequestedSource?.isEmpty == false ? normalizedRequestedSource : nil)
@@ -698,8 +705,7 @@ final class PullRequestController: ObservableObject {
             targetBranch: defaultBranch,
             suggestedTitle: suggestedTitle(for: sourceBranch)
         )
-        async let participantsLoad: Void = loadCreateDraftParticipants()
-        _ = await participantsLoad
+        if loadParticipants { await loadCreateDraftParticipants() }
     }
 
     func loadCreateDraftParticipants() async {
@@ -720,16 +726,16 @@ final class PullRequestController: ObservableObject {
                 repository: repository,
                 token: token
             )
-            guard createDraftParticipantsLoadID == loadID else { return }
+            guard !Task.isCancelled, createDraftParticipantsLoadID == loadID else { return }
             createDraftParticipants = participants.sorted {
                 $0.username.localizedCaseInsensitiveCompare($1.username) == .orderedAscending
             }
             isLoadingCreateDraftParticipants = false
         } catch is CancellationError {
-            guard createDraftParticipantsLoadID == loadID else { return }
+            guard !Task.isCancelled, createDraftParticipantsLoadID == loadID else { return }
             isLoadingCreateDraftParticipants = false
         } catch {
-            guard createDraftParticipantsLoadID == loadID else { return }
+            guard !Task.isCancelled, createDraftParticipantsLoadID == loadID else { return }
             createDraftParticipantsErrorMessage = error.localizedDescription
             isLoadingCreateDraftParticipants = false
         }
