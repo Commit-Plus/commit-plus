@@ -154,13 +154,20 @@ class SyncState: ObservableObject {
         let uncommittedCount = await GitStatusService.shared.uncommittedChangeCount(in: repositoryURL)
         await MainActor.run {
             guard generation == refreshGeneration else { return }
-            self.commitBadgeCount = uncommittedCount
+            if self.commitBadgeCount != uncommittedCount {
+                self.commitBadgeCount = uncommittedCount
+            }
         }
         let trackedCounts = await GitStatusService.shared.trackedStatusCounts(in: repositoryURL)
         await MainActor.run {
             guard generation == refreshGeneration else { return }
-            self.stagedBadgeCount = trackedCounts.staged
-            self.stashableCount = trackedCounts.staged + trackedCounts.unstaged
+            if self.stagedBadgeCount != trackedCounts.staged {
+                self.stagedBadgeCount = trackedCounts.staged
+            }
+            let stashableCount = trackedCounts.staged + trackedCounts.unstaged
+            if self.stashableCount != stashableCount {
+                self.stashableCount = stashableCount
+            }
         }
 
         let counts = await GitStatusService.shared.aheadBehindCount(in: repositoryURL)
@@ -171,9 +178,15 @@ class SyncState: ObservableObject {
             // refresh while this one is still reading Git state. Never let
             // the older snapshot overwrite the newer one.
             guard generation == refreshGeneration else { return false }
-            self.pushBadgeCount = counts.ahead
-            self.pullBadgeCount = counts.behind
-            self.inProgressOperation = operation
+            if self.pushBadgeCount != counts.ahead {
+                self.pushBadgeCount = counts.ahead
+            }
+            if self.pullBadgeCount != counts.behind {
+                self.pullBadgeCount = counts.behind
+            }
+            if self.inProgressOperation != operation {
+                self.inProgressOperation = operation
+            }
             let previousBranch = refreshedCurrentBranches.updateValue(currentBranch, forKey: repositoryURL)
             return previousBranch != nil && previousBranch != currentBranch
         }

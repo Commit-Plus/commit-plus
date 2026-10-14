@@ -358,7 +358,7 @@ struct FileStatusView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryRemoteRefsDidRefresh)) { notification in
             if let url = notification.userInfo?["repositoryURL"] as? URL, url == repositoryURL {
-                requestRefresh()
+                requestRemoteMetadataRefresh()
             }
         }
         .onChange(of: isActive) { _, active in
@@ -1429,8 +1429,15 @@ struct FileStatusView: View {
     }
 
     private func loadStatus() async {
-        isLoading = true
-        defer { isLoading = false }
+        let shouldShowLoading = !hasChanges && !hasInProgressOperation
+        if shouldShowLoading {
+            isLoading = true
+        }
+        defer {
+            if shouldShowLoading {
+                isLoading = false
+            }
+        }
         do {
             let loadedStatus = try await GitStatusService.shared.status(for: repositoryURL)
             let loadedCurrentBranch = await GitStatusService.shared.currentBranch(in: repositoryURL)
@@ -1485,6 +1492,38 @@ struct FileStatusView: View {
             await loadStatus()
             guard !Task.isCancelled else { return }
             needsRefresh = false
+        }
+    }
+
+    private func requestRemoteMetadataRefresh() {
+        guard isActive else {
+            needsRefresh = true
+            return
+        }
+        Task {
+            let loadedCurrentBranch = await GitStatusService.shared.currentBranch(in: repositoryURL)
+            let loadedIntegrationStatus: CurrentBranchIntegrationStatus?
+            if let loadedCurrentBranch {
+                loadedIntegrationStatus = await GitStatusService.shared.currentBranchIntegrationStatus(
+                    branch: loadedCurrentBranch,
+                    preferredRemote: preferredRemote,
+                    gitFlowConfiguration: gitFlowConfiguration,
+                    in: repositoryURL
+                )
+            } else {
+                loadedIntegrationStatus = nil
+            }
+            let loadedRecentCommits = await GitStatusService.shared.recentCommits(in: repositoryURL)
+            guard !Task.isCancelled else { return }
+            if currentBranch != loadedCurrentBranch {
+                currentBranch = loadedCurrentBranch
+            }
+            if currentBranchIntegrationStatus != loadedIntegrationStatus {
+                currentBranchIntegrationStatus = loadedIntegrationStatus
+            }
+            if !recentCommits.elementsEqual(loadedRecentCommits, by: { $0.hash == $1.hash && $0.message == $1.message }) {
+                recentCommits = loadedRecentCommits
+            }
         }
     }
 

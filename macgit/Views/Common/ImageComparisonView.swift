@@ -12,6 +12,12 @@ struct ImageComparisonView: View {
     @State private var afterError: String?
     @State private var isLoading = true
     @State private var fraction = 0.5
+    @State private var loadedRequest: LoadRequest?
+
+    private struct LoadRequest: Hashable {
+        let request: ImageComparisonRequest
+        let repositoryURL: URL
+    }
 
     private struct LoadID: Hashable {
         let request: ImageComparisonRequest
@@ -54,12 +60,16 @@ struct ImageComparisonView: View {
     }
 
     private func load() async {
-        isLoading = true
-        before = nil
-        after = nil
-        beforeError = nil
-        afterError = nil
-        fraction = 0.5
+        let loadRequest = LoadRequest(request: request, repositoryURL: repositoryURL)
+        let isNewRequest = loadedRequest != loadRequest
+        if isNewRequest {
+            isLoading = true
+        }
+
+        var loadedBefore: NSImage?
+        var loadedAfter: NSImage?
+        var loadedBeforeError: String?
+        var loadedAfterError: String?
         for (isBefore, source) in [(true, request.before), (false, request.after)] {
             guard let source else { continue }
             do {
@@ -68,13 +78,25 @@ struct ImageComparisonView: View {
                 guard let image = NSImage(data: data) else {
                     throw GitError.commandFailed("This image format cannot be previewed, or its content is unavailable locally.")
                 }
-                if isBefore { before = image } else { after = image }
+                if isBefore { loadedBefore = image } else { loadedAfter = image }
             } catch {
                 guard !Task.isCancelled else { return }
-                if isBefore { beforeError = error.localizedDescription } else { afterError = error.localizedDescription }
+                if isBefore {
+                    loadedBeforeError = error.localizedDescription
+                } else {
+                    loadedAfterError = error.localizedDescription
+                }
             }
         }
         guard !Task.isCancelled else { return }
+        before = loadedBefore
+        after = loadedAfter
+        beforeError = loadedBeforeError
+        afterError = loadedAfterError
+        if isNewRequest {
+            fraction = 0.5
+        }
+        loadedRequest = loadRequest
         isLoading = false
     }
 }
