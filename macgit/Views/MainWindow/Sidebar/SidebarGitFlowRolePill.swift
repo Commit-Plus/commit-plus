@@ -49,8 +49,8 @@ final class SidebarGitFlowRolePill: NSView {
 
     private var color: NSColor {
         switch role {
-        case .main: .systemCyan
-        case .develop: .systemYellow
+        case .main: .labelColor
+        case .develop: .systemBrown
         case .feature: .systemPurple
         case .bugfix: .systemOrange
         case .hotfix: .systemRed
