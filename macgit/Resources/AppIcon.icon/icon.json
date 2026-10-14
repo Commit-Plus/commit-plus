@@ -7,20 +7,7 @@
       "layers" : [
         {
           "fill" : {
-            "linear-gradient" : [
-              "extended-srgb:1.00000,0.21961,0.23529,1.00000",
-              "extended-srgb:1.00000,0.55294,0.15686,1.00000"
-            ],
-            "orientation" : {
-              "start" : {
-                "x" : 0.5,
-                "y" : 0
-              },
-              "stop" : {
-                "x" : 0.5,
-                "y" : 0.7
-              }
-            }
+            "solid" : "display-p3:0.99426,0.59322,0.18726,1.00000"
           },
           "glass" : true,
           "image-name" : "Branch (1).png",

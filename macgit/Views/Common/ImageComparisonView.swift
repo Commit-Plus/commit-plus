@@ -37,9 +37,6 @@ struct ImageComparisonView: View {
                     ImagePreviewViewport {
                         ImageComparisonOverlay(before: before, after: after, fraction: $fraction)
                     }
-                    Slider(value: $fraction, in: 0...1)
-                        .accessibilityLabel("Image comparison divider")
-                        .help("Drag to reveal the before and after images")
                 }.padding(12)
             } else {
                 HStack(spacing: 0) {
