@@ -21,6 +21,7 @@ struct HistoryScreen: View {
     @State private var baseBranch: String?
     @State private var searchText = ""
     @State private var needsRefresh = true
+    @State private var historyCommitSetFingerprint: String?
 
     init(repositoryURL: URL, isActive: Bool, selectedBranch: String?, branchFilter: Binding<HistoryBranchFilter>,
          includeRemotes: Binding<Bool>, dependencies: HistoryCommitActionController.Dependencies,
@@ -131,14 +132,18 @@ struct HistoryScreen: View {
                 return
             }
             await listModel.load()
+            historyCommitSetFingerprint = await GitStatusService.shared.historyCommitSetFingerprint(
+                in: repositoryURL
+            )
             needsRefresh = false
         }
-        .onReceive(Publishers.Merge(
-            NotificationCenter.default.publisher(for: .repositoryDidChange),
-            NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh)
-        )) { notification in
+        .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange)) { notification in
             guard notification.userInfo?["repositoryURL"] as? URL == repositoryURL else { return }
-            requestRefresh()
+            requestRefreshIfCommitSetChanged()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .repositoryRemoteRefsDidRefresh)) { notification in
+            guard notification.userInfo?["repositoryURL"] as? URL == repositoryURL else { return }
+            requestRefreshIfCommitSetChanged()
         }
         .onReceive(NotificationCenter.default.publisher(for: .advancedClearSessionCaches)) { _ in
             listModel.clearCache()
@@ -185,6 +190,17 @@ struct HistoryScreen: View {
             await listModel.refresh()
             guard !Task.isCancelled else { return }
             needsRefresh = false
+        }
+    }
+
+    private func requestRefreshIfCommitSetChanged() {
+        Task {
+            let fingerprint = await GitStatusService.shared.historyCommitSetFingerprint(in: repositoryURL)
+            guard !Task.isCancelled else { return }
+            guard historyCommitSetFingerprint != fingerprint else { return }
+            historyCommitSetFingerprint = fingerprint
+            needsRefresh = true
+            if isActive { requestRefresh() }
         }
     }
 }

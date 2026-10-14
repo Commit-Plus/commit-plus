@@ -182,6 +182,22 @@ extension GitStatusService {
 
     // MARK: - Commit History
 
+    func historyCommitSetFingerprint(in repositoryURL: URL) async -> String {
+        let output = (try? await runGit(
+            arguments: [
+                "for-each-ref",
+                "--format=%(objectname)",
+                "refs/heads",
+                "refs/remotes"
+            ],
+            in: repositoryURL
+        )) ?? ""
+        let head = await tipHash(for: "HEAD", in: repositoryURL)
+        var objectIDs = Set(output.split(separator: "\n").map(String.init))
+        if let head { objectIDs.insert(head) }
+        return objectIDs.sorted().joined(separator: "\n")
+    }
+
     func commitHistory(allBranches: Bool, in repositoryURL: URL) async -> [Commit] {
         await commitHistory(allBranches: allBranches, limit: 500, skip: 0, in: repositoryURL)
     }

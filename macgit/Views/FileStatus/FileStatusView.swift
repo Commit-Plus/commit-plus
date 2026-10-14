@@ -55,7 +55,8 @@ struct FileStatusView: View {
     @State private var gitStatus: GitStatus = GitStatus(staged: [], unstaged: [], untracked: [])
     @State private var stagedLineCounts: [String: FileLineChangeCount] = [:]
     @State private var changedLineCounts: [String: FileLineChangeCount] = [:]
-    @State private var lineCountRefreshID = UUID()
+    @State private var stagedLineCountRefreshID = UUID()
+    @State private var changedLineCountRefreshID = UUID()
     @State private var lfsPaths = Set<String>()
     @State private var stagedLFSPaths = Set<String>()
     @State private var changedFiles: [StatusFile] = []
@@ -96,7 +97,7 @@ struct FileStatusView: View {
     @State private var needsRefresh = true
 
     private var hasChanges: Bool {
-        !gitStatus.isEmpty
+        !gitStatus.staged.isEmpty || !changedFiles.isEmpty
     }
 
     private var isCommitMessageEmpty: Bool {
@@ -295,14 +296,25 @@ struct FileStatusView: View {
             await loadStatus()
             needsRefresh = false
         }
-        .task(id: lineCountRefreshID) {
+        .task(id: stagedLineCountRefreshID) {
             let status = gitStatus
-            async let staged = GitStatusService.shared.lineChangeCounts(for: status.staged, staged: true, in: repositoryURL)
-            async let changed = GitStatusService.shared.lineChangeCounts(for: status.unstaged + status.untracked, staged: false, in: repositoryURL)
-            let counts = await (staged, changed)
+            let counts = await GitStatusService.shared.lineChangeCounts(
+                for: status.staged,
+                staged: true,
+                in: repositoryURL
+            )
             guard !Task.isCancelled else { return }
-            stagedLineCounts = counts.0
-            changedLineCounts = counts.1
+            stagedLineCounts = counts
+        }
+        .task(id: changedLineCountRefreshID) {
+            let files = changedFiles
+            let counts = await GitStatusService.shared.lineChangeCounts(
+                for: files,
+                staged: false,
+                in: repositoryURL
+            )
+            guard !Task.isCancelled else { return }
+            changedLineCounts = counts
         }
         .onChange(of: selectedFileKey) { _, newSelectionKey in
             diffHunks = []
@@ -355,6 +367,13 @@ struct FileStatusView: View {
             if let url = notification.userInfo?["repositoryURL"] as? URL, url == repositoryURL {
                 requestRefresh()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh)) { notification in
+            guard let url = notification.userInfo?["repositoryURL"] as? URL,
+                  url == repositoryURL,
+                  let status = notification.userInfo?["gitStatus"] as? GitStatus
+            else { return }
+            applyBackgroundChangedFiles(from: status)
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryRemoteRefsDidRefresh)) { notification in
             if let url = notification.userInfo?["repositoryURL"] as? URL, url == repositoryURL {
@@ -1463,7 +1482,8 @@ struct FileStatusView: View {
             // The same paths/statuses can have different content after an edit.
             // Refresh counts even when the file-list snapshot is unchanged, and
             // keep the previous badges visible until their replacement arrives.
-            lineCountRefreshID = UUID()
+            stagedLineCountRefreshID = UUID()
+            changedLineCountRefreshID = UUID()
             currentBranch = loadedCurrentBranch
             currentBranchIntegrationStatus = loadedIntegrationStatus
             recentCommits = await GitStatusService.shared.recentCommits(in: repositoryURL)
@@ -1524,6 +1544,39 @@ struct FileStatusView: View {
             if !recentCommits.elementsEqual(loadedRecentCommits, by: { $0.hash == $1.hash && $0.message == $1.message }) {
                 recentCommits = loadedRecentCommits
             }
+        }
+    }
+
+    private func applyBackgroundChangedFiles(from status: GitStatus) {
+        let loadedChangedFiles = status.unstaged + status.untracked
+        guard changedFiles != loadedChangedFiles else { return }
+
+        changedFiles = loadedChangedFiles
+        changedLineCountRefreshID = UUID()
+
+        if !selectedActionFileKeys.isEmpty {
+            selectedActionFileKeys = actionSelection.prunedSelection
+        }
+        if let actionSelectionAnchorKey,
+           !selectedActionFileKeys.contains(actionSelectionAnchorKey) {
+            self.actionSelectionAnchorKey = selectedActionFileKeys.first
+        }
+
+        guard let selectedFileKey, !selectedFileKey.isStaged else { return }
+        if let matchedFile = loadedChangedFiles.first(where: {
+            FileStatusSelectionKey(file: $0, isStaged: false) == selectedFileKey
+        }) {
+            selectedFile = matchedFile
+        } else if let firstChangedFile = loadedChangedFiles.first {
+            selectFileForPreview(
+                firstChangedFile,
+                selectionKey: FileStatusSelectionKey(file: firstChangedFile, isStaged: false)
+            )
+        } else {
+            selectedFile = nil
+            self.selectedFileKey = nil
+            diffHunks = []
+            isLoadingDiff = false
         }
     }
 

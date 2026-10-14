@@ -123,6 +123,7 @@ class SyncState: ObservableObject {
     private let refreshCoordinator = SyncRefreshCoordinator()
     private var refreshGeneration = 0
     private var refreshedCurrentBranches: [URL: String] = [:]
+    private var refreshedLocalStatuses: [URL: GitStatus] = [:]
     private static let backgroundRefreshInterval: Duration = .seconds(10)
     private static let localRefreshCoalescingInterval: TimeInterval = 2
     private static let autoFetchInterval: TimeInterval = 60
@@ -150,6 +151,7 @@ class SyncState: ObservableObject {
             return refreshGeneration
         }
         async let loadedCurrentBranch = GitStatusService.shared.currentBranch(in: repositoryURL)
+        async let loadedLocalStatus = try? GitStatusService.shared.status(for: repositoryURL)
 
         let uncommittedCount = await GitStatusService.shared.uncommittedChangeCount(in: repositoryURL)
         await MainActor.run {
@@ -173,11 +175,12 @@ class SyncState: ObservableObject {
         let counts = await GitStatusService.shared.aheadBehindCount(in: repositoryURL)
         let operation = await GitStatusService.shared.inProgressOperation(in: repositoryURL)
         let currentBranch = await loadedCurrentBranch ?? ""
-        let currentBranchDidChange = await MainActor.run { () -> Bool in
+        let localStatus = await loadedLocalStatus
+        let refreshChanges = await MainActor.run { () -> (branch: Bool, localStatus: Bool) in
             // A checkout or another repository change can start a newer
             // refresh while this one is still reading Git state. Never let
             // the older snapshot overwrite the newer one.
-            guard generation == refreshGeneration else { return false }
+            guard generation == refreshGeneration else { return (false, false) }
             if self.pushBadgeCount != counts.ahead {
                 self.pushBadgeCount = counts.ahead
             }
@@ -188,14 +191,34 @@ class SyncState: ObservableObject {
                 self.inProgressOperation = operation
             }
             let previousBranch = refreshedCurrentBranches.updateValue(currentBranch, forKey: repositoryURL)
-            return previousBranch != nil && previousBranch != currentBranch
+            let localStatusDidChange: Bool
+            if let localStatus {
+                let previousStatus = refreshedLocalStatuses.updateValue(localStatus, forKey: repositoryURL)
+                localStatusDidChange = previousStatus != localStatus
+            } else {
+                localStatusDidChange = false
+            }
+            return (
+                branch: previousBranch != nil && previousBranch != currentBranch,
+                localStatus: localStatusDidChange
+            )
         }
 
-        if currentBranchDidChange {
+        if refreshChanges.branch {
             NotificationCenter.default.post(
                 name: .repositoryCurrentBranchDidChange,
                 object: nil,
                 userInfo: ["repositoryURL": repositoryURL]
+            )
+        }
+        if refreshChanges.localStatus, let localStatus {
+            NotificationCenter.default.post(
+                name: .repositoryLocalStateDidRefresh,
+                object: nil,
+                userInfo: [
+                    "repositoryURL": repositoryURL,
+                    "gitStatus": localStatus
+                ]
             )
         }
 
@@ -287,6 +310,14 @@ class SyncState: ObservableObject {
 
     private func notifyRepositoryChanged(_ repositoryURL: URL) {
         NotificationCenter.default.post(name: .repositoryDidChange, object: nil, userInfo: ["repositoryURL": repositoryURL])
+    }
+
+    private func notifyUserInitiatedRemoteRefsRefresh(_ repositoryURL: URL) {
+        NotificationCenter.default.post(
+            name: .repositoryRemoteRefsDidRefresh,
+            object: nil,
+            userInfo: ["repositoryURL": repositoryURL, "userInitiated": true]
+        )
     }
 
     func showConflict(_ message: String) {
@@ -590,11 +621,13 @@ class SyncState: ObservableObject {
                 credentialResolver: credentialResolver
             )
             await refresh(repositoryURL: repositoryURL)
+            notifyUserInitiatedRemoteRefsRefresh(repositoryURL)
             notifyRepositoryChanged(repositoryURL)
         } catch {
             if let fetchError = error as? GitFetchError,
                !fetchError.succeededRemotes.isEmpty {
                 await refresh(repositoryURL: repositoryURL)
+                notifyUserInitiatedRemoteRefsRefresh(repositoryURL)
                 notifyRepositoryChanged(repositoryURL)
             }
             showError(error.localizedDescription)
@@ -625,6 +658,7 @@ class SyncState: ObservableObject {
                 credentialResolver: credentialResolver
             )
             await refresh(repositoryURL: repositoryURL)
+            notifyUserInitiatedRemoteRefsRefresh(repositoryURL)
             notifyRepositoryChanged(repositoryURL)
         } catch {
             showError(error.localizedDescription)

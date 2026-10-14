@@ -113,8 +113,12 @@ extension SidebarView {
         }
     }
 
-    func loadLocalRefreshSections() async {
+    func loadRepositoryMutationSections() async {
         await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await GitStatusService.shared.invalidateBranchListCache(in: repositoryURL)
+                await loadBranches(force: true)
+            }
             group.addTask {
                 await loadTags()
             }
@@ -193,26 +197,30 @@ extension SidebarView {
         let expandedFoldersForLoad = hadLoadedBranches
             ? expandedFolders.intersection(allFolders)
             : currentBranchFolders
+        let branchStructureChanged = branchNodes != tree || currentBranch != current
 
         await MainActor.run {
             guard activeBranchSyncLoadID == loadID else { return }
-            branchNodes = tree
-            currentBranch = current
-            headHash = ""
+            if branchNodes != tree { branchNodes = tree }
+            if currentBranch != current { currentBranch = current }
+            if !headHash.isEmpty { headHash = "" }
             let existingBranches = Set(filteredLocals)
             branchSyncStatus = branchSyncStatus.filter { existingBranches.contains($0.key) }
             if currentBranchIntegrationStatus?.branch != current {
                 currentBranchIntegrationStatus = nil
             }
-            loadedBranchSyncBranches = []
-            syncingBranchSyncBranches = []
+            if branchStructureChanged {
+                loadedBranchSyncBranches = []
+                syncingBranchSyncBranches = []
+            }
             // Reveal the current branch only on the initial load. Refreshes
             // preserve the user's tree state while dropping removed folders.
-            expandedFolders = expandedFoldersForLoad
-            cachedVisibleBranchRows = SidebarTreeBuilder.visibleRows(
+            if expandedFolders != expandedFoldersForLoad { expandedFolders = expandedFoldersForLoad }
+            let visibleRows = SidebarTreeBuilder.visibleRows(
                 from: tree,
                 expandedFolders: expandedFoldersForLoad
             )
+            if cachedVisibleBranchRows != visibleRows { cachedVisibleBranchRows = visibleRows }
             hasLoadedBranches = true
             isLoadingBranches = false
         }
@@ -240,7 +248,9 @@ extension SidebarView {
             )
             await MainActor.run {
                 guard activeBranchSyncLoadID == loadID else { return }
-                currentBranchIntegrationStatus = integrationStatus
+                if currentBranchIntegrationStatus != integrationStatus {
+                    currentBranchIntegrationStatus = integrationStatus
+                }
             }
         }
     }
@@ -292,11 +302,12 @@ extension SidebarView {
         let allFolders = collectFolderPaths(from: tree)
 
         await MainActor.run {
-            tagNodes = tree
-            cachedVisibleTagRows = SidebarTreeBuilder.visibleRows(
+            if tagNodes != tree { tagNodes = tree }
+            let visibleRows = SidebarTreeBuilder.visibleRows(
                 from: tree,
                 expandedFolders: expandedTagFolders.isEmpty ? allFolders : expandedTagFolders
             )
+            if cachedVisibleTagRows != visibleRows { cachedVisibleTagRows = visibleRows }
             hasLoadedTags = true
             isLoadingTags = false
             activeTagLoadID = nil
@@ -337,14 +348,15 @@ extension SidebarView {
 
         let tree = SidebarTreeBuilder.buildRemoteTree(remoteBranchesByRemote: fetchedBranchesByRemote)
         await MainActor.run {
-            remoteNodes = tree
-            cachedVisibleRemoteRows = SidebarTreeBuilder.visibleRows(
+            if remoteNodes != tree { remoteNodes = tree }
+            let visibleRows = SidebarTreeBuilder.visibleRows(
                 from: tree,
                 expandedFolders: expandedRemoteFolders
             )
-            remoteNames = remotes
-            branchesByRemote = fetchedBranchesByRemote
-            upstreamByBranch = upstreams
+            if cachedVisibleRemoteRows != visibleRows { cachedVisibleRemoteRows = visibleRows }
+            if remoteNames != remotes { remoteNames = remotes }
+            if branchesByRemote != fetchedBranchesByRemote { branchesByRemote = fetchedBranchesByRemote }
+            if upstreamByBranch != upstreams { upstreamByBranch = upstreams }
             hasLoadedRemotes = true
             isLoadingRemotes = false
             activeRemoteLoadID = nil
@@ -366,9 +378,10 @@ extension SidebarView {
                let previous = stashEntries.first(where: { $0.ref == ref }), let objectID = previous.objectID {
                 let matches = stashes.filter { $0.objectID == objectID }
                 // Ambiguous duplicate stash objects must not silently select another entry.
-                selection = matches.count == 1 ? .stash(matches[0].ref) : nil
+                let updatedSelection: SidebarSelection? = matches.count == 1 ? .stash(matches[0].ref) : nil
+                if selection != updatedSelection { selection = updatedSelection }
             }
-            stashEntries = stashes
+            if stashEntries != stashes { stashEntries = stashes }
             hasLoadedStashes = true
             isLoadingStashes = false
             activeStashLoadID = nil

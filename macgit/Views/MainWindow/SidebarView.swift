@@ -717,7 +717,7 @@ struct SidebarView: View {
                     expandBranchesSection()
                 }
                 Task {
-                    await loadAllSections(force: true)
+                    await loadRepositoryMutationSections()
                     if let checkedOutBranch {
                         expandedFolders.formUnion(
                             SidebarTreeBuilder.expandedFolderPaths(revealing: checkedOutBranch)
@@ -727,16 +727,12 @@ struct SidebarView: View {
                 }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh)) { notification in
-            if let url = notification.userInfo?["repositoryURL"] as? URL, url == repositoryURL {
-                Task {
-                    await loadLocalRefreshSections()
-                }
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryRemoteRefsDidRefresh)) { notification in
-            if let url = notification.userInfo?["repositoryURL"] as? URL, url == repositoryURL {
+            if let url = notification.userInfo?["repositoryURL"] as? URL,
+               url == repositoryURL,
+               notification.userInfo?["userInitiated"] as? Bool == true {
                 Task {
+                    await loadRemotes()
                     await loadBranches(force: true)
                 }
             }

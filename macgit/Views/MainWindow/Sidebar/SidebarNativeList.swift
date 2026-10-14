@@ -139,6 +139,7 @@ struct SidebarNativeList: NSViewRepresentable {
             retainedMenu?.cancelTracking()
             retainedMenu = nil
             let oldRows = rows
+            let oldAppearanceByID = Dictionary(uniqueKeysWithValues: oldRows.map { ($0.id, $0.appearance) })
             let oldIDs = oldRows.map(\.id)
             let nextRows = contentChanged ? SidebarSignpost.interval("NativeSnapshot") { next.makeRows() } : rows
             let newIDs = nextRows.map(\.id)
@@ -193,7 +194,10 @@ struct SidebarNativeList: NSViewRepresentable {
             let range = table.rows(in: table.visibleRect)
             if range.location != NSNotFound {
                 for index in range.location..<min(NSMaxRange(range), rows.count) {
-                    if let cell = table.view(atColumn: 0, row: index, makeIfNecessary: false) as? Cell {
+                    let row = rows[index]
+                    let appearanceChanged = oldAppearanceByID[row.id] != row.appearance
+                    if (scaleChanged || appearanceChanged),
+                       let cell = table.view(atColumn: 0, row: index, makeIfNecessary: false) as? Cell {
                         configure(cell, row: index)
                     }
                 }

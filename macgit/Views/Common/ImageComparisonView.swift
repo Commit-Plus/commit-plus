@@ -33,6 +33,9 @@ struct ImageComparisonView: View {
             } else if request.before == nil {
                 ImageComparisonSide(title: nil, image: after, error: afterError,
                                     isMissing: request.after == nil)
+            } else if request.after == nil {
+                ImageComparisonSide(title: "Before", image: before, error: beforeError,
+                                    isMissing: false)
             } else if mode == .overlay, let before, let after {
                 VStack(spacing: 12) {
                     HStack {

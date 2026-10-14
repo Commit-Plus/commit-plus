@@ -87,7 +87,7 @@ extension SidebarView {
         let entries = await GitStatusService.shared.worktreesWithLabels(in: repositoryURL)
         guard activeWorktreeLoadID == loadID else { return }
         await MainActor.run {
-            worktreeEntries = entries
+            if worktreeEntries != entries { worktreeEntries = entries }
             hasLoadedWorktrees = true
         }
     }
