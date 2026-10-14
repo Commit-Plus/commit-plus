@@ -118,6 +118,7 @@ struct PullRequestChangesView: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                                     Image(systemName: "folder")
+                                        .foregroundStyle(.blue)
                                     Text(name)
                                         .lineLimit(1)
                                 }
@@ -162,9 +163,14 @@ struct PullRequestChangesView: View {
 
             if let additions = file.additions,
                let deletions = file.deletions {
-                Text("+\(additions) −\(deletions)")
-                    .font(.system(size: 10, design: .monospaced).scaled(by: textScale))
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Text("+\(additions)")
+                        .foregroundStyle(.green)
+                    Text("−\(deletions)")
+                        .foregroundStyle(.red)
+                }
+                .font(.system(size: 10, design: .monospaced).scaled(by: textScale))
+                .fixedSize()
             }
         }
         .padding(.vertical, 2)

@@ -21,7 +21,10 @@ import SwiftUI
 struct PullRequestDetailHeader: View {
     @Environment(\.appTextScale) private var textScale
     let summary: PullRequestSummary
-    let onClose: () -> Void
+    let onOpenPullRequest: () -> Void
+    let onMerge: () -> Void
+    let isMergeDisabled: Bool
+    let mergeButtonHelp: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -34,10 +37,7 @@ struct PullRequestDetailHeader: View {
                     .font(.title2.scaled(by: textScale))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 12)
-                Button("Close detail", systemImage: "xmark", action: onClose)
-                    .buttonStyle(.borderless)
-                    .labelStyle(.iconOnly)
-                    .help("Close pull request detail")
+
             }
 
             HStack(spacing: 8) {
@@ -60,17 +60,32 @@ struct PullRequestDetailHeader: View {
             }
 
             HStack(spacing: 7) {
-                Text(summary.source.ref)
-                    .branchBadge(scale: textScale)
-                Image(systemName: "arrow.right")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("into")
-                Text(summary.target.ref)
-                    .branchBadge(scale: textScale)
+                HStack(spacing: 7) {
+                    Text(summary.source.ref)
+                        .branchBadge(scale: textScale)
+                    Image(systemName: "arrow.right")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("into")
+                    Text(summary.target.ref)
+                        .branchBadge(scale: textScale)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("From \(summary.source.ref) into \(summary.target.ref)")
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: 8) {
+                    Button("Open PR", systemImage: "safari", action: onOpenPullRequest)
+                    Button("Merge Pull Request", systemImage: "arrow.triangle.merge", action: onMerge)
+                        .buttonStyle(.borderedProminent)
+                        .tint(.green)
+                        .disabled(isMergeDisabled)
+                        .help(mergeButtonHelp)
+                }
+                .font(.body.scaled(by: textScale))
+                .fixedSize()
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("From \(summary.source.ref) into \(summary.target.ref)")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
