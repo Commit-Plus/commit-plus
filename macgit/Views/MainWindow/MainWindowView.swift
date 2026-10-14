@@ -146,10 +146,12 @@ struct MainWindowView: View {
     @State var branchToRename: String = ""
     @State var showingDetachedHeadConfirmation = false
     @State var tagToCheckout: String = ""
+    @State var activeTagCheckoutCount = 0
     @State private var displayedTagDetails: RepositorySheetRequest<String>?
     @State var pendingTagDeletion: PendingTagDeletion?
     @State var pendingStashRef: String?
     @State var pendingStashAction: StashAction?
+    @State private var activeStashActionCount = 0
     @State var pendingStashPaths: [String] = []
     @State var pendingProviderAccountSelection: PendingGitProviderAccountSelection?
     @State var providerAccountSelectionContinuation: CheckedContinuation<String?, Never>?
@@ -739,6 +741,7 @@ struct MainWindowView: View {
             }
             .task(id: pullRequestAccessTaskID) {
                 guard selectedItem == .item(.pullRequests) else { return }
+                pullRequestAccessDecision = nil
                 _ = await authorizePullRequestAccess(presentNotice: false)
             }
         .onChange(of: releaseNotesPresentation == nil) { _, dismissed in
@@ -1371,7 +1374,8 @@ struct MainWindowView: View {
                 StashView(
                     repositoryURL: repositoryURL,
                     stashRef: ref,
-                    isWorkSuspended: pendingStashRef != nil && pendingStashAction != nil
+                    isWorkSuspended: activeStashActionCount > 0
+                        || (pendingStashRef != nil && pendingStashAction != nil)
                 )
             case .submodule(let path):
                 SubmoduleDetailPlaceholderView {
@@ -1491,7 +1495,8 @@ struct MainWindowView: View {
             repositoryURL: repositoryURL,
             isActive: isHistoryActive,
             isWorkSuspended: showingCheckoutConfirmation || pendingRemoteBranchCheckout != nil
-                || showingDetachedHeadConfirmation || pendingHistoryCheckout != nil,
+                || showingDetachedHeadConfirmation || pendingHistoryCheckout != nil
+                || activeTagCheckoutCount > 0,
             selectedBranch: selectedBranchName,
             branchFilter: $appState.historyBranchFilter,
             includeRemotes: $appState.historyIncludeRemotes,
@@ -2199,6 +2204,8 @@ struct MainWindowView: View {
     }
 
     func performStashAction(ref: String, action: StashAction, deleteAfterApplying: Bool) async {
+        activeStashActionCount += 1
+        defer { activeStashActionCount -= 1 }
         do {
             switch action {
             case .apply:

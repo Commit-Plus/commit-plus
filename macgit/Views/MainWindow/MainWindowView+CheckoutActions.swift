@@ -62,6 +62,8 @@ extension MainWindowView {
     }
 
     func performTagCheckout(tag: String) async {
+        activeTagCheckoutCount += 1
+        defer { activeTagCheckoutCount -= 1 }
         await performCheckout(ref: tag, stash: false)
     }
 
