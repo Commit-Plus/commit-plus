@@ -525,7 +525,14 @@ struct FileStatusView: View {
             makeMoreMenu: { NSHostingMenu(rootView: fileMoreMenuContent(file: $0, isStaged: isStaged, selection: selection)) },
             makeContextMenu: { NSHostingMenu(rootView: completeFileContextMenu(file: $0, isStaged: isStaged, selection: selection)) },
             dragPaths: { selection.dragPaths(startingAt: $0, isStaged: isStaged) },
-            makeDragPayload: { .files($0, repositoryURL: repositoryURL) }
+            makeDragPayload: { .files($0, repositoryURL: repositoryURL) },
+            onDrop: { payloads in
+                handleFileDrop(payloads, into: isStaged ? .staged : .changed)
+            },
+            onDropTargetChanged: { targeted in
+                if isStaged { isStagedDropTargeted = targeted }
+                else { isChangedDropTargeted = targeted }
+            }
         )
     }
 

@@ -28,6 +28,8 @@ struct FileStatusTreeNativeList: NSViewRepresentable {
     let makeContextMenu: (StatusFile) -> NSMenu
     let dragPaths: (StatusFile) -> [String]
     let makeDragPayload: ([String]) -> GitDragPayload
+    let onDrop: ([GitDragPayload]) -> Bool
+    let onDropTargetChanged: (Bool) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> NSScrollView { context.coordinator.makeScrollView() }
@@ -39,6 +41,7 @@ struct FileStatusTreeNativeList: NSViewRepresentable {
         private var rows: [Row] = []
         private var scale: CGFloat = 0
         private var hostedMenu: NSMenu?
+        private var isDropTargeted = false
 
         func makeScrollView() -> NSScrollView {
             let scroll = NSScrollView()
@@ -47,7 +50,9 @@ struct FileStatusTreeNativeList: NSViewRepresentable {
             table.addTableColumn(column); table.headerView = nil; table.backgroundColor = .clear
             table.rowHeight = 36; table.intercellSpacing = .zero; table.selectionHighlightStyle = .none
             table.dataSource = self; table.delegate = self; table.target = self; table.action = #selector(clickedRow)
+            table.doubleAction = #selector(doubleClickedRow)
             table.contextMenuProvider = { [weak self] row in self?.contextMenu(row) }
+            table.onDraggingExited = { [weak self] in self?.setDropTargeted(false) }
             table.registerForDraggedTypes([.init(UTType.macgitGitDragPayload.identifier)])
             table.setDraggingSourceOperationMask(.copy, forLocal: true)
             table.setDraggingSourceOperationMask(.copy, forLocal: false)
@@ -109,6 +114,12 @@ struct FileStatusTreeNativeList: NSViewRepresentable {
             }
         }
 
+        @objc private func doubleClickedRow() {
+            let index = table.clickedRow
+            guard rows.indices.contains(index), case .file(let row, _) = rows[index].content else { return }
+            model?.onQuickAction(row.file)
+        }
+
         private func contextMenu(_ index: Int) -> NSMenu? {
             guard rows.indices.contains(index), case .file(let row, _) = rows[index].content, let model else { return nil }
             let menu = model.makeContextMenu(row.file); hostedMenu = menu; menu.delegate = self; return menu
@@ -131,6 +142,37 @@ struct FileStatusTreeNativeList: NSViewRepresentable {
             return item
         }
 
+        func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo,
+                       proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
+            guard decodePayloads(from: info.draggingPasteboard) != nil else {
+                setDropTargeted(false)
+                return []
+            }
+            tableView.setDropRow(-1, dropOperation: .on)
+            setDropTargeted(true)
+            return .copy
+        }
+
+        func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo,
+                       row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
+            defer { setDropTargeted(false) }
+            guard let payloads = decodePayloads(from: info.draggingPasteboard) else { return false }
+            return model?.onDrop(payloads) == true
+        }
+
+        private func decodePayloads(from pasteboard: NSPasteboard) -> [GitDragPayload]? {
+            let type = NSPasteboard.PasteboardType(UTType.macgitGitDragPayload.identifier)
+            guard let data = pasteboard.data(forType: type),
+                  let payload = try? GitDragPayload.decodeTransferData(data) else { return nil }
+            return [payload]
+        }
+
+        private func setDropTargeted(_ targeted: Bool) {
+            guard isDropTargeted != targeted else { return }
+            isDropTargeted = targeted
+            model?.onDropTargetChanged(targeted)
+        }
+
         private func viewportAnchor(_ source: [Row]) -> (String, CGFloat)? {
             let visible = table.rows(in: table.visibleRect)
             guard visible.location != NSNotFound, source.indices.contains(visible.location) else { return nil }
@@ -146,8 +188,13 @@ struct FileStatusTreeNativeList: NSViewRepresentable {
 
 private final class StatusTreeTableView: NSTableView {
     var contextMenuProvider: ((Int) -> NSMenu?)?
+    var onDraggingExited: (() -> Void)?
     override func menu(for event: NSEvent) -> NSMenu? {
         let index = row(at: convert(event.locationInWindow, from: nil)); return index < 0 ? nil : contextMenuProvider?(index)
+    }
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        super.draggingExited(sender)
+        onDraggingExited?()
     }
 }
 

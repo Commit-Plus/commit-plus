@@ -77,7 +77,9 @@ struct CommitFileListView: View {
                 }
             },
             selectedIDs: Set(selectedFiles.map(\.id)), textScale: textScale,
-            onToggleFolder: toggleFolder, onSelect: selectTreeFile, onOpenFile: onOpenFile,
+            onToggleFolder: toggleFolder, onSelect: { file in
+                selectTreeFile(file, in: rows)
+            }, onOpenFile: onOpenFile,
             makeContextMenu: onPatch == nil ? nil : { change in NSHostingMenu(rootView: patchMenu(for: change)) }
         )
     }
@@ -91,16 +93,20 @@ struct CommitFileListView: View {
         }
     }
 
-    private func selectTreeFile(_ file: CommitFileChange) {
+    private func selectTreeFile(_ file: CommitFileChange, in rows: [FilePathTreeRow<CommitFileChange>]) {
         guard onPatch != nil else {
             selectedFiles = [file]
             selectedFile = file
             return
         }
         let modifiers = (NSApp.currentEvent?.modifierFlags ?? []).intersection(.deviceIndependentFlagsMask)
+        let visibleFiles = rows.compactMap { row -> CommitFileChange? in
+            if case .file(let change, _) = row.content { return change }
+            return nil
+        }
         if modifiers.contains(.shift), let anchor = selectedFile,
-           let anchorIndex = changes.firstIndex(of: anchor), let index = changes.firstIndex(of: file) {
-            selectedFiles = Set(changes[min(anchorIndex, index)...max(anchorIndex, index)])
+           let anchorIndex = visibleFiles.firstIndex(of: anchor), let index = visibleFiles.firstIndex(of: file) {
+            selectedFiles = Set(visibleFiles[min(anchorIndex, index)...max(anchorIndex, index)])
         } else if modifiers.contains(.command) {
             if selectedFiles.contains(file) { selectedFiles.remove(file) }
             else { selectedFiles.insert(file) }
