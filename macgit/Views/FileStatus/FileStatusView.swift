@@ -1630,6 +1630,8 @@ struct FileStatusView: View {
             self.actionSelectionAnchorKey = selectedActionFileKeys.first
         }
 
+        // Replace the invalidated full load so ancillary metadata also catches up.
+        requestRefresh()
     }
 
     private func reloadRepositoryState() async {

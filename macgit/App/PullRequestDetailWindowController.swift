@@ -22,7 +22,7 @@ final class PullRequestDetailWindowController: NSWindowController, NSWindowDeleg
     }
 
     func show<Content: View>(title: String, content: Content, onClose: @escaping () -> Void) {
-        if activateIfPresented() { return }
+        close()
         self.onClose = onClose
         let screen = NSApp.keyWindow?.screen ?? NSScreen.main
         let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)

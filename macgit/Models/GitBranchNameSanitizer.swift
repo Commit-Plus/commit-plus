@@ -35,8 +35,14 @@ enum GitBranchNameSanitizer {
         let components = name.split(separator: "/").compactMap { component -> String? in
             var value = String(component)
             while value.hasPrefix(".") { value.removeFirst() }
-            while value.hasSuffix(".lock") { value.removeLast(5) }
-            while value.hasSuffix(".") { value.removeLast() }
+            // Removing one suffix can expose another forbidden suffix.
+            while value.hasSuffix(".") || value.hasSuffix(".lock") {
+                if value.hasSuffix(".") {
+                    value.removeLast()
+                } else {
+                    value.removeLast(5)
+                }
+            }
             return value.isEmpty ? nil : value
         }
         name = components.joined(separator: "/")
