@@ -156,7 +156,9 @@ struct PullRequestListView: View {
                 .onTapGesture {
                     Task {
                         guard await authorizeAction() else { return }
-                        if detailWindowController.activateIfPresented() { return }
+                        if selectedPullRequestID == item.id,
+                           detailWindowController.activateIfPresented() { return }
+                        detailWindowController.close()
                         controller.clearSelectedDetail()
                         selectedPullRequestID = item.id
                         detailWindowController.show(

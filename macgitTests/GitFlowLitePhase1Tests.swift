@@ -38,6 +38,13 @@ final class GitFlowLitePhase1Tests: XCTestCase {
         XCTAssertEqual(GitBranchNameSanitizer.sanitize("Feature--API"), "Feature--API")
     }
 
+    func testBranchNameSanitizerRemovesExposedForbiddenSuffixes() {
+        XCTAssertEqual(GitBranchNameSanitizer.sanitize("feature.lock."), "feature")
+        XCTAssertEqual(GitBranchNameSanitizer.sanitize("feature.lock.lock."), "feature")
+        XCTAssertEqual(GitBranchNameSanitizer.sanitize("feature.lock.lock"), "feature")
+        XCTAssertEqual(GitBranchNameSanitizer.sanitize("feature.lock./child.lock."), "feature/child")
+    }
+
     func testPlannerMapsTopicKindsToExpectedBaseAndPrefix() throws {
         let configuration = GitFlowConfiguration(isEnabled: true)
         let planner = GitFlowPlanner()
