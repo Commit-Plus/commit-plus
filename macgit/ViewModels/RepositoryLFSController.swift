@@ -53,7 +53,19 @@ final class RepositoryLFSController {
         } catch { self.error = error.localizedDescription }
     }
 
-    func removeRule(pattern: String, refresh: @escaping @MainActor () async -> Void) async throws {
+    func prepareRuleRemoval(pattern: String) async throws -> GitLFSTrackingReview {
+        guard await authorizeAction() else {
+            throw GitError.commandFailed("Access to Git LFS is unavailable.")
+        }
+        try Task.checkCancellation()
+        let review = try await GitStatusService.shared.reviewLFSTracking(
+            pattern: pattern, literal: false, removing: true, in: repository
+        )
+        try Task.checkCancellation()
+        return review
+    }
+
+    func removeRule(review: GitLFSTrackingReview, refresh: @escaping @MainActor () async -> Void) async throws {
         guard operation == nil, operationLabel == nil else {
             throw GitError.commandFailed("Wait for the current Git LFS operation to finish.")
         }
@@ -64,10 +76,6 @@ final class RepositoryLFSController {
         }
         try Task.checkCancellation()
         do {
-            let review = try await GitStatusService.shared.reviewLFSTracking(
-                pattern: pattern, literal: false, removing: true, in: repository
-            )
-            try Task.checkCancellation()
             try await GitStatusService.shared.applyLFSTracking(review, in: repository)
             notice = "Completed. Review any changes in File Status before committing."
             error = nil

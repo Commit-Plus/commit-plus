@@ -89,8 +89,7 @@ extension MainWindowView {
     }
 
     func startGitFlow(_ plan: GitFlowStartPlan, openAfterCreate: Bool) async -> Bool {
-        guard await authorizeGitFlowAccess(presentNotice: false) else {
-            syncState.showError("Git Flow access is unavailable for this repository.")
+        guard await authorizeGitFlowAccess(presentNotice: true) else {
             return false
         }
         do {
@@ -188,8 +187,7 @@ extension MainWindowView {
     }
 
     func finishGitFlow(_ plan: GitFlowFinishPlan) async -> Bool {
-        guard await authorizeGitFlowAccess(presentNotice: false) else {
-            syncState.showError("Git Flow access is unavailable for this repository.")
+        guard await authorizeGitFlowAccess(presentNotice: true) else {
             return false
         }
         do {

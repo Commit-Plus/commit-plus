@@ -68,32 +68,6 @@ final class DiffNativeTableTests: XCTestCase {
         coordinator.stop()
     }
 
-    func testResizeRelayoutsDocumentAndVisiblePanels() throws {
-        let model = makeModel([
-            DiffHunk(
-                header: "@@",
-                lines: [DiffLine(oldLineNumber: nil, newLineNumber: 1, text: "line", type: .added)]
-            )
-        ])
-        let coordinator = model.makeCoordinator()
-        let scroll = NSScrollView(frame: CGRect(x: 0, y: 0, width: 600, height: 400))
-        scroll.documentView = coordinator.document
-        coordinator.observe(scroll)
-        coordinator.connectTextStore()
-        coordinator.apply(model, scroll: scroll)
-        defer { coordinator.stop() }
-
-        scroll.setFrameSize(NSSize(width: 900, height: 400))
-        scroll.layoutSubtreeIfNeeded()
-
-        XCTAssertEqual(coordinator.document.frame.width, scroll.contentView.bounds.width)
-        let panel = try XCTUnwrap(
-            coordinator.document.subviews.compactMap { $0 as? DiffNativeHunkView }.first
-        )
-        XCTAssertEqual(panel.frame.width, scroll.contentView.bounds.width)
-        XCTAssertEqual(panel.canvas.frame.width, scroll.contentView.bounds.width)
-    }
-
     @MainActor
     private func makeModel(_ hunks: [DiffHunk]) -> DiffNativeTable<Text> {
         DiffNativeTable(

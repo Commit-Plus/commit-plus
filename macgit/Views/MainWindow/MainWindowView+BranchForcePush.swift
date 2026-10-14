@@ -91,6 +91,9 @@ extension MainWindowView {
     }
 
     func confirmBranchForcePush(_ plan: BranchForcePushPlan) async throws {
+        guard !syncState.isAnySyncing else {
+            throw GitError.commandFailed("Wait for the current Git operation to finish before force-pushing.")
+        }
         guard let resolver = await credentialResolverForRemoteOperation(remotes: [plan.remote]) else {
             throw GitError.commandFailed("Account selection was cancelled.")
         }

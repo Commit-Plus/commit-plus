@@ -31,6 +31,10 @@ struct CreateTagAtReferenceSheet: View {
                 Button("Create Tag") {
                     guard !isCreating else { return }
                     let tagName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !tagName.isEmpty, !tagName.hasPrefix("-") else {
+                        errorMessage = "Enter a tag name that does not begin with a hyphen."
+                        return
+                    }
                     isCreating = true
                     errorMessage = nil
                     Task {

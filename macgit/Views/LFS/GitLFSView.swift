@@ -160,14 +160,20 @@ struct GitLFSView: View {
             }.padding(24).frame(width: 500)
         }
         .sheet(item: $pendingRuleDeletion) { rule in
-            GitLFSRemoveRuleSheet(
-                rule: rule,
-                onCancel: { pendingRuleDeletion = nil },
-                onRemove: {
-                    try await controller.removeRule(pattern: rule.pattern, refresh: refreshRepository)
-                    pendingRuleDeletion = nil
-                }
-            )
+            RepositorySheetLoadingView(
+                title: "Remove Tracking Rule",
+                load: { try await controller.prepareRuleRemoval(pattern: rule.pattern) },
+                onCancel: { pendingRuleDeletion = nil }
+            ) { review in
+                GitLFSRemoveRuleSheet(
+                    rule: rule,
+                    onCancel: { pendingRuleDeletion = nil },
+                    onRemove: {
+                        try await controller.removeRule(review: review, refresh: refreshRepository)
+                        pendingRuleDeletion = nil
+                    }
+                )
+            }
         }
         .sheet(item: $controller.review) { review in
             VStack(alignment: .leading, spacing: 16) {

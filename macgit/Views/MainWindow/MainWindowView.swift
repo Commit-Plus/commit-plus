@@ -1959,7 +1959,11 @@ struct MainWindowView: View {
             syncState.showInfo("Wait for the current Git operation to finish before committing.")
             return
         }
-        showingCommitSheet = true
+        Task {
+            if await syncState.checkConflicts(repositoryURL: repositoryURL) { return }
+            guard !Task.isCancelled, !syncState.isAnySyncing else { return }
+            showingCommitSheet = true
+        }
     }
 
     func commitFromToolbar(message: String, commitAllChanges: Bool) async throws -> Bool {
