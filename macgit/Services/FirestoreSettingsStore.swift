@@ -50,6 +50,7 @@ enum CloudSettingsDocument {
             "historyIncludeRemotes": snapshot.historyIncludeRemotes,
             "autoFetchEnabled": snapshot.autoFetchEnabled,
             "refreshOnAppActive": snapshot.refreshOnAppActive,
+            "fileListMode": snapshot.fileListMode.rawValue,
             "diffFontName": snapshot.diffFontName,
             "diffFontSize": snapshot.diffFontSize,
             "diffAddedBackgroundColor": snapshot.diffAddedBackgroundColor,
@@ -106,6 +107,9 @@ enum CloudSettingsDocument {
         let diffSyntaxHighlighting = try optionalBool(
             data, key: "diffSyntaxHighlighting", defaultValue: false
         )
+        let fileListMode = try optionalString(
+            data, key: "fileListMode", defaultValue: FileListMode.list.rawValue
+        ) { FileListMode(rawValue: $0) != nil }
 
         return AppSettingsSnapshot(
             appearance: appearance,
@@ -133,6 +137,7 @@ enum CloudSettingsDocument {
             historyIncludeRemotes: data["historyIncludeRemotes"] as? Bool ?? false,
             autoFetchEnabled: data["autoFetchEnabled"] as? Bool ?? false,
             refreshOnAppActive: data["refreshOnAppActive"] as? Bool ?? true,
+            fileListMode: FileListMode(rawValue: fileListMode) ?? .list,
             diffFontName: diffFontName,
             diffFontSize: diffFontSize,
             diffAddedBackgroundColor: diffAddedBackgroundColor,

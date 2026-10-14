@@ -45,6 +45,7 @@ final class AppState: ObservableObject {
     private static let historyIncludeRemotesKey = "historyIncludeRemotes"
     private static let autoFetchEnabledKey = "autoFetchEnabled"
     private static let refreshOnAppActiveKey = "refreshOnAppActive"
+    private static let fileListModeKey = "fileListMode"
     private static let fitRepositoryWindowsToScreenKey = "fitRepositoryWindowsToScreen"
     private static let settingsSyncEnabledKey = "settingsSyncEnabled"
     private static let searchFilterKey = "searchFilter"
@@ -254,6 +255,14 @@ final class AppState: ObservableObject {
             }
         }
     }
+    @Published var fileListMode: FileListMode {
+        didSet {
+            userDefaults.set(fileListMode.rawValue, forKey: Self.fileListModeKey)
+            if !isApplyingSnapshot {
+                currentSettingsSnapshot = snapshot
+            }
+        }
+    }
     @Published var fitRepositoryWindowsToScreen: Bool {
         didSet {
             userDefaults.set(fitRepositoryWindowsToScreen, forKey: Self.fitRepositoryWindowsToScreenKey)
@@ -330,6 +339,8 @@ final class AppState: ObservableObject {
         let historyIncludeRemotes = userDefaults.object(forKey: Self.historyIncludeRemotesKey) as? Bool ?? false
         let autoFetchEnabled = userDefaults.object(forKey: Self.autoFetchEnabledKey) as? Bool ?? false
         let refreshOnAppActive = userDefaults.object(forKey: Self.refreshOnAppActiveKey) as? Bool ?? true
+        let fileListMode = userDefaults.string(forKey: Self.fileListModeKey)
+            .flatMap(FileListMode.init(rawValue:)) ?? .list
         let fitRepositoryWindowsToScreen = userDefaults.object(
             forKey: Self.fitRepositoryWindowsToScreenKey
         ) as? Bool ?? false
@@ -365,6 +376,7 @@ final class AppState: ObservableObject {
             historyIncludeRemotes: historyIncludeRemotes,
             autoFetchEnabled: autoFetchEnabled,
             refreshOnAppActive: refreshOnAppActive,
+            fileListMode: fileListMode,
             diffFontName: diffAppearance.fontName,
             diffFontSize: diffAppearance.fontSize,
             diffAddedBackgroundColor: diffAppearance.addedBackgroundColor,
@@ -399,6 +411,7 @@ final class AppState: ObservableObject {
         self.historyIncludeRemotes = historyIncludeRemotes
         self.autoFetchEnabled = autoFetchEnabled
         self.refreshOnAppActive = refreshOnAppActive
+        self.fileListMode = fileListMode
         self.fitRepositoryWindowsToScreen = fitRepositoryWindowsToScreen
         self.syncEnabled = syncEnabled
         self.searchFilter = searchFilter
@@ -433,6 +446,7 @@ final class AppState: ObservableObject {
             historyIncludeRemotes: historyIncludeRemotes,
             autoFetchEnabled: autoFetchEnabled,
             refreshOnAppActive: refreshOnAppActive,
+            fileListMode: fileListMode,
             diffFontName: diffAppearance.fontName,
             diffFontSize: diffAppearance.fontSize,
             diffAddedBackgroundColor: diffAppearance.addedBackgroundColor,
@@ -481,6 +495,7 @@ final class AppState: ObservableObject {
         historyIncludeRemotes = snapshot.historyIncludeRemotes
         autoFetchEnabled = snapshot.autoFetchEnabled
         refreshOnAppActive = snapshot.refreshOnAppActive
+        fileListMode = snapshot.fileListMode
         diffAppearanceSettingsStore.apply(snapshot)
         advancedSettingsStore.diffSyntaxHighlighting = snapshot.diffSyntaxHighlighting
         currentSettingsSnapshot = snapshot

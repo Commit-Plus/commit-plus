@@ -389,7 +389,10 @@ struct FileStatusView: View {
     private var fileListPanel: some View {
         let selection = actionSelection
         return VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
+            FilePathListView(
+                items: gitStatus.staged,
+                path: \.path
+            ) {
                 HStack(spacing: 8) {
                     TriStateCheckbox(state: sectionCheckState(isStaged: true), accessibilityLabel: "Select all staged") { selectAll in
                         toggleSelectAll(isStaged: true, selectAll: selectAll)
@@ -400,7 +403,8 @@ struct FileStatusView: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .textCase(.none)
-                    Spacer()
+                }
+            } trailing: {
                     Button(actionSelection.title(for: .staged)) {
                         Task {
                             if actionSelection.selectedStagedFiles.isEmpty {
@@ -413,17 +417,10 @@ struct FileStatusView: View {
                     .buttonStyle(GlassButtonStyle(tint: .yellow, fontSize: 10))
                     .pointingHandCursor()
                     .disabled(gitStatus.staged.isEmpty)
-                }
-                .frame(height: 22)
-                .padding(.leading, 10)
-                .padding(.trailing, 8)
-                .padding(.vertical, 5)
-                .background(Color(nsColor: .windowBackgroundColor))
-                .overlay(alignment: .bottom) {
-                    Divider()
-                }
-
+            } plainContent: {
                 nativeFileList(files: gitStatus.staged, isStaged: true, selection: selection)
+            } treeContent: { rows, toggleFolder in
+                nativeTreeList(rows: rows, isStaged: true, selection: selection, toggleFolder: toggleFolder)
             }
             .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .contentShape(Rectangle())
@@ -434,7 +431,10 @@ struct FileStatusView: View {
 
             Divider()
 
-            VStack(alignment: .leading, spacing: 0) {
+            FilePathListView(
+                items: changedFiles,
+                path: \.path
+            ) {
                 HStack(spacing: 8) {
                     TriStateCheckbox(state: sectionCheckState(isStaged: false), accessibilityLabel: "Select all changed") { selectAll in
                         toggleSelectAll(isStaged: false, selectAll: selectAll)
@@ -445,7 +445,8 @@ struct FileStatusView: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .textCase(.none)
-                    Spacer()
+                }
+            } trailing: {
                     Button(actionSelection.title(for: .changed)) {
                         Task {
                             if actionSelection.selectedChangedFiles.isEmpty {
@@ -458,17 +459,10 @@ struct FileStatusView: View {
                     .buttonStyle(GlassButtonStyle(tint: .accentColor, fontSize: 10))
                     .pointingHandCursor()
                     .disabled(changedFiles.isEmpty)
-                }
-                .frame(height: 22)
-                .padding(.leading, 10)
-                .padding(.trailing, 8)
-                .padding(.vertical, 5)
-                .background(Color(nsColor: .windowBackgroundColor))
-                .overlay(alignment: .bottom) {
-                    Divider()
-                }
-
+            } plainContent: {
                 nativeFileList(files: changedFiles, isStaged: false, selection: selection)
+            } treeContent: { rows, toggleFolder in
+                nativeTreeList(rows: rows, isStaged: false, selection: selection, toggleFolder: toggleFolder)
             }
             .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .contentShape(Rectangle())
@@ -478,6 +472,61 @@ struct FileStatusView: View {
             )
         }
         .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private func folderCheckState(files: [StatusFile], isStaged: Bool) -> NSControl.StateValue {
+        let keys = files.map { FileStatusSelectionKey(file: $0, isStaged: isStaged) }
+        let selectedCount = keys.count { selectedActionFileKeys.contains($0) }
+        if selectedCount == 0 { return .off }
+        if selectedCount == keys.count { return .on }
+        return .mixed
+    }
+
+    private func toggleFolderSelection(files: [StatusFile], isStaged: Bool, selectAll: Bool) {
+        let keys = Set(files.map { FileStatusSelectionKey(file: $0, isStaged: isStaged) })
+        if selectAll { selectedActionFileKeys.formUnion(keys) }
+        else { selectedActionFileKeys.subtract(keys) }
+        actionSelectionAnchorKey = nil
+    }
+
+    private func nativeTreeList(
+        rows: [FilePathTreeRow<StatusFile>],
+        isStaged: Bool,
+        selection: FileStatusActionSelection,
+        toggleFolder: @escaping (String) -> Void
+    ) -> some View {
+        let counts = isStaged ? stagedLineCounts : changedLineCounts
+        let sectionLFSPaths = isStaged ? stagedLFSPaths : lfsPaths
+        let nativeRows = rows.map { row -> FileStatusTreeNativeList.Row in
+            switch row.content {
+            case .folder(let path, let name, let files, let expanded):
+                return .init(id: row.id, depth: row.depth, content: .folder(
+                    path: path, name: name, files: files, isExpanded: expanded,
+                    checkState: folderCheckState(files: files, isStaged: isStaged)
+                ))
+            case .file(let file, let name):
+                let key = FileStatusSelectionKey(file: file, isStaged: isStaged)
+                return .init(id: row.id, depth: row.depth, content: .file(.init(
+                    file: file, count: counts[file.path], isLFS: sectionLFSPaths.contains(file.path),
+                    isPotentialConflict: hasPotentialConflict(file),
+                    isActionSelected: selectedActionFileKeys.contains(key), isPreviewed: selectedFileKey == key
+                ), name: name))
+            }
+        }
+        return FileStatusTreeNativeList(
+            rows: nativeRows, isStaged: isStaged, textScale: textScale,
+            onToggleFolder: toggleFolder,
+            onToggleFolderSelection: { toggleFolderSelection(files: $0, isStaged: isStaged, selectAll: $1) },
+            onFolderQuickAction: { files in Task { if isStaged { await unstage(files: files) } else { await stage(files: files) } } },
+            onSelect: { selectFileRow(file: $0, isStaged: isStaged, modifierFlags: $1) },
+            onToggleSelection: { toggleFileSelection(file: $0, isStaged: isStaged, selected: $1) },
+            onQuickAction: { file in Task { if isStaged { await unstage(file: file) } else { await stage(file: file) } } },
+            onOpenPotentialConflict: presentPotentialConflictDetails,
+            makeMoreMenu: { NSHostingMenu(rootView: fileMoreMenuContent(file: $0, isStaged: isStaged, selection: selection)) },
+            makeContextMenu: { NSHostingMenu(rootView: completeFileContextMenu(file: $0, isStaged: isStaged, selection: selection)) },
+            dragPaths: { selection.dragPaths(startingAt: $0, isStaged: isStaged) },
+            makeDragPayload: { .files($0, repositoryURL: repositoryURL) }
+        )
     }
 
     @ViewBuilder
