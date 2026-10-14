@@ -20,6 +20,7 @@ import MarkdownUI
 import SwiftUI
 
 struct PullRequestListView: View {
+    @EnvironmentObject private var appState: AppState
     @Environment(\.appTextScale) private var textScale
     @ObservedObject var controller: PullRequestController
     let repositoryURL: URL
@@ -35,11 +36,17 @@ struct PullRequestListView: View {
         VStack(spacing: 0) {
             header
             Divider()
+            if controller.hasLoadedList, let error = controller.errorMessage {
+                Text(error)
+                    .font(.callout.scaled(by: textScale))
+                    .foregroundStyle(.secondary)
+                    .padding(8)
+            }
 
-            if controller.isLoading {
+            if controller.isLoading && !controller.hasLoadedList {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let errorMessage = controller.errorMessage {
+            } else if let errorMessage = controller.errorMessage, !controller.hasLoadedList {
                 VStack(spacing: 12) {
                     Text(errorMessage)
                         .font(.headline.scaled(by: textScale))
@@ -167,6 +174,7 @@ struct PullRequestListView: View {
                                 authorizeAction: authorizeAction,
                                 onClose: closeDetail
                             )
+                            .environmentObject(appState)
                             .environment(\.appTextScale, textScale)
                             .sheetPresentationScope(),
                             onClose: closeDetail
