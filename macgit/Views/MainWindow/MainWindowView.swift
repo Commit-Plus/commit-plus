@@ -1485,6 +1485,7 @@ struct MainWindowView: View {
         HistoryScreen(
             repositoryURL: repositoryURL,
             isActive: isHistoryActive,
+            isWorkSuspended: showingCheckoutConfirmation || pendingRemoteBranchCheckout != nil,
             selectedBranch: selectedBranchName,
             branchFilter: $appState.historyBranchFilter,
             includeRemotes: $appState.historyIncludeRemotes,
