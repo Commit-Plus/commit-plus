@@ -123,10 +123,11 @@ class SyncState: ObservableObject {
     private let refreshCoordinator = SyncRefreshCoordinator()
     private var refreshGeneration = 0
     private var refreshedCurrentBranches: [URL: String] = [:]
-    private var refreshedLocalStatuses: [URL: GitStatus] = [:]
+    @Published private(set) var refreshedLocalStatuses: [URL: GitStatus] = [:]
     private static let backgroundRefreshInterval: Duration = .seconds(10)
+    private static let backgroundPollingInterval: Duration = .seconds(5)
     private static let localRefreshCoalescingInterval: TimeInterval = 2
-    private static let autoFetchInterval: TimeInterval = 60
+    private static let autoFetchInterval: TimeInterval = 15
 
     init() {
         networkMonitor.start(queue: networkMonitorQueue)
@@ -193,8 +194,10 @@ class SyncState: ObservableObject {
             let previousBranch = refreshedCurrentBranches.updateValue(currentBranch, forKey: repositoryURL)
             let localStatusDidChange: Bool
             if let localStatus {
-                let previousStatus = refreshedLocalStatuses.updateValue(localStatus, forKey: repositoryURL)
-                localStatusDidChange = previousStatus != localStatus
+                localStatusDidChange = refreshedLocalStatuses[repositoryURL] != localStatus
+                if localStatusDidChange {
+                    refreshedLocalStatuses[repositoryURL] = localStatus
+                }
             } else {
                 localStatusDidChange = false
             }
@@ -240,8 +243,13 @@ class SyncState: ObservableObject {
         stopBackgroundSync()
         let autoFetchEnabled = settings.resolvedAutoFetchEnabled(globalValue: globalAutoFetchEnabled)
         backgroundTask = Task {
+            let clock = ContinuousClock()
+            var nextLocalRefresh = clock.now
             while !Task.isCancelled {
-                await refresh(repositoryURL: repositoryURL, force: false)
+                if clock.now >= nextLocalRefresh {
+                    await refresh(repositoryURL: repositoryURL, force: false)
+                    nextLocalRefresh = clock.now.advanced(by: Self.backgroundRefreshInterval)
+                }
                 if autoFetchEnabled,
                    networkMonitor.currentPath.status == .satisfied,
                    await performAutomaticFetch(
@@ -258,7 +266,7 @@ class SyncState: ObservableObject {
                             )
                         }
                 }
-                try? await Task.sleep(for: Self.backgroundRefreshInterval)
+                try? await Task.sleep(for: Self.backgroundPollingInterval)
             }
         }
     }

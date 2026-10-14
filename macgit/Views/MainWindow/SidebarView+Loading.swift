@@ -197,7 +197,6 @@ extension SidebarView {
         let expandedFoldersForLoad = hadLoadedBranches
             ? expandedFolders.intersection(allFolders)
             : currentBranchFolders
-        let branchStructureChanged = branchNodes != tree || currentBranch != current
 
         await MainActor.run {
             guard activeBranchSyncLoadID == loadID else { return }
@@ -205,14 +204,15 @@ extension SidebarView {
             if currentBranch != current { currentBranch = current }
             if !headHash.isEmpty { headHash = "" }
             let existingBranches = Set(filteredLocals)
-            branchSyncStatus = branchSyncStatus.filter { existingBranches.contains($0.key) }
+            let retainedStatuses = branchSyncStatus.filter { existingBranches.contains($0.key) }
+            if branchSyncStatus != retainedStatuses { branchSyncStatus = retainedStatuses }
             if currentBranchIntegrationStatus?.branch != current {
                 currentBranchIntegrationStatus = nil
             }
-            if branchStructureChanged {
-                loadedBranchSyncBranches = []
-                syncingBranchSyncBranches = []
-            }
+            // Remote tips can change without changing the local branch tree.
+            // Every reload starts a new generation of ahead/behind reads.
+            loadedBranchSyncBranches = []
+            syncingBranchSyncBranches = []
             // Reveal the current branch only on the initial load. Refreshes
             // preserve the user's tree state while dropping removed folders.
             if expandedFolders != expandedFoldersForLoad { expandedFolders = expandedFoldersForLoad }
@@ -285,7 +285,7 @@ extension SidebarView {
                     updatedStatuses.removeValue(forKey: branch)
                 }
             }
-            branchSyncStatus = updatedStatuses
+            if branchSyncStatus != updatedStatuses { branchSyncStatus = updatedStatuses }
             loadedBranchSyncBranches.formUnion(branches)
             syncingBranchSyncBranches.subtract(branches)
         }

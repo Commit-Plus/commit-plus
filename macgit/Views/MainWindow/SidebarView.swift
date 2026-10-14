@@ -732,10 +732,11 @@ struct SidebarView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryRemoteRefsDidRefresh)) { notification in
             if let url = notification.userInfo?["repositoryURL"] as? URL,
-               url == repositoryURL,
-               notification.userInfo?["userInitiated"] as? Bool == true {
+               url == repositoryURL {
                 Task {
-                    await loadRemotes()
+                    if notification.userInfo?["userInitiated"] as? Bool == true {
+                        await loadRemotes()
+                    }
                     await loadBranches(force: true)
                 }
             }
