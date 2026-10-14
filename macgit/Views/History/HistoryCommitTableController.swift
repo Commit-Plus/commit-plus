@@ -17,6 +17,7 @@ final class HistoryCommitTableController: NSObject, NSTableViewDataSource, NSTab
     private var appliedTextScale: CGFloat = 1
     private var appliedDragActive: Set<String> = []
     private var lastScrollToken: UUID?
+    private var pendingScrollRequest: HistoryScrollRequest?
     private var isApplyingModelSelection = false
     private var boundsObserver: NSObjectProtocol?
     private var hostedMenu: NSMenu?
@@ -24,7 +25,8 @@ final class HistoryCommitTableController: NSObject, NSTableViewDataSource, NSTab
     private var draggedHashes: Set<String> = []
 
     func makeScrollView() -> NSScrollView {
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 1000, height: 300))
+        let scroll = HistoryCommitScrollView(frame: NSRect(x: 0, y: 0, width: 1000, height: 300))
+        scroll.onLayout = { [weak self] in self?.applyPendingScrollRequest() }
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
         scroll.borderType = .bezelBorder
@@ -87,6 +89,8 @@ final class HistoryCommitTableController: NSObject, NSTableViewDataSource, NSTab
         if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
         boundsObserver = nil
         tableView.onReturn = nil
+        (tableView.enclosingScrollView as? HistoryCommitScrollView)?.onLayout = nil
+        pendingScrollRequest = nil
     }
 
     func apply(listModel: HistoryListModel, actions: HistoryCommitActionController,
@@ -130,13 +134,10 @@ final class HistoryCommitTableController: NSObject, NSTableViewDataSource, NSTab
         if tableView.selectedRowIndexes != selected { tableView.selectRowIndexes(selected, byExtendingSelection: false) }
         isApplyingModelSelection = false
         if let request = scrollRequest, request.token != lastScrollToken {
-            lastScrollToken = request.token
-            if let row = rows.indexByHash[request.hash], let clip = tableView.enclosingScrollView?.contentView {
-                let rect = tableView.rect(ofRow: row)
-                scroll(to: rect.midY - clip.bounds.height / 2)
-                if request.focus { tableView.window?.makeFirstResponder(tableView) }
-            }
-            listModel.consumeScrollRequest(request.token)
+            pendingScrollRequest = request
+            tableView.enclosingScrollView?.needsLayout = true
+        } else if scrollRequest == nil {
+            pendingScrollRequest = nil
         }
         if appliedTextScale != textScale {
             let anchor = viewportAnchor()
@@ -158,6 +159,22 @@ final class HistoryCommitTableController: NSObject, NSTableViewDataSource, NSTab
         }
         if changed { loadMoreIfNeeded() }
     }
+    private func applyPendingScrollRequest() {
+        guard let request = pendingScrollRequest,
+              let scrollView = tableView.enclosingScrollView,
+              scrollView.window != nil,
+              scrollView.contentView.bounds.height > 0,
+              let row = rows.indexByHash[request.hash] else { return }
+        // The scroll view has now tiled its header and sized the document.
+        // Consume only after layout, so the first SwiftUI update cannot lose it.
+        pendingScrollRequest = nil
+        lastScrollToken = request.token
+        let rect = tableView.rect(ofRow: row)
+        scroll(to: rect.midY - scrollView.contentView.bounds.height / 2)
+        if request.focus { tableView.window?.makeFirstResponder(tableView) }
+        listModel?.consumeScrollRequest(request.token)
+    }
+
     private func viewportAnchor() -> (String, CGFloat)? {
         let row = tableView.rows(in: tableView.visibleRect).location
         guard rows.commits.indices.contains(row) else { return nil }

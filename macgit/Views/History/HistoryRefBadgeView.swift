@@ -5,7 +5,6 @@ final class HistoryRefBadgeView: NSView {
     private let icon = NSImageView()
     private let label = NSTextField(labelWithString: "")
     private var style = RefLabelStyle(text: "", graphColorIndex: nil)
-    var emphasized = false { didSet { updateColors() } }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -41,11 +40,11 @@ final class HistoryRefBadgeView: NSView {
     override func layout() { super.layout(); layer?.cornerRadius = bounds.height / 2 }
     override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); updateColors() }
     private func updateColors() {
-        let color: NSColor = emphasized ? .labelColor : style.foreground
+        let color = style.foreground
         label.textColor = color
         icon.contentTintColor = color
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = (emphasized ? NSColor.labelColor.withAlphaComponent(0.12) : style.background).cgColor
+            layer?.backgroundColor = style.background.cgColor
         }
     }
 }

@@ -39,7 +39,11 @@ final class HistoryMessageCellView: NSTableCellView {
     private let overflow = NSTextField(labelWithString: "")
     private let message = NSTextField(labelWithString: "")
     override var backgroundStyle: NSView.BackgroundStyle {
-        didSet { badges.forEach { $0.emphasized = backgroundStyle == .emphasized } }
+        didSet {
+            let emphasized = backgroundStyle == .emphasized
+            message.textColor = emphasized ? .alternateSelectedControlTextColor : .labelColor
+            overflow.textColor = emphasized ? .alternateSelectedControlTextColor : .secondaryLabelColor
+        }
     }
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -64,7 +68,6 @@ final class HistoryMessageCellView: NSTableCellView {
         for (index, badge) in badges.enumerated() {
             badge.isHidden = index >= commit.refs.count
             if !badge.isHidden { badge.configure(text: commit.refs[index], graphColorIndex: colorIndex, textScale: textScale) }
-            badge.emphasized = backgroundStyle == .emphasized
         }
         overflow.isHidden = commit.refs.count <= 3
         overflow.stringValue = "+\(max(0, commit.refs.count - 3))"
@@ -78,6 +81,15 @@ final class HistoryMessageCellView: NSTableCellView {
 
 final class HistoryTextCellView: NSTableCellView {
     private let label = NSTextField(labelWithString: "")
+    private var unselectedTextColor = NSColor.secondaryLabelColor
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet { updateTextColor() }
+    }
+
+    private func updateTextColor() {
+        label.textColor = backgroundStyle == .emphasized ? .alternateSelectedControlTextColor : unselectedTextColor
+    }
+
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.setLocalizedDateFormatFromTemplate("HHmmddMMMyyyy")
@@ -100,7 +112,7 @@ final class HistoryTextCellView: NSTableCellView {
     func configure(commit: Commit, column: String, textScale: CGFloat) {
         let font = historyCalloutFont(textScale)
         label.font = font
-        label.textColor = .secondaryLabelColor
+        unselectedTextColor = .secondaryLabelColor
         switch column {
         case "author": label.stringValue = "\(commit.author) <\(commit.email)>"
         case "date":
@@ -109,8 +121,9 @@ final class HistoryTextCellView: NSTableCellView {
         default:
             label.stringValue = commit.shortHash
             label.font = .monospacedSystemFont(ofSize: font.pointSize, weight: .regular)
-            label.textColor = .tertiaryLabelColor
+            unselectedTextColor = .tertiaryLabelColor
         }
+        updateTextColor()
         label.toolTip = column == "commit" ? commit.hash : label.stringValue
     }
 }

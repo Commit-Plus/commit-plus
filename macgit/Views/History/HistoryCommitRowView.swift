@@ -5,7 +5,16 @@ import AppKit
 /// the Sidebar owns keyboard focus.
 final class HistoryCommitRowView: NSTableRowView {
     override var isEmphasized: Bool {
-        get { window?.isKeyWindow == true }
-        set { super.isEmphasized = newValue }
+        get { super.isEmphasized }
+        set { super.isEmphasized = window?.isKeyWindow == true }
+    }
+
+    override var interiorBackgroundStyle: NSView.BackgroundStyle {
+        isSelected && isEmphasized ? .emphasized : super.interiorBackgroundStyle
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        isEmphasized = window?.isKeyWindow == true
     }
 }
