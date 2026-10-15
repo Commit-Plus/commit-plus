@@ -25,6 +25,7 @@ struct RepositoryPickerNativeList<Content: View>: NSViewRepresentable {
             scroll.hasVerticalScroller = true
             scroll.hasHorizontalScroller = false
             scroll.autohidesScrollers = true
+            scroll.scrollerStyle = .overlay
             scroll.automaticallyAdjustsContentInsets = false
             let column = NSTableColumn(identifier: .init("repository"))
             column.resizingMask = .autoresizingMask
