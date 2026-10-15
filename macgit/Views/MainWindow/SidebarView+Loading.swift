@@ -253,6 +253,13 @@ extension SidebarView {
                 }
             }
         }
+        await branchMergeDetectionController.refresh(
+            branches: filteredLocals.filter { $0 != current },
+            repositoryURL: repositoryURL,
+            entitlement: accountController.entitlement,
+            policy: featureAccessController.policy,
+            force: force
+        )
     }
 
     func startBranchSync(for branches: [String], loadID: UUID) {

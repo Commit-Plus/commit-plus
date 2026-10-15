@@ -28,6 +28,18 @@ struct BranchSyncStatus: Equatable {
 }
 
 extension GitStatusService {
+    func branchTipIsAncestor(_ ancestor: String, of descendant: String, in repositoryURL: URL) async -> Bool {
+        do {
+            _ = try await runGit(
+                arguments: ["merge-base", "--is-ancestor", ancestor, descendant],
+                in: repositoryURL
+            )
+            return true
+        } catch {
+            return false
+        }
+    }
+
     func currentBranch(in repositoryURL: URL) async -> String? {
         let showCurrentOutput = try? await runGit(arguments: ["branch", "--show-current"], in: repositoryURL)
         if let branch = GitCurrentBranchResolver.resolve(

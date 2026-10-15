@@ -99,7 +99,7 @@ private extension PlanFeature {
         case .privateRepositories, .pullRequests, .gitFlow, .gitLFS:
             true
         case .aiCommitMessage, .repositoryChat, .repositoryAIActions, .aiConflictResolution, .aiBringYourOwnKey,
-             .multipleProviderAccounts:
+             .multipleProviderAccounts, .branchMergeDetection:
             false
         }
     }

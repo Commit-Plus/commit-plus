@@ -287,6 +287,18 @@ final class FeatureAccessPolicyTests: XCTestCase {
         AccountEntitlement(plan: .pro, access: .active, billingStatus: .active)
     }
 
+    func testBranchMergeDetectionIsProOnly() {
+        let resolver = FeatureAccessResolver(policy: .bundled)
+        XCTAssertEqual(
+            resolver.decision(for: .branchMergeDetection, entitlement: .free),
+            .denied(.requiresPro)
+        )
+        XCTAssertEqual(
+            resolver.decision(for: .branchMergeDetection, entitlement: activePro),
+            .allowed
+        )
+    }
+
     private var inactivePro: AccountEntitlement {
         AccountEntitlement(plan: .pro, access: .inactive, billingStatus: .canceled)
     }
@@ -301,7 +313,8 @@ final class FeatureAccessPolicyTests: XCTestCase {
             "repositoryAIActions": proOnlyRule(),
             "aiConflictResolution": proOnlyRule(),
             "aiBringYourOwnKey": proOnlyRule(),
-            "multipleProviderAccounts": proOnlyRule()
+            "multipleProviderAccounts": proOnlyRule(),
+            "branchMergeDetection": proOnlyRule()
         ]
         features.merge(overrides) { _, replacement in replacement }
         return ["schemaVersion": 1, "revision": 7, "features": features]

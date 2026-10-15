@@ -92,6 +92,8 @@ extension PlanFeature {
             "Additional AI providers"
         case .multipleProviderAccounts:
             "Multiple Git provider accounts"
+        case .branchMergeDetection:
+            "PR-based merge detection"
         }
     }
 }

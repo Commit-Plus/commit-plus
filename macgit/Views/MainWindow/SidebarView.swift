@@ -27,8 +27,10 @@ import SwiftUI
 struct SidebarView: View {
     @Environment(\.appTextScale) private var textScale
     @EnvironmentObject private var appUpdateController: AppUpdateController
-    @EnvironmentObject private var accountController: AccountSessionController
+    @EnvironmentObject var accountController: AccountSessionController
+    @EnvironmentObject var featureAccessController: FeatureAccessController
     @EnvironmentObject var appState: AppState
+    @ObservedObject var branchMergeDetectionController: BranchMergeDetectionController
 
     let repositoryURL: URL
     @Binding var selection: SidebarSelection?
@@ -80,6 +82,7 @@ struct SidebarView: View {
     let onRequestCreateBranch: () -> Void
     let onRequestCreateTag: () -> Void
     let onRequestCreatePullRequestFromWorkspace: () -> Void
+    let onRequestBranchMergeUpgrade: () -> Void
     let onRequestShowSubtreeInFinder: (URL) -> Void
     let onRequestOpenSubtreeInTerminal: (URL) -> Void
     let onRequestPullSubtree: (GitSubtreeEntry) -> Void
@@ -199,6 +202,7 @@ struct SidebarView: View {
     @State var remoteBranchDeleteTarget: RemoteBranchDeleteTarget?
     @State var deleteRemoteBranchAlongsideLocal = false
     @State var forceDeleteBranch = false
+    @State var mergeValidatedDeletionBranch: String?
     @State var activeDropTarget: GitDragTarget?
     @State var activeDropLabel: String?
     @State var isCurrentBranchDropTargeted = false
@@ -219,6 +223,7 @@ struct SidebarView: View {
         isBranchSyncing: @escaping (String) -> Bool = { _ in false },
         activeSyncBranchName: String? = nil,
         canUpdateCurrentBranch: Bool = true,
+        branchMergeDetectionController: BranchMergeDetectionController,
         onRequestCheckout: @escaping (String, Bool) -> Void,
         onRequestRemoteBranchCheckout: @escaping (RemoteBranchCheckoutTarget) -> Void,
         onRequestFetchBranch: @escaping (String) -> Void,
@@ -255,6 +260,7 @@ struct SidebarView: View {
         onRequestCreateBranch: @escaping () -> Void = {},
         onRequestCreateTag: @escaping () -> Void = {},
         onRequestCreatePullRequestFromWorkspace: @escaping () -> Void = {},
+        onRequestBranchMergeUpgrade: @escaping () -> Void = {},
         onRequestShowSubtreeInFinder: @escaping (URL) -> Void = { _ in },
         onRequestOpenSubtreeInTerminal: @escaping (URL) -> Void = { _ in },
         onRequestPullSubtree: @escaping (GitSubtreeEntry) -> Void = { _ in },
@@ -293,6 +299,7 @@ struct SidebarView: View {
         self.isBranchSyncing = isBranchSyncing
         self.activeSyncBranchName = activeSyncBranchName
         self.canUpdateCurrentBranch = canUpdateCurrentBranch
+        self.branchMergeDetectionController = branchMergeDetectionController
         self.onRequestCheckout = onRequestCheckout
         self.onRequestRemoteBranchCheckout = onRequestRemoteBranchCheckout
         self.onRequestFetchBranch = onRequestFetchBranch
@@ -329,6 +336,7 @@ struct SidebarView: View {
         self.onRequestCreateBranch = onRequestCreateBranch
         self.onRequestCreateTag = onRequestCreateTag
         self.onRequestCreatePullRequestFromWorkspace = onRequestCreatePullRequestFromWorkspace
+        self.onRequestBranchMergeUpgrade = onRequestBranchMergeUpgrade
         self.onRequestShowSubtreeInFinder = onRequestShowSubtreeInFinder
         self.onRequestOpenSubtreeInTerminal = onRequestOpenSubtreeInTerminal
         self.onRequestPullSubtree = onRequestPullSubtree
@@ -797,6 +805,7 @@ struct SidebarView: View {
         repositoryURL: URL(fileURLWithPath: "/tmp"),
         selection: .constant(nil),
         isBranchSyncing: { _ in false },
+        branchMergeDetectionController: BranchMergeDetectionController(),
         onRequestCheckout: { _, _ in },
         onRequestRemoteBranchCheckout: { _ in },
         onRequestFetchBranch: { _ in },

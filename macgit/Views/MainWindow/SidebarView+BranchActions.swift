@@ -126,17 +126,52 @@ extension SidebarView {
         deleteConfirmationTarget = nil
         forceDeleteBranch = false
         deleteRemoteBranchAlongsideLocal = false
+        mergeValidatedDeletionBranch = nil
+    }
+
+    func requestFullyMergedBranchDeletion(_ branch: String) {
+        Task {
+            guard await branchMergeDetectionController.revalidateFullyMerged(
+                branch: branch,
+                repositoryURL: repositoryURL,
+                entitlement: accountController.entitlement,
+                policy: featureAccessController.policy
+            ) != nil else {
+                errorMessage = "The branch changed or its merged status could not be verified. Refresh and review the evidence before deleting it."
+                showingError = true
+                return
+            }
+            mergeValidatedDeletionBranch = branch
+            forceDeleteBranch = true
+            deleteConfirmationTarget = .single(branch)
+        }
     }
 
     func confirmDeleteBranch(_ branch: String) {
         let force = forceDeleteBranch
+        let requiresMergeRevalidation = mergeValidatedDeletionBranch == branch
         let remoteTarget = deleteRemoteBranchAlongsideLocal
             ? matchingRemoteDeleteTarget(for: branch)
             : nil
         deleteConfirmationTarget = nil
         forceDeleteBranch = false
         deleteRemoteBranchAlongsideLocal = false
+        mergeValidatedDeletionBranch = nil
         onRunRepositoryOperation("Deleting \(branch)...") {
+            if requiresMergeRevalidation {
+                guard await branchMergeDetectionController.revalidateFullyMerged(
+                    branch: branch,
+                    repositoryURL: repositoryURL,
+                    entitlement: accountController.entitlement,
+                    policy: featureAccessController.policy
+                ) != nil else {
+                    await MainActor.run {
+                        errorMessage = "Deletion stopped because the branch or its verified merge evidence changed."
+                        showingError = true
+                    }
+                    return
+                }
+            }
             await deleteBranch(branch, force: force, remoteTarget: remoteTarget)
         }
     }

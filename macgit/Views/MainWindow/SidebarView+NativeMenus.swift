@@ -63,6 +63,40 @@ extension SidebarView {
         menu.separator()
         menu.item("Compare with…") { actions.compare(branch) }
         menu.separator()
+        let mergeAccess = FeatureAccessResolver(policy: featureAccessController.policy).decision(
+            for: .branchMergeDetection,
+            entitlement: accountController.entitlement
+        )
+        if mergeAccess.isAllowed {
+            let assessment = branchMergeDetectionController.assessment(for: branch, repositoryURL: repositoryURL)
+            if let assessment, assessment.isFullyMerged {
+                menu.item("Review Merge Evidence…") {
+                    if let url = assessment.evidence.compactMap(\.webURL).first { NSWorkspace.shared.open(url) }
+                }
+                menu.item("Delete Fully Merged Branch…", enabled: branch != currentBranch) {
+                    requestFullyMergedBranchDeletion(branch)
+                }
+                menu.item("Hide Fully Merged Hint") {
+                    branchMergeDetectionController.setHintSuppressed(true, for: branch, repositoryURL: repositoryURL)
+                }
+            } else if branchMergeDetectionController.isHintSuppressed(for: branch, repositoryURL: repositoryURL) {
+                menu.item("Show Fully Merged Hint") {
+                    branchMergeDetectionController.setHintSuppressed(false, for: branch, repositoryURL: repositoryURL)
+                }
+            }
+            menu.item("Refresh Merge Status") {
+                Task {
+                    await branchMergeDetectionController.refresh(
+                        branches: [branch], repositoryURL: repositoryURL,
+                        entitlement: accountController.entitlement,
+                        policy: featureAccessController.policy, force: true
+                    )
+                }
+            }
+        } else {
+            menu.item("PR Merge Detection (Pro)…", onRequestBranchMergeUpgrade)
+        }
+        menu.separator()
         menu.item("Rename...") { actions.rename(branch) }
         menu.item("Delete \(branch)", enabled: branch != currentBranch) { actions.confirmDelete(.single(branch)) }
         menu.separator()

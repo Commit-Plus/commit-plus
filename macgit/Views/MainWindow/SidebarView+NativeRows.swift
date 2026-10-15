@@ -89,6 +89,11 @@ extension SidebarView {
                     if sync.behind > 0 { badges.append("↓\(sync.behind)") }
                 }
                 if current { badges.append("HEAD") }
+                let mergeAssessment = branchMergeDetectionController.assessment(
+                    for: item.fullPath,
+                    repositoryURL: repositoryURL
+                )
+                if mergeAssessment?.isFullyMerged == true { badges.append("Fully Merged") }
                 var row = SidebarNativeRow(id: .init(section: .branches, kind: "ref", key: item.fullPath),
                     appearance: .init(title: item.name, icon: current ? "circle.fill" : "", badge: badges.joined(separator: "  "), gitFlowRole: role, indent: item.indent, emphasized: current),
                     selection: .branch(item.fullPath), select: { branchSectionActions.select(.branch(item.fullPath)) },
@@ -103,6 +108,16 @@ extension SidebarView {
                     row.accessory = { view in
                         SidebarNativePopover.show(CurrentBranchIntegrationWarningDetails(status: status,
                             canUpdate: canUpdateCurrentBranch, onUpdate: { onRequestUpdateCurrentBranch(status) }), from: view)
+                    }
+                } else if let mergeAssessment, mergeAssessment.isFullyMerged {
+                    row.appearance.accessory = "checkmark.seal.fill"
+                    row.appearance.accessoryLabel = "Review merge evidence"
+                    row.appearance.tint = "green"
+                    row.accessory = { view in
+                        SidebarNativePopover.show(
+                            BranchMergeEvidenceView(assessment: mergeAssessment),
+                            from: view
+                        )
                     }
                 }
                 row.appearance.spinning = isBranchSyncing(item.fullPath)
