@@ -5,7 +5,7 @@
 - Implemented local SQLite catalog collections, atomic legacy import, per-root membership reconciliation, stable IDs/relinking and persisted provider identities. Legacy defaults remain intact for recovery.
 - Both picker tabs now use the same native hosted list and existing row actions/badges. View opens a separate detail panel in Welcome and New Tab.
 - Detail uses native grouped Form sections, matching App Settings: Repository, Remotes, README and separate statistics/chart blocks.
-- Statistics are lazy and cached locally with deterministic query keys, HEAD/replacement-ref/shallow-boundary fingerprints and bounded retention. Current scope is HEAD, including merges, with raw author-email identity.
+- Statistics are lazy and cached locally with deterministic query keys, a six-hour TTL, explicit Reload bypass and bounded retention. Scope is all local refs plus HEAD, counting shared commits once, including merges, with raw author-email identity.
 - Validation: macOS app build and standalone production-source SQLite/Git integration checks passed. Re-run checks with `rtk proxy bash scripts/test-repository-catalog.sh`.
 - Runtime layout/interaction review remains pending because the app was not launched or relaunched.
 
@@ -75,7 +75,7 @@ UI preferences stay in their existing local settings keys. Read and write expans
 
 - Header: repository name/path, availability, remotes/provider links, changed count, commit count, first/latest commit dates and repository size.
 - Use existing GitStatusService entry points for Git execution and an existing/new detail coordinator for loading. Views remain presentation/callback-only.
-- Load inexpensive metadata and README first. Commit totals and repository size load independently in the background; define size as the worktree plus its associated Git directory, avoid double-counting shared directories, and label the metric clearly.
+- Load inexpensive metadata and README first. Commit totals and repository size load independently in the background; define size as the Git object database (loose objects and packs) in binary units. Exclude working files and build caches; linked worktrees use the common object database.
 - Summary reads the working tree README directly, including uncommitted edits. Use case-insensitive README discovery with a deterministic preference for Markdown, then plain text; show an explicit empty state if absent.
 - Reuse the installed MarkdownUI renderer, resolve relative links/images against the repository directory and keep file reading off the main actor. Bound rendering work for unusually large README files.
 - Re-read README on relevant file/repository changes and activation while selected, not on every view render. No SQLite README cache is required initially.
@@ -84,12 +84,12 @@ UI preferences stay in their existing local settings keys. Read and write expans
 ## 6. Statistics
 
 - Compute lazily when Statistics is opened, only for the selected repository; keep prior results visible while refreshing the same query.
-- Initial default scope: commits reachable from HEAD, with an explicit scope label. A later all-refs option must deduplicate by commit OID.
+- Scope: commits reachable from all local refs and HEAD, with an explicit scope label; deduplicate by commit OID. Overview and Statistics use the same repository-wide scope.
 - Define and retain consistent query options: date range, ref scope, merge inclusion, author identity/mailmap behavior, author timestamp and local display timezone. Use the same options for all charts and totals.
 - First charts: commits by month (series by contributor), contributor totals/top contributors, commits by weekday and commits by hour. Use native Swift Charts; bound visible contributor series and group the remainder as Other.
 - Read Git log once per calculation and derive all aggregates from that result. Cache aggregate datasets, not an unbounded copy of every commit.
-- Cache key includes repository ID, schema/calculation version, date range, scope, merge/identity settings and timezone. Validity also depends on resolved scope OIDs and relevant mailmap/config state; all-refs mode fingerprints its full included ref set.
-- Invalidate on relevant Git notifications and verify fingerprints when opening the tab/refreshing. Handle rewritten history, fetch and branch changes; do not rely only on a TTL.
+- Cache key includes repository ID, schema/calculation version, date range, scope, merge/identity settings and timezone. Validity uses calculated time with a six-hour TTL. History fingerprints describe the calculated snapshot rather than invalidating it on each ref change.
+- Statistics are an overview cached for six hours per repository/query. Git notifications do not invalidate the cache. Reload explicitly recomputes from local Git history; it does not fetch from remotes. Expired entries refresh when statistics are requested.
 - Treat shallow history explicitly as partial local statistics. Empty repositories render zero/empty charts without errors.
 - Bound cache size/retention; disposable statistics cache failures never block access to the catalog or repository.
 

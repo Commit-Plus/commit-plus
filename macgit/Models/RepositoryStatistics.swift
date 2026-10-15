@@ -27,6 +27,6 @@ struct RepositoryStatisticsQuery: Codable, Equatable, Hashable {
     var start: Date?
     var end: Date?
     var timeZone = TimeZone.current.identifier
-    // v1: HEAD reachability, merges included, author time and raw author email identity.
-    var version = 1
+    // v2: all refs and HEAD, unique commits including merges, author time/email.
+    var version = 2
 }

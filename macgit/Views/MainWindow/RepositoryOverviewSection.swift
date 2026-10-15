@@ -17,8 +17,9 @@ struct RepositoryOverviewSection: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), alignment: .leading)], alignment: .leading, spacing: 14) {
                     metric("Changed files", value: info.changed.map(String.init) ?? "—")
                     metric("Commits", value: info.commits.map(String.init) ?? "—")
-                    metric("Repository size", value: size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "Calculating…")
-                        .help("Includes the working folder and Git data; shared Git data is counted once.")
+                        .help("Unique commits reachable from HEAD and all local refs, including branches, remotes and tags.")
+                    metric("Repository size", value: size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .binary) } ?? "Calculating…")
+                        .help("Size of the Git object database (loose objects and packs), in binary units. Working files and build caches are excluded. Linked worktrees share the same object database.")
                     metric("Initial commit", value: info.firstCommit?.formatted(date: .abbreviated, time: .omitted) ?? "—")
                         .help(info.firstCommit?.formatted() ?? "—")
                     metric("Last commit", value: info.lastCommit?.formatted(date: .abbreviated, time: .omitted) ?? "—")

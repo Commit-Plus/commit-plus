@@ -36,9 +36,10 @@ final class RepositoryDetailModel {
         guard !Task.isCancelled, currentURL == url else { return }
         if info != result { info = result }
         isLoading = false
-        let gitPath = try? await GitStatusService.shared.runGit(arguments: ["rev-parse", "--path-format=absolute", "--git-common-dir"], in: url)
+        let gitPath = try? await GitStatusService.shared.runGit(arguments: ["rev-parse", "--path-format=absolute", "--git-path", "objects"], in: url)
         let gitURL = gitPath.map { URL(fileURLWithPath: $0.trimmingCharacters(in: .whitespacesAndNewlines), isDirectory: true) }
-        let worker = Task.detached(priority: .utility) { Self.repositorySize(at: url, gitDirectory: gitURL) }
+        guard let gitURL else { size = nil; return }
+        let worker = Task.detached(priority: .utility) { Self.repositorySize(at: gitURL) }
         let bytes = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
         guard !Task.isCancelled, currentURL == url else { return }
         if size != bytes { size = bytes }
@@ -62,22 +63,16 @@ final class RepositoryDetailModel {
         return (file, content + (data.count > limit ? "\n\n*Preview truncated. Open the README to read the full file.*" : ""))
     }
 
-    private nonisolated static func repositorySize(at url: URL, gitDirectory: URL?) -> Int64 {
-        let worktree = url.standardizedFileURL.resolvingSymlinksInPath()
-        var roots = [worktree]
-        if let gitDirectory {
-            let gitDirectory = gitDirectory.standardizedFileURL.resolvingSymlinksInPath()
-            if gitDirectory != worktree && !gitDirectory.path.hasPrefix(worktree.path + "/") { roots.append(gitDirectory) }
-        }
+    private nonisolated static func repositorySize(at objectsURL: URL) -> Int64? {
+        let root = objectsURL.standardizedFileURL.resolvingSymlinksInPath()
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
+        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: Array(keys)) else { return nil }
         var bytes: Int64 = 0
-        for root in roots {
-            guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]) else { continue }
-            for case let file as URL in enumerator {
-                if Task.isCancelled { return bytes }
-                guard let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]) else { continue }
-                if values.isSymbolicLink == true { enumerator.skipDescendants(); continue }
-                if values.isRegularFile == true { bytes += Int64(values.fileSize ?? 0) }
-            }
+        for case let file as URL in enumerator {
+            if Task.isCancelled { return nil }
+            guard let values = try? file.resourceValues(forKeys: keys) else { continue }
+            if values.isSymbolicLink == true { enumerator.skipDescendants(); continue }
+            if values.isRegularFile == true { bytes += Int64(values.fileSize ?? 0) }
         }
         return bytes
     }

@@ -9,6 +9,7 @@ struct RepositoryStatisticsRangeCard: View {
     let loading: Bool
     let isShallow: Bool
     let error: String?
+    let onReload: () -> Void
     @State private var showingInformation = false
 
     var body: some View {
@@ -37,6 +38,13 @@ struct RepositoryStatisticsRangeCard: View {
                     VStack(alignment: .leading, spacing: 10) { fromDate; throughDate }
                 }
             }
+            HStack(alignment: .center, spacing: 12) {
+                Text("Statistics are cached for 6 hours. Reload to update from local Git history.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button(loading ? "Reloading…" : "Reload", systemImage: "arrow.clockwise", action: onReload)
+                    .disabled(loading).fixedSize()
+            }
             if let error { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
             if isShallow {
                 Label("Only locally available history is included in this shallow repository.", systemImage: "info.circle")
@@ -62,7 +70,7 @@ struct RepositoryStatisticsRangeCard: View {
 
     private var commits: some View {
         HStack(spacing: 5) {
-            if loading { ProgressView().controlSize(.small) }
+            if loading && total == nil { ProgressView().controlSize(.small) }
             else { Text(total.map { $0.formatted() } ?? "—").fontWeight(.semibold).monospacedDigit() }
             Text("commits").foregroundStyle(.secondary)
         }
@@ -76,7 +84,7 @@ struct RepositoryStatisticsRangeCard: View {
         Button("About these statistics", systemImage: "info.circle") { showingInformation.toggle() }
             .labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(.secondary)
             .popover(isPresented: $showingInformation) {
-                Text("History of the current branch (HEAD), including merges. Contributor identity uses email. Times are shown in \(TimeZone.current.identifier).")
+                Text("History across all repository refs, including local branches, remotes, tags and HEAD. Shared commits are counted once, including merges. Contributor identity uses email. Times are shown in \(TimeZone.current.identifier).")
                     .font(.callout).padding(16).frame(width: 300, alignment: .leading)
             }
     }

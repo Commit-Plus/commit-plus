@@ -4,7 +4,6 @@ import SwiftUI
 
 struct RepositoryStatisticsView: View {
     let repositoryURL: URL
-    let refreshGeneration: Int
     @State private var statistics: RepositoryStatistics?
     @State private var error: String?
     @State private var range = "All time"
@@ -12,6 +11,8 @@ struct RepositoryStatisticsView: View {
     @State private var end = Date.now
     @State private var loading = false
     @State private var showingContributors = false
+    @State private var reloadGeneration = 0
+    @State private var completedReloadGeneration = 0
 
     private var query: RepositoryStatisticsQuery {
         if range == "Custom" {
@@ -24,7 +25,8 @@ struct RepositoryStatisticsView: View {
         VStack(alignment: .leading, spacing: 20) {
             RepositoryStatisticsRangeCard(range: $range, start: $start, end: $end,
                                           total: statistics?.total, loading: loading,
-                                          isShallow: statistics?.isShallow == true, error: error)
+                                          isShallow: statistics?.isShallow == true, error: error,
+                                          onReload: { reloadGeneration += 1 })
             if let statistics {
                 if statistics.total == 0 {
                     RepositoryDetailBlock {
@@ -135,7 +137,10 @@ struct RepositoryStatisticsView: View {
         .sheet(isPresented: $showingContributors) {
             RepositoryContributorsSheet(contributors: statistics?.contributors ?? [])
         }
-        .task(id: "\(repositoryURL.path)|\(query)|\(refreshGeneration)") { await load() }
+        .task(id: "\(repositoryURL.path)|\(query)|\(reloadGeneration)") {
+            await load(forceRefresh: reloadGeneration != completedReloadGeneration)
+            if !Task.isCancelled { completedReloadGeneration = reloadGeneration }
+        }
     }
 
     private func topContributors(_ statistics: RepositoryStatistics) -> [RepositoryStatistics.Count] {
@@ -145,10 +150,10 @@ struct RepositoryStatisticsView: View {
         return result
     }
 
-    private func load() async {
-        loading = statistics == nil
+    private func load(forceRefresh: Bool) async {
+        loading = true
         do {
-            let result = try await GitStatusService.shared.repositoryStatistics(in: repositoryURL, query: query)
+            let result = try await GitStatusService.shared.repositoryStatistics(in: repositoryURL, query: query, forceRefresh: forceRefresh)
             guard !Task.isCancelled else { return }
             if result != statistics { statistics = result }
             error = nil

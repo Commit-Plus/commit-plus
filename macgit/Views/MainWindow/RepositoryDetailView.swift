@@ -27,7 +27,7 @@ struct RepositoryDetailView: View {
                             RepositoryReadmeSection(repositoryURL: repositoryURL, content: model.readme, file: model.readmeURL, isLoading: model.isLoading,
                                                     onOpenFile: { fileOpener.prepare($0, appState: appState) })
                         case .statistics:
-                            RepositoryStatisticsView(repositoryURL: repositoryURL, refreshGeneration: refresh)
+                            RepositoryStatisticsView(repositoryURL: repositoryURL)
                                 .padding(20)
                         }
                     } header: {

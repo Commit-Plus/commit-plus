@@ -75,6 +75,8 @@ struct RepoPickerView: View {
     @ObservedObject private var yourRepositoriesStore = YourRepositoriesStore.shared
     @ObservedObject private var catalog = RepositoryCatalogStore.shared
     @State private var showingCloneSheet = false
+    @State private var showingFolderManager = false
+    @State private var folderToRemove: URL?
     @State private var bookmarkToClone: RepositoryBookmark?
     @State private var bookmarkToRepair: RepositoryBookmark?
     @State private var bookmarkRepairFolder: URL?
@@ -360,32 +362,59 @@ struct RepoPickerView: View {
         .frame(maxWidth: isDashboardSidebar ? .infinity : 360)
     }
 
+    private var folderManagementButtons: some View {
+        HStack {
+            Button("Add Folder", systemImage: "plus", action: chooseRepositoryFolders)
+                .buttonStyle(.bordered).sidebarPointingHandCursor()
+            Button("Manage Folders") { showingFolderManager = true }
+                .buttonStyle(.bordered).sidebarPointingHandCursor()
+        }.fixedSize()
+    }
+
+    private var folderScanStatus: some View {
+        HStack {
+            if yourRepositoriesStore.isScanning { ProgressView().controlSize(.small) }
+            else { Text("\(yourRepositoriesStore.repositories.count) repositories").font(.caption).foregroundStyle(.secondary) }
+            Button("Rescan", systemImage: "arrow.clockwise") { Task { await yourRepositoriesStore.scan(force: true) } }
+                .labelStyle(.iconOnly).disabled(yourRepositoriesStore.isScanning)
+        }.fixedSize()
+    }
+
     private var repositoryListSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Repositories")
                 .font(.headline.scaled(by: textScale))
             sharedRepositoriesContent
             if selectedTab == .yours {
-                HStack {
-                    Button("Add Folder", systemImage: "plus", action: chooseRepositoryFolders)
-                        .buttonStyle(.bordered).sidebarPointingHandCursor()
-                    Spacer()
-                    if yourRepositoriesStore.isScanning { ProgressView().controlSize(.small) }
-                    else { Text("\(yourRepositoriesStore.repositories.count) repositories").font(.caption).foregroundStyle(.secondary) }
-                    Button("Rescan", systemImage: "arrow.clockwise") { Task { await yourRepositoriesStore.scan(force: true) } }
-                        .labelStyle(.iconOnly).disabled(yourRepositoriesStore.isScanning)
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        folderManagementButtons
+                        Spacer(minLength: 12)
+                        folderScanStatus
+                    }
+                    VStack(alignment: .leading, spacing: 10) {
+                        folderManagementButtons
+                        HStack { Spacer(); folderScanStatus }
+                    }
                 }
                 ForEach(catalog.snapshot.roots.filter { $0.error != nil }) { root in
                     Text("\(root.path): \(root.error ?? "")").font(.caption).foregroundStyle(.orange)
                 }
-                Menu("Manage Folders") {
-                    ForEach(yourRepositoriesStore.folders, id: \.self) { root in
-                        Button("Remove \(root.path)") { yourRepositoriesStore.removeFolder(root) }
-                    }
-                }.menuStyle(.borderlessButton).font(.caption)
             }
         }
         .padding(18)
+        .sheet(isPresented: $showingFolderManager) {
+            RepositoryFoldersSheet(store: yourRepositoriesStore)
+        }
+        .alert("Remove Folder?", isPresented: Binding(get: { folderToRemove != nil }, set: { if !$0 { folderToRemove = nil } }), presenting: folderToRemove) { folder in
+            Button("Remove Folder", role: .destructive) {
+                yourRepositoriesStore.removeFolder(folder)
+                folderToRemove = nil
+            }
+            Button("Cancel", role: .cancel) { folderToRemove = nil }
+        } message: { folder in
+            Text("Remove \(folder.path) from the scan list? The folder and its files will remain on your Mac.")
+        }
         .frame(maxWidth: .infinity, maxHeight: isDashboardSidebar ? .infinity : 320, alignment: .leading)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay {
@@ -802,7 +831,7 @@ struct RepoPickerView: View {
                 recentFolderRow(folder, count: item.count)
                     .contextMenu {
                         if yourRepositoriesStore.folders.contains(folder) {
-                            Button("Remove Folder") { yourRepositoriesStore.removeFolder(folder) }
+                            Button("Remove Folder") { folderToRemove = folder }
                         }
                     }
             } else if let repository = item.repository {
@@ -849,15 +878,25 @@ struct RepoPickerView: View {
                     .buttonStyle(.plain)
                     .sidebarPointingHandCursor()
 
-                    Button("View", systemImage: "eye") {
-                        if let onRepositoryViewed { onRepositoryViewed(repo.url) }
-                        else { localPreview = repo.url }
+                    VStack(alignment: .trailing, spacing: 5) {
+                        HStack(spacing: 12) {
+                            Button("View", systemImage: "eye") {
+                                if let onRepositoryViewed { onRepositoryViewed(repo.url) }
+                                else { localPreview = repo.url }
+                            }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                            .help("View repository details")
+                            .sidebarPointingHandCursor()
+                            bookmarkButton(for: repo)
+                        }
+                        Text(repo.lastOpened == .distantPast ? "Not opened" : timeAgoString(from: repo.lastOpened))
+                            .font(.caption.scaled(by: textScale))
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
+                            .help(repo.lastOpened == .distantPast ? "Not opened" : repo.lastOpened.formatted())
                     }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .help("View repository details")
-                    .sidebarPointingHandCursor()
-                    bookmarkButton(for: repo)
+                    .padding(.trailing, 4)
                 }
                 ForEach(bookmarkController.bookmarksNeedingAttention(at: repo.url)) { bookmark in
                     VStack(alignment: .leading, spacing: 4) {
@@ -1036,20 +1075,11 @@ struct RepoPickerView: View {
                     Spacer(minLength: 0)
                 }
 
-                HStack(spacing: 8) {
-                    Text(repo.url.path)
-                        .font(.caption.scaled(by: textScale))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .layoutPriority(1)
-
-                    Spacer(minLength: 0)
-
-                    Text(repo.lastOpened == .distantPast ? "Not opened" : timeAgoString(from: repo.lastOpened))
-                        .font(.caption.scaled(by: textScale))
-                        .foregroundStyle(.secondary)
-                        .fixedSize()
-                }
+                Text(repo.url.path)
+                    .font(.caption.scaled(by: textScale))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -1278,19 +1308,23 @@ struct RepoPickerView: View {
     }
 
     private func timeAgoString(from date: Date) -> String {
-        let interval = Date().timeIntervalSince(date)
+        let interval = max(0, Date().timeIntervalSince(date))
         let minute: TimeInterval = 60
         let hour: TimeInterval = 60 * minute
         let day: TimeInterval = 24 * hour
 
-        if interval < minute {
+        if interval < 1 {
             return "just now"
+        } else if interval < minute {
+            return "\(Int(interval))s ago"
         } else if interval < hour {
             let minutes = Int(interval / minute)
-            return "\(minutes) minute\(minutes == 1 ? "" : "s") ago"
+            return "\(minutes)m ago"
         } else if interval < day {
             let hours = Int(interval / hour)
-            return "\(hours) hour\(hours == 1 ? "" : "s") ago"
+            return "\(hours)h ago"
+        } else if interval < 7 * day {
+            return "\(Int(interval / day))d ago"
         } else {
             return date.formatted(date: .abbreviated, time: .omitted)
         }
