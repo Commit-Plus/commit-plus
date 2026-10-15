@@ -81,8 +81,6 @@ struct RepoPickerView: View {
     @State private var rowStates: [URL: RepoPickerRowState] = [:]
     @State private var missingRepository: RecentRepository?
     @State private var showingMissingRepositoryAlert = false
-    @State private var hoveredRepositoryURL: URL?
-    @State private var hoveredBookmarkURL: URL?
 
     let title: String
     let showsApplicationIcon: Bool
@@ -208,6 +206,21 @@ struct RepoPickerView: View {
             let localURLs = store.repositories.map(\.url)
                 + bookmarkController.bookmarks.compactMap { bookmarkController.localURL(for: $0) }
             await bookmarkController.linkMatchingBookmarks(to: localURLs)
+        }
+        // Keep Git work attached to the picker, not lazy rows that disappear during scrolling.
+        .task(id: [store.repositories.map(\.url.path), bookmarkController.bookmarks.compactMap {
+            bookmarkController.localURL(for: $0)?.path
+        }, [String(bookmarkRefreshGeneration)]]) {
+            let urls = store.repositories.map(\.url)
+                + bookmarkController.bookmarks.compactMap { bookmarkController.localURL(for: $0) }
+            var loadedURLs: Set<URL> = []
+            for url in urls where loadedURLs.insert(url).inserted {
+                guard !Task.isCancelled else { return }
+                let repository = RecentRepository(url: url, lastOpened: .now)
+                await loadRepositoryIcon(for: repository)
+                guard !Task.isCancelled else { return }
+                await loadRowPresentation(for: repository)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             bookmarkRefreshGeneration += 1
@@ -510,11 +523,13 @@ struct RepoPickerView: View {
     }
 
     private var recentRepositoriesSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        let repositories = visibleRepositories
+        let unlinkedBookmarks = visibleUnlinkedBookmarks
+        return VStack(alignment: .leading, spacing: 14) {
             Text("Repositories")
                 .font(.headline.scaled(by: textScale))
 
-            if store.repositories.isEmpty && visibleUnlinkedBookmarks.isEmpty {
+            if store.repositories.isEmpty && unlinkedBookmarks.isEmpty {
                 ContentUnavailableView(
                     showBookmarkedOnly ? "No Bookmarked Repositories" : "No Recent Repositories",
                     systemImage: showBookmarkedOnly ? "star" : "clock.arrow.circlepath",
@@ -526,7 +541,7 @@ struct RepoPickerView: View {
                 )
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: 180)
-            } else if visibleRepositories.isEmpty && visibleUnlinkedBookmarks.isEmpty {
+            } else if repositories.isEmpty && unlinkedBookmarks.isEmpty {
                 ContentUnavailableView(
                     "No Repositories Found",
                     systemImage: "magnifyingglass",
@@ -537,16 +552,16 @@ struct RepoPickerView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(visibleUnlinkedBookmarks) { bookmark in
+                        ForEach(unlinkedBookmarks) { bookmark in
                             unlinkedBookmarkRow(bookmark)
                             Divider()
                                 .padding(.leading, 52)
                         }
 
-                        ForEach(Array(visibleRepositories.enumerated()), id: \.element.url) { index, repo in
+                        ForEach(Array(repositories.enumerated()), id: \.element.url) { index, repo in
                             repoRow(repo)
 
-                            if index < visibleRepositories.count - 1 {
+                            if index < repositories.count - 1 {
                                 Divider()
                                     .padding(.leading, 52)
                             }
@@ -567,51 +582,40 @@ struct RepoPickerView: View {
     }
 
     private func repoRow(_ repo: RecentRepository) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Button(action: {
-                    openRecentRepository(repo)
-                }) {
-                    repoRowContent(repo)
-                }
-                .buttonStyle(.plain)
-                .sidebarPointingHandCursor()
-
-                bookmarkButton(for: repo)
-            }
-            ForEach(bookmarkController.bookmarksNeedingAttention(at: repo.url)) { bookmark in
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("Bookmark URL no longer matches this folder's remotes.", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                    Text(bookmark.remoteURL.absoluteString)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .help(bookmark.remoteURL.absoluteString)
-                    HStack {
-                        Button("Update Bookmark…") { repairBookmark(bookmark, folder: repo.url) }
-                        Button("Remove Bookmark") {
-                            Task { await bookmarkController.removeBookmark(bookmark) }
-                        }
+        RepoPickerHoverRow {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Button(action: {
+                        openRecentRepository(repo)
+                    }) {
+                        repoRowContent(repo)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.plain)
+                    .sidebarPointingHandCursor()
+
+                    bookmarkButton(for: repo)
                 }
-                .font(.caption.scaled(by: textScale))
-                .padding(.leading, 46)
-                .padding(.bottom, 8)
+                ForEach(bookmarkController.bookmarksNeedingAttention(at: repo.url)) { bookmark in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Bookmark URL no longer matches this folder's remotes.", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Text(bookmark.remoteURL.absoluteString)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .help(bookmark.remoteURL.absoluteString)
+                        HStack {
+                            Button("Update Bookmark…") { repairBookmark(bookmark, folder: repo.url) }
+                            Button("Remove Bookmark") {
+                                Task { await bookmarkController.removeBookmark(bookmark) }
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    .font(.caption.scaled(by: textScale))
+                    .padding(.leading, 46)
+                    .padding(.bottom, 8)
+                }
             }
-        }
-        .background(
-            Color.primary.opacity(hoveredRepositoryURL == repo.url ? 0.06 : 0),
-            in: RoundedRectangle(cornerRadius: 8)
-        )
-        .onHover { isHovered in
-            hoveredRepositoryURL = isHovered ? repo.url : nil
-        }
-        .task(id: repo.url) {
-            await loadRowPresentation(for: repo)
-        }
-        .task(id: repo.url) {
-            await loadRepositoryIcon(for: repo)
         }
         .contextMenu {
             ForEach(bookmarkController.bookmarks.filter { bookmarkController.localURL(for: $0) == repo.url }) { bookmark in
@@ -660,70 +664,65 @@ struct RepoPickerView: View {
     }
 
     private func unlinkedBookmarkRow(_ bookmark: RepositoryBookmark) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                Image(bookmark.provider == .generic ? "code-branch" : bookmark.provider.rawValue)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 18, height: 18)
-                    .frame(width: 34, height: 34)
-                    .background(
-                        Color(nsColor: .windowBackgroundColor),
-                        in: RoundedRectangle(cornerRadius: 10)
-                    )
-                    .accessibilityLabel("Repository provider")
+        RepoPickerHoverRow {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    Image(bookmark.provider == .generic ? "code-branch" : bookmark.provider.rawValue)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 18, height: 18)
+                        .frame(width: 34, height: 34)
+                        .background(
+                            Color(nsColor: .windowBackgroundColor),
+                            in: RoundedRectangle(cornerRadius: 10)
+                        )
+                        .accessibilityLabel("Repository provider")
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(bookmark.name)
-                        .font(.body.weight(.medium).scaled(by: textScale))
-                    Text(bookmark.remoteURL.absoluteString)
-                        .font(.caption.scaled(by: textScale))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                Button("Clone") {
-                    bookmarkToClone = bookmark
-                }
-                .buttonStyle(.borderedProminent)
-                .sidebarPointingHandCursor()
-
-                Button(isDashboardSidebar ? "Link" : "Link Folder") {
-                    chooseFolderToLink(bookmark)
-                }
-                .buttonStyle(.bordered)
-                .sidebarPointingHandCursor()
-
-                Button("Remove bookmark", systemImage: "star.fill") {
-                    Task {
-                        await bookmarkController.removeBookmark(bookmark)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(bookmark.name)
+                            .font(.body.weight(.medium).scaled(by: textScale))
+                        Text(bookmark.remoteURL.absoluteString)
+                            .font(.caption.scaled(by: textScale))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .sidebarPointingHandCursor()
-                .help("Remove bookmark")
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Label("Not linked on this Mac. Renamed or moved?", systemImage: "link")
-                    .foregroundStyle(.secondary)
-                Button("Update Bookmark…") { repairBookmark(bookmark) }
+
+                    Spacer()
+
+                    Button("Clone") {
+                        bookmarkToClone = bookmark
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .sidebarPointingHandCursor()
+
+                    Button(isDashboardSidebar ? "Link" : "Link Folder") {
+                        chooseFolderToLink(bookmark)
+                    }
+                    .buttonStyle(.bordered)
+                    .sidebarPointingHandCursor()
+
+                    Button("Remove bookmark", systemImage: "star.fill") {
+                        Task {
+                            await bookmarkController.removeBookmark(bookmark)
+                        }
+                    }
+                    .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
                     .sidebarPointingHandCursor()
+                    .help("Remove bookmark")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Not linked on this Mac. Renamed or moved?", systemImage: "link")
+                        .foregroundStyle(.secondary)
+                    Button("Update Bookmark…") { repairBookmark(bookmark) }
+                        .buttonStyle(.borderless)
+                        .sidebarPointingHandCursor()
+                }
+                .font(.caption.scaled(by: textScale))
+                .padding(.leading, 46)
             }
-            .font(.caption.scaled(by: textScale))
-            .padding(.leading, 46)
-        }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 4)
-        .background(
-            Color.primary.opacity(hoveredBookmarkURL == bookmark.remoteURL ? 0.06 : 0),
-            in: RoundedRectangle(cornerRadius: 8)
-        )
-        .onHover { isHovered in
-            hoveredBookmarkURL = isHovered ? bookmark.remoteURL : nil
+            .padding(.vertical, 12)
+            .padding(.horizontal, 4)
         }
     }
 
@@ -806,10 +805,13 @@ struct RepoPickerView: View {
         if rowState?.isMissing == true {
             Text("Repository moved or deleted")
                 .font(.caption.weight(.semibold).scaled(by: textScale))
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .foregroundStyle(.white)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(Color.orange, in: Capsule())
+                .help("Repository moved or deleted")
         } else if let rowState {
             HStack(spacing: 6) {
                 if let branch = rowState.currentBranch, !branch.isEmpty {
@@ -842,13 +844,12 @@ struct RepoPickerView: View {
         }
     }
 
+    @MainActor
     private func loadRowPresentation(for repo: RecentRepository) async {
-        await MainActor.run {
+        guard !Task.isCancelled else { return }
+        if rowStates[repo.url] == nil {
             rowStates[repo.url] = RepoPickerRowState(
-                currentBranch: rowStates[repo.url]?.currentBranch,
-                changedFileCount: nil,
-                behindCount: nil,
-                aheadCount: nil,
+                currentBranch: nil,
                 isMissing: false,
                 isLoading: true
             )
@@ -858,15 +859,13 @@ struct RepoPickerView: View {
         let gitMetadataPath = repo.url.appendingPathComponent(".git").path
         guard FileManager.default.fileExists(atPath: repoPath),
               FileManager.default.fileExists(atPath: gitMetadataPath) else {
-            await MainActor.run {
-                rowStates[repo.url] = RepoPickerRowState(
-                    currentBranch: nil,
-                    changedFileCount: nil,
-                    behindCount: nil,
-                    aheadCount: nil,
-                    isMissing: true,
-                    isLoading: false
-                )
+            let state = RepoPickerRowState(
+                currentBranch: nil,
+                isMissing: true,
+                isLoading: false
+            )
+            if rowStates[repo.url] != state {
+                rowStates[repo.url] = state
             }
             return
         }
@@ -875,17 +874,28 @@ struct RepoPickerView: View {
 
         guard !Task.isCancelled else { return }
 
-        await MainActor.run {
-            rowStates[repo.url]?.currentBranch = snapshot.currentBranch
-            rowStates[repo.url]?.changedFileCount = snapshot.changedFileCount
-            rowStates[repo.url]?.aheadCount = snapshot.aheadCount
-            rowStates[repo.url]?.behindCount = snapshot.behindCount
-            rowStates[repo.url]?.isLoading = false
+        let state = RepoPickerRowState(
+            currentBranch: snapshot.currentBranch,
+            changedFileCount: snapshot.changedFileCount,
+            behindCount: snapshot.behindCount,
+            aheadCount: snapshot.aheadCount,
+            isMissing: false,
+            isLoading: false
+        )
+        if rowStates[repo.url] != state {
+            rowStates[repo.url] = state
         }
     }
 
+    @MainActor
     private func loadRepositoryIcon(for repo: RecentRepository) async {
-        await MainActor.run {
+        guard !Task.isCancelled else { return }
+        defer {
+            if loadingRepoIcons.contains(repo.url) {
+                loadingRepoIcons.remove(repo.url)
+            }
+        }
+        if repoIcons[repo.url] == nil {
             loadingRepoIcons.insert(repo.url)
         }
 
@@ -893,9 +903,8 @@ struct RepoPickerView: View {
         let gitMetadataPath = repo.url.appendingPathComponent(".git").path
         guard FileManager.default.fileExists(atPath: repoPath),
               FileManager.default.fileExists(atPath: gitMetadataPath) else {
-            await MainActor.run {
+            if repoIcons[repo.url] != "code-branch" {
                 repoIcons[repo.url] = "code-branch"
-                loadingRepoIcons.remove(repo.url)
             }
             return
         }
@@ -903,9 +912,9 @@ struct RepoPickerView: View {
         let remoteURL = await GitStatusService.shared.remoteURL(remote: "origin", in: repo.url)
         guard !Task.isCancelled else { return }
 
-        await MainActor.run {
-            repoIcons[repo.url] = remoteURL.isEmpty ? "code-branch" : determineRepoIconName(from: remoteURL)
-            loadingRepoIcons.remove(repo.url)
+        let icon = remoteURL.isEmpty ? "code-branch" : determineRepoIconName(from: remoteURL)
+        if repoIcons[repo.url] != icon {
+            repoIcons[repo.url] = icon
         }
     }
 
@@ -1015,10 +1024,7 @@ struct RepoPickerView: View {
             let hours = Int(interval / hour)
             return "\(hours) hour\(hours == 1 ? "" : "s") ago"
         } else {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .medium
-            formatter.timeStyle = .none
-            return formatter.string(from: date)
+            return date.formatted(date: .abbreviated, time: .omitted)
         }
     }
 

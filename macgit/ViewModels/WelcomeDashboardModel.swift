@@ -61,39 +61,44 @@ final class WelcomeDashboardModel {
     func refreshAttention(repositories: [RecentRepository]) async {
         let request = UUID()
         attentionGeneration = request
-        isCheckingAttention = true
         let recent = uniqueRepositories(repositories)
         let urls = Set(recent.map { $0.url.standardizedFileURL })
         checkedAttentionURLs.formIntersection(urls)
-        attention.removeAll { !urls.contains($0.url.standardizedFileURL) }
+        var result = attention.filter { urls.contains($0.url.standardizedFileURL) }
+        var checkedURLs = checkedAttentionURLs
         for repository in recent {
             guard !Task.isCancelled, request == attentionGeneration else { return }
             let url = repository.url.standardizedFileURL
-            guard !checkedAttentionURLs.contains(url) else { continue }
+            guard !checkedURLs.contains(url) else { continue }
             do {
                 let status = try await attentionLoader(repository)
                 guard !Task.isCancelled, request == attentionGeneration else { return }
-                attention.removeAll { $0.url.standardizedFileURL == url }
-                if status.needsAttention { attention.append(status) }
-                attention.sort {
+                result.removeAll { $0.url.standardizedFileURL == url }
+                if status.needsAttention { result.append(status) }
+                result.sort {
                     if $0.priority != $1.priority { return $0.priority < $1.priority }
                     return $0.name.localizedStandardCompare($1.name) == .orderedAscending
                 }
-                checkedAttentionURLs.insert(url)
+                checkedURLs.insert(url)
             } catch {
                 guard !Task.isCancelled, request == attentionGeneration else { return }
                 // Preserve the previous warning and retry on the next refresh.
             }
         }
         guard !Task.isCancelled, request == attentionGeneration else { return }
-        attentionUpdatedAt = .now
-        isCheckingAttention = false
+        checkedAttentionURLs = checkedURLs
+        if attention != result {
+            attention = result
+            attentionUpdatedAt = .now
+        } else if attentionUpdatedAt == nil {
+            attentionUpdatedAt = .now
+        }
+        if isCheckingAttention { isCheckingAttention = false }
     }
 
     func refresh(repositories: [RecentRepository], force: Bool = false) async {
         let request = UUID()
         generation = request
-        isLoading = true
         let now = Date.now
         let days = WelcomeDashboardSnapshot.days(endingAt: now)
         let all = uniqueRepositories(repositories)
@@ -101,6 +106,13 @@ final class WelcomeDashboardModel {
         let recent = Array(all.prefix(7))
         if force { dirtyActivityURLs.formUnion(recent.map { $0.url.standardizedFileURL }) }
         var entries: [URL: WelcomeActivityCacheEntry] = [:]
+        if snapshot.days == days {
+            for activity in snapshot.repositories {
+                entries[activity.url.standardizedFileURL] = WelcomeActivityCacheEntry(
+                    days: days, savedAt: updatedAt ?? now, activity: activity
+                )
+            }
+        }
         var pending: [RecentRepository] = []
 
         // Read every visible cached row before starting any Git command, so a
@@ -112,7 +124,7 @@ final class WelcomeDashboardModel {
             if let cached { entries[url] = cached }
             if cached == nil || dirtyActivityURLs.contains(url) { pending.append(repository) }
         }
-        publishActivity(entries, repositories: recent, days: days)
+        if isLoading { publishActivity(entries, repositories: recent, days: days) }
         for repository in pending {
             guard !Task.isCancelled, request == generation else { return }
             do {
@@ -124,13 +136,14 @@ final class WelcomeDashboardModel {
                 let url = repository.url.standardizedFileURL
                 dirtyActivityURLs.remove(url)
                 entries[url] = entry
-                publishActivity(entries, repositories: recent, days: days)
+                if isLoading { publishActivity(entries, repositories: recent, days: days) }
             } catch {
                 guard !Task.isCancelled, request == generation else { return }
             }
         }
         guard !Task.isCancelled, request == generation else { return }
-        isLoading = false
+        publishActivity(entries, repositories: recent, days: days)
+        if isLoading { isLoading = false }
     }
 
     private func publishActivity(
@@ -141,8 +154,12 @@ final class WelcomeDashboardModel {
         var result = WelcomeDashboardSnapshot(days: days)
         let ordered = repositories.compactMap { entries[$0.url.standardizedFileURL] }
         result.repositories = ordered.map(\.activity)
-        snapshot = result
-        updatedAt = ordered.map(\.savedAt).min()
+        if snapshot != result {
+            snapshot = result
+            updatedAt = ordered.map(\.savedAt).min()
+        } else if updatedAt == nil {
+            updatedAt = ordered.map(\.savedAt).min()
+        }
     }
 
     private func uniqueRepositories(_ repositories: [RecentRepository]) -> [RecentRepository] {

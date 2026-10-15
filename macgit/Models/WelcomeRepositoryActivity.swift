@@ -17,7 +17,7 @@
 //
 import Foundation
 
-struct WelcomeRepositoryActivity: Identifiable, Codable {
+struct WelcomeRepositoryActivity: Identifiable, Codable, Equatable {
     var id: URL { url }
     let url: URL
     let name: String
