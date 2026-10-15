@@ -16,9 +16,10 @@ enum RecentRepositoryTree {
     static func rows(
         repositories: [RecentRepository],
         expandedFolders: Set<URL>,
-        expandAll: Bool = false
+        expandAll: Bool = false,
+        roots explicitRoots: [URL] = []
     ) -> [Row] {
-        let parents = Set(repositories.map { $0.url.deletingLastPathComponent().path })
+        let parents = Set(explicitRoots.isEmpty ? repositories.map { $0.url.deletingLastPathComponent().path } : explicitRoots.map(\.path))
         let roots = parents.filter { path in
             !parents.contains { ancestor in
                 ancestor != path && path.hasPrefix(ancestor == "/" ? "/" : ancestor + "/")
@@ -32,8 +33,8 @@ enum RecentRepositoryTree {
             result.append(Row(id: "folder:\(path)", depth: depth, content: .folder(folder, count: repositories.count)))
             guard expandAll || expandedPaths.contains(path) else { return }
 
-            let direct = repositories.filter { $0.url.deletingLastPathComponent().path == path }
-            let descendants = repositories.filter { $0.url.deletingLastPathComponent().path != path }
+            let direct = repositories.filter { $0.url.path == path || $0.url.deletingLastPathComponent().path == path }
+            let descendants = repositories.filter { $0.url.path != path && $0.url.deletingLastPathComponent().path != path }
             let prefix = path == "/" ? "/" : path + "/"
             let children = Set(descendants.compactMap { repository -> String? in
                 guard repository.url.path.hasPrefix(prefix),
@@ -51,7 +52,7 @@ enum RecentRepositoryTree {
 
         for root in roots {
             let prefix = root == "/" ? "/" : root + "/"
-            appendFolder(root, repositories: repositories.filter { $0.url.path.hasPrefix(prefix) }, depth: 0)
+            appendFolder(root, repositories: repositories.filter { $0.url.path == root || $0.url.path.hasPrefix(prefix) }, depth: 0)
         }
         return result
     }

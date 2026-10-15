@@ -25,6 +25,7 @@ struct WelcomeView: View {
     @State private var showingUnavailableRepository = false
     @State private var hasStartedLoading = false
     @State private var refreshID = UUID()
+    @State private var viewedRepository: URL?
     let accountDisplayName: String?
     let onOpenAccount: () -> Void
     let onRepositoryOpened: (URL, Bool?) -> Void
@@ -33,18 +34,23 @@ struct WelcomeView: View {
         PersistentHSplit(
             autosaveName: "WelcomeDashboardMainSplit",
             left: {
-                RepoPickerView(isDashboardSidebar: true) { url in
+                RepoPickerView(isDashboardSidebar: true, onRepositoryViewed: { viewedRepository = $0 }, selectedRepositoryURL: viewedRepository) { url in
                     onRepositoryOpened(url, nil)
                 }
                 .frame(minWidth: 340, idealWidth: 420, maxWidth: 600)
             },
             right: {
-                WelcomeDashboardContent(
+                if let viewedRepository {
+                    RepositoryDetailView(repositoryURL: viewedRepository, onClose: { self.viewedRepository = nil }, onOpen: openRepository)
+                        .id(viewedRepository).frame(minWidth: 560)
+                } else {
+                    WelcomeDashboardContent(
                     model: model, accountDisplayName: accountDisplayName, repositoryCount: store.repositories.count,
                     onRefresh: refreshImmediately, onOpenAccount: onOpenAccount,
                     onReviewAttention: reviewAttention, onRepositoryOpened: openRepository
                 )
                 .frame(minWidth: 560)
+                }
             }
         )
         .frame(minWidth: 900, minHeight: 620)
@@ -108,9 +114,10 @@ struct WelcomeView: View {
                         try await bookmarkController.validateAndLink(bookmark, to: url)
                     }
                     if let old = store.repositories.first(where: { $0.url == repository.url }) {
-                        store.remove(old)
+                        RepositoryCatalogStore.shared.relink(old.url, to: url)
+                    } else {
+                        store.add(url)
                     }
-                    store.add(url)
                     onRepositoryOpened(url, nil)
                 } catch {
                     locationError = "Could not use this repository folder. \(error.localizedDescription)"

@@ -10,12 +10,31 @@ final class YourRepositoriesStore: ObservableObject {
     @Published private(set) var repositories: [YourRepository] = []
     @Published private(set) var isScanning = false
 
-    private let defaultsKey = "dev.thanhtran.macgit.yourRepositoryFolders"
-    private var scanGeneration = UUID()
+    private var observation: AnyCancellable?
+    private var scanTask: Task<Void, Never>?
+    private var scanningRoots: [URL] = []
+    private var lastScan: Date?
+    private let catalog: RepositoryCatalogStore
 
-    private init(defaults: UserDefaults = .standard) {
-        folders = (defaults.array(forKey: defaultsKey) as? [String] ?? [])
-            .map { Self.canonical(URL(fileURLWithPath: $0, isDirectory: true)) }
+    init(catalog injectedCatalog: RepositoryCatalogStore? = nil) {
+        let catalog = injectedCatalog ?? .shared
+        self.catalog = catalog
+        folders = []
+        observation = catalog.$snapshot.sink { [weak self] state in
+            guard let self else { return }
+            let roots = state.roots.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+            let folders = roots.map { URL(fileURLWithPath: $0.path, isDirectory: true) }
+            var seen: Set<UUID> = []
+            let repositories = roots.flatMap { root in
+                state.memberships.filter { $0.rootID == root.id }.compactMap { membership -> YourRepository? in
+                    guard seen.insert(membership.repositoryID).inserted,
+                          let record = state.repositories.first(where: { $0.id == membership.repositoryID }) else { return nil }
+                    return YourRepository(url: URL(fileURLWithPath: record.path), rootURL: URL(fileURLWithPath: root.path, isDirectory: true))
+                }
+            }.sorted { $0.url.path.localizedStandardCompare($1.url.path) == .orderedAscending }
+            if self.folders != folders { self.folders = folders }
+            if self.repositories != repositories { self.repositories = repositories }
+        }
     }
 
     enum AddResult {
@@ -28,71 +47,51 @@ final class YourRepositoriesStore: ObservableObject {
         let home = Self.canonical(FileManager.default.homeDirectoryForCurrentUser)
         let fileSystemRoot = URL(fileURLWithPath: "/", isDirectory: true)
         let normalized = urls.map(Self.canonical)
-        if normalized.contains(home) || normalized.contains(fileSystemRoot) { return .homeFolder }
+        if normalized.contains(where: { $0.path == home.path || $0.path == fileSystemRoot.path }) { return .homeFolder }
 
-        var added = false
-        for url in normalized where !folders.contains(url) {
-            folders.append(url)
-            added = true
-        }
-        guard added else { return .duplicate }
-        folders.sort { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
-        saveFolders()
+        let existingPaths = Set(folders.map(\.path))
+        let added = normalized.filter { !existingPaths.contains($0.path) }
+        guard !added.isEmpty else { return .duplicate }
+        catalog.addRoots(added)
         return .added
     }
 
     func removeFolder(_ url: URL) {
-        let normalized = Self.canonical(url)
-        folders.removeAll { $0 == normalized }
-        repositories.removeAll { $0.rootURL == normalized }
-        saveFolders()
+        catalog.removeRoot(url)
     }
 
-    func scan() async {
-        let request = UUID()
-        scanGeneration = request
-        if repositories.isEmpty { isScanning = true }
+    func scan(force: Bool = false) async {
+        await catalog.ready()
         let roots = folders
-        let scanned = await Task.detached(priority: .utility) {
-            Self.scanRepositories(in: roots)
-        }.value
-        guard request == scanGeneration, !Task.isCancelled else { return }
-        if repositories != scanned { repositories = scanned }
-        isScanning = false
+        if let scanTask, scanningRoots == roots { await scanTask.value; return }
+        if !force, scanningRoots == roots, let lastScan, Date.now.timeIntervalSince(lastScan) < 30 { return }
+        scanTask?.cancel()
+        scanningRoots = roots
+        isScanning = true
+        let task = Task { [weak self, catalog] in
+            for root in roots {
+                guard !Task.isCancelled else { return }
+                let worker = Task.detached(priority: .utility) { Self.scanRoot(root) }
+                let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+                guard !Task.isCancelled else { return }
+                await catalog.reconcile(root: root, repositories: result.urls, error: result.error)
+            }
+            guard !Task.isCancelled else { return }
+            self?.isScanning = false
+            self?.lastScan = .now
+            self?.scanTask = nil
+        }
+        scanTask = task
+        await task.value
     }
 
     nonisolated static func scanRepositories(in roots: [URL]) -> [YourRepository] {
-        let fileManager = FileManager.default
         var repositoriesByURL: [URL: YourRepository] = [:]
-
         for root in roots {
             guard !Task.isCancelled else { break }
-            let normalizedRoot = root.standardizedFileURL
-            guard directoryExists(normalizedRoot, fileManager: fileManager) else { continue }
-            collectRepository(at: normalizedRoot, root: normalizedRoot, into: &repositoriesByURL, fileManager: fileManager)
-
-            guard repositoriesByURL[normalizedRoot] == nil,
-                  let enumerator = fileManager.enumerator(
-                    at: normalizedRoot,
-                    includingPropertiesForKeys: [.isDirectoryKey],
-                    options: [.skipsPackageDescendants],
-                    errorHandler: { _, _ in true }
-                  ) else { continue }
-
-            for case let candidate as URL in enumerator {
-                guard !Task.isCancelled else { break }
-                guard directoryExists(candidate, fileManager: fileManager) else { continue }
-                if candidate.lastPathComponent == ".git" {
-                    enumerator.skipDescendants()
-                    continue
-                }
-                if collectRepository(
-                    at: candidate.standardizedFileURL,
-                    root: normalizedRoot,
-                    into: &repositoriesByURL,
-                    fileManager: fileManager
-                ) {
-                    enumerator.skipDescendants()
+            for url in scanRoot(root).urls {
+                if repositoriesByURL[url] == nil {
+                    repositoriesByURL[url] = YourRepository(url: url, rootURL: root.standardizedFileURL)
                 }
             }
         }
@@ -102,29 +101,34 @@ final class YourRepositoriesStore: ObservableObject {
         }
     }
 
-    @discardableResult
-    private nonisolated static func collectRepository(
-        at url: URL,
-        root: URL,
-        into repositories: inout [URL: YourRepository],
-        fileManager: FileManager
-    ) -> Bool {
-        guard fileManager.fileExists(atPath: url.appendingPathComponent(".git").path) else { return false }
-        if repositories[url] == nil {
-            repositories[url] = YourRepository(url: url, rootURL: root)
-        }
-        return true
-    }
-
-    private nonisolated static func directoryExists(_ url: URL, fileManager: FileManager) -> Bool {
-        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-    }
-
-    private func saveFolders() {
-        UserDefaults.standard.set(folders.map(\.path), forKey: defaultsKey)
+    nonisolated static func scanRoot(_ root: URL) -> (urls: [URL], error: String?) {
+        let manager = FileManager.default
+        do {
+            _ = try manager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            var errorMessage: String?
+            let enumerator = manager.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey], options: [.skipsPackageDescendants]) { _, error in
+                errorMessage = error.localizedDescription
+                return true
+            }
+            var urls: [URL] = []
+            if manager.fileExists(atPath: root.appendingPathComponent(".git").path) { return ([root], nil) }
+            guard let enumerator else { return ([], "Could not enumerate folder.") }
+            for case let url as URL in enumerator {
+                guard !Task.isCancelled else { return ([], "Scan cancelled.") }
+                let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+                if values.isSymbolicLink == true { enumerator.skipDescendants(); continue }
+                guard values.isDirectory == true else { continue }
+                if url.lastPathComponent == ".git" { enumerator.skipDescendants(); continue }
+                if manager.fileExists(atPath: url.appendingPathComponent(".git").path) {
+                    urls.append(url.standardizedFileURL)
+                    enumerator.skipDescendants()
+                }
+            }
+            return (urls, errorMessage)
+        } catch { return ([], error.localizedDescription) }
     }
 
     private nonisolated static func canonical(_ url: URL) -> URL {
-        url.standardizedFileURL.resolvingSymlinksInPath()
+        URL(fileURLWithPath: url.standardizedFileURL.resolvingSymlinksInPath().path, isDirectory: true)
     }
 }
