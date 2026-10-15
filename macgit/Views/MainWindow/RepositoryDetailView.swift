@@ -3,7 +3,7 @@ import SwiftUI
 
 struct RepositoryDetailView: View {
     let repositoryURL: URL
-    let onClose: () -> Void
+    let onClose: (() -> Void)?
     let onOpen: (URL) -> Void
     @EnvironmentObject private var appState: AppState
     @State private var fileOpener = RepositoryFileOpenModel()

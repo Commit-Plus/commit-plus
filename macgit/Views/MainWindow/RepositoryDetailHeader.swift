@@ -3,15 +3,17 @@ import SwiftUI
 
 struct RepositoryDetailHeader: View {
     let repositoryURL: URL
-    let onClose: () -> Void
+    let onClose: (() -> Void)?
     let onRefresh: () -> Void
     let onOpen: () -> Void
     @Environment(\.appTextScale) private var textScale
 
     var body: some View {
         HStack(spacing: 12) {
-            Button("Back", systemImage: "chevron.left", action: onClose)
-                .labelStyle(.iconOnly).help("Back to overview")
+            if let onClose {
+                Button("Back", systemImage: "chevron.left", action: onClose)
+                    .labelStyle(.iconOnly).help("Back to overview")
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(repositoryURL.lastPathComponent).font(.title2.bold().scaled(by: textScale)).lineLimit(1)
                 Button(action: revealInFinder) {

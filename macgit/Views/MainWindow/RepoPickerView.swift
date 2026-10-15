@@ -106,6 +106,7 @@ struct RepoPickerView: View {
     var onRepositoryOpened: (URL) -> Void
     var onRepositoryViewed: ((URL) -> Void)?
     var selectedRepositoryURL: URL?
+    var onRepositoriesChanged: (([URL]) -> Void)?
 
     init(
         title: String = "Choose a Repository",
@@ -114,6 +115,7 @@ struct RepoPickerView: View {
         showCloneSheetInitially: Bool = false,
         onRepositoryViewed: ((URL) -> Void)? = nil,
         selectedRepositoryURL: URL? = nil,
+        onRepositoriesChanged: (([URL]) -> Void)? = nil,
         onRepositoryOpened: @escaping (URL) -> Void
     ) {
         self.title = title
@@ -123,6 +125,7 @@ struct RepoPickerView: View {
         self.onRepositoryOpened = onRepositoryOpened
         self.onRepositoryViewed = onRepositoryViewed
         self.selectedRepositoryURL = selectedRepositoryURL
+        self.onRepositoriesChanged = onRepositoriesChanged
     }
 
     private var visibleRepositories: [RecentRepository] {
@@ -209,6 +212,9 @@ struct RepoPickerView: View {
 
     var body: some View {
         pickerLayout
+        .onChange(of: visibleRepositories.map(\.url), initial: true) { _, urls in
+            onRepositoriesChanged?(urls)
+        }
         .task(id: showCloneSheetInitially) {
             if showCloneSheetInitially {
                 showingCloneSheet = true
@@ -869,24 +875,21 @@ struct RepoPickerView: View {
     private func repoRow(_ repo: RecentRepository, iconName: String = "code-branch") -> some View {
         RepoPickerHoverRow {
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
+                HStack(spacing: 4) {
                     Button(action: {
-                        openRecentRepository(repo)
+                        viewRepositoryDetails(repo)
                     }) {
                         repoRowContent(repo, iconName: iconName)
                     }
                     .buttonStyle(.plain)
+                    .simultaneousGesture(TapGesture(count: 2).onEnded { openRecentRepository(repo) })
                     .sidebarPointingHandCursor()
 
                     VStack(alignment: .trailing, spacing: 5) {
-                        HStack(spacing: 12) {
-                            Button("View", systemImage: "eye") {
-                                if let onRepositoryViewed { onRepositoryViewed(repo.url) }
-                                else { localPreview = repo.url }
-                            }
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.borderless)
-                            .help("View repository details")
+                        HStack(spacing: 2) {
+                            Button("Open") { openRecentRepository(repo) }
+                            .buttonStyle(RepoPickerOpenButtonStyle())
+                            .help("Open repository")
                             .sidebarPointingHandCursor()
                             bookmarkButton(for: repo)
                         }
@@ -895,8 +898,11 @@ struct RepoPickerView: View {
                             .foregroundStyle(.secondary)
                             .fixedSize()
                             .help(repo.lastOpened == .distantPast ? "Not opened" : repo.lastOpened.formatted())
+                            .onTapGesture { viewRepositoryDetails(repo) }
+                            .simultaneousGesture(TapGesture(count: 2).onEnded { openRecentRepository(repo) })
                     }
-                    .padding(.trailing, 4)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.trailing, 2)
                 }
                 ForEach(bookmarkController.bookmarksNeedingAttention(at: repo.url)) { bookmark in
                     VStack(alignment: .leading, spacing: 4) {
@@ -957,7 +963,7 @@ struct RepoPickerView: View {
                     Image(systemName: bookmarkID == nil ? "star" : "star.fill")
                 }
             }
-            .frame(width: 28, height: 28)
+            .frame(width: 24, height: 24)
             .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
@@ -1027,6 +1033,11 @@ struct RepoPickerView: View {
         }
     }
 
+    private func viewRepositoryDetails(_ repo: RecentRepository) {
+        if let onRepositoryViewed { onRepositoryViewed(repo.url) }
+        else { localPreview = repo.url }
+    }
+
     private func openRecentRepository(_ repo: RecentRepository) {
         guard isValidGitRepository(at: repo.url) else {
             repoIcons[repo.url] = "code-branch"
@@ -1049,7 +1060,7 @@ struct RepoPickerView: View {
     }
 
     private func repoRowContent(_ repo: RecentRepository, iconName: String) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             Group {
                 if loadingRepoIcons.contains(repo.url) {
                     ProgressView()
@@ -1059,12 +1070,12 @@ struct RepoPickerView: View {
                         .frame(width: 18, height: 18)
                 }
             }
-                .frame(width: 34, height: 34)
-                .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .frame(width: 28, height: 28)
+                .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .accessibilityLabel(loadingRepoIcons.contains(repo.url) ? "Detecting repository provider" : "Repository provider")
 
             VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 6) {
+                HStack(spacing: 3) {
                     Text(repo.name)
                         .font(.body.weight(.medium).scaled(by: textScale))
                         .lineLimit(1)
@@ -1083,8 +1094,8 @@ struct RepoPickerView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 4)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 2)
         .contentShape(Rectangle())
     }
 
@@ -1098,39 +1109,43 @@ struct RepoPickerView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
                 .background(Color.orange, in: Capsule())
                 .help("Repository moved or deleted")
         } else if let rowState {
-            HStack(spacing: 6) {
+            Group {
                 if let branch = rowState.currentBranch, !branch.isEmpty {
-                    Label(branch, systemImage: "arrow.triangle.branch")
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.triangle.branch")
+                        Text(branch)
+                    }
                         .font(.caption.weight(.medium).scaled(by: textScale))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
                         .background(.quaternary, in: Capsule())
-                        .frame(maxWidth: isDashboardSidebar ? 104 : 160)
                         .help(branch)
                 }
 
                 if let changedFileCount = rowState.changedFileCount {
                     RepoPickerCountBadge(icon: "pencil", label: "Changed files", count: changedFileCount, tint: .yellow)
+                        .layoutPriority(1)
                 }
                 if let behindCount = rowState.behindCount {
                     RepoPickerCountBadge(icon: "arrow.down.to.line", label: "Behind", count: behindCount, tint: .purple)
+                        .layoutPriority(1)
                 }
                 if let aheadCount = rowState.aheadCount {
                     RepoPickerCountBadge(icon: "arrow.up.to.line", label: "Ahead", count: aheadCount, tint: .green)
+                        .layoutPriority(1)
                 }
                 if rowState.isLoading {
                     ProgressView()
                         .controlSize(.small)
                 }
             }
-            .fixedSize(horizontal: true, vertical: false)
         }
     }
 
@@ -1363,6 +1378,19 @@ struct RepoPickerView: View {
     }
 }
 
+private struct RepoPickerOpenButtonStyle: ButtonStyle {
+    @Environment(\.appTextScale) private var textScale
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.caption.weight(.medium).scaled(by: textScale))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Color.blue.opacity(configuration.isPressed ? 0.75 : 1), in: RoundedRectangle(cornerRadius: 5))
+    }
+}
+
 private struct RepoPickerCountBadge: View {
     @Environment(\.appTextScale) private var textScale
     let icon: String
@@ -1373,10 +1401,13 @@ private struct RepoPickerCountBadge: View {
     var body: some View {
         Group {
             if count > 0 {
-                Label(String(count), systemImage: icon)
+                HStack(spacing: 3) {
+                    Image(systemName: icon)
+                    Text(String(count))
+                }
                     .font(.system(size: 10, weight: .semibold).scaled(by: textScale))
                     .foregroundStyle(.primary)
-                    .padding(.horizontal, 5)
+                    .padding(.horizontal, 4)
                     .padding(.vertical, 3)
                     .background(tint.opacity(0.2), in: Capsule())
                     .help("\(label): \(count)")
