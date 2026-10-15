@@ -73,6 +73,7 @@ struct FileStatusView: View {
     @State private var errorMessage: String?
     @State private var showingError = false
     @State private var isAIGenerationRequested = false
+    @State private var aiGenerationTask: Task<Void, Never>?
     @State private var isStagedDropTargeted = false
     @State private var isChangedDropTargeted = false
 
@@ -982,6 +983,7 @@ struct FileStatusView: View {
                     isCommitMessageFocused = true
                 }
             } else {
+                cancelCommitMessageGeneration()
                 isCommitMessageFocused = false
             }
         }
@@ -1160,6 +1162,7 @@ struct FileStatusView: View {
                 Spacer()
 
                 Button("Cancel") {
+                    cancelCommitMessageGeneration()
                     withAnimation(.easeInOut(duration: 0.18)) {
                         isCommitBarExpanded = false
                     }
@@ -1181,6 +1184,7 @@ struct FileStatusView: View {
                     .onContinuousHover { updateCommitBarCursor($0) }
             }
         }
+        .onDisappear { cancelCommitMessageGeneration() }
         .disabled(isCommitting)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -1191,8 +1195,9 @@ struct FileStatusView: View {
             isRequested: $isAIGenerationRequested,
             requiresProAccess: aiProviderController.selectedDescriptor.billing.requiresProAccess
         ) {
-            Task {
+            aiGenerationTask = Task {
                 await generateCommitMessage()
+                if !Task.isCancelled { aiGenerationTask = nil }
             }
         }
     }
@@ -1307,8 +1312,16 @@ struct FileStatusView: View {
             : "Generate an editable message from staged changes."
     }
 
+    private func cancelCommitMessageGeneration() {
+        guard let task = aiGenerationTask else { return }
+        task.cancel()
+        aiGenerationTask = nil
+        aiProviderController.cancelCommitMessageGeneration()
+    }
+
     private func generateCommitMessage() async {
         do {
+            try Task.checkCancellation()
             let changeSource: CommitChangeSource = gitStatus.staged.isEmpty ? .workingTree : .staged
             let generated = try await aiProviderController.generateCommitMessage(
                 repositoryURL: repositoryURL,
@@ -1316,9 +1329,11 @@ struct FileStatusView: View {
                 changeSource: changeSource,
                 recentCommitSubjects: recentCommits.map(\.message)
             )
+            try Task.checkCancellation()
             commitMessage = generated.text
             isCommitMessageFocused = true
         } catch {
+            guard !Task.isCancelled, !(error is CancellationError) else { return }
             errorMessage = error.localizedDescription
             showingError = true
         }
