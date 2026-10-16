@@ -20,8 +20,10 @@ struct GitHubNotification: Codable, Identifiable, Equatable {
     var reason: String
     var unread: Bool
     var updatedAt: Date
+    var doneAt: Date?
     enum CodingKeys: String, CodingKey {
         case id, subject, repository, reason, unread
+        case doneAt
         case updatedAt = "updated_at"
     }
 

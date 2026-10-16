@@ -41,7 +41,7 @@ final class GitHubNotificationTests: XCTestCase {
         defer { fixture.cleanup() }
         var cache = GitHubNotificationCache()
         let values = (0..<80).map { notification(String($0), updated: Double($0)) }
-        cache.replace(with: values + values)
+        cache.merge(with: values + values)
         XCTAssertEqual(cache.notifications.count, 50)
         XCTAssertEqual(cache.notifications.first?.id, "79")
         XCTAssertEqual(cache.notifications.last?.id, "30")
@@ -59,13 +59,56 @@ final class GitHubNotificationTests: XCTestCase {
         XCTAssertNotEqual(GitHubNotificationCache.key(for: another), id)
     }
 
+    func testRefreshMergesRetainedThreadsAndEvictsOldest() {
+        var cache = GitHubNotificationCache()
+        cache.merge(with: (0..<50).map { notification(String($0), updated: Double($0)) })
+        cache.merge(with: [notification("50", updated: 50)])
+        XCTAssertEqual(cache.notifications.count, 50)
+        XCTAssertFalse(cache.notifications.contains { $0.id == "0" })
+        XCTAssertTrue(cache.notifications.contains { $0.id == "1" })
+        cache.merge(with: [])
+        XCTAssertEqual(cache.notifications.count, 50)
+        cache.merge(with: [notification("1", updated: 60)])
+        XCTAssertEqual(cache.notifications.first?.id, "1")
+        XCTAssertEqual(cache.notifications.count, 50)
+    }
+
+    func testDoneSurvivesRefreshAndSQLiteUntilNewActivity() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        let account = account()
+        let id = GitHubNotificationCache.key(for: account)
+        let item = notification("123", updated: 0)
+        var cache = GitHubNotificationCache()
+        cache.merge(with: [item])
+        cache.nextFetchAt = .now.addingTimeInterval(120)
+        try await fixture.store.transaction { try $0.set(cache, in: "githubNotificationCache", id: id) }
+        let controller = GitHubNotificationController(tokenVault: NotificationTokenStub(), dataStore: fixture.store,
+            service: NotificationServiceStub(), defaults: fixture.defaults)
+        controller.acceptAccounts([account])
+        for _ in 0..<100 where controller.caches[id] == nil { try await Task.sleep(for: .milliseconds(10)) }
+        controller.update(item, account: account, done: true)
+        for _ in 0..<100 where controller.busyAccounts.contains(id) { try await Task.sleep(for: .milliseconds(10)) }
+        let reopened = try await fixture.reopen()
+        let stored = try await reopened.readValue(GitHubNotificationCache.self, in: "githubNotificationCache", id: id)
+        var persisted = try XCTUnwrap(stored)
+        XCTAssertEqual(persisted.notifications.count, 1)
+        XCTAssertNotNil(persisted.notifications.first?.doneAt)
+        XCTAssertEqual(controller.unreadCount, 0)
+        persisted.merge(with: [item])
+        XCTAssertNotNil(persisted.notifications.first?.doneAt)
+        persisted.merge(with: [notification("123", updated: 1)])
+        XCTAssertNil(persisted.notifications.first?.doneAt)
+        XCTAssertTrue(persisted.notifications.first?.unread == true)
+    }
+
     func testFreshCacheAvoidsFetchButReadActionIsNotBlockedByPollInterval() async throws {
         let fixture = try LocalDataStoreTestFixture()
         defer { fixture.cleanup() }
         let account = account()
         let id = GitHubNotificationCache.key(for: account)
         var cache = GitHubNotificationCache()
-        cache.replace(with: [notification("123", updated: 0)])
+        cache.merge(with: [notification("123", updated: 0)])
         cache.refreshedAt = .now
         cache.nextFetchAt = .now.addingTimeInterval(120)
         try await fixture.store.transaction { try $0.set(cache, in: "githubNotificationCache", id: id) }
@@ -99,7 +142,7 @@ final class GitHubNotificationTests: XCTestCase {
         let id = GitHubNotificationCache.key(for: account)
         let item = notification("123", updated: 0)
         var cache = GitHubNotificationCache()
-        cache.replace(with: [item])
+        cache.merge(with: [item])
         cache.refreshedAt = .now
         cache.nextFetchAt = .now.addingTimeInterval(120)
         try await fixture.store.transaction { try $0.set(cache, in: "githubNotificationCache", id: id) }
