@@ -9,6 +9,7 @@ struct HistoryCommitContextMenu: View {
     let contextCommits: [Commit]
     let primaryCommit: Commit?
     let headHash: String?
+    let rebaseAvailability: HistoryRebaseAvailability
     let repositoryURL: URL
     let controller: HistoryCommitActionController
 
@@ -60,10 +61,33 @@ struct HistoryCommitContextMenu: View {
             }
             .disabled(singleCommit == nil)
 
-            Button("Rebase...", systemImage: "arrow.triangle.swap") {
-                if let singleCommit { controller.requestRebase(singleCommit) }
+            if let singleCommit, let branch = rebaseAvailability.branch {
+                if !rebaseAvailability.ancestors.contains(singleCommit.hash) {
+                    Button("Rebase '\(branch)' to Here...", systemImage: "arrow.triangle.swap") {
+                        controller.requestRebase(singleCommit)
+                    }
+                }
+                if !rebaseAvailability.actions(for: singleCommit).isEmpty {
+                    Menu("Interactive Rebase") {
+                        Button("Interactively Rebase '\(branch)' to Here...") {
+                            controller.requestInteractiveRebase(singleCommit)
+                        }
+                        .disabled(singleCommit.hash == rebaseAvailability.head)
+                        Divider()
+                        Text("Quick Actions")
+                        ForEach(rebaseAvailability.actions(for: singleCommit)) { action in
+                            Button("\(action.title)...") {
+                                controller.requestInteractiveRebase(singleCommit, action: action)
+                            }
+                        }
+                    }
+                } else {
+                    Button("Interactively Rebase '\(branch)' to Here...") {
+                        controller.requestInteractiveRebase(singleCommit)
+                    }
+                    .disabled(singleCommit.hash == rebaseAvailability.head)
+                }
             }
-            .disabled(singleCommit == nil)
 
             Divider()
 

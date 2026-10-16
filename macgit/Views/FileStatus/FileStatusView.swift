@@ -201,7 +201,7 @@ struct FileStatusView: View {
                 Spacer()
 
                 HStack(spacing: 8) {
-                    if isEmpty && operation.canSkip {
+                    if isEmpty && operation.canSkip && !operation.isRebase {
                         Button("Skip") {
                             Task { await skipInProgressOperation(operation) }
                         }
@@ -216,6 +216,14 @@ struct FileStatusView: View {
                         .pointingHandCursor()
                         .controlSize(.small)
                     } else {
+                        if operation.isRebase {
+                            Button("Skip") {
+                                Task { await skipInProgressOperation(operation) }
+                            }
+                            .buttonStyle(.borderless)
+                            .pointingHandCursor()
+                            .controlSize(.small)
+                        }
                         Button("Abort") {
                             Task { await abortInProgressOperation(operation) }
                         }
@@ -1708,6 +1716,8 @@ struct FileStatusView: View {
                 try await GitStatusService.shared.continueCherryPick(in: repositoryURL)
             case .revert:
                 try await GitStatusService.shared.continueRevert(in: repositoryURL)
+            case .rebase:
+                try await GitStatusService.shared.resumeHistoryRebase("--continue", in: repositoryURL)
             }
             await reloadRepositoryState()
             NotificationCenter.default.post(
@@ -1716,6 +1726,7 @@ struct FileStatusView: View {
                 userInfo: ["repositoryURL": repositoryURL]
             )
         } catch {
+            await reloadRepositoryState()
             await MainActor.run {
                 errorMessage = error.localizedDescription
                 showingError = true
@@ -1732,6 +1743,8 @@ struct FileStatusView: View {
                 try await GitStatusService.shared.skipCherryPick(in: repositoryURL)
             case .revert:
                 try await GitStatusService.shared.skipRevert(in: repositoryURL)
+            case .rebase:
+                try await GitStatusService.shared.resumeHistoryRebase("--skip", in: repositoryURL)
             }
             await reloadRepositoryState()
             NotificationCenter.default.post(
@@ -1740,6 +1753,7 @@ struct FileStatusView: View {
                 userInfo: ["repositoryURL": repositoryURL]
             )
         } catch {
+            await reloadRepositoryState()
             await MainActor.run {
                 errorMessage = error.localizedDescription
                 showingError = true
@@ -1756,6 +1770,8 @@ struct FileStatusView: View {
                 try await GitStatusService.shared.abortCherryPick(in: repositoryURL)
             case .revert:
                 try await GitStatusService.shared.abortRevert(in: repositoryURL)
+            case .rebase:
+                try await GitStatusService.shared.resumeHistoryRebase("--abort", in: repositoryURL)
             }
             await reloadRepositoryState()
             NotificationCenter.default.post(
@@ -1764,6 +1780,7 @@ struct FileStatusView: View {
                 userInfo: ["repositoryURL": repositoryURL]
             )
         } catch {
+            await reloadRepositoryState()
             await MainActor.run {
                 errorMessage = error.localizedDescription
                 showingError = true

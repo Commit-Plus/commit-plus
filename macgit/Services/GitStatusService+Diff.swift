@@ -458,6 +458,11 @@ extension GitStatusService {
     }
 
     func inProgressOperation(in repositoryURL: URL) async -> GitInProgressOperation? {
+        if await isRebaseInProgress(in: repositoryURL) {
+            let head = await tipHash(for: "REBASE_HEAD", in: repositoryURL)
+                ?? "HEAD"
+            return .rebase(head: head)
+        }
         if let head = try? await runGit(arguments: ["rev-parse", "--verify", "CHERRY_PICK_HEAD"], in: repositoryURL),
            !head.isEmpty {
             return .cherryPick(head: head.trimmingCharacters(in: .whitespacesAndNewlines))

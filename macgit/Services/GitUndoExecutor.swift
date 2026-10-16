@@ -68,6 +68,12 @@ struct GitUndoExecutor {
             guard status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw GitError.commandFailed("Commit, stash, or discard working tree changes before undoing this Git Flow action.")
             }
+        case .requireCurrentBranch(let expected):
+            let actual = try await runner.runGit(arguments: ["symbolic-ref", "--quiet", "--short", "HEAD"], in: repositoryURL)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard actual == expected else {
+                throw GitError.commandFailed("Check out '\(expected)' before undoing or redoing this rebase.")
+            }
         case .requireHead(let expected):
             let actual = try await branchSupport.tip(of: "HEAD", in: repositoryURL)
             guard actual == expected else {

@@ -327,6 +327,7 @@ final class HistoryCommitTableController: NSObject, NSTableViewDataSource, NSTab
         let primary = commits.first { $0.hash == listModel?.selection.primaryHash } ?? commits.first
         let hosting = NSHostingMenu(rootView: HistoryCommitContextMenu(
             contextCommits: commits, primaryCommit: primary, headHash: listModel?.headHash,
+            rebaseAvailability: listModel?.rebaseAvailability ?? HistoryRebaseAvailability(),
             repositoryURL: repositoryURL, controller: actions
         ).environmentObject(customActionStore))
         hostedMenu = hosting

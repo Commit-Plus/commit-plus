@@ -227,7 +227,14 @@ struct HistoryScreen: View {
         Task {
             let fingerprint = await GitStatusService.shared.historyCommitSetFingerprint(in: repositoryURL)
             guard !Task.isCancelled else { return }
-            guard historyCommitSetFingerprint != fingerprint else { return }
+            guard historyCommitSetFingerprint != fingerprint else {
+                if isActive && !isWorkSuspended {
+                    await listModel.refreshRebaseAvailability()
+                } else {
+                    needsRefresh = true
+                }
+                return
+            }
             historyCommitSetFingerprint = fingerprint
             needsRefresh = true
             if isActive { requestRefresh() }

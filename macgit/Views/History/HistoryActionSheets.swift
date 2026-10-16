@@ -277,6 +277,9 @@ private struct HistoryActionPresentationsModifier: ViewModifier {
     private var showingError: Binding<Bool> {
         Binding(get: { controller.errorMessage != nil }, set: { if !$0 { controller.errorMessage = nil } })
     }
+    private var showingRebaseNotice: Binding<Bool> {
+        Binding(get: { controller.rebaseNotice != nil }, set: { if !$0 { controller.rebaseNotice = nil } })
+    }
 
     func body(content: Content) -> some View {
         content
@@ -292,6 +295,8 @@ private struct HistoryActionPresentationsModifier: ViewModifier {
                     HistoryMergeSheet(commit: commit, controller: controller)
                 case .rebase(let commit):
                     HistoryRebaseSheet(commit: commit, controller: controller)
+                case .interactiveRebase(let plan):
+                    HistoryInteractiveRebaseSheet(plan: plan, controller: controller)
                 case .checkout(let commit, let hasChanges):
                     HistoryCheckoutSheet(commit: commit, controller: controller, hasUncommittedChanges: hasChanges)
                 case .squash(let commits, let message):
@@ -305,6 +310,11 @@ private struct HistoryActionPresentationsModifier: ViewModifier {
                 Button("Revert") { controller.revert(commit) }
             } message: { commit in
                 Text("This will create a new commit that undoes the changes in \(commit.shortHash).")
+            }
+            .alert("Rebase Paused", isPresented: showingRebaseNotice) {
+                Button("OK", role: .cancel) { controller.rebaseNotice = nil }
+            } message: {
+                Text(controller.rebaseNotice ?? "")
             }
             .alert("Error", isPresented: showingError) {
                 Button("OK", role: .cancel) { controller.errorMessage = nil }
