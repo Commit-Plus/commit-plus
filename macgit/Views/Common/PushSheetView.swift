@@ -282,15 +282,17 @@ struct PushSheetView: View {
             .frame(maxHeight: .infinity)
 
             VStack(alignment: .leading, spacing: 8) {
-                Toggle("Push all tags", isOn: $pushTags)
-                    .disabled(forcePush)
-                if onForcePush != nil {
-                    Toggle("Force Push", isOn: $forcePush)
-                        .help("Review and force-push one selected branch. Tags are not included.")
-                    if forcePush && selectedBranches.count != 1 {
-                        Text("Select exactly one branch to force-push.")
-                            .foregroundStyle(.secondary)
+                HStack(spacing: 20) {
+                    Toggle("Push all tags", isOn: $pushTags)
+                        .disabled(forcePush)
+                    if onForcePush != nil {
+                        Toggle("Force Push", isOn: $forcePush)
+                            .help("Review and force-push one selected branch. Tags are not included.")
                     }
+                }
+                if onForcePush != nil && forcePush && selectedBranches.count != 1 {
+                    Text("Select exactly one branch to force-push.")
+                        .foregroundStyle(.secondary)
                 }
             }
             .font(.system(size: 12))
