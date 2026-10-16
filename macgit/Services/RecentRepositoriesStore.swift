@@ -25,65 +25,56 @@
 import Foundation
 import Combine
 
-struct RecentRepository: Codable, Identifiable {
+struct RecentRepository: Codable, Identifiable, Equatable {
     let id: UUID
     var url: URL
     var lastOpened: Date
     var name: String
 
-    init(url: URL, lastOpened: Date = Date()) {
-        self.id = UUID()
+    init(url: URL, lastOpened: Date = Date(), id: UUID = UUID()) {
+        self.id = id
         self.url = url
         self.lastOpened = lastOpened
         self.name = url.lastPathComponent
     }
 }
 
+@MainActor
 final class RecentRepositoriesStore: ObservableObject {
     static let shared = RecentRepositoriesStore()
-    private let key = "dev.thanhtran.macgit.recentRepositories"
+    private var observation: AnyCancellable?
 
     @Published var repositories: [RecentRepository] = []
 
     private init() {
-        load()
+        observation = RepositoryCatalogStore.shared.$snapshot.sink { [weak self] state in
+            let recents = state.repositories.filter { $0.lastOpened != nil }
+                .sorted { $0.lastOpened! > $1.lastOpened! }.prefix(20)
+                .map { record in
+                    var recent = RecentRepository(url: URL(fileURLWithPath: record.path), lastOpened: record.lastOpened!, id: record.id)
+                    recent.name = record.name
+                    return recent
+                }
+            if self?.repositories.map(\.id) != recents.map(\.id)
+                || self?.repositories.map(\.lastOpened) != recents.map(\.lastOpened) {
+                self?.repositories = recents
+            }
+        }
     }
 
     func add(_ url: URL) {
-        var repos = repositories.filter { $0.url != url }
-        repos.insert(RecentRepository(url: url), at: 0)
-        repositories = Array(repos.prefix(20))
-        save()
+        RepositoryCatalogStore.shared.open(url)
     }
 
     func remove(at offsets: IndexSet) {
-        for index in offsets.sorted(by: >) {
-            repositories.remove(at: index)
-        }
-        save()
+        RepositoryCatalogStore.shared.removeRecent(Set(offsets.compactMap { repositories.indices.contains($0) ? repositories[$0].url.path : nil }))
     }
 
     func remove(_ repo: RecentRepository) {
-        repositories.removeAll { $0.id == repo.id }
-        save()
+        RepositoryCatalogStore.shared.removeRecent([RepositoryCatalogSnapshot.path(repo.url)])
     }
 
     func removeAll() {
-        repositories.removeAll()
-        UserDefaults.standard.removeObject(forKey: key)
-    }
-
-    private func load() {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let decoded = try? JSONDecoder().decode([RecentRepository].self, from: data) else {
-            return
-        }
-        repositories = decoded.sorted { $0.lastOpened > $1.lastOpened }
-    }
-
-    private func save() {
-        if let data = try? JSONEncoder().encode(repositories) {
-            UserDefaults.standard.set(data, forKey: key)
-        }
+        RepositoryCatalogStore.shared.removeRecent(Set(repositories.map { RepositoryCatalogSnapshot.path($0.url) }))
     }
 }

@@ -99,9 +99,8 @@ struct ContentView: View {
                     )
                 )
             } else {
-                RepoPickerView(
-                    showCloneSheetInitially: false,
-                    onRepositoryOpened: { url in
+                RepositoryChooserView(
+                    onOpen: { url in
                         openRepository(url, inNewWindow: false)
                     }
                 )
