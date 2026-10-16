@@ -31,17 +31,8 @@ extension SidebarView {
         menu.item(upstream.map { "Pull \($0) (tracked)" } ?? "Pull (tracked)", enabled: BranchUpstreamActionPolicy.shouldEnablePullFromUpstream(for: upstream)) { actions.pullTracked(branch) }
         menu.submenu("Push to") { push in
             push.item(upstream.map { "\($0) (tracked)" } ?? "Push to (tracked)", enabled: BranchUpstreamActionPolicy.shouldEnablePushToUpstream(for: upstream)) { actions.pushTracked(branch) }
-            if !remotes.isEmpty {
-                push.submenu("Other Remote") { other in
-                    for remote in remotes { other.item(remote) { actions.pushToRemote(branch, remote) } }
-                }
-            }
-            if upstream?.isEmpty == false || !remotes.isEmpty { push.separator() }
-            if let upstream, !upstream.isEmpty { push.item("Force Push to \(upstream) (tracked)…") { actions.forcePushTracked(branch) } }
-            if !remotes.isEmpty {
-                push.submenu("Force Push to Other Remote") { other in
-                    for remote in remotes { other.item("\(remote)/\(branch)…") { actions.forcePushToRemote(branch, remote) } }
-                }
+            for remote in remotes {
+                push.item(remote) { actions.pushToRemote(branch, remote) }
             }
         }
         menu.lazySubmenu("Track Remote Branch", enabled: !remoteNames.isEmpty) { tracking in

@@ -126,6 +126,7 @@ struct MainWindowView: View {
     @State var showingCommitSheet = false
     @State var showingPullSheet = false
     @State var showingPushSheet = false
+    @State var pushSheetSelection: (branch: String, remote: String, remoteBranch: String)?
     @State var pendingBranchForcePush: RepositorySheetRequest<(branch: String, remote: String?, remoteBranch: String?)>?
     @State var pendingSheetForcePush: (branch: String, remote: String, remoteBranch: String)?
     @State var showingFetchSheet = false
@@ -1034,14 +1035,11 @@ struct MainWindowView: View {
             onRequestPushToTracked: { branch in
                 Task {
                     let remote = await trackedRemote(for: branch)
-                    runRemoteOperation("Pushing \(branch)...", remotes: remote.map { [$0] } ?? []) { credentialResolver in
-                        await syncState.performPushToTracked(
-                            branch: branch,
-                            repositoryURL: repositoryURL,
-                            undoManager: undoManager,
-                            credentialResolver: credentialResolver
-                        )
-                    }
+                    guard let remote,
+                          let upstream = await GitStatusService.shared.upstreamBranch(for: branch, in: repositoryURL) else { return }
+                    let remoteBranch = String(upstream.dropFirst(remote.count + 1))
+                    pushSheetSelection = (branch, remote, remoteBranch)
+                    showingPushSheet = true
                 }
             },
             onRequestForcePushToTracked: requestTrackedBranchForcePush,
@@ -1122,19 +1120,8 @@ struct MainWindowView: View {
                 }
             },
             onRequestPushBranchToRemote: { branch, remote in
-                runRemoteOperation("Pushing \(branch) to \(remote)...", remotes: [remote]) { credentialResolver in
-                    let options = GitStatusService.PushOptions(
-                        remote: remote,
-                        branches: [branch],
-                        branchMappings: [branch: branch]
-                    )
-                    await syncState.performPush(
-                        options: options,
-                        repositoryURL: repositoryURL,
-                        undoManager: undoManager,
-                        credentialResolver: credentialResolver
-                    )
-                }
+                pushSheetSelection = (branch, remote, branch)
+                showingPushSheet = true
             },
             onRequestTrackRemoteBranch: { branch, upstream in
                 runRepositoryOperation(upstream == nil ? "Clearing upstream for \(branch)..." : "Tracking \(upstream!) for \(branch)...") {

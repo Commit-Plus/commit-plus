@@ -100,6 +100,9 @@ struct PushSheetView: View {
     @Environment(\.dismiss) private var dismiss
     let repositoryURL: URL
     var defaultRemote: String? = nil
+    var preselectedRemote: String? = nil
+    var preselectedBranch: String? = nil
+    var preselectedRemoteBranch: String? = nil
     var onForcePush: ((String, String, String) -> Void)? = nil
     let onPush: (GitStatusService.PushOptions) -> Void
 
@@ -109,6 +112,7 @@ struct PushSheetView: View {
 
     @State private var branches: [BranchPushInfo] = []
     @State private var pushTags: Bool = false
+    @State private var forcePush = false
 
     @State private var isLoading = false
     @State private var isSubmitting = false
@@ -126,6 +130,7 @@ struct PushSheetView: View {
 
     private var canPush: Bool {
         !selectedBranches.isEmpty && !selectedRemote.isEmpty && !isSubmitting && !isLoading
+            && (!forcePush || (selectedBranches.count == 1 && !pushTags))
     }
 
     var body: some View {
@@ -276,24 +281,29 @@ struct PushSheetView: View {
             .padding(.horizontal, 24)
             .frame(maxHeight: .infinity)
 
-            // Push all tags
-            Toggle("Push all tags", isOn: $pushTags)
-                .font(.system(size: 12))
-                .toggleStyle(.checkbox)
-                .padding(.horizontal, 24)
-                .padding(.top, 12)
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Push all tags", isOn: $pushTags)
+                    .disabled(forcePush)
+                if onForcePush != nil {
+                    Toggle("Force Push", isOn: $forcePush)
+                        .help("Review and force-push one selected branch. Tags are not included.")
+                    if forcePush && selectedBranches.count != 1 {
+                        Text("Select exactly one branch to force-push.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .font(.system(size: 12))
+            .toggleStyle(.checkbox)
+            .disabled(isSubmitting || isLoading)
+            .padding(.horizontal, 24)
+            .padding(.top, 12)
+            .onChange(of: forcePush) { _, enabled in
+                if enabled { pushTags = false }
+            }
 
             // Buttons
             HStack(spacing: 12) {
-                if let onForcePush {
-                    Button("Force Push…", role: .destructive) {
-                        guard let branch = selectedBranches.first, selectedBranches.count == 1 else { return }
-                        onForcePush(branch.local, selectedRemote, branch.remote.isEmpty ? branch.local : branch.remote)
-                        dismiss()
-                    }
-                    .disabled(selectedBranches.count != 1 || selectedRemote.isEmpty || isSubmitting || isLoading)
-                    .help("Review and force-push the selected branch only. Tags are not included.")
-                }
                 Spacer()
                 Button("Cancel", role: .cancel) {
                     dismiss()
@@ -347,12 +357,17 @@ struct PushSheetView: View {
             currentBranchTask,
             upstreamsTask
         )
-        let currentRemote = PushRemoteSelectionPolicy.resolve(
+        let currentRemote: String
+        if let preselectedRemote, currentRemotes.contains(preselectedRemote) {
+            currentRemote = preselectedRemote
+        } else {
+            currentRemote = PushRemoteSelectionPolicy.resolve(
             remotes: currentRemotes,
             currentBranch: currentBranch,
             upstreams: upstreams,
             defaultRemote: defaultRemote
-        )
+            )
+        }
 
         await MainActor.run {
             remotes = currentRemotes
@@ -378,7 +393,7 @@ struct PushSheetView: View {
             ? []
             : await GitStatusService.shared.cachedRemoteBranches(remote: remote, in: repositoryURL)
 
-        let branchInfos = BranchPushInfoBuilder.build(
+        var branchInfos = BranchPushInfoBuilder.build(
             localBranches: currentBranches,
             upstreams: upstreams,
             currentBranch: currentBranch,
@@ -387,8 +402,20 @@ struct PushSheetView: View {
             selectedRemote: remote
         )
 
+        if let preselectedBranch {
+            for index in branchInfos.indices {
+                let isSelected = branchInfos[index].local == preselectedBranch
+                branchInfos[index].isSelected = isSelected
+                if isSelected {
+                    branchInfos[index].remote = remote == preselectedRemote
+                        ? (preselectedRemoteBranch ?? preselectedBranch)
+                        : (branchInfos[index].remote.isEmpty ? preselectedBranch : branchInfos[index].remote)
+                }
+            }
+        }
+
         await MainActor.run {
-            guard selectedRemote == remote else { return }
+            guard !Task.isCancelled, selectedRemote == remote else { return }
             branches = branchInfos
         }
     }
@@ -418,6 +445,12 @@ struct PushSheetView: View {
     @MainActor
     private func performPushIfNeeded() async {
         guard canPush else { return }
+        if forcePush {
+            guard let onForcePush, let branch = selectedBranches.first else { return }
+            onForcePush(branch.local, selectedRemote, branch.remote.isEmpty ? branch.local : branch.remote)
+            dismiss()
+            return
+        }
         isSubmitting = true
         defer { isSubmitting = false }
 
