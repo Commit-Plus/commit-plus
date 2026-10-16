@@ -20,12 +20,13 @@ final class RepositoryCatalogStore: ObservableObject {
         let dataStore = injectedStore ?? .shared
         self.dataStore = dataStore
         let legacyRecents = defaults.data(forKey: "dev.thanhtran.macgit.recentRepositories")
-        let invalidRecents = defaults.object(forKey: "dev.thanhtran.macgit.recentRepositories") != nil && legacyRecents == nil
+        let decodedRecents = legacyRecents.flatMap { try? JSONDecoder().decode([RecentRepository].self, from: $0) }
+        let invalidRecents = defaults.object(forKey: "dev.thanhtran.macgit.recentRepositories") != nil && decodedRecents == nil
         let legacyRoots = defaults.stringArray(forKey: "dev.thanhtran.macgit.yourRepositoryFolders") ?? []
         let invalidRoots = defaults.object(forKey: "dev.thanhtran.macgit.yourRepositoryFolders") != nil
             && defaults.stringArray(forKey: "dev.thanhtran.macgit.yourRepositoryFolders") == nil
         var seed = RepositoryCatalogSnapshot()
-        if let legacyRecents, let recents = try? JSONDecoder().decode([RecentRepository].self, from: legacyRecents) {
+        if let recents = decodedRecents {
             for recent in recents.sorted(by: { $0.lastOpened < $1.lastOpened }) {
                 let index = seed.ensureRepository(recent.url)
                 seed.repositories[index].name = recent.name
@@ -44,10 +45,8 @@ final class RepositoryCatalogStore: ObservableObject {
             do {
                 let loaded = try await dataStore.transaction(reading: Self.collections) { transaction in
                     if try transaction.value(Bool.self, in: "repositoryCatalogMigrations", id: "user-defaults-v1") == true {
-                        return try Self.readSnapshot(transaction)
+                        return (snapshot: try Self.readSnapshot(transaction), skippedLegacyData: false)
                     }
-                    if let legacyRecents { _ = try JSONDecoder().decode([RecentRepository].self, from: legacyRecents) }
-                    if invalidRoots || invalidRecents { throw CocoaError(.fileReadCorruptFile) }
                     try Self.persist(seed, previous: .init(), in: &transaction)
                     // Verify the encoded import before committing the marker in the same transaction.
                     let verified = try Self.readSnapshot(transaction)
@@ -56,9 +55,12 @@ final class RepositoryCatalogStore: ObservableObject {
                         throw CocoaError(.fileReadCorruptFile)
                     }
                     try transaction.set(true, in: "repositoryCatalogMigrations", id: "user-defaults-v1")
-                    return verified
+                    return (snapshot: verified, skippedLegacyData: invalidRoots || invalidRecents)
                 }
-                if snapshot != loaded { snapshot = loaded }
+                if snapshot != loaded.snapshot { snapshot = loaded.snapshot }
+                if loaded.skippedLegacyData {
+                    errorMessage = "Some legacy repository data could not be imported. The original data has been kept for recovery."
+                }
             } catch {
                 snapshot = seed
                 errorMessage = error.localizedDescription
@@ -68,7 +70,7 @@ final class RepositoryCatalogStore: ObservableObject {
 
     func ready() async { await writer?.value }
 
-    func record(for url: URL) -> RepositoryCatalogSnapshot.Repository? { recordsByPath[url.standardizedFileURL.path] }
+    func record(for url: URL) -> RepositoryCatalogSnapshot.Repository? { recordsByPath[RepositoryCatalogSnapshot.path(url)] }
 
     func open(_ url: URL) {
         update { state in

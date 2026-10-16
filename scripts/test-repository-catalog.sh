@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 test_directory=$(mktemp -d "${TMPDIR:-/tmp}/commitplus-catalog-tests.XXXXXX")
 test_binary="$test_directory/catalog-tests"
-trap 'rtk proxy rm -f "$test_binary"; rtk proxy rmdir "$test_directory"' EXIT
-rtk proxy swiftc -parse-as-library \
+trap 'rm -rf "$test_directory"' EXIT
+swiftc -parse-as-library \
   macgit/Services/LocalDataError.swift \
   macgit/Services/LocalDataTransaction.swift \
   macgit/Services/LocalSQLiteDatabase.swift \
@@ -25,4 +25,4 @@ rtk proxy swiftc -parse-as-library \
   macgit/Services/GitStatusService+RepositoryDetail.swift \
   scripts/tests/repository-catalog-statistics.swift \
   -o "$test_binary"
-rtk proxy "$test_binary"
+"$test_binary"

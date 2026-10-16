@@ -124,7 +124,43 @@ struct RepositoryCatalogChecks {
         await corrupt.ready()
         precondition(corrupt.errorMessage != nil)
         let markers = try await corruptStore.readValues(Bool.self, in: "repositoryCatalogMigrations")
-        precondition(markers.isEmpty, "Failed imports must not mark migration complete")
+        precondition(markers == ["user-defaults-v1": true], "Skipped legacy data must not block migration")
+        precondition(corrupt.snapshot.roots.count == 2, "Readable roots must still import")
+        precondition(defaults.data(forKey: "dev.thanhtran.macgit.recentRepositories") == Data("invalid".utf8))
+        corrupt.open(scanDirectory)
+        await corrupt.ready()
+        precondition(corrupt.record(for: scanDirectory)?.lastOpened != nil)
+        let recovered = RepositoryCatalogStore(dataStore: corruptStore, defaults: defaults)
+        await recovered.ready()
+        precondition(recovered.errorMessage == nil, "Skipped legacy data is reported only during import")
+        precondition(recovered.record(for: scanDirectory)?.id == corrupt.record(for: scanDirectory)?.id)
+        let alias = directory.appendingPathComponent("scan-alias")
+        try manager.createSymbolicLink(at: alias, withDestinationURL: scanDirectory)
+        precondition(recovered.record(for: alias) == recovered.record(for: scanDirectory), "Symlink lookups must use canonical keys")
+
+        for (index, value) in ["wrong type" as Any, Data("invalid".utf8)].enumerated() {
+            defaults.set(value, forKey: "dev.thanhtran.macgit.recentRepositories")
+            defaults.set("wrong type", forKey: "dev.thanhtran.macgit.yourRepositoryFolders")
+            let store = LocalDataStore(databaseURL: directory.appendingPathComponent("invalid-\(index).sqlite"), userDefaults: defaults)
+            let catalog = RepositoryCatalogStore(dataStore: store, defaults: defaults)
+            await catalog.ready()
+            precondition(catalog.errorMessage != nil)
+            catalog.addRoots([root])
+            await catalog.ready()
+            precondition(catalog.snapshot.roots.count == 1)
+            precondition(defaults.string(forKey: "dev.thanhtran.macgit.yourRepositoryFolders") == "wrong type")
+            if let data = value as? Data {
+                precondition(defaults.data(forKey: "dev.thanhtran.macgit.recentRepositories") == data)
+            } else {
+                precondition(defaults.string(forKey: "dev.thanhtran.macgit.recentRepositories") == "wrong type")
+            }
+        }
+        defaults.set(legacy, forKey: "dev.thanhtran.macgit.recentRepositories")
+        let partialStore = LocalDataStore(databaseURL: directory.appendingPathComponent("partial.sqlite"), userDefaults: defaults)
+        let partial = RepositoryCatalogStore(dataStore: partialStore, defaults: defaults)
+        await partial.ready()
+        precondition(partial.errorMessage != nil && partial.snapshot.repositories.count == 1)
+        precondition(partial.record(for: repository)?.lastOpened == opened, "Readable recents must import despite invalid roots")
 
         let formatter = ISO8601DateFormatter()
         let first = formatter.date(from: "2026-01-05T23:30:00Z")!
@@ -211,6 +247,6 @@ struct RepositoryCatalogChecks {
         _ = try await git.runGit(arguments: ["fetch", "-q", "--deepen=1"], in: shallowURL)
         let deepened = try await git.repositoryStatistics(in: shallowURL, query: allTime, repositoryID: shallowID, cache: dataStore, forceRefresh: true)
         precondition(deepened.total == 2 && deepened.fingerprint != shallow.fingerprint)
-        print("PASS: migration/idempotency/relink/overlapping roots/failed scans/recents/provider/corrupt rollback; Home/root/duplicate validation; real scanner/worktrees/symlink loop; working-tree README; author/date/timezone/empty statistics; real Git cache reuse, new HEAD, rewritten history and shallow deepening")
+        print("PASS: migration/idempotency/relink/overlapping roots/failed scans/recents/provider/corrupt legacy recovery; Home/root/duplicate validation; real scanner/worktrees/symlink loop; working-tree README; author/date/timezone/empty statistics; real Git cache reuse, new HEAD, rewritten history and shallow deepening")
     }
 }
