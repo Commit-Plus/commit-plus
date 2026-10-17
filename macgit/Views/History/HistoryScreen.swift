@@ -53,6 +53,10 @@ struct HistoryScreen: View {
             runOperation: dependencies.runOperation, requestCheckout: dependencies.requestCheckout,
             requestExplain: dependencies.requestExplain, requestBrowseRevision: dependencies.requestBrowseRevision,
             runCustomAction: dependencies.runCustomAction, headHash: { listModel.headHash })
+        historyLifecycle
+    }
+
+    private var historyLayout: some View {
         VStack(spacing: 0) {
             BranchFilterBar(repositoryURL: repositoryURL, selectedFilter: $branchFilter,
                 includeRemotes: $includeRemotes, onlyThisBranch: $onlyThisBranch,
@@ -106,6 +110,10 @@ struct HistoryScreen: View {
         .id("history")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var historySelection: some View {
+        historyLayout
         .onChange(of: branchFilter) { _, value in listModel.branchFilter = value }
         .onChange(of: onlyThisBranch) { _, value in listModel.onlyThisBranch = value }
         .onChange(of: baseBranch) { _, value in listModel.baseBranch = value }
@@ -152,6 +160,10 @@ struct HistoryScreen: View {
             guard !Task.isCancelled else { return }
             needsRefresh = false
         }
+    }
+
+    private var historyLifecycle: some View {
+        historySelection
         .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange)) { notification in
             guard notification.userInfo?["repositoryURL"] as? URL == repositoryURL else { return }
             requestRefreshIfCommitSetChanged()

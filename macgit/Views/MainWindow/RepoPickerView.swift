@@ -211,6 +211,13 @@ struct RepoPickerView: View {
     }
 
     var body: some View {
+        pickerSettings
+        .replacingSheet(isPresented: Binding(get: { localPreview != nil }, set: { if !$0 { localPreview = nil } })) {
+            repositoryPreview
+        }
+    }
+
+    private var pickerLoading: some View {
         pickerLayout
         .onChange(of: visibleRepositories.map(\.url), initial: true) { _, urls in
             onRepositoriesChanged?(urls)
@@ -235,6 +242,10 @@ struct RepoPickerView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh)) { _ in bookmarkRefreshGeneration += 1 }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange)) { _ in bookmarkRefreshGeneration += 1 }
+    }
+
+    private var pickerSettings: some View {
+        pickerLoading
         .task { restorePickerSettings() }
         .onChange(of: expandedRepositoryFolders) { _, folders in persistExpandedFolders(folders) }
         .onChange(of: selectedFilterTypes) { _, filters in persistProviderFilters(filters) }
@@ -248,11 +259,13 @@ struct RepoPickerView: View {
         .onChange(of: catalog.errorMessage) { _, error in
             if let error { errorMessage = error; showingError = true }
         }
-        .replacingSheet(isPresented: Binding(get: { localPreview != nil }, set: { if !$0 { localPreview = nil } })) {
-            if let localPreview {
-                RepositoryDetailView(repositoryURL: localPreview, onClose: { self.localPreview = nil }, onOpen: onRepositoryOpened)
-                    .frame(minWidth: 700, minHeight: 600)
-            }
+    }
+
+    @ViewBuilder
+    private var repositoryPreview: some View {
+        if let localPreview {
+            RepositoryDetailView(repositoryURL: localPreview, onClose: { self.localPreview = nil }, onOpen: onRepositoryOpened)
+                .frame(minWidth: 700, minHeight: 600)
         }
     }
 

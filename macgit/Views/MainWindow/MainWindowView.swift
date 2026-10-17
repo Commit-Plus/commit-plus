@@ -654,7 +654,7 @@ struct MainWindowView: View {
             }
     }
 
-    private var mainContent: some View {
+    private var mainLayout: some View {
         ZStack {
             rootView
 
@@ -729,6 +729,10 @@ struct MainWindowView: View {
         .focusedSceneValue(\.gitFlowCommandState, gitFlowCommandState)
         .focusedSceneValue(\.customActionCommandState, customActionCommandState)
         .frame(minWidth: 1100 * appState.textSize.scale, minHeight: 600)
+    }
+
+    private var mainLoading: some View {
+        mainLayout
             .task { await performInitialLoad() }
             .task {
                 releaseNotesPresentation = await ReleaseNotesPresentationStore.shared.claimPresentation()
@@ -747,6 +751,10 @@ struct MainWindowView: View {
                 pullRequestAccessDecision = nil
                 _ = await authorizePullRequestAccess(presentNotice: false)
             }
+    }
+
+    private var mainContent: some View {
+        mainLoading
         .onChange(of: releaseNotesPresentation == nil) { _, dismissed in
             if dismissed {
                 Task { await presentPromotionIfAvailable() }
