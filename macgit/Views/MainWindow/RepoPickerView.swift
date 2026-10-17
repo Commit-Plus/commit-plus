@@ -776,6 +776,8 @@ struct RepoPickerView: View {
     @ViewBuilder
     private var sharedRepositoriesContent: some View {
         let items = repositoryListItems
+        let onSelect: ((RecentRepository) -> Void)? = isDashboardSidebar ? { viewRepositoryDetails($0) } : nil
+        let onOpen: ((RecentRepository) -> Void)? = isDashboardSidebar ? { openRecentRepository($0) } : nil
         if !catalog.isReady {
             ProgressView("Loading repositories…").frame(maxWidth: .infinity, minHeight: 180)
         } else if selectedTab == .yours && yourRepositoriesStore.folders.isEmpty {
@@ -790,7 +792,11 @@ struct RepoPickerView: View {
             .frame(maxWidth: .infinity)
             .frame(minHeight: 180)
         } else {
-            RepositoryPickerNativeList(rows: items, textScale: textScale, dark: colorScheme == .dark) { item in
+            RepositoryPickerNativeList(
+                rows: items, textScale: textScale, dark: colorScheme == .dark,
+                onRepositorySelected: onSelect,
+                onRepositoryOpened: onOpen
+            ) { item in
                 repositoryListContent(item)
                     .environmentObject(bookmarkController)
                     .environment(\.appTextScale, textScale)
@@ -889,6 +895,7 @@ struct RepoPickerView: View {
                         HStack(spacing: 2) {
                             Button("Open") { openRecentRepository(repo) }
                             .buttonStyle(RepoPickerOpenButtonStyle())
+                            .keyboardShortcut(isDashboardSidebar && selectedRepositoryURL == repo.url ? .defaultAction : nil)
                             .help("Open repository")
                             .sidebarPointingHandCursor()
                             bookmarkButton(for: repo)
