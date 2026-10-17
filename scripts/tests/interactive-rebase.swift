@@ -218,6 +218,22 @@ struct InteractiveRebaseChecks {
             precondition(availability.actions(for: selected) == [.reword, .edit, .squash, .fixup, .drop])
             precondition(availability.actions(for: merge).isEmpty)
             var plan = try await git.prepareHistoryRebase(commit: selected, action: action, in: repository)
+            if action == .squash || action == .fixup {
+                precondition(plan.entries[0].commit.isMerge)
+                precondition(plan.entries[0].availableActions == [.pick])
+                precondition(plan.entries[1].availableActions == HistoryRebasePlan.Action.allCases)
+                for unsupportedAction in HistoryRebasePlan.Action.allCases where unsupportedAction != .pick {
+                    var invalidPlan = plan
+                    invalidPlan.entries[0].action = unsupportedAction
+                    precondition(invalidPlan.validationMessage == "Merge-parent commits must keep the Pick action.")
+                    try await expectFailure { try await git.executeHistoryRebase(invalidPlan, in: repository) }
+                    let unchangedHead = try await command(["rev-parse", "HEAD"], in: repository)
+                    precondition(unchangedHead == originalHead)
+                    let inProgress = await git.isRebaseInProgress(in: repository)
+                    precondition(!inProgress)
+                }
+                print("PASS: unsupported merge-parent actions rejected before changing repository")
+            }
             if action == .reword { plan.entries[0].message = "Reworded published commit" }
             if action == .squash { plan.entries[1].squashMessage = "Squashed into merge" }
             try await git.executeHistoryRebase(plan, in: repository)

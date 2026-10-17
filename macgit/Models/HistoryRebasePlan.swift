@@ -23,6 +23,7 @@ nonisolated struct HistoryRebasePlan: Identifiable, Sendable {
         var message: String
         var squashMessage: String = ""
         var id: String { commit.hash }
+        var availableActions: [Action] { commit.isMerge ? [.pick] : Action.allCases }
     }
 
     let id = UUID()
@@ -40,6 +41,9 @@ nonisolated struct HistoryRebasePlan: Identifiable, Sendable {
         }
         var hasParent = false
         for entry in entries {
+            guard entry.availableActions.contains(entry.action) else {
+                return "Merge-parent commits must keep the Pick action."
+            }
             if entry.action == .drop { continue }
             if entry.action == .squash || entry.action == .fixup {
                 if !hasParent { return "Squash and fixup need a preceding commit in this list." }

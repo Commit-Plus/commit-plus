@@ -39,10 +39,11 @@ struct HistoryInteractiveRebaseSheet: View {
                             HStack {
                                 Circle().fill(actionColor(entry.action)).frame(width: 8, height: 8)
                                 Picker("Action", selection: $entry.action) {
-                                    ForEach(HistoryRebasePlan.Action.allCases) { action in
+                                    ForEach(entry.availableActions) { action in
                                         Text(action.title).tag(action)
                                     }
                                 }
+                                .disabled(entry.availableActions.count == 1)
                                 .labelsHidden().frame(width: 150)
                                 .controlSize(.small)
                                 Text(entry.commit.message).lineLimit(1).help(entry.commit.message).frame(maxWidth: .infinity, alignment: .leading)
