@@ -57,7 +57,7 @@ final class GitHubNotificationController: ObservableObject {
     }
     var isRefreshing: Bool { selectedAccounts.contains { busyAccounts.contains(key($0)) } }
     var unreadCount: Int { accounts.reduce(0) { $0 + unreadCount(for: $1) } }
-    func unreadCount(for account: GitProviderAccount) -> Int { caches[key(account)]?.notifications.filter(\.unread).count ?? 0 }
+    func unreadCount(for account: GitProviderAccount) -> Int { caches[key(account)]?.notifications.filter { $0.unread && $0.doneAt == nil }.count ?? 0 }
     func key(_ account: GitProviderAccount) -> String { GitHubNotificationCache.key(for: account) }
 
     func acceptAccounts(_ values: [GitProviderAccount]) {
@@ -160,10 +160,11 @@ final class GitHubNotificationController: ObservableObject {
                 let result = try await self.service.fetch(account: account, token: self.token(for: account), lastModified: cache.lastModified)
                 guard self.isCurrent(id, generation: generation) else { return }
                 var next = cache
-                if let notifications = result.notifications { next.replace(with: notifications) }
+                if let notifications = result.notifications { next.merge(with: notifications) }
                 // Preserve views made while the fetch was in flight. A later update
                 // on the same thread is a new unread notification.
-                next.pendingReads = self.caches[id]?.pendingReads
+                let retainedIDs = Set(next.notifications.map(\.id))
+                next.pendingReads = self.caches[id]?.pendingReads?.filter { retainedIDs.contains($0.key) }
                 for index in next.notifications.indices {
                     let item = next.notifications[index]
                     if let viewedAt = next.pendingReads?[item.id] {
@@ -199,8 +200,8 @@ final class GitHubNotificationController: ObservableObject {
                 guard self.caches[id]?.retryAt.map({ $0 <= .now }) ?? true else { return }
                 try await self.service.update(threadID: notification.id, done: done, account: account, token: self.token(for: account))
                 guard self.isCurrent(id, generation: generation), var cache = self.caches[id] else { return }
-                if done { cache.notifications.removeAll { $0.id == notification.id } }
-                else if let index = cache.notifications.firstIndex(where: { $0.id == notification.id }) {
+                if let index = cache.notifications.firstIndex(where: { $0.id == notification.id }) {
+                    if done { cache.notifications[index].doneAt = .now }
                     cache.notifications[index].unread = false
                     cache.pendingReads?[notification.id] = nil
                 }

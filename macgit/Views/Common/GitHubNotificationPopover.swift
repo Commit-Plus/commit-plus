@@ -187,7 +187,7 @@ struct GitHubNotificationPopover: View {
 
     private var rows: [GitHubNotificationDisplayRow] {
         controller.selectedAccounts.flatMap { account in
-            (controller.caches[controller.key(account)]?.notifications ?? []).map {
+            (controller.caches[controller.key(account)]?.notifications ?? []).filter { $0.doneAt == nil }.map {
                 GitHubNotificationDisplayRow(id: controller.key(account) + ":" + $0.id, notification: $0, account: account)
             }
         }.sorted { $0.notification.updatedAt > $1.notification.updatedAt }

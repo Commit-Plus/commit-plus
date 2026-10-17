@@ -66,7 +66,7 @@ final class HistoryPaginationTests: XCTestCase {
         await model.load()
 
         XCTAssertEqual(model.rows.commits.map(\.message), ["main 3"])
-        let selectedLoadedTip = await model.selectReferenceTipIfLoaded("feature")
+        let selectedLoadedTip = model.selectReferenceTipIfLoaded("feature")
         XCTAssertFalse(selectedLoadedTip)
 
         model.branchFilter = .branch("feature")
@@ -74,6 +74,24 @@ final class HistoryPaginationTests: XCTestCase {
 
         XCTAssertEqual(model.rows.commits.first?.message, "feature tip")
         XCTAssertEqual(model.selectedCommit?.message, "feature tip")
+    }
+
+    func testLoadedReferenceTipSelectsImmediatelyFromPreviousScope() async throws {
+        let repoURL = try makeRepoWithMergeTopology()
+        defer { try? FileManager.default.removeItem(at: repoURL) }
+        let model = HistoryListModel(
+            repositoryURL: repoURL,
+            branchFilter: .branch("main"),
+            selectedBranch: "main",
+            pageSize: 100
+        )
+
+        await model.load()
+        model.branchFilter = .all
+        model.selectedBranch = "feature"
+
+        XCTAssertTrue(model.selectReferenceTipIfLoaded("feature"))
+        XCTAssertEqual(model.selectedCommit?.message, "feature work")
     }
 
     func testHistoryPagingStateTracksLoadedPages() {

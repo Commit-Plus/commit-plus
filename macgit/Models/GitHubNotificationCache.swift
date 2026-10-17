@@ -14,9 +14,25 @@ struct GitHubNotificationCache: Codable {
         GitProviderTokenVaultKey.key(for: account)
     }
 
-    mutating func replace(with values: [GitHubNotification]) {
-        var seen = Set<String>()
-        notifications = Array(values.sorted { $0.updatedAt > $1.updatedAt }
-            .filter { seen.insert($0.id).inserted }.prefix(50))
+    mutating func merge(with values: [GitHubNotification]) {
+        var merged: [String: GitHubNotification] = [:]
+        for item in notifications + values {
+            if let existing = merged[item.id] {
+                guard item.updatedAt >= existing.updatedAt else { continue }
+                var next = item
+                // The same server version must not undo a local Done action.
+                // New activity on the thread returns it to the inbox.
+                if item.updatedAt == existing.updatedAt { next.doneAt = existing.doneAt }
+                merged[item.id] = next
+            } else {
+                merged[item.id] = item
+            }
+        }
+        notifications = Array(merged.values.sorted {
+            if $0.updatedAt == $1.updatedAt { return $0.id < $1.id }
+            return $0.updatedAt > $1.updatedAt
+        }.prefix(50))
+        let retainedIDs = Set(notifications.map(\.id))
+        pendingReads = pendingReads?.filter { retainedIDs.contains($0.key) }
     }
 }

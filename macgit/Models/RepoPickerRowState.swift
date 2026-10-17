@@ -17,7 +17,7 @@
 //
 import Foundation
 
-struct RepoPickerRowState {
+struct RepoPickerRowState: Equatable {
     var currentBranch: String?
     var changedFileCount: Int? = nil
     var behindCount: Int? = nil

@@ -32,6 +32,7 @@ struct CommitSheetView: View {
     @State private var errorMessage: String?
     @State private var showingError = false
     @State private var isAIGenerationRequested = false
+    @State private var aiGenerationTask: Task<Void, Never>?
     let repositoryURL: URL
     let hasStagedChanges: Bool
     let onCommit: @MainActor (String, Bool) async throws -> Bool
@@ -93,6 +94,7 @@ struct CommitSheetView: View {
 
             HStack(spacing: 12) {
                 Button("Cancel", role: .cancel) {
+                    cancelCommitMessageGeneration()
                     dismiss()
                 }
                 .font(.body.scaled(by: textScale))
@@ -121,6 +123,7 @@ struct CommitSheetView: View {
         .padding(30)
         .frame(minWidth: 480)
         .interactiveDismissDisabled(isCommitting)
+        .onDisappear { cancelCommitMessageGeneration() }
         .task {
             await aiProviderController.refreshAvailability(selectedOnly: true)
         }
@@ -133,8 +136,9 @@ struct CommitSheetView: View {
             isRequested: $isAIGenerationRequested,
             requiresProAccess: aiProviderController.selectedDescriptor.billing.requiresProAccess
         ) {
-            Task {
+            aiGenerationTask = Task {
                 await generateCommitMessage()
+                if !Task.isCancelled { aiGenerationTask = nil }
             }
         }
     }
@@ -195,8 +199,16 @@ struct CommitSheetView: View {
         self.messageSelection = TextSelection(insertionPoint: insertionPoint)
     }
 
+    private func cancelCommitMessageGeneration() {
+        guard let task = aiGenerationTask else { return }
+        task.cancel()
+        aiGenerationTask = nil
+        aiProviderController.cancelCommitMessageGeneration()
+    }
+
     private func generateCommitMessage() async {
         do {
+            try Task.checkCancellation()
             async let branchName = GitStatusService.shared.currentBranch(in: repositoryURL)
             async let recentCommits = GitStatusService.shared.recentCommits(in: repositoryURL)
             let generated = try await aiProviderController.generateCommitMessage(
@@ -205,8 +217,10 @@ struct CommitSheetView: View {
                 changeSource: hasStagedChanges ? .staged : .workingTree,
                 recentCommitSubjects: await recentCommits.map(\.message)
             )
+            try Task.checkCancellation()
             message = generated.text
         } catch {
+            guard !Task.isCancelled, !(error is CancellationError) else { return }
             errorMessage = error.localizedDescription
             showingError = true
         }

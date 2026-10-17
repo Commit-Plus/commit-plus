@@ -60,6 +60,7 @@ Stage and unstage files, apply stashes, reorder or squash commits, cherry-pick o
 ### Safe, Complete Git Management
 
 - **Everyday Git**: Commit, fetch, pull, push, branch, merge, rebase, stash, cherry-pick, revert, reset, tags, and reflog.
+- **Interactive rebase**: Right-click a History commit to reorder or rewrite a linear commit range. Eligible commits on the current branch offer Reword Message, Edit, Squash into Parent, Fixup into Parent, and Drop, including published commits. Squash and fixup also support a merge commit as the immediate parent. Continue, skip, or abort a paused rebase from File Status. Rewriting published history may require a force push. Other ranges containing merge commits are not supported.
 - **Undo & redo**: Recover from staging, commits, stashes, discards, branch operations, and supported remote actions.
 - **Conflict resolution**: Review inline conflicts, choose resolutions, stage the result, or continue/skip/abort interrupted operations.
 - **Worktrees & submodules**: Create and manage worktrees, plus add, initialize, update, synchronize, edit, and remove submodules from the sidebar.

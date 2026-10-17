@@ -23,6 +23,7 @@ final class AIProviderController: ObservableObject {
     @Published private(set) var availabilityByProviderID: [AIProviderID: AIProviderAvailability] = [:]
     @Published private(set) var configuredProviderIDs: Set<AIProviderID> = []
     @Published private(set) var customModelsByProviderID: [AIProviderID: String] = [:]
+    private var commitMessageGenerationID: UUID?
     @Published private(set) var isGenerating = false
     @Published private(set) var selectedProviderID: AIProviderID
 
@@ -321,26 +322,36 @@ final class AIProviderController: ObservableObject {
         guard !isGenerating else {
             throw CommitMessageGenerationError.providerUnavailable("A commit message is already being generated.")
         }
+        try Task.checkCancellation()
+        let generationID = UUID()
+        commitMessageGenerationID = generationID
+        isGenerating = true
+        defer {
+            if commitMessageGenerationID == generationID {
+                commitMessageGenerationID = nil
+                isGenerating = false
+            }
+        }
         guard let provider = registry.provider(for: selectedProviderID) else {
             throw CommitMessageGenerationError.providerNotImplemented
         }
         try validateProviderAccess(provider.descriptor)
         let providerID = selectedProviderID
         let providerAvailability = await provider.availability()
+        try validateCommitMessageGeneration(generationID)
         availabilityByProviderID[providerID] = providerAvailability
         guard providerAvailability.isAvailable else {
             throw CommitMessageGenerationError.providerUnavailable(providerAvailability.detail)
         }
 
         try validateProviderAccess(provider.descriptor)
-        isGenerating = true
-        defer { isGenerating = false }
 
         let snapshot = try await snapshotLoader.commitChangeSnapshot(
             in: repositoryURL,
             source: changeSource,
             characterBudget: provider.descriptor.inputCharacterBudget
         )
+        try validateCommitMessageGeneration(generationID)
         let request = CommitMessageGenerationRequest(
             repositoryName: repositoryURL.lastPathComponent,
             branchName: branchName,
@@ -350,14 +361,27 @@ final class AIProviderController: ObservableObject {
         )
         try validateProviderAccess(provider.descriptor)
         let generated = try await provider.generateCommitMessage(request: request)
+        try validateCommitMessageGeneration(generationID)
         let currentFingerprint = try await snapshotLoader.changesFingerprint(
             in: repositoryURL,
             source: changeSource
         )
+        try validateCommitMessageGeneration(generationID)
         guard providerID == selectedProviderID, currentFingerprint == snapshot.fingerprint else {
             throw CommitMessageGenerationError.changesChanged(changeSource)
         }
         return generated
+    }
+
+    func cancelCommitMessageGeneration() {
+        guard commitMessageGenerationID != nil else { return }
+        commitMessageGenerationID = nil
+        isGenerating = false
+    }
+
+    private func validateCommitMessageGeneration(_ id: UUID) throws {
+        try Task.checkCancellation()
+        guard commitMessageGenerationID == id else { throw CancellationError() }
     }
 
     func answerRepositoryQuestion(

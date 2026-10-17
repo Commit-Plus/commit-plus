@@ -33,6 +33,7 @@ struct ContentView: View {
     let repositoryWindowLifecycleController: RepositoryWindowLifecycleController
     let isWelcomeWindow: Bool
     let initialShowsHistory: Bool?
+    let initialShowsPullRequests: Bool
 
     @State private var repositoryOpenError = ""
     @State private var showingRepositoryOpenError = false
@@ -60,6 +61,7 @@ struct ContentView: View {
         repositoryWindowLifecycleController: RepositoryWindowLifecycleController
     ) {
         self.initialShowsHistory = request?.showsHistory
+        self.initialShowsPullRequests = request?.showsPullRequests == true
         self.isWelcomeWindow = isWelcomeWindow
         self.accountController = accountController
         self.providerAccountController = providerAccountController
@@ -86,6 +88,7 @@ struct ContentView: View {
                 MainWindowView(
                     repositoryURL: url,
                     initialShowsHistory: initialShowsHistory,
+                    initialShowsPullRequests: initialShowsPullRequests,
                     providerAccountController: providerAccountController,
                     aiProviderController: aiProviderController,
                     onOpenConnections: accountController.presentConnections,
@@ -99,9 +102,8 @@ struct ContentView: View {
                     )
                 )
             } else {
-                RepoPickerView(
-                    showCloneSheetInitially: false,
-                    onRepositoryOpened: { url in
+                RepositoryChooserView(
+                    onOpen: { url in
                         openRepository(url, inNewWindow: false)
                     }
                 )

@@ -24,6 +24,7 @@ struct RepositorySheetLoadingView<Value, Content: View>: View {
                             .foregroundStyle(.red).textSelection(.enabled)
                     } else {
                         ProgressView("Loading…")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                     }
                     HStack {
                         Button("Cancel", role: .cancel, action: onCancel)

@@ -368,28 +368,30 @@ struct ConflictMergeToolView: View {
             }
 
             // Content
-            SyncedScrollView(id: scrollID, controller: scrollController, virtualizedRowCount: data.rows.count) {
-                ConflictCodeView(
-                    rows: data.rows,
-                    fileExtension: SyntaxHighlighter.syntaxIdentifier(forFilePath: selectedFile.path),
-                    highlightColor: highlightColor,
-                    minimumCodeWidth: CGFloat(data.columnCount) * NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).maximumAdvancement.width + 16,
-                    selectionSide: selectionSide,
-                    isSelected: { sectionIndex in
-                        guard let selectionSide else { return false }
-                        return isConflictSideSelected(selectionSide, sectionIndex: sectionIndex)
-                    },
-                    onSelectionChanged: { sectionIndex, isSelected in
-                        guard let selectionSide else { return }
-                        setConflictSide(selectionSide, selected: isSelected, sectionIndex: sectionIndex)
-                    },
-                    onResolveConflict: { sectionIndex, resolution in
-                        resolveConflict(sectionIndex: sectionIndex, using: resolution)
-                    },
-                    onResolveAll: { resolution in
-                        resolveAllConflicts(using: resolution)
-                    }
-                )
+            Group {
+                if let selectionSide {
+                    ConflictCodeNativeView(
+                        rows: data.rows,
+                        fileExtension: SyntaxHighlighter.syntaxIdentifier(forFilePath: selectedFile.path),
+                        highlightColor: NSColor(highlightColor),
+                        minimumCodeWidth: CGFloat(data.columnCount) * NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).maximumAdvancement.width + 92,
+                        selectionSide: selectionSide,
+                        isSelected: { sectionIndex in
+                            isConflictSideSelected(selectionSide, sectionIndex: sectionIndex)
+                        },
+                        onSelectionChanged: { sectionIndex, isSelected in
+                            setConflictSide(selectionSide, selected: isSelected, sectionIndex: sectionIndex)
+                        },
+                        onResolveConflict: { sectionIndex, resolution in
+                            resolveConflict(sectionIndex: sectionIndex, using: resolution)
+                        },
+                        onResolveAll: { resolution in
+                            resolveAllConflicts(using: resolution)
+                        },
+                        scrollID: scrollID,
+                        scrollController: scrollController
+                    )
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }

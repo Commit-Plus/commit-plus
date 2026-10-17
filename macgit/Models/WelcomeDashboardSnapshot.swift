@@ -17,7 +17,7 @@
 //
 import Foundation
 
-struct WelcomeDashboardSnapshot {
+struct WelcomeDashboardSnapshot: Equatable {
     let days: [Date]
     var repositories: [WelcomeRepositoryActivity] = []
 

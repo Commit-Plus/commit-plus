@@ -60,12 +60,23 @@ enum RepoPickerFilterType: String, CaseIterable, Identifiable {
     }
 }
 
+enum RepoPickerTab: String, CaseIterable, Identifiable {
+    case recent = "Recent"
+    case yours = "Your Repos"
+
+    var id: Self { self }
+}
+
 struct RepoPickerView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.appTextScale) private var textScale
     @EnvironmentObject private var bookmarkController: RepositoryBookmarkController
     @ObservedObject private var store = RecentRepositoriesStore.shared
+    @ObservedObject private var yourRepositoriesStore = YourRepositoriesStore.shared
+    @ObservedObject private var catalog = RepositoryCatalogStore.shared
     @State private var showingCloneSheet = false
+    @State private var showingFolderManager = false
+    @State private var folderToRemove: URL?
     @State private var bookmarkToClone: RepositoryBookmark?
     @State private var bookmarkToRepair: RepositoryBookmark?
     @State private var bookmarkRepairFolder: URL?
@@ -73,28 +84,38 @@ struct RepoPickerView: View {
     @State private var errorMessage: String?
     @State private var showingError = false
     @State private var searchText = ""
-    @State private var sortOption: RepoPickerSortOption = .lastOpened
+    @AppStorage("dev.thanhtran.macgit.repositoryPicker.sortOption") private var sortOption: RepoPickerSortOption = .lastOpened
     @State private var selectedFilterTypes: Set<RepoPickerFilterType> = []
-    @State private var showBookmarkedOnly = false
+    @AppStorage("dev.thanhtran.macgit.repositoryPicker.showBookmarkedOnly") private var showBookmarkedOnly = false
+    @AppStorage("dev.thanhtran.macgit.repositoryPicker.selectedTab") private var selectedTab: RepoPickerTab = .recent
+    @AppStorage("dev.thanhtran.macgit.repositoryPicker.listMode") private var repositoryListMode: RepositoryPickerListMode = .plain
+    @AppStorage("dev.thanhtran.macgit.repositoryPicker.expandedPaths") private var expandedPathsStorage = ""
+    @AppStorage("dev.thanhtran.macgit.repositoryPicker.providerFilters") private var providerFiltersStorage = ""
+    @State private var expandedRepositoryFolders: Set<URL> = []
     @State private var repoIcons: [URL: String] = [:]
     @State private var loadingRepoIcons: Set<URL> = []
     @State private var rowStates: [URL: RepoPickerRowState] = [:]
     @State private var missingRepository: RecentRepository?
     @State private var showingMissingRepositoryAlert = false
-    @State private var hoveredRepositoryURL: URL?
-    @State private var hoveredBookmarkURL: URL?
+    @State private var localPreview: URL?
 
     let title: String
     let showsApplicationIcon: Bool
     let isDashboardSidebar: Bool
     var showCloneSheetInitially: Bool
     var onRepositoryOpened: (URL) -> Void
+    var onRepositoryViewed: ((URL) -> Void)?
+    var selectedRepositoryURL: URL?
+    var onRepositoriesChanged: (([URL]) -> Void)?
 
     init(
         title: String = "Choose a Repository",
         showsApplicationIcon: Bool = false,
         isDashboardSidebar: Bool = false,
         showCloneSheetInitially: Bool = false,
+        onRepositoryViewed: ((URL) -> Void)? = nil,
+        selectedRepositoryURL: URL? = nil,
+        onRepositoriesChanged: (([URL]) -> Void)? = nil,
         onRepositoryOpened: @escaping (URL) -> Void
     ) {
         self.title = title
@@ -102,29 +123,50 @@ struct RepoPickerView: View {
         self.showsApplicationIcon = showsApplicationIcon
         self.showCloneSheetInitially = showCloneSheetInitially
         self.onRepositoryOpened = onRepositoryOpened
+        self.onRepositoryViewed = onRepositoryViewed
+        self.selectedRepositoryURL = selectedRepositoryURL
+        self.onRepositoriesChanged = onRepositoriesChanged
     }
 
     private var visibleRepositories: [RecentRepository] {
-        let recentURLs = Set(store.repositories.map(\.url))
+        let recentURLs = Set(store.repositories.map(\.url.path))
         let bookmarkedLocalRepositories = bookmarkController.bookmarks.compactMap { bookmark -> RecentRepository? in
             guard let localURL = bookmarkController.localURL(for: bookmark),
-                  !recentURLs.contains(localURL) else {
+                  !recentURLs.contains(localURL.path) else {
                 return nil
             }
             var repository = RecentRepository(url: localURL, lastOpened: bookmark.updatedAt)
             repository.name = bookmark.name
             return repository
         }
+        let scanned = yourRepositoriesStore.repositories.map { repository -> RecentRepository in
+            let record = catalog.record(for: repository.url)
+            return RecentRepository(url: repository.url, lastOpened: record?.lastOpened ?? .distantPast, id: record?.id ?? UUID())
+        }
         let visible = Self.visibleRepositories(
-            from: store.repositories + bookmarkedLocalRepositories,
+            from: selectedTab == .recent ? store.repositories + bookmarkedLocalRepositories : scanned,
             searchText: searchText,
             sortOption: sortOption,
             selectedFilterTypes: selectedFilterTypes,
-            repoIcons: repoIcons,
+            repoIcons: resolvedIcons,
             rowStates: rowStates
         )
         guard showBookmarkedOnly else { return visible }
-        return visible.filter { bookmarkController.bookmarkID(linkedTo: $0.url) != nil }
+        return visible.filter { bookmarkID(for: $0.url) != nil }
+    }
+
+    private var resolvedIcons: [URL: String] {
+        var icons = Dictionary(uniqueKeysWithValues: catalog.snapshot.repositories.map { (URL(fileURLWithPath: $0.path), $0.provider) })
+        icons.merge(repoIcons) { _, new in new }
+        return icons
+    }
+
+    private func bookmarkID(for url: URL) -> String? {
+        if let id = bookmarkController.bookmarkID(linkedTo: url) { return id }
+        if let key = catalog.record(for: url)?.bookmarkKey {
+            return bookmarkController.bookmarks.first { $0.canonicalKey == key }?.id
+        }
+        return nil
     }
 
     private var visibleUnlinkedBookmarks: [RepositoryBookmark] {
@@ -169,36 +211,17 @@ struct RepoPickerView: View {
     }
 
     var body: some View {
-        VStack(spacing: 18) {
-            if isDashboardSidebar {
-                dashboardActions
-            } else {
-                headerSection
-            }
-            controlBar
-            if bookmarkController.hasPendingChanges {
-                HStack {
-                    Text(bookmarkController.canSyncPendingChanges
-                         ? "Bookmark changes are saved locally and waiting to sync."
-                         : "Bookmark changes are saved locally. Sign in to sync them.")
-                        .font(.caption.scaled(by: textScale))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    if bookmarkController.canSyncPendingChanges {
-                        Button("Retry Sync") {
-                            Task { await bookmarkController.retryPendingChanges() }
-                        }
-                        .disabled(bookmarkController.isRetryingSync || !bookmarkController.syncingBookmarkIDs.isEmpty)
-                    }
-                }
-            }
-            recentRepositoriesSection
-            if !isDashboardSidebar { Spacer(minLength: 0) }
+        pickerSettings
+        .replacingSheet(isPresented: Binding(get: { localPreview != nil }, set: { if !$0 { localPreview = nil } })) {
+            repositoryPreview
         }
-        .frame(minWidth: isDashboardSidebar ? 300 : 500, maxWidth: isDashboardSidebar ? .infinity : 700, minHeight: isDashboardSidebar ? 0 : 520, alignment: .top)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .padding(isDashboardSidebar ? 18 : 24)
-        .background(isDashboardSidebar && colorScheme == .light ? Color(red: 0.97, green: 0.98, blue: 0.99) : Color.clear)
+    }
+
+    private var pickerLoading: some View {
+        pickerLayout
+        .onChange(of: visibleRepositories.map(\.url), initial: true) { _, urls in
+            onRepositoriesChanged?(urls)
+        }
         .task(id: showCloneSheetInitially) {
             if showCloneSheetInitially {
                 showingCloneSheet = true
@@ -209,9 +232,55 @@ struct RepoPickerView: View {
                 + bookmarkController.bookmarks.compactMap { bookmarkController.localURL(for: $0) }
             await bookmarkController.linkMatchingBookmarks(to: localURLs)
         }
+        .task(id: [store.repositories.map(\.url.path), bookmarkController.bookmarks.compactMap {
+            bookmarkController.localURL(for: $0)?.path
+        }, yourRepositoriesStore.repositories.map(\.url.path), [String(bookmarkRefreshGeneration)]]) {
+            await refreshRecentRepositoryPresentations()
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             bookmarkRefreshGeneration += 1
         }
+        .onReceive(NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh)) { _ in bookmarkRefreshGeneration += 1 }
+        .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange)) { _ in bookmarkRefreshGeneration += 1 }
+    }
+
+    private var pickerSettings: some View {
+        pickerLoading
+        .task { restorePickerSettings() }
+        .onChange(of: expandedRepositoryFolders) { _, folders in persistExpandedFolders(folders) }
+        .onChange(of: selectedFilterTypes) { _, filters in persistProviderFilters(filters) }
+        .onChange(of: expandedPathsStorage) { _, _ in restorePickerSettings(force: true) }
+        .onChange(of: providerFiltersStorage) { _, _ in restorePickerSettings(force: true) }
+        .task(id: yourRepositoriesStore.folders.map(\.path)) { await yourRepositoriesStore.scan() }
+        .task(id: bookmarkRefreshGeneration) {
+            do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+            await yourRepositoriesStore.scan()
+        }
+        .onChange(of: catalog.errorMessage) { _, error in
+            if let error { errorMessage = error; showingError = true }
+        }
+    }
+
+    @ViewBuilder
+    private var repositoryPreview: some View {
+        if let localPreview {
+            RepositoryDetailView(repositoryURL: localPreview, onClose: { self.localPreview = nil }, onOpen: onRepositoryOpened)
+                .frame(minWidth: 700, minHeight: 600)
+        }
+    }
+
+    private var pickerLayout: some View {
+        VStack(spacing: 18) {
+            pickerHeader
+            repositoryTabs
+            controlBar
+            repositoryContent
+            if !isDashboardSidebar { Spacer(minLength: 0) }
+        }
+        .frame(minWidth: isDashboardSidebar ? 300 : 500, maxWidth: isDashboardSidebar ? .infinity : 700, minHeight: isDashboardSidebar ? 0 : 520, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .padding(isDashboardSidebar ? 18 : 24)
+        .background(isDashboardSidebar && colorScheme == .light ? Color(red: 0.97, green: 0.98, blue: 0.99) : Color.clear)
         .alert("Error", isPresented: $showingError, actions: {
             Button("OK", role: .cancel) {}
         }, message: {
@@ -270,6 +339,186 @@ struct RepoPickerView: View {
         }
     }
 
+    @ViewBuilder
+    private var pickerHeader: some View {
+        if isDashboardSidebar { dashboardActions }
+        else { headerSection }
+    }
+
+    @ViewBuilder
+    private var repositoryContent: some View {
+        if selectedTab == .recent {
+            if bookmarkController.hasPendingChanges { bookmarkSyncStatus }
+        }
+        repositoryListSection
+    }
+
+    private var bookmarkSyncStatus: some View {
+        HStack {
+            Text(bookmarkController.canSyncPendingChanges
+                 ? "Bookmark changes are saved locally and waiting to sync."
+                 : "Bookmark changes are saved locally. Sign in to sync them.")
+                .font(.caption.scaled(by: textScale))
+                .foregroundStyle(.secondary)
+            Spacer()
+            if bookmarkController.canSyncPendingChanges {
+                Button("Retry Sync") {
+                    Task { await bookmarkController.retryPendingChanges() }
+                }
+                .disabled(bookmarkController.isRetryingSync || !bookmarkController.syncingBookmarkIDs.isEmpty)
+            }
+        }
+    }
+
+    private var repositoryTabs: some View {
+        Picker("Repository source", selection: $selectedTab) {
+            ForEach(RepoPickerTab.allCases) { tab in
+                Text(tab.rawValue).tag(tab)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: isDashboardSidebar ? .infinity : 360)
+    }
+
+    private var folderManagementButtons: some View {
+        HStack {
+            Button("Add Folder", systemImage: "plus", action: chooseRepositoryFolders)
+                .buttonStyle(.bordered).sidebarPointingHandCursor()
+            Button("Manage Folders") { showingFolderManager = true }
+                .buttonStyle(.bordered).sidebarPointingHandCursor()
+        }.fixedSize()
+    }
+
+    private var folderScanStatus: some View {
+        HStack {
+            if yourRepositoriesStore.isScanning { ProgressView().controlSize(.small) }
+            else { Text("\(yourRepositoriesStore.repositories.count) repositories").font(.caption).foregroundStyle(.secondary) }
+            Button("Rescan", systemImage: "arrow.clockwise") { Task { await yourRepositoriesStore.scan(force: true) } }
+                .labelStyle(.iconOnly).disabled(yourRepositoriesStore.isScanning)
+        }.fixedSize()
+    }
+
+    private var repositoryListSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Repositories")
+                .font(.headline.scaled(by: textScale))
+            sharedRepositoriesContent
+            if selectedTab == .yours {
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        folderManagementButtons
+                        Spacer(minLength: 12)
+                        folderScanStatus
+                    }
+                    VStack(alignment: .leading, spacing: 10) {
+                        folderManagementButtons
+                        HStack { Spacer(); folderScanStatus }
+                    }
+                }
+                ForEach(catalog.snapshot.roots.filter { $0.error != nil }) { root in
+                    Text("\(root.path): \(root.error ?? "")").font(.caption).foregroundStyle(.orange)
+                }
+            }
+        }
+        .padding(18)
+        .sheet(isPresented: $showingFolderManager) {
+            RepositoryFoldersSheet(store: yourRepositoriesStore)
+        }
+        .alert("Remove Folder?", isPresented: Binding(get: { folderToRemove != nil }, set: { if !$0 { folderToRemove = nil } }), presenting: folderToRemove) { folder in
+            Button("Remove Folder", role: .destructive) {
+                yourRepositoriesStore.removeFolder(folder)
+                folderToRemove = nil
+            }
+            Button("Cancel", role: .cancel) { folderToRemove = nil }
+        } message: { folder in
+            Text("Remove \(folder.path) from the scan list? The folder and its files will remain on your Mac.")
+        }
+        .frame(maxWidth: .infinity, maxHeight: isDashboardSidebar ? .infinity : 320, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            if isDashboardSidebar && colorScheme == .light {
+                RoundedRectangle(cornerRadius: 20).strokeBorder(Color.primary.opacity(0.14))
+            }
+        }
+    }
+
+    private func chooseRepositoryFolders() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Add Folders"
+        guard let window = NSApp.keyWindow else { return }
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK else { return }
+            switch yourRepositoriesStore.addFolders(panel.urls) {
+            case .added:
+                expandedRepositoryFolders.formUnion(panel.urls.map { $0.standardizedFileURL.resolvingSymlinksInPath() })
+            case .duplicate:
+                errorMessage = "This folder has already been added."; showingError = true
+            case .homeFolder:
+                errorMessage = "Choose a more specific folder. Home and the file system root cannot be added."; showingError = true
+            }
+        }
+    }
+
+    private func expandAllRepositoryFolders() {
+        var folders = Set(yourRepositoriesStore.folders)
+        for row in RecentRepositoryTree.rows(repositories: visibleRepositories, expandedFolders: [], expandAll: true, roots: selectedTab == .yours ? yourRepositoriesStore.folders : []) {
+            if case .folder(let folder, _) = row.content { folders.insert(folder) }
+        }
+        for repository in yourRepositoriesStore.repositories {
+            var folder = repository.url.deletingLastPathComponent()
+            while folder.path.count >= repository.rootURL.path.count {
+                folders.insert(folder)
+                guard folder != repository.rootURL else { break }
+                folder.deleteLastPathComponent()
+            }
+        }
+        expandedRepositoryFolders = folders
+    }
+
+    private func collapseAllRepositoryFolders() {
+        expandedRepositoryFolders.removeAll()
+    }
+
+    private func refreshRecentRepositoryPresentations() async {
+        let urls = store.repositories.map(\.url)
+            + bookmarkController.bookmarks.compactMap { bookmarkController.localURL(for: $0) }
+            + yourRepositoriesStore.repositories.map(\.url)
+        var loadedURLs: Set<URL> = []
+        for url in urls where loadedURLs.insert(url).inserted {
+            guard !Task.isCancelled else { return }
+            let repository = RecentRepository(url: url, lastOpened: .now)
+            await loadRepositoryIcon(for: repository)
+            guard !Task.isCancelled else { return }
+            await loadRowPresentation(for: repository)
+        }
+    }
+
+    private func restorePickerSettings(force: Bool = false) {
+        if (force || expandedRepositoryFolders.isEmpty),
+           let data = Data(base64Encoded: expandedPathsStorage),
+           let paths = try? JSONDecoder().decode([String].self, from: data) {
+            expandedRepositoryFolders = Set(paths.map { URL(fileURLWithPath: $0, isDirectory: true) })
+        }
+        if force || selectedFilterTypes.isEmpty {
+            selectedFilterTypes = Set(providerFiltersStorage.split(separator: ",").compactMap {
+                RepoPickerFilterType(rawValue: String($0))
+            })
+        }
+    }
+
+    private func persistExpandedFolders(_ folders: Set<URL>) {
+        guard let data = try? JSONEncoder().encode(folders.map(\.path).sorted()) else { return }
+        expandedPathsStorage = data.base64EncodedString()
+    }
+
+    private func persistProviderFilters(_ filters: Set<RepoPickerFilterType>) {
+        providerFiltersStorage = filters.map(\.rawValue).sorted().joined(separator: ",")
+    }
+
     private func linkBookmark(_ bookmark: RepositoryBookmark, to url: URL) {
         Task {
             do { try await bookmarkController.link(bookmark, to: url) }
@@ -289,9 +538,9 @@ struct RepoPickerView: View {
         rowStates: [URL: RepoPickerRowState]
     ) -> [RecentRepository] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        var seenURLs: Set<URL> = []
+        var seenURLs: Set<String> = []
         let filtered = repositories.filter { repo in
-            guard seenURLs.insert(repo.url).inserted else { return false }
+            guard seenURLs.insert(repo.url.standardizedFileURL.path).inserted else { return false }
             if !query.isEmpty {
                 let haystack = [
                     repo.name,
@@ -456,7 +705,9 @@ struct RepoPickerView: View {
             TextField("Filter repositories", text: $searchText)
                 .font(.body.scaled(by: textScale))
                 .textFieldStyle(.roundedBorder)
-                .disabled(store.repositories.isEmpty && bookmarkController.bookmarks.isEmpty)
+                .disabled(selectedTab == .recent
+                    ? store.repositories.isEmpty && bookmarkController.bookmarks.isEmpty
+                    : yourRepositoriesStore.repositories.isEmpty)
 
             Button {
                 showBookmarkedOnly.toggle()
@@ -505,113 +756,195 @@ struct RepoPickerView: View {
             }
             .menuStyle(.borderlessButton)
             .sidebarPointingHandCursor()
-            .disabled(store.repositories.isEmpty && bookmarkController.bookmarks.isEmpty)
+            .disabled(selectedTab == .recent
+                ? store.repositories.isEmpty && bookmarkController.bookmarks.isEmpty
+                : yourRepositoriesStore.repositories.isEmpty)
+
+            if repositoryListMode == .tree {
+                Button("Expand All", systemImage: "chevron.down.2", action: expandAllRepositoryFolders)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .sidebarPointingHandCursor()
+                    .help("Expand all folders")
+                Button("Collapse All", systemImage: "chevron.up.2", action: collapseAllRepositoryFolders)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .sidebarPointingHandCursor()
+                    .help("Collapse all folders")
+            }
+
+            Button {
+                repositoryListMode = repositoryListMode == .plain ? .tree : .plain
+            } label: {
+                Image(systemName: repositoryListMode.icon)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.borderless)
+            .sidebarPointingHandCursor()
+            .help(repositoryListMode == .plain ? "Show as tree" : "Show as plain list")
+            .accessibilityLabel(repositoryListMode == .plain ? "Show as tree" : "Show as plain list")
         }
     }
 
-    private var recentRepositoriesSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Repositories")
-                .font(.headline.scaled(by: textScale))
+    @ViewBuilder
+    private var sharedRepositoriesContent: some View {
+        let items = repositoryListItems
+        let onSelect: ((RecentRepository) -> Void)? = isDashboardSidebar ? { viewRepositoryDetails($0) } : nil
+        let onOpen: ((RecentRepository) -> Void)? = isDashboardSidebar ? { openRecentRepository($0) } : nil
+        if !catalog.isReady {
+            ProgressView("Loading repositories…").frame(maxWidth: .infinity, minHeight: 180)
+        } else if selectedTab == .yours && yourRepositoriesStore.folders.isEmpty {
+            ContentUnavailableView("No Repository Folders", systemImage: "folder.badge.plus", description: Text("Add folders to discover your Git repositories."))
+                .frame(minHeight: 180)
+        } else if items.isEmpty {
+            ContentUnavailableView(
+                showBookmarkedOnly ? "No Bookmarked Repositories" : "No Repositories Found",
+                systemImage: showBookmarkedOnly ? "star" : "clock.arrow.circlepath",
+                description: Text("Open a repository, add a folder, or clear the filters.")
+            )
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 180)
+        } else {
+            RepositoryPickerNativeList(
+                rows: items, textScale: textScale, dark: colorScheme == .dark,
+                onRepositorySelected: onSelect,
+                onRepositoryOpened: onOpen
+            ) { item in
+                repositoryListContent(item)
+                    .environmentObject(bookmarkController)
+                    .environment(\.appTextScale, textScale)
+                    .environment(\.colorScheme, colorScheme)
+            }
+            .frame(minHeight: 180, maxHeight: isDashboardSidebar ? .infinity : 320)
+        }
+    }
 
-            if store.repositories.isEmpty && visibleUnlinkedBookmarks.isEmpty {
-                ContentUnavailableView(
-                    showBookmarkedOnly ? "No Bookmarked Repositories" : "No Recent Repositories",
-                    systemImage: showBookmarkedOnly ? "star" : "clock.arrow.circlepath",
-                    description: Text(
-                        showBookmarkedOnly
-                            ? "Bookmark a repository to keep it available across your Macs."
-                            : "Open or clone a repository to start building your recent list."
-                    )
-                )
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 180)
-            } else if visibleRepositories.isEmpty && visibleUnlinkedBookmarks.isEmpty {
-                ContentUnavailableView(
-                    "No Repositories Found",
-                    systemImage: "magnifyingglass",
-                    description: Text("Try a different search or clear the filter.")
-                )
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 180)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(visibleUnlinkedBookmarks) { bookmark in
-                            unlinkedBookmarkRow(bookmark)
-                            Divider()
-                                .padding(.leading, 52)
+    private var repositoryListItems: [RepositoryPickerListItem] {
+        let repositories = visibleRepositories
+        let icons = resolvedIcons
+        func item(_ repository: RecentRepository, depth: Int) -> RepositoryPickerListItem {
+            let id = bookmarkID(for: repository.url)
+            return .init(id: "repo:\(repository.url.path)", depth: depth, repository: repository,
+                         state: rowStates[repository.url], icon: icons[repository.url] ?? "code-branch",
+                         starred: id != nil, syncing: id.map(bookmarkController.syncingBookmarkIDs.contains) ?? false,
+                         selected: selectedRepositoryURL == repository.url,
+                         warnings: bookmarkController.bookmarksNeedingAttention(at: repository.url))
+        }
+        var result: [RepositoryPickerListItem] = selectedTab == .recent ? visibleUnlinkedBookmarks.map {
+            .init(id: "bookmark:\($0.id)", bookmark: $0)
+        } : []
+        if repositoryListMode == .plain {
+            result += repositories.map { item($0, depth: 0) }
+        } else {
+            let tree = RecentRepositoryTree.rows(repositories: repositories, expandedFolders: expandedRepositoryFolders,
+                                                roots: selectedTab == .yours ? yourRepositoriesStore.folders : [])
+            result += tree.map { row in
+                switch row.content {
+                case .folder(let folder, let count):
+                    return .init(id: row.id, depth: row.depth, folder: folder, count: count, expanded: expandedRepositoryFolders.contains(folder))
+                case .repository(let repository): return item(repository, depth: row.depth)
+                }
+            }
+        }
+        return result
+    }
+
+    @ViewBuilder
+    private func repositoryListContent(_ item: RepositoryPickerListItem) -> some View {
+        VStack(spacing: 0) {
+            if let folder = item.folder {
+                recentFolderRow(folder, count: item.count)
+                    .contextMenu {
+                        if yourRepositoriesStore.folders.contains(folder) {
+                            Button("Remove Folder") { folderToRemove = folder }
                         }
+                    }
+            } else if let repository = item.repository {
+                repoRow(repository, iconName: item.icon)
+                    .background(item.selected ? Color.accentColor.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                Divider().padding(.leading, 46)
+            } else if let bookmark = item.bookmark {
+                unlinkedBookmarkRow(bookmark)
+                Divider().padding(.leading, 46)
+            }
+        }.padding(.leading, CGFloat(item.depth) * 16)
+    }
 
-                        ForEach(Array(visibleRepositories.enumerated()), id: \.element.url) { index, repo in
-                            repoRow(repo)
+    private func recentFolderRow(_ folder: URL, count: Int) -> some View {
+        Button {
+            if expandedRepositoryFolders.contains(folder) { expandedRepositoryFolders.remove(folder) }
+            else { expandedRepositoryFolders.insert(folder) }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: expandedRepositoryFolders.contains(folder) ? "chevron.down" : "chevron.right")
+                    .frame(width: 12)
+                Image(systemName: "folder.fill").foregroundStyle(.blue)
+                Text(folder.lastPathComponent).lineLimit(1)
+                Text("\(count)").foregroundStyle(.secondary)
+                Spacer()
+            }
+            .font(.body.weight(.medium).scaled(by: textScale))
+            .padding(.vertical, 9)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(folder.path)
+    }
 
-                            if index < visibleRepositories.count - 1 {
-                                Divider()
-                                    .padding(.leading, 52)
+    private func repoRow(_ repo: RecentRepository, iconName: String = "code-branch") -> some View {
+        RepoPickerHoverRow {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 4) {
+                    Button(action: {
+                        viewRepositoryDetails(repo)
+                    }) {
+                        repoRowContent(repo, iconName: iconName)
+                    }
+                    .buttonStyle(.plain)
+                    .simultaneousGesture(TapGesture(count: 2).onEnded { openRecentRepository(repo) })
+                    .sidebarPointingHandCursor()
+
+                    VStack(alignment: .trailing, spacing: 5) {
+                        HStack(spacing: 2) {
+                            Button("Open") { openRecentRepository(repo) }
+                            .buttonStyle(RepoPickerOpenButtonStyle())
+                            .keyboardShortcut(isDashboardSidebar && selectedRepositoryURL == repo.url ? .defaultAction : nil)
+                            .help("Open repository")
+                            .sidebarPointingHandCursor()
+                            bookmarkButton(for: repo)
+                        }
+                        Text(repo.lastOpened == .distantPast ? "Not opened" : timeAgoString(from: repo.lastOpened))
+                            .font(.caption.scaled(by: textScale))
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
+                            .help(repo.lastOpened == .distantPast ? "Not opened" : repo.lastOpened.formatted())
+                            .onTapGesture { viewRepositoryDetails(repo) }
+                            .simultaneousGesture(TapGesture(count: 2).onEnded { openRecentRepository(repo) })
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.trailing, 2)
+                }
+                ForEach(bookmarkController.bookmarksNeedingAttention(at: repo.url)) { bookmark in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Bookmark URL no longer matches this folder's remotes.", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Text(bookmark.remoteURL.absoluteString)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .help(bookmark.remoteURL.absoluteString)
+                        HStack {
+                            Button("Update Bookmark…") { repairBookmark(bookmark, folder: repo.url) }
+                            Button("Remove Bookmark") {
+                                Task { await bookmarkController.removeBookmark(bookmark) }
                             }
                         }
+                        .buttonStyle(.borderless)
                     }
+                    .font(.caption.scaled(by: textScale))
+                    .padding(.leading, 46)
+                    .padding(.bottom, 8)
                 }
-                .frame(maxHeight: isDashboardSidebar ? .infinity : 320)
             }
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay {
-            if isDashboardSidebar && colorScheme == .light {
-                RoundedRectangle(cornerRadius: 20).strokeBorder(Color.primary.opacity(0.14))
-            }
-        }
-    }
-
-    private func repoRow(_ repo: RecentRepository) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Button(action: {
-                    openRecentRepository(repo)
-                }) {
-                    repoRowContent(repo)
-                }
-                .buttonStyle(.plain)
-                .sidebarPointingHandCursor()
-
-                bookmarkButton(for: repo)
-            }
-            ForEach(bookmarkController.bookmarksNeedingAttention(at: repo.url)) { bookmark in
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("Bookmark URL no longer matches this folder's remotes.", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                    Text(bookmark.remoteURL.absoluteString)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .help(bookmark.remoteURL.absoluteString)
-                    HStack {
-                        Button("Update Bookmark…") { repairBookmark(bookmark, folder: repo.url) }
-                        Button("Remove Bookmark") {
-                            Task { await bookmarkController.removeBookmark(bookmark) }
-                        }
-                    }
-                    .buttonStyle(.borderless)
-                }
-                .font(.caption.scaled(by: textScale))
-                .padding(.leading, 46)
-                .padding(.bottom, 8)
-            }
-        }
-        .background(
-            Color.primary.opacity(hoveredRepositoryURL == repo.url ? 0.06 : 0),
-            in: RoundedRectangle(cornerRadius: 8)
-        )
-        .onHover { isHovered in
-            hoveredRepositoryURL = isHovered ? repo.url : nil
-        }
-        .task(id: repo.url) {
-            await loadRowPresentation(for: repo)
-        }
-        .task(id: repo.url) {
-            await loadRepositoryIcon(for: repo)
         }
         .contextMenu {
             ForEach(bookmarkController.bookmarks.filter { bookmarkController.localURL(for: $0) == repo.url }) { bookmark in
@@ -625,7 +958,7 @@ struct RepoPickerView: View {
 
     @ViewBuilder
     private func bookmarkButton(for repo: RecentRepository) -> some View {
-        let bookmarkID = bookmarkController.bookmarkID(linkedTo: repo.url)
+        let bookmarkID = bookmarkID(for: repo.url)
         Button {
             Task {
                 if let bookmarkID,
@@ -650,7 +983,7 @@ struct RepoPickerView: View {
                     Image(systemName: bookmarkID == nil ? "star" : "star.fill")
                 }
             }
-            .frame(width: 28, height: 28)
+            .frame(width: 24, height: 24)
             .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
@@ -660,71 +993,69 @@ struct RepoPickerView: View {
     }
 
     private func unlinkedBookmarkRow(_ bookmark: RepositoryBookmark) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                Image(bookmark.provider == .generic ? "code-branch" : bookmark.provider.rawValue)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 18, height: 18)
-                    .frame(width: 34, height: 34)
-                    .background(
-                        Color(nsColor: .windowBackgroundColor),
-                        in: RoundedRectangle(cornerRadius: 10)
-                    )
-                    .accessibilityLabel("Repository provider")
+        RepoPickerHoverRow {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    RepositoryProviderIcon(name: bookmark.provider == .generic ? "code-branch" : bookmark.provider.rawValue)
+                        .frame(width: 18, height: 18)
+                        .frame(width: 34, height: 34)
+                        .background(
+                            Color(nsColor: .windowBackgroundColor),
+                            in: RoundedRectangle(cornerRadius: 10)
+                        )
+                        .accessibilityLabel("Repository provider")
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(bookmark.name)
-                        .font(.body.weight(.medium).scaled(by: textScale))
-                    Text(bookmark.remoteURL.absoluteString)
-                        .font(.caption.scaled(by: textScale))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                Button("Clone") {
-                    bookmarkToClone = bookmark
-                }
-                .buttonStyle(.borderedProminent)
-                .sidebarPointingHandCursor()
-
-                Button(isDashboardSidebar ? "Link" : "Link Folder") {
-                    chooseFolderToLink(bookmark)
-                }
-                .buttonStyle(.bordered)
-                .sidebarPointingHandCursor()
-
-                Button("Remove bookmark", systemImage: "star.fill") {
-                    Task {
-                        await bookmarkController.removeBookmark(bookmark)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(bookmark.name)
+                            .font(.body.weight(.medium).scaled(by: textScale))
+                        Text(bookmark.remoteURL.absoluteString)
+                            .font(.caption.scaled(by: textScale))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .sidebarPointingHandCursor()
-                .help("Remove bookmark")
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Label("Not linked on this Mac. Renamed or moved?", systemImage: "link")
-                    .foregroundStyle(.secondary)
-                Button("Update Bookmark…") { repairBookmark(bookmark) }
+
+                    Spacer()
+
+                    Button("Clone") {
+                        bookmarkToClone = bookmark
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .sidebarPointingHandCursor()
+
+                    Button(isDashboardSidebar ? "Link" : "Link Folder") {
+                        chooseFolderToLink(bookmark)
+                    }
+                    .buttonStyle(.bordered)
+                    .sidebarPointingHandCursor()
+
+                    Button("Remove bookmark", systemImage: "star.fill") {
+                        Task {
+                            await bookmarkController.removeBookmark(bookmark)
+                        }
+                    }
+                    .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
                     .sidebarPointingHandCursor()
+                    .help("Remove bookmark")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Not linked on this Mac. Renamed or moved?", systemImage: "link")
+                        .foregroundStyle(.secondary)
+                    Button("Update Bookmark…") { repairBookmark(bookmark) }
+                        .buttonStyle(.borderless)
+                        .sidebarPointingHandCursor()
+                }
+                .font(.caption.scaled(by: textScale))
+                .padding(.leading, 46)
             }
-            .font(.caption.scaled(by: textScale))
-            .padding(.leading, 46)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 4)
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 4)
-        .background(
-            Color.primary.opacity(hoveredBookmarkURL == bookmark.remoteURL ? 0.06 : 0),
-            in: RoundedRectangle(cornerRadius: 8)
-        )
-        .onHover { isHovered in
-            hoveredBookmarkURL = isHovered ? bookmark.remoteURL : nil
-        }
+    }
+
+    private func viewRepositoryDetails(_ repo: RecentRepository) {
+        if let onRepositoryViewed { onRepositoryViewed(repo.url) }
+        else { localPreview = repo.url }
     }
 
     private func openRecentRepository(_ repo: RecentRepository) {
@@ -748,25 +1079,23 @@ struct RepoPickerView: View {
         onRepositoryOpened(repo.url)
     }
 
-    private func repoRowContent(_ repo: RecentRepository) -> some View {
-        HStack(spacing: 12) {
+    private func repoRowContent(_ repo: RecentRepository, iconName: String) -> some View {
+        HStack(spacing: 8) {
             Group {
                 if loadingRepoIcons.contains(repo.url) {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    Image(repoIcons[repo.url] ?? "code-branch")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
+                    RepositoryProviderIcon(name: iconName)
                         .frame(width: 18, height: 18)
                 }
             }
-                .frame(width: 34, height: 34)
-                .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .frame(width: 28, height: 28)
+                .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .accessibilityLabel(loadingRepoIcons.contains(repo.url) ? "Detecting repository provider" : "Repository provider")
 
             VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 6) {
+                HStack(spacing: 3) {
                     Text(repo.name)
                         .font(.body.weight(.medium).scaled(by: textScale))
                         .lineLimit(1)
@@ -777,25 +1106,16 @@ struct RepoPickerView: View {
                     Spacer(minLength: 0)
                 }
 
-                HStack(spacing: 8) {
-                    Text(repo.url.path)
-                        .font(.caption.scaled(by: textScale))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .layoutPriority(1)
-
-                    Spacer(minLength: 0)
-
-                    Text(timeAgoString(from: repo.lastOpened))
-                        .font(.caption.scaled(by: textScale))
-                        .foregroundStyle(.secondary)
-                        .fixedSize()
-                }
+                Text(repo.url.path)
+                    .font(.caption.scaled(by: textScale))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 4)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 2)
         .contentShape(Rectangle())
     }
 
@@ -806,49 +1126,55 @@ struct RepoPickerView: View {
         if rowState?.isMissing == true {
             Text("Repository moved or deleted")
                 .font(.caption.weight(.semibold).scaled(by: textScale))
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
                 .background(Color.orange, in: Capsule())
+                .help("Repository moved or deleted")
         } else if let rowState {
-            HStack(spacing: 6) {
+            Group {
                 if let branch = rowState.currentBranch, !branch.isEmpty {
-                    Label(branch, systemImage: "arrow.triangle.branch")
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.triangle.branch")
+                        Text(branch)
+                    }
                         .font(.caption.weight(.medium).scaled(by: textScale))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
                         .background(.quaternary, in: Capsule())
-                        .frame(maxWidth: isDashboardSidebar ? 104 : 160)
                         .help(branch)
                 }
 
                 if let changedFileCount = rowState.changedFileCount {
                     RepoPickerCountBadge(icon: "pencil", label: "Changed files", count: changedFileCount, tint: .yellow)
+                        .layoutPriority(1)
                 }
                 if let behindCount = rowState.behindCount {
                     RepoPickerCountBadge(icon: "arrow.down.to.line", label: "Behind", count: behindCount, tint: .purple)
+                        .layoutPriority(1)
                 }
                 if let aheadCount = rowState.aheadCount {
                     RepoPickerCountBadge(icon: "arrow.up.to.line", label: "Ahead", count: aheadCount, tint: .green)
+                        .layoutPriority(1)
                 }
                 if rowState.isLoading {
                     ProgressView()
                         .controlSize(.small)
                 }
             }
-            .fixedSize(horizontal: true, vertical: false)
         }
     }
 
+    @MainActor
     private func loadRowPresentation(for repo: RecentRepository) async {
-        await MainActor.run {
+        guard !Task.isCancelled else { return }
+        if rowStates[repo.url] == nil {
             rowStates[repo.url] = RepoPickerRowState(
-                currentBranch: rowStates[repo.url]?.currentBranch,
-                changedFileCount: nil,
-                behindCount: nil,
-                aheadCount: nil,
+                currentBranch: nil,
                 isMissing: false,
                 isLoading: true
             )
@@ -858,15 +1184,13 @@ struct RepoPickerView: View {
         let gitMetadataPath = repo.url.appendingPathComponent(".git").path
         guard FileManager.default.fileExists(atPath: repoPath),
               FileManager.default.fileExists(atPath: gitMetadataPath) else {
-            await MainActor.run {
-                rowStates[repo.url] = RepoPickerRowState(
-                    currentBranch: nil,
-                    changedFileCount: nil,
-                    behindCount: nil,
-                    aheadCount: nil,
-                    isMissing: true,
-                    isLoading: false
-                )
+            let state = RepoPickerRowState(
+                currentBranch: nil,
+                isMissing: true,
+                isLoading: false
+            )
+            if rowStates[repo.url] != state {
+                rowStates[repo.url] = state
             }
             return
         }
@@ -875,17 +1199,28 @@ struct RepoPickerView: View {
 
         guard !Task.isCancelled else { return }
 
-        await MainActor.run {
-            rowStates[repo.url]?.currentBranch = snapshot.currentBranch
-            rowStates[repo.url]?.changedFileCount = snapshot.changedFileCount
-            rowStates[repo.url]?.aheadCount = snapshot.aheadCount
-            rowStates[repo.url]?.behindCount = snapshot.behindCount
-            rowStates[repo.url]?.isLoading = false
+        let state = RepoPickerRowState(
+            currentBranch: snapshot.currentBranch,
+            changedFileCount: snapshot.changedFileCount,
+            behindCount: snapshot.behindCount,
+            aheadCount: snapshot.aheadCount,
+            isMissing: false,
+            isLoading: false
+        )
+        if rowStates[repo.url] != state {
+            rowStates[repo.url] = state
         }
     }
 
+    @MainActor
     private func loadRepositoryIcon(for repo: RecentRepository) async {
-        await MainActor.run {
+        guard !Task.isCancelled else { return }
+        defer {
+            if loadingRepoIcons.contains(repo.url) {
+                loadingRepoIcons.remove(repo.url)
+            }
+        }
+        if resolvedIcons[repo.url] == nil {
             loadingRepoIcons.insert(repo.url)
         }
 
@@ -893,9 +1228,8 @@ struct RepoPickerView: View {
         let gitMetadataPath = repo.url.appendingPathComponent(".git").path
         guard FileManager.default.fileExists(atPath: repoPath),
               FileManager.default.fileExists(atPath: gitMetadataPath) else {
-            await MainActor.run {
+            if repoIcons[repo.url] != "code-branch" {
                 repoIcons[repo.url] = "code-branch"
-                loadingRepoIcons.remove(repo.url)
             }
             return
         }
@@ -903,9 +1237,19 @@ struct RepoPickerView: View {
         let remoteURL = await GitStatusService.shared.remoteURL(remote: "origin", in: repo.url)
         guard !Task.isCancelled else { return }
 
-        await MainActor.run {
-            repoIcons[repo.url] = remoteURL.isEmpty ? "code-branch" : determineRepoIconName(from: remoteURL)
-            loadingRepoIcons.remove(repo.url)
+        var icon = determineRepoIconName(from: remoteURL)
+        var identity = RepositoryBookmarkIdentity.resolve(remoteURLString: remoteURL)
+        if icon == "code-branch" {
+            let urls = await GitStatusService.shared.remoteURLs(in: repo.url)
+            if let recognized = urls.first(where: { determineRepoIconName(from: $0) != "code-branch" }) {
+                icon = determineRepoIconName(from: recognized)
+                identity = RepositoryBookmarkIdentity.resolve(remoteURLString: recognized)
+            }
+        }
+        guard !Task.isCancelled else { return }
+        catalog.setProvider(icon, bookmarkKey: identity?.canonicalKey, for: repo.url)
+        if repoIcons[repo.url] != icon {
+            repoIcons[repo.url] = icon
         }
     }
 
@@ -936,8 +1280,7 @@ struct RepoPickerView: View {
                     Task {
                         do {
                             try await bookmarkController.validateAndLink(bookmark, to: url)
-                            store.remove(repo)
-                            store.add(url)
+                            catalog.relink(repo.url, to: url)
                             onRepositoryOpened(url)
                         } catch {
                             errorMessage = error.localizedDescription
@@ -945,8 +1288,7 @@ struct RepoPickerView: View {
                         }
                     }
                 } else {
-                    store.remove(repo)
-                    store.add(url)
+                    catalog.relink(repo.url, to: url)
                     onRepositoryOpened(url)
                 }
             }
@@ -1001,24 +1343,25 @@ struct RepoPickerView: View {
     }
 
     private func timeAgoString(from date: Date) -> String {
-        let interval = Date().timeIntervalSince(date)
+        let interval = max(0, Date().timeIntervalSince(date))
         let minute: TimeInterval = 60
         let hour: TimeInterval = 60 * minute
         let day: TimeInterval = 24 * hour
 
-        if interval < minute {
+        if interval < 1 {
             return "just now"
+        } else if interval < minute {
+            return "\(Int(interval))s ago"
         } else if interval < hour {
             let minutes = Int(interval / minute)
-            return "\(minutes) minute\(minutes == 1 ? "" : "s") ago"
+            return "\(minutes)m ago"
         } else if interval < day {
             let hours = Int(interval / hour)
-            return "\(hours) hour\(hours == 1 ? "" : "s") ago"
+            return "\(hours)h ago"
+        } else if interval < 7 * day {
+            return "\(Int(interval / day))d ago"
         } else {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .medium
-            formatter.timeStyle = .none
-            return formatter.string(from: date)
+            return date.formatted(date: .abbreviated, time: .omitted)
         }
     }
 
@@ -1055,6 +1398,19 @@ struct RepoPickerView: View {
     }
 }
 
+private struct RepoPickerOpenButtonStyle: ButtonStyle {
+    @Environment(\.appTextScale) private var textScale
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.caption.weight(.medium).scaled(by: textScale))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Color.blue.opacity(configuration.isPressed ? 0.75 : 1), in: RoundedRectangle(cornerRadius: 5))
+    }
+}
+
 private struct RepoPickerCountBadge: View {
     @Environment(\.appTextScale) private var textScale
     let icon: String
@@ -1065,10 +1421,13 @@ private struct RepoPickerCountBadge: View {
     var body: some View {
         Group {
             if count > 0 {
-                Label(String(count), systemImage: icon)
+                HStack(spacing: 3) {
+                    Image(systemName: icon)
+                    Text(String(count))
+                }
                     .font(.system(size: 10, weight: .semibold).scaled(by: textScale))
                     .foregroundStyle(.primary)
-                    .padding(.horizontal, 5)
+                    .padding(.horizontal, 4)
                     .padding(.vertical, 3)
                     .background(tint.opacity(0.2), in: Capsule())
                     .help("\(label): \(count)")

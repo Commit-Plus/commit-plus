@@ -38,9 +38,17 @@ struct WelcomeActivityView: View {
                     .help("Computed entirely from local Git history")
             }
             if isLoading && snapshot.repositories.isEmpty {
-                ProgressView("Reading local history…")
-                    .font(.body.scaled(by: textScale))
-                    .frame(maxWidth: .infinity, minHeight: 120)
+                VStack(spacing: 10) {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .accessibilityLabel("Reading local history")
+                    Text("Reading local history…")
+                        .font(.body.scaled(by: textScale))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .accessibilityHidden(true)
+                }
+                .frame(maxWidth: .infinity, minHeight: 120, alignment: .center)
             } else if snapshot.repositories.isEmpty {
                 ContentUnavailableView("Your activity starts here", systemImage: "square.grid.3x3",
                     description: Text("Open a repository to see your local commit activity."))

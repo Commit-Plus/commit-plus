@@ -53,6 +53,10 @@ struct HistoryScreen: View {
             runOperation: dependencies.runOperation, requestCheckout: dependencies.requestCheckout,
             requestExplain: dependencies.requestExplain, requestBrowseRevision: dependencies.requestBrowseRevision,
             runCustomAction: dependencies.runCustomAction, headHash: { listModel.headHash })
+        historyLifecycle
+    }
+
+    private var historyLayout: some View {
         VStack(spacing: 0) {
             BranchFilterBar(repositoryURL: repositoryURL, selectedFilter: $branchFilter,
                 includeRemotes: $includeRemotes, onlyThisBranch: $onlyThisBranch,
@@ -106,9 +110,18 @@ struct HistoryScreen: View {
         .id("history")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var historySelection: some View {
+        historyLayout
         .onChange(of: branchFilter) { _, value in listModel.branchFilter = value }
         .onChange(of: onlyThisBranch) { _, value in listModel.onlyThisBranch = value }
         .onChange(of: baseBranch) { _, value in listModel.baseBranch = value }
+        .onChange(of: selectedBranch) { _, reference in
+            listModel.selectedBranch = reference
+            guard let reference, listModel.selectReferenceTipIfLoaded(reference) else { return }
+            resolvedReference = reference
+        }
         .task(id: ReferenceSelectionRequest(reference: selectedBranch, active: isActive, suspended: isWorkSuspended)) {
             guard isActive, !isWorkSuspended else { return }
             listModel.selectedBranch = selectedBranch
@@ -117,7 +130,7 @@ struct HistoryScreen: View {
                 resolvedReference = nil
                 return
             }
-            let selectedLoadedTip = await listModel.selectReferenceTipIfLoaded(reference)
+            let selectedLoadedTip = await listModel.resolveReferenceTipIfLoaded(reference)
             guard !Task.isCancelled else { return }
             resolvedReference = reference
             if !selectedLoadedTip, branchFilter == .all { branchFilter = .branch(reference) }
@@ -147,6 +160,10 @@ struct HistoryScreen: View {
             guard !Task.isCancelled else { return }
             needsRefresh = false
         }
+    }
+
+    private var historyLifecycle: some View {
+        historySelection
         .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange)) { notification in
             guard notification.userInfo?["repositoryURL"] as? URL == repositoryURL else { return }
             requestRefreshIfCommitSetChanged()
@@ -227,7 +244,14 @@ struct HistoryScreen: View {
         Task {
             let fingerprint = await GitStatusService.shared.historyCommitSetFingerprint(in: repositoryURL)
             guard !Task.isCancelled else { return }
-            guard historyCommitSetFingerprint != fingerprint else { return }
+            guard historyCommitSetFingerprint != fingerprint else {
+                if isActive && !isWorkSuspended {
+                    await listModel.refreshRebaseAvailability()
+                } else {
+                    needsRefresh = true
+                }
+                return
+            }
             historyCommitSetFingerprint = fingerprint
             needsRefresh = true
             if isActive { requestRefresh() }

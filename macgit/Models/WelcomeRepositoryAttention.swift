@@ -17,7 +17,7 @@
 //
 import Foundation
 
-struct WelcomeRepositoryAttention: Identifiable {
+struct WelcomeRepositoryAttention: Identifiable, Equatable {
     var id: URL { url }
     let url: URL
     let name: String

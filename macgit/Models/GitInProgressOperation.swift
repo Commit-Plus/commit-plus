@@ -26,18 +26,20 @@ nonisolated enum GitInProgressOperation: Equatable, Sendable {
     case merge(head: String)
     case cherryPick(head: String)
     case revert(head: String)
+    case rebase(head: String)
 
     var displayName: String {
         switch self {
         case .merge: return "Merge"
         case .cherryPick: return "Cherry-pick"
         case .revert: return "Revert"
+        case .rebase: return "Rebase"
         }
     }
 
     var shortHead: String {
         switch self {
-        case .merge(let head), .cherryPick(let head), .revert(let head):
+        case .merge(let head), .cherryPick(let head), .revert(let head), .rebase(let head):
             return String(head.prefix(7))
         }
     }
@@ -51,7 +53,15 @@ nonisolated enum GitInProgressOperation: Equatable, Sendable {
         return true
     }
 
+    var isRebase: Bool {
+        if case .rebase = self { return true }
+        return false
+    }
+
     var emptyMessage: String {
+        if case .rebase = self {
+            return "Rebase paused (\(shortHead)). If editing, amend your commit before continuing. Continue when ready, or skip or abort."
+        }
         if case .merge = self {
             return "Merge in progress (\(shortHead)). No file changes remain. Continue to complete the merge or abort."
         }

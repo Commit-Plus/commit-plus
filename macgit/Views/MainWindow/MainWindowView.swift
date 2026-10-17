@@ -126,6 +126,7 @@ struct MainWindowView: View {
     @State var showingCommitSheet = false
     @State var showingPullSheet = false
     @State var showingPushSheet = false
+    @State var pushSheetSelection: (branch: String, remote: String, remoteBranch: String)?
     @State var pendingBranchForcePush: RepositorySheetRequest<(branch: String, remote: String?, remoteBranch: String?)>?
     @State var pendingSheetForcePush: (branch: String, remote: String, remoteBranch: String)?
     @State var showingFetchSheet = false
@@ -223,6 +224,7 @@ struct MainWindowView: View {
     init(
         repositoryURL: URL,
         initialShowsHistory: Bool? = nil,
+        initialShowsPullRequests: Bool = false,
         providerAccountController: GitProviderAccountController,
         aiProviderController: AIProviderController,
         onOpenConnections: @escaping () -> Void = {},
@@ -230,7 +232,8 @@ struct MainWindowView: View {
         operationProgress: RepositoryOperationProgress
     ) {
         self.initialShowsHistory = initialShowsHistory
-        _selectedItem = State(initialValue: initialShowsHistory == true ? .item(.history) : .item(.fileStatus))
+        _selectedItem = State(initialValue: initialShowsPullRequests ? .item(.pullRequests)
+            : initialShowsHistory == true ? .item(.history) : .item(.fileStatus))
         self.repositoryURL = repositoryURL
         self.providerAccountController = providerAccountController
         self.aiProviderController = aiProviderController
@@ -655,7 +658,7 @@ struct MainWindowView: View {
             }
     }
 
-    private var mainContent: some View {
+    private var mainLayout: some View {
         ZStack {
             rootView
 
@@ -730,6 +733,10 @@ struct MainWindowView: View {
         .focusedSceneValue(\.gitFlowCommandState, gitFlowCommandState)
         .focusedSceneValue(\.customActionCommandState, customActionCommandState)
         .frame(minWidth: 1100 * appState.textSize.scale, minHeight: 600)
+    }
+
+    private var mainLoading: some View {
+        mainLayout
             .task { await performInitialLoad() }
             .task {
                 releaseNotesPresentation = await ReleaseNotesPresentationStore.shared.claimPresentation()
@@ -748,6 +755,10 @@ struct MainWindowView: View {
                 pullRequestAccessDecision = nil
                 _ = await authorizePullRequestAccess(presentNotice: false)
             }
+    }
+
+    private var mainContent: some View {
+        mainLoading
         .onChange(of: releaseNotesPresentation == nil) { _, dismissed in
             if dismissed {
                 Task { await presentPromotionIfAvailable() }
@@ -785,6 +796,16 @@ struct MainWindowView: View {
                 let branch = await GitStatusService.shared.currentBranch(in: repositoryURL) ?? ""
                 await MainActor.run { gitFlowCurrentBranch = branch }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openPullRequestsFromUserNotification)) { notification in
+            guard let repositoryPath = notification.userInfo?[
+                PullRequestUserNotification.repositoryPathKey
+            ] as? String,
+                  URL(fileURLWithPath: repositoryPath).standardizedFileURL == repositoryURL.standardizedFileURL else {
+                return
+            }
+            windowContext.window?.makeKeyAndOrderFront(nil)
+            selectedItem = .item(.pullRequests)
         }
         .onReceive(NotificationCenter.default.publisher(for: .gitFlowMenuAction)) { notification in
             guard windowContext.owns(notification),
@@ -1039,14 +1060,11 @@ struct MainWindowView: View {
             onRequestPushToTracked: { branch in
                 Task {
                     let remote = await trackedRemote(for: branch)
-                    runRemoteOperation("Pushing \(branch)...", remotes: remote.map { [$0] } ?? []) { credentialResolver in
-                        await syncState.performPushToTracked(
-                            branch: branch,
-                            repositoryURL: repositoryURL,
-                            undoManager: undoManager,
-                            credentialResolver: credentialResolver
-                        )
-                    }
+                    guard let remote,
+                          let upstream = await GitStatusService.shared.upstreamBranch(for: branch, in: repositoryURL) else { return }
+                    let remoteBranch = String(upstream.dropFirst(remote.count + 1))
+                    pushSheetSelection = (branch, remote, remoteBranch)
+                    showingPushSheet = true
                 }
             },
             onRequestForcePushToTracked: requestTrackedBranchForcePush,
@@ -1127,19 +1145,8 @@ struct MainWindowView: View {
                 }
             },
             onRequestPushBranchToRemote: { branch, remote in
-                runRemoteOperation("Pushing \(branch) to \(remote)...", remotes: [remote]) { credentialResolver in
-                    let options = GitStatusService.PushOptions(
-                        remote: remote,
-                        branches: [branch],
-                        branchMappings: [branch: branch]
-                    )
-                    await syncState.performPush(
-                        options: options,
-                        repositoryURL: repositoryURL,
-                        undoManager: undoManager,
-                        credentialResolver: credentialResolver
-                    )
-                }
+                pushSheetSelection = (branch, remote, branch)
+                showingPushSheet = true
             },
             onRequestTrackRemoteBranch: { branch, upstream in
                 runRepositoryOperation(upstream == nil ? "Clearing upstream for \(branch)..." : "Tracking \(upstream!) for \(branch)...") {

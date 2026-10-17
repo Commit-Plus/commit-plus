@@ -37,7 +37,7 @@ extension MainWindowView {
             remoteBranch = requestedBranch
         } else {
             guard let upstream = await GitStatusService.shared.upstreamBranch(for: input.branch, in: repositoryURL) else {
-                throw GitError.commandFailed("This branch has no upstream. Choose a remote from Push to → Force Push to Other Remote.")
+                throw GitError.commandFailed("This branch has no upstream. Choose a remote from Push to, then enable Force Push in the Push dialog.")
             }
             let parts = upstream.split(separator: "/", maxSplits: 1).map(String.init)
             guard parts.count == 2 else { throw GitError.commandFailed("Could not parse upstream branch.") }
@@ -85,6 +85,7 @@ extension MainWindowView {
     }
 
     func forcePushSheetDismissed() {
+        pushSheetSelection = nil
         guard let request = pendingSheetForcePush else { return }
         pendingSheetForcePush = nil
         requestBranchForcePush(branch: request.branch, remote: request.remote, remoteBranch: request.remoteBranch)

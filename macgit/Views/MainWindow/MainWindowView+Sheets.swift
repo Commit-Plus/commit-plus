@@ -59,7 +59,11 @@ extension MainWindowView {
 
     @ViewBuilder
     var pushSheet: some View {
-        PushSheetView(repositoryURL: repositoryURL, defaultRemote: repoSettings.defaultRemoteName, onForcePush: { branch, remote, remoteBranch in
+        PushSheetView(repositoryURL: repositoryURL, defaultRemote: repoSettings.defaultRemoteName,
+                      preselectedRemote: pushSheetSelection?.remote,
+                      preselectedBranch: pushSheetSelection?.branch,
+                      preselectedRemoteBranch: pushSheetSelection?.remoteBranch,
+                      onForcePush: { branch, remote, remoteBranch in
             pendingSheetForcePush = (branch, remote, remoteBranch)
         }) { options in
             runRemoteOperation("Pushing branches...", remotes: [options.remote]) { credentialResolver in
