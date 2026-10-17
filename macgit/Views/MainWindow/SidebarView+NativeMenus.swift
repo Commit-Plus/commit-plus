@@ -60,28 +60,30 @@ extension SidebarView {
         )
         if mergeAccess.isAllowed {
             let assessment = branchMergeDetectionController.assessment(for: branch, repositoryURL: repositoryURL)
-            if let assessment, assessment.isFullyMerged {
-                menu.item("Review Merge Evidence…") {
-                    if let url = assessment.evidence.compactMap(\.webURL).first { NSWorkspace.shared.open(url) }
+            menu.submenu("Merge Status") { mergeMenu in
+                if let assessment, assessment.isFullyMerged {
+                    mergeMenu.item("Review Merge Evidence…") {
+                        if let url = assessment.evidence.compactMap(\.webURL).first { NSWorkspace.shared.open(url) }
+                    }
+                    mergeMenu.item("Delete Fully Merged Branch…", enabled: branch != currentBranch) {
+                        requestFullyMergedBranchDeletion(branch)
+                    }
+                    mergeMenu.item("Hide Fully Merged Hint") {
+                        branchMergeDetectionController.setHintSuppressed(true, for: branch, repositoryURL: repositoryURL)
+                    }
+                } else if branchMergeDetectionController.isHintSuppressed(for: branch, repositoryURL: repositoryURL) {
+                    mergeMenu.item("Show Fully Merged Hint") {
+                        branchMergeDetectionController.setHintSuppressed(false, for: branch, repositoryURL: repositoryURL)
+                    }
                 }
-                menu.item("Delete Fully Merged Branch…", enabled: branch != currentBranch) {
-                    requestFullyMergedBranchDeletion(branch)
-                }
-                menu.item("Hide Fully Merged Hint") {
-                    branchMergeDetectionController.setHintSuppressed(true, for: branch, repositoryURL: repositoryURL)
-                }
-            } else if branchMergeDetectionController.isHintSuppressed(for: branch, repositoryURL: repositoryURL) {
-                menu.item("Show Fully Merged Hint") {
-                    branchMergeDetectionController.setHintSuppressed(false, for: branch, repositoryURL: repositoryURL)
-                }
-            }
-            menu.item("Refresh Merge Status") {
-                Task {
-                    await branchMergeDetectionController.refresh(
-                        branches: [branch], repositoryURL: repositoryURL,
-                        entitlement: accountController.entitlement,
-                        policy: featureAccessController.policy, force: true
-                    )
+                mergeMenu.item("Refresh Merge Status") {
+                    Task {
+                        await branchMergeDetectionController.refresh(
+                            branches: [branch], repositoryURL: repositoryURL,
+                            entitlement: accountController.entitlement,
+                            policy: featureAccessController.policy, force: true
+                        )
+                    }
                 }
             }
         } else {
