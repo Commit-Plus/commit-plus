@@ -783,6 +783,16 @@ struct MainWindowView: View {
                 await MainActor.run { gitFlowCurrentBranch = branch }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openPullRequestsFromUserNotification)) { notification in
+            guard let repositoryPath = notification.userInfo?[
+                PullRequestUserNotification.repositoryPathKey
+            ] as? String,
+                  URL(fileURLWithPath: repositoryPath).standardizedFileURL == repositoryURL.standardizedFileURL else {
+                return
+            }
+            windowContext.window?.makeKeyAndOrderFront(nil)
+            selectedItem = .item(.pullRequests)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .gitFlowMenuAction)) { notification in
             guard windowContext.owns(notification),
                   let action = notification.userInfo?["action"] as? GitFlowMenuAction else { return }
