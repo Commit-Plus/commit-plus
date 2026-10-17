@@ -5,11 +5,23 @@ struct RepositoryDetailView: View {
     let repositoryURL: URL
     let onClose: (() -> Void)?
     let onOpen: (URL) -> Void
+    let isActive: Bool
     @EnvironmentObject private var appState: AppState
     @State private var fileOpener = RepositoryFileOpenModel()
-    @State private var model = RepositoryDetailModel()
+    // Welcome owns these models across repository selections; standalone
+    // previews keep their own model for the lifetime of this view.
+    @State private var model: RepositoryDetailModel
     @State private var tab: RepositoryDetailTab = .summary
     @State private var refresh = 0
+
+    init(repositoryURL: URL, onClose: (() -> Void)?, onOpen: @escaping (URL) -> Void,
+         model: RepositoryDetailModel? = nil, isActive: Bool = true) {
+        self.repositoryURL = repositoryURL
+        self.onClose = onClose
+        self.onOpen = onOpen
+        self.isActive = isActive
+        _model = State(initialValue: model ?? RepositoryDetailModel())
+    }
 
     var body: some View {
         ScrollViewReader { scrollProxy in
@@ -27,7 +39,7 @@ struct RepositoryDetailView: View {
                             RepositoryReadmeSection(repositoryURL: repositoryURL, content: model.readme, file: model.readmeURL, isLoading: model.isLoading,
                                                     onOpenFile: { fileOpener.prepare($0, appState: appState) })
                         case .statistics:
-                            RepositoryStatisticsView(repositoryURL: repositoryURL)
+                            RepositoryStatisticsView(repositoryURL: repositoryURL, isActive: isActive)
                                 .padding(20)
                         }
                     } header: {
@@ -62,16 +74,20 @@ struct RepositoryDetailView: View {
         } message: {
             Text(fileOpener.error ?? "")
         }
-        .task(id: "\(repositoryURL.path)|\(refresh)") {
+        .task(id: "\(repositoryURL.path)|\(refresh)|\(isActive)") {
+            guard isActive else { return }
             do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
             await model.load(repositoryURL)
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refresh += 1 }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if isActive { refresh += 1 }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange)) { notification in repositoryChanged(notification) }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh)) { notification in repositoryChanged(notification) }
     }
 
     private func repositoryChanged(_ notification: Notification) {
+        guard isActive else { return }
         if let url = notification.userInfo?["repositoryURL"] as? URL, url.standardizedFileURL != repositoryURL.standardizedFileURL { return }
         refresh += 1
     }
