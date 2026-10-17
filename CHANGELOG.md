@@ -2,27 +2,26 @@
 
 Changes in the latest Commit+ release compared with the previous release.
 
-## v1.1.16
+## v1.1.17
 
-Changes since `v1.1.15`.
+Changes since `v1.1.16`.
 
 ### Added
 
-- **Tree file lists** — Switch between plain lists and folder trees in Staged, Changed, History, and pull request file lists. Select or stage and unstage whole folders in File Status.
-- **Image comparison** — Compare before and after images side by side or with a draggable overlay in File Status and History.
-- **Git Flow labels** — Choose full names, first letters, or hidden sidebar branch-role labels in Repository Settings.
+- **Interactive rebase** — Right-click a History commit to reorder commits, reword messages, edit, squash, fixup, or drop eligible commits. Review commit details and changes before rebasing, and continue, skip, or abort paused rebases from File Status.
+- **Repository catalog and details** — Discover local repositories from selected folders in Your Repos, browse plain or folder-tree lists, and use View to inspect repository information, remotes, and the working-tree README without opening a workspace.
+- **Repository statistics** — Explore commit activity by month, contributor, weekday, and hour with date-range controls and locally cached results.
+- **Pull request notifications** — Receive macOS notifications when pull request creation succeeds or fails; click a notification to open the repository’s Pull Requests view.
 
 ### Improved
 
-- Repository dialogs show loading progress during preparation and keep operation errors available for retry.
-- Background refresh avoids redundant History reloads and file line-count loading, keeping repository views more responsive.
-- Pull request lists and details display cached content while refreshing expired data.
-- Refreshed the app icon and Git Flow branch badges.
+- The Push dialog offers a Force Push option for one selected branch, with a separate review flow and tags excluded.
+- Repository pickers and the Welcome dashboard avoid redundant background updates, with clearer loading and Push dialog layouts.
+- Conflict resolution uses native code panes with synchronized scrolling.
 
 ### Fixed
 
-- Stale pull request list caches no longer skip refreshes.
-- Branch-name sanitization handles invalid Git ref characters and reserved names.
-- Branch selection and History filtering follow the checked-out branch after checkout.
+- Canceling or closing the commit editor cancels pending AI commit-message generation and prevents late results from replacing the message.
+- GitHub notifications marked Done stay completed across refreshes until new activity arrives.
 
-[Compare v1.1.15 to v1.1.16](https://github.com/Commit-Plus/commit-plus/compare/v1.1.15...v1.1.16)
+[Compare v1.1.16 to v1.1.17](https://github.com/Commit-Plus/commit-plus/compare/v1.1.16...v1.1.17)
