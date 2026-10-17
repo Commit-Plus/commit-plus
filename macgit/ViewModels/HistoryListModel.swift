@@ -267,16 +267,23 @@ final class HistoryListModel {
         storeSnapshot()
     }
 
-    func selectReferenceTipIfLoaded(_ reference: String) async -> Bool {
+    func selectReferenceTipIfLoaded(_ reference: String) -> Bool {
+        // `rows` may still be showing the previous scope while a filter change is
+        // invalidating `loadKey`. Prefer those visible decorations immediately;
+        // the upcoming load will reconcile the same selection with fresh rows.
+        guard activeSearchQuery.isEmpty else { return false }
+        guard let loadedHash = branchTips[reference], let tip = commit(loadedHash) else { return false }
+        select(tip, focus: false)
+        storeSnapshot()
+        return true
+    }
+
+    func resolveReferenceTipIfLoaded(_ reference: String) async -> Bool {
+        if selectReferenceTipIfLoaded(reference) { return true }
         guard branchFilter == .all, activeSearchQuery.isEmpty, publishedKey == loadKey else { return false }
         let requestedGeneration = generation
         let requestedKey = loadKey
-        let hash: String?
-        if let loadedHash = branchTips[reference] {
-            hash = loadedHash
-        } else {
-            hash = await GitStatusService.shared.tipHash(for: reference, in: repositoryURL)
-        }
+        let hash = await GitStatusService.shared.tipHash(for: reference, in: repositoryURL)
         guard !Task.isCancelled, generation == requestedGeneration, loadKey == requestedKey,
               selectedBranch == reference, let hash, let tip = commit(hash) else { return false }
         select(tip, focus: false)

@@ -264,9 +264,6 @@ struct SidebarNativeList: NSViewRepresentable {
         }
         func completePrimaryClick(row: Int, clickCount: Int) {
             guard rows.indices.contains(row) else { return }
-            mouseSelection = true
-            mouseDown(row: row)
-            mouseSelection = false
             if clickCount == 2 {
                 rows[row].activate?()
             }
@@ -407,6 +404,9 @@ struct SidebarNativeList: NSViewRepresentable {
             if let owner, owner.rows.indices.contains(hit), owner.rows[hit].payload != nil {
                 // Custom click/drag tracking bypasses NSTableView's focus handling.
                 window?.makeFirstResponder(self)
+                owner.mouseSelection = true
+                owner.mouseDown(row: hit)
+                owner.mouseSelection = false
                 trackClickOrDrag(from: event, row: hit, owner: owner)
                 return
             }

@@ -109,6 +109,11 @@ struct HistoryScreen: View {
         .onChange(of: branchFilter) { _, value in listModel.branchFilter = value }
         .onChange(of: onlyThisBranch) { _, value in listModel.onlyThisBranch = value }
         .onChange(of: baseBranch) { _, value in listModel.baseBranch = value }
+        .onChange(of: selectedBranch) { _, reference in
+            listModel.selectedBranch = reference
+            guard let reference, listModel.selectReferenceTipIfLoaded(reference) else { return }
+            resolvedReference = reference
+        }
         .task(id: ReferenceSelectionRequest(reference: selectedBranch, active: isActive, suspended: isWorkSuspended)) {
             guard isActive, !isWorkSuspended else { return }
             listModel.selectedBranch = selectedBranch
@@ -117,7 +122,7 @@ struct HistoryScreen: View {
                 resolvedReference = nil
                 return
             }
-            let selectedLoadedTip = await listModel.selectReferenceTipIfLoaded(reference)
+            let selectedLoadedTip = await listModel.resolveReferenceTipIfLoaded(reference)
             guard !Task.isCancelled else { return }
             resolvedReference = reference
             if !selectedLoadedTip, branchFilter == .all { branchFilter = .branch(reference) }
