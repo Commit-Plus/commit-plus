@@ -71,26 +71,10 @@ struct HistoryCommitContextMenu: View {
                         controller.requestRebase(singleCommit)
                     }
                 }
-                if !rebaseAvailability.actions(for: singleCommit).isEmpty {
-                    Menu("Interactive Rebase") {
-                        Button("Interactively Rebase '\(branch)' to Here...") {
-                            controller.requestInteractiveRebase(singleCommit)
-                        }
-                        .disabled(singleCommit.hash == rebaseAvailability.head)
-                        Divider()
-                        Text("Quick Actions")
-                        ForEach(rebaseAvailability.actions(for: singleCommit)) { action in
-                            Button("\(action.title)...") {
-                                controller.requestInteractiveRebase(singleCommit, action: action)
-                            }
-                        }
-                    }
-                } else {
-                    Button("Interactively Rebase '\(branch)' to Here...") {
-                        controller.requestInteractiveRebase(singleCommit)
-                    }
-                    .disabled(singleCommit.hash == rebaseAvailability.head)
+                Button("Interactively Rebase '\(branch)' to Here...") {
+                    controller.requestInteractiveRebase(singleCommit)
                 }
+                .disabled(singleCommit.hash == rebaseAvailability.head)
             }
 
             Divider()
