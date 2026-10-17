@@ -83,33 +83,6 @@ final class HistoryViewTests: XCTestCase {
         XCTAssertNil(HistoryLoadPolicy.tipCommit(for: "missing", in: commits))
     }
 
-    func testSidebarBranchSelectionUsesCurrentOnlyForCheckedOutBranch() {
-        XCTAssertEqual(
-            SidebarView.historyFilter(
-                afterSelecting: "main",
-                currentBranch: "main",
-                currentFilter: .current
-            ),
-            .current
-        )
-        XCTAssertEqual(
-            SidebarView.historyFilter(
-                afterSelecting: "feature/login",
-                currentBranch: "main",
-                currentFilter: .current
-            ),
-            .all
-        )
-        XCTAssertEqual(
-            SidebarView.historyFilter(
-                afterSelecting: "main",
-                currentBranch: "main",
-                currentFilter: .all
-            ),
-            .all
-        )
-    }
-
     func testHistorySearchRequiresAtLeastThreeCharacters() {
         XCTAssertEqual(HistoryLoadPolicy.normalizedSearchQuery("ab"), "")
         XCTAssertEqual(HistoryLoadPolicy.normalizedSearchQuery("  ab "), "")

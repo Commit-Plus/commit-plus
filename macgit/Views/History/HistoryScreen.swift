@@ -122,7 +122,9 @@ struct HistoryScreen: View {
             guard let reference, listModel.selectReferenceTipIfLoaded(reference) else { return }
             resolvedReference = reference
         }
-        .task(id: ReferenceSelectionRequest(reference: selectedBranch, active: isActive, suspended: isWorkSuspended)) {
+        .task(id: ReferenceSelectionRequest(reference: selectedBranch, active: isActive,
+                                             suspended: isWorkSuspended,
+                                             scopeLoaded: listModel.isCurrentScopeLoaded)) {
             guard isActive, !isWorkSuspended else { return }
             listModel.selectedBranch = selectedBranch
             guard selectedBranch != resolvedReference else { return }
@@ -130,10 +132,9 @@ struct HistoryScreen: View {
                 resolvedReference = nil
                 return
             }
-            let selectedLoadedTip = await listModel.resolveReferenceTipIfLoaded(reference)
+            let selectedLoadedTip = await listModel.revealReferenceTip(reference)
             guard !Task.isCancelled else { return }
-            resolvedReference = reference
-            if !selectedLoadedTip, branchFilter == .all { branchFilter = .branch(reference) }
+            if selectedLoadedTip { resolvedReference = reference }
         }
         .onChange(of: searchText) { _, value in listModel.setSearchText(value) }
         .onChange(of: historyLoadSizeRaw) { _, value in
@@ -223,6 +224,7 @@ struct HistoryScreen: View {
         let reference: String?
         let active: Bool
         let suspended: Bool
+        let scopeLoaded: Bool
     }
 
     private struct HistoryLoadRequest: Equatable {

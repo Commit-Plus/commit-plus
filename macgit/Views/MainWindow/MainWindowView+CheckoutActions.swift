@@ -45,11 +45,7 @@ extension MainWindowView {
             if await GitStatusService.shared.currentBranch(in: repositoryURL) == ref {
                 selectedItem = .branch(ref)
                 selectedBranchName = ref
-                appState.historyBranchFilter = SidebarView.historyFilter(
-                    afterSelecting: ref,
-                    currentBranch: ref,
-                    currentFilter: appState.historyBranchFilter
-                )
+                appState.historyBranchFilter = .all
             }
             NotificationCenter.default.post(
                 name: .repositoryDidChange,
@@ -96,11 +92,7 @@ extension MainWindowView {
             await MainActor.run {
                 selectedItem = .branch(checkedOutBranch)
                 selectedBranchName = checkedOutBranch
-                appState.historyBranchFilter = SidebarView.historyFilter(
-                    afterSelecting: checkedOutBranch,
-                    currentBranch: checkedOutBranch,
-                    currentFilter: appState.historyBranchFilter
-                )
+                appState.historyBranchFilter = .all
             }
             NotificationCenter.default.post(
                 name: .repositoryDidChange,
