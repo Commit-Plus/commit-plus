@@ -56,10 +56,14 @@ struct HistoryCommitContextMenu: View {
 
             Divider()
 
-            Button("Merge...", systemImage: "arrow.triangle.merge") {
-                if let singleCommit { controller.requestMerge(singleCommit) }
+            if let singleCommit,
+               let branch = rebaseAvailability.branch,
+               singleCommit.hash != headHash,
+               HistoryCheckoutPolicy.branchRef(from: singleCommit.refs) != nil {
+                Button("Merge into '\(branch)'...", systemImage: "arrow.triangle.merge") {
+                    controller.requestMerge(singleCommit)
+                }
             }
-            .disabled(singleCommit == nil)
 
             if let singleCommit, let branch = rebaseAvailability.branch {
                 if !rebaseAvailability.ancestors.contains(singleCommit.hash) {
