@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import Foundation
 
-enum BranchMergeAssessmentState: String, Codable, Equatable, Sendable {
+nonisolated enum BranchMergeAssessmentState: String, Codable, Equatable, Sendable {
     case fullyMerged
     case notFullyMerged
     case unknown
 }
 
-enum BranchMergeEvidenceKind: String, Codable, Equatable, Sendable {
+nonisolated enum BranchMergeEvidenceKind: String, Codable, Equatable, Sendable {
     case gitAncestry
     case pullRequest
 }
 
-struct BranchMergeEvidence: Codable, Equatable, Sendable {
+nonisolated struct BranchMergeEvidence: Codable, Equatable, Sendable {
     let kind: BranchMergeEvidenceKind
     let title: String
     let webURL: URL?
@@ -20,7 +20,7 @@ struct BranchMergeEvidence: Codable, Equatable, Sendable {
     let mergedAt: Date?
 }
 
-struct BranchMergeAssessment: Codable, Equatable, Sendable {
+nonisolated struct BranchMergeAssessment: Codable, Equatable, Sendable {
     let branch: String
     let tipSHA: String
     let state: BranchMergeAssessmentState

@@ -238,7 +238,11 @@ extension SidebarView {
         let initiallyVisibleBranches = cachedVisibleBranchRows
         .filter { !$0.isFolder }
         .map(\.fullPath)
-        startBranchSync(for: initiallyVisibleBranches, loadID: loadID)
+        startBranchSync(
+            for: initiallyVisibleBranches,
+            loadID: loadID,
+            showsProgress: !hadLoadedBranches
+        )
         if !current.isEmpty {
             let integrationStatus = await GitStatusService.shared.currentBranchIntegrationStatus(
                 branch: current,
@@ -258,11 +262,11 @@ extension SidebarView {
             repositoryURL: repositoryURL,
             entitlement: accountController.entitlement,
             policy: featureAccessController.policy,
-            force: force
+            force: false
         )
     }
 
-    func startBranchSync(for branches: [String], loadID: UUID) {
+    func startBranchSync(for branches: [String], loadID: UUID, showsProgress: Bool = true) {
         let pendingBranches = branches.filter {
             $0 != currentBranch
                 && !loadedBranchSyncBranches.contains($0)
@@ -270,7 +274,9 @@ extension SidebarView {
         }
         guard !pendingBranches.isEmpty else { return }
 
-        syncingBranchSyncBranches.formUnion(pendingBranches)
+        if showsProgress {
+            syncingBranchSyncBranches.formUnion(pendingBranches)
+        }
         Task {
             await loadBranchSyncStatuses(for: pendingBranches, loadID: loadID)
         }

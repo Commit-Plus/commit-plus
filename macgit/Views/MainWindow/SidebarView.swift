@@ -773,6 +773,17 @@ struct SidebarView: View {
                 await loadSubtrees(force: false)
             }
         }
+        .task(id: "\(repositoryURL.path)|\(branchMergeDetectionController.accountRevision)|\(accountController.entitlement)|\(featureAccessController.policy)") {
+            while !Task.isCancelled {
+                await branchMergeDetectionController.refresh(
+                    branches: visibleBranchRows.filter { !$0.isFolder && $0.fullPath != currentBranch }.map(\.fullPath),
+                    repositoryURL: repositoryURL,
+                    entitlement: accountController.entitlement,
+                    policy: featureAccessController.policy
+                )
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            }
+        }
     }
 
     @ViewBuilder

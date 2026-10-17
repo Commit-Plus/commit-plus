@@ -93,7 +93,6 @@ extension SidebarView {
                     for: item.fullPath,
                     repositoryURL: repositoryURL
                 )
-                if mergeAssessment?.isFullyMerged == true { badges.append("Fully Merged") }
                 var row = SidebarNativeRow(id: .init(section: .branches, kind: "ref", key: item.fullPath),
                     appearance: .init(title: item.name, icon: current ? "circle.fill" : "", badge: badges.joined(separator: "  "), gitFlowRole: role, indent: item.indent, emphasized: current),
                     selection: .branch(item.fullPath), select: { branchSectionActions.select(.branch(item.fullPath)) },
@@ -102,22 +101,13 @@ extension SidebarView {
                     payload: { GitDragPayload.branch(item.fullPath, repositoryURL: repositoryURL) },
                     dropTarget: .localBranch(name: item.fullPath, isCurrent: current))
                 row.appearance.gitFlowRoleDisplayMode = gitFlowRoleDisplayMode
+                row.appearance.merged = mergeAssessment?.isFullyMerged == true
                 if current, let status = currentBranchIntegrationStatus, status.predictsBaseConflict {
                     row.appearance.accessory = "exclamationmark.triangle.fill"
                     row.appearance.accessoryLabel = "Current branch integration status"
                     row.accessory = { view in
                         SidebarNativePopover.show(CurrentBranchIntegrationWarningDetails(status: status,
                             canUpdate: canUpdateCurrentBranch, onUpdate: { onRequestUpdateCurrentBranch(status) }), from: view)
-                    }
-                } else if let mergeAssessment, mergeAssessment.isFullyMerged {
-                    row.appearance.accessory = "checkmark.seal.fill"
-                    row.appearance.accessoryLabel = "Review merge evidence"
-                    row.appearance.tint = "green"
-                    row.accessory = { view in
-                        SidebarNativePopover.show(
-                            BranchMergeEvidenceView(assessment: mergeAssessment),
-                            from: view
-                        )
                     }
                 }
                 row.appearance.spinning = isBranchSyncing(item.fullPath)

@@ -24,6 +24,8 @@ struct SidebarNativeInput: Equatable {
     let subtrees: [GitSubtreeEntry]
     var gitFlowRoleDisplayMode: GitFlowRoleDisplayMode = .full
     var dataRepositoryURL: URL? = nil
+    var mergeAssessments: [String: BranchMergeAssessment] = [:]
+    var mergeHintRevision: Int = 0
 }
 
 extension SidebarView {
@@ -45,6 +47,8 @@ extension SidebarView {
             gitFlow: gitFlowConfiguration, gitFlowCommands: gitFlowCommandState,
             worktrees: worktreeEntries, stashes: stashEntries, submodules: submoduleEntries, subtrees: subtreeEntries,
             gitFlowRoleDisplayMode: gitFlowRoleDisplayMode,
-            dataRepositoryURL: sidebarDataRepositoryURL)
+            dataRepositoryURL: sidebarDataRepositoryURL,
+            mergeAssessments: branchMergeDetectionController.assessments,
+            mergeHintRevision: branchMergeDetectionController.hintRevision)
     }
 }

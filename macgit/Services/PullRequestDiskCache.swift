@@ -26,6 +26,13 @@ actor PullRequestDiskCache {
 
     func generation() -> UUID { epoch }
 
+    func removeEntry(key: String, generation: UUID) {
+        guard generation == epoch else { return }
+        try? database { db in
+            try query(db, "DELETE FROM entries WHERE key = ?", [key])
+        }
+    }
+
     struct Entry<Value: Sendable>: Sendable {
         let value: Value
         let fetchedAt: Date
