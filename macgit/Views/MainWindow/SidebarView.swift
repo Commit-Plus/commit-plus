@@ -485,18 +485,13 @@ struct SidebarView: View {
     }
 
     private func selectBranch(_ newSelection: SidebarSelection) {
-        guard case .branch(let branch) = newSelection else {
+        guard case .branch = newSelection else {
             selection = newSelection
             return
         }
 
-        let nextFilter = Self.historyFilter(
-            afterSelecting: branch,
-            currentBranch: currentBranch,
-            currentFilter: appState.historyBranchFilter
-        )
         selection = newSelection
-        appState.historyBranchFilter = nextFilter
+        appState.historyBranchFilter = .all
     }
 
     private func selectHistoryReference(_ newSelection: SidebarSelection) {
@@ -509,15 +504,6 @@ struct SidebarView: View {
                 break
             }
         }
-    }
-
-    static func historyFilter(
-        afterSelecting branch: String,
-        currentBranch: String,
-        currentFilter: HistoryBranchFilter
-    ) -> HistoryBranchFilter {
-        guard currentFilter != .all else { return .all }
-        return branch == currentBranch ? .current : .all
     }
 
     var stashSectionActions: SidebarStashSectionActions {
