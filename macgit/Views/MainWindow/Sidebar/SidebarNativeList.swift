@@ -419,7 +419,8 @@ struct SidebarNativeList: NSViewRepresentable {
                 }
                 return
             }
-            if let owner, owner.rows.indices.contains(hit), owner.rows[hit].payload != nil {
+            if let owner, owner.rows.indices.contains(hit),
+               owner.rows[hit].payload != nil || owner.rows[hit].id.section == .tags {
                 // Custom click/drag tracking bypasses NSTableView's focus handling.
                 window?.makeFirstResponder(self)
                 if owner.beginPrimaryClick(row: hit) { return }
