@@ -413,6 +413,7 @@ struct SidebarNativeList: NSViewRepresentable {
         override func mouseDown(with event: NSEvent) {
             let hit = row(at: convert(event.locationInWindow, from: nil))
             if let owner, owner.rows.indices.contains(hit), owner.rows[hit].selection == nil {
+                owner.pendingPrimaryClick = nil
                 let row = owner.rows[hit]
                 if row.id.kind == "header" || row.id.kind == "folder" || event.clickCount == 1 {
                     row.select?()
@@ -427,6 +428,7 @@ struct SidebarNativeList: NSViewRepresentable {
                 trackClickOrDrag(from: event, row: hit, owner: owner)
                 return
             }
+            owner?.pendingPrimaryClick = nil
             owner?.mouseSelection = true
             owner?.mouseDown(row: hit)
             super.mouseDown(with: event)

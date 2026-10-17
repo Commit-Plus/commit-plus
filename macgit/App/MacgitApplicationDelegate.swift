@@ -25,6 +25,16 @@ extension Notification.Name {
 
 @MainActor
 final class MacgitApplicationDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    private var openRepositoryWindow: ((RepositoryWindowRequest) -> Void)?
+    private var pendingRepositoryRequests: [RepositoryWindowRequest] = []
+
+    func installRepositoryWindowOpener(_ opener: @escaping (RepositoryWindowRequest) -> Void) {
+        openRepositoryWindow = opener
+        let requests = pendingRepositoryRequests
+        pendingRepositoryRequests.removeAll()
+        requests.forEach(opener)
+    }
+
     private var activityTelemetry: AppActivityTelemetryController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -50,6 +60,20 @@ final class MacgitApplicationDelegate: NSObject, NSApplicationDelegate, UNUserNo
               ] as? String else { return }
         await MainActor.run {
             NSApp.activate()
+            let repositoryURL = URL(fileURLWithPath: repositoryPath).standardizedFileURL
+            if !OpenRepositoryRegistry.shared.isOpen(repositoryURL) {
+                let request = RepositoryWindowRequest.repository(
+                    repositoryURL,
+                    shouldFitVisibleScreen: AppState.shared.fitRepositoryWindowsToScreen,
+                    showsPullRequests: true
+                )
+                if let openRepositoryWindow = self.openRepositoryWindow {
+                    openRepositoryWindow(request)
+                } else {
+                    self.pendingRepositoryRequests.append(request)
+                }
+                return
+            }
             NotificationCenter.default.post(
                 name: .openPullRequestsFromUserNotification,
                 object: nil,

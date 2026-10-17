@@ -66,7 +66,7 @@ struct GitUndoExecutor {
         case .requireCleanWorkingTree:
             let status = try await runner.runGit(arguments: ["status", "--porcelain"], in: repositoryURL)
             guard status.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw GitError.commandFailed("Commit, stash, or discard working tree changes before undoing this Git Flow action.")
+                throw GitError.commandFailed("Commit, stash, or discard working tree changes before undoing or redoing this action.")
             }
         case .requireCurrentBranch(let expected):
             let actual = try await runner.runGit(arguments: ["symbolic-ref", "--quiet", "--short", "HEAD"], in: repositoryURL)

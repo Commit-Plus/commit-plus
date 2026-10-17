@@ -54,6 +54,7 @@ struct RepositoryWindowRequest: Codable, Hashable {
     let shouldFitVisibleScreen: Bool
     let initialWindowFrame: InitialWindowFrame?
     var showsHistory: Bool? = nil
+    var showsPullRequests: Bool? = nil
 
     static func repositoryPicker(id: UUID = UUID()) -> Self {
         Self(
@@ -80,6 +81,7 @@ struct RepositoryWindowRequest: Codable, Hashable {
         shouldFitVisibleScreen: Bool,
         initialWindowFrame: InitialWindowFrame? = nil,
         showsHistory: Bool? = nil,
+        showsPullRequests: Bool? = nil,
         id: UUID = UUID()
     ) -> Self {
         Self(
@@ -88,7 +90,8 @@ struct RepositoryWindowRequest: Codable, Hashable {
             initialPresentation: .repositoryPicker,
             shouldFitVisibleScreen: shouldFitVisibleScreen,
             initialWindowFrame: initialWindowFrame,
-            showsHistory: showsHistory
+            showsHistory: showsHistory,
+            showsPullRequests: showsPullRequests
         )
     }
 }

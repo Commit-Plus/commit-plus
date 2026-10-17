@@ -844,6 +844,7 @@ final class PullRequestController: ObservableObject {
 
     @discardableResult
     func createPullRequest(_ draft: PullRequestDraft) async -> PullRequestCreationResult? {
+        detailErrorMessage = nil
         do {
             try draft.validate()
         } catch {

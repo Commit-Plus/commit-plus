@@ -223,6 +223,7 @@ struct MainWindowView: View {
     init(
         repositoryURL: URL,
         initialShowsHistory: Bool? = nil,
+        initialShowsPullRequests: Bool = false,
         providerAccountController: GitProviderAccountController,
         aiProviderController: AIProviderController,
         onOpenConnections: @escaping () -> Void = {},
@@ -230,7 +231,8 @@ struct MainWindowView: View {
         operationProgress: RepositoryOperationProgress
     ) {
         self.initialShowsHistory = initialShowsHistory
-        _selectedItem = State(initialValue: initialShowsHistory == true ? .item(.history) : .item(.fileStatus))
+        _selectedItem = State(initialValue: initialShowsPullRequests ? .item(.pullRequests)
+            : initialShowsHistory == true ? .item(.history) : .item(.fileStatus))
         self.repositoryURL = repositoryURL
         self.providerAccountController = providerAccountController
         self.aiProviderController = aiProviderController
