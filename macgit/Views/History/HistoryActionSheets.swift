@@ -269,6 +269,7 @@ struct HistoryCheckoutSheet: View {
 }
 
 private struct HistoryActionPresentationsModifier: ViewModifier {
+    @State private var windowHeight: CGFloat = 800
     @Bindable var controller: HistoryCommitActionController
 
     private var showingRevert: Binding<Bool> {
@@ -283,6 +284,7 @@ private struct HistoryActionPresentationsModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .background(HistoryRebaseWindowSizeReader { windowHeight = $0 })
             .replacingSheet(item: $controller.presentation) { presentation in
                 switch presentation {
                 case .tag(let commit):
@@ -296,7 +298,7 @@ private struct HistoryActionPresentationsModifier: ViewModifier {
                 case .rebase(let commit):
                     HistoryRebaseSheet(commit: commit, controller: controller)
                 case .interactiveRebase(let plan):
-                    HistoryInteractiveRebaseSheet(plan: plan, controller: controller)
+                    HistoryInteractiveRebaseSheet(plan: plan, controller: controller, height: windowHeight * 0.8)
                 case .checkout(let commit, let hasChanges):
                     HistoryCheckoutSheet(commit: commit, controller: controller, hasUncommittedChanges: hasChanges)
                 case .squash(let commits, let message):
