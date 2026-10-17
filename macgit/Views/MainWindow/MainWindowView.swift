@@ -223,6 +223,7 @@ struct MainWindowView: View {
     init(
         repositoryURL: URL,
         initialShowsHistory: Bool? = nil,
+        initialShowsPullRequests: Bool = false,
         providerAccountController: GitProviderAccountController,
         aiProviderController: AIProviderController,
         onOpenConnections: @escaping () -> Void = {},
@@ -230,7 +231,8 @@ struct MainWindowView: View {
         operationProgress: RepositoryOperationProgress
     ) {
         self.initialShowsHistory = initialShowsHistory
-        _selectedItem = State(initialValue: initialShowsHistory == true ? .item(.history) : .item(.fileStatus))
+        _selectedItem = State(initialValue: initialShowsPullRequests ? .item(.pullRequests)
+            : initialShowsHistory == true ? .item(.history) : .item(.fileStatus))
         self.repositoryURL = repositoryURL
         self.providerAccountController = providerAccountController
         self.aiProviderController = aiProviderController
@@ -782,6 +784,16 @@ struct MainWindowView: View {
                 let branch = await GitStatusService.shared.currentBranch(in: repositoryURL) ?? ""
                 await MainActor.run { gitFlowCurrentBranch = branch }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openPullRequestsFromUserNotification)) { notification in
+            guard let repositoryPath = notification.userInfo?[
+                PullRequestUserNotification.repositoryPathKey
+            ] as? String,
+                  URL(fileURLWithPath: repositoryPath).standardizedFileURL == repositoryURL.standardizedFileURL else {
+                return
+            }
+            windowContext.window?.makeKeyAndOrderFront(nil)
+            selectedItem = .item(.pullRequests)
         }
         .onReceive(NotificationCenter.default.publisher(for: .gitFlowMenuAction)) { notification in
             guard windowContext.owns(notification),

@@ -33,6 +33,7 @@ final class HistoryListModel {
             cancelSearchDebounce()
             invalidateLoad()
             publishedKey = nil
+            rebaseAvailability = HistoryRebaseAvailability()
         }
     }
     var branchFilter: HistoryBranchFilter { didSet { if branchFilter != oldValue { invalidateLoad() } } }
@@ -52,6 +53,7 @@ final class HistoryListModel {
     private(set) var selectedCommit: Commit?
     private(set) var shouldDebounceDetailSelection = false
     private(set) var headHash: String?
+    private(set) var rebaseAvailability = HistoryRebaseAvailability()
     private(set) var phase: Phase = .idle
     private(set) var scrollRequest: HistoryScrollRequest?
     private(set) var dragActiveHashes: Set<String> = []
@@ -125,6 +127,13 @@ final class HistoryListModel {
         await reload(preservingSelection: publishedKey == loadKey)
     }
 
+    func refreshRebaseAvailability() async {
+        let request = currentRequest()
+        let availability = (try? await GitStatusService.shared.historyRebaseAvailability(in: request.repositoryURL)) ?? HistoryRebaseAvailability()
+        guard isCurrent(request) else { return }
+        rebaseAvailability = availability
+    }
+
     private func reload(preservingSelection: Bool) async {
         guard !Task.isCancelled else { return }
         invalidateLoad()
@@ -148,6 +157,7 @@ final class HistoryListModel {
             else { commits = await self.historyPage(request, limit: limit, skip: 0) }
             guard self.isCurrent(request) else { return }
             let head = await self.resolveHead(commits, request: request)
+            let rebaseAvailability = (try? await GitStatusService.shared.historyRebaseAvailability(in: request.repositoryURL)) ?? HistoryRebaseAvailability()
             let root = await HistoryLoadPolicy.highlightRootHash(
                 for: request.filter, commits: commits, repositoryURL: request.repositoryURL
             )
@@ -158,6 +168,7 @@ final class HistoryListModel {
             )
             guard self.isCurrent(request) else { return }
             let previousCommit = self.selectedCommit
+            self.rebaseAvailability = rebaseAvailability
             self.publish(commits: commits, graphResult: graph,
                          hasMore: snapshot?.hasMore ?? (commits.count == limit),
                          change: .reload(preserveViewport: preservingSelection), head: head, root: root)
@@ -256,16 +267,23 @@ final class HistoryListModel {
         storeSnapshot()
     }
 
-    func selectReferenceTipIfLoaded(_ reference: String) async -> Bool {
+    func selectReferenceTipIfLoaded(_ reference: String) -> Bool {
+        // `rows` may still be showing the previous scope while a filter change is
+        // invalidating `loadKey`. Prefer those visible decorations immediately;
+        // the upcoming load will reconcile the same selection with fresh rows.
+        guard activeSearchQuery.isEmpty else { return false }
+        guard let loadedHash = branchTips[reference], let tip = commit(loadedHash) else { return false }
+        select(tip, focus: false)
+        storeSnapshot()
+        return true
+    }
+
+    func resolveReferenceTipIfLoaded(_ reference: String) async -> Bool {
+        if selectReferenceTipIfLoaded(reference) { return true }
         guard branchFilter == .all, activeSearchQuery.isEmpty, publishedKey == loadKey else { return false }
         let requestedGeneration = generation
         let requestedKey = loadKey
-        let hash: String?
-        if let loadedHash = branchTips[reference] {
-            hash = loadedHash
-        } else {
-            hash = await GitStatusService.shared.tipHash(for: reference, in: repositoryURL)
-        }
+        let hash = await GitStatusService.shared.tipHash(for: reference, in: repositoryURL)
         guard !Task.isCancelled, generation == requestedGeneration, loadKey == requestedKey,
               selectedBranch == reference, let hash, let tip = commit(hash) else { return false }
         select(tip, focus: false)

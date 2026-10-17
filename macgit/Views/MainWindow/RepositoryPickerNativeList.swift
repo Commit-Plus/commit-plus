@@ -8,6 +8,8 @@ struct RepositoryPickerNativeList<Content: View>: NSViewRepresentable {
     let rows: [Row]
     let textScale: CGFloat
     let dark: Bool
+    var onRepositorySelected: ((RecentRepository) -> Void)? = nil
+    var onRepositoryOpened: ((RecentRepository) -> Void)? = nil
     @ViewBuilder let content: (Row) -> Content
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -15,7 +17,7 @@ struct RepositoryPickerNativeList<Content: View>: NSViewRepresentable {
     func updateNSView(_ view: NSScrollView, context: Context) { context.coordinator.apply(self) }
 
     @MainActor final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
-        private let table = NSTableView()
+        private let table = RepositoryPickerTableView()
         private var model: RepositoryPickerNativeList?
         private var rows: [Row] = []
 
@@ -41,6 +43,7 @@ struct RepositoryPickerNativeList<Content: View>: NSViewRepresentable {
             table.rowHeight = 68
             table.dataSource = self
             table.delegate = self
+            table.onKeyDown = { [weak self] event in self?.handleKeyDown(event) ?? false }
             scroll.documentView = table
             return scroll
         }
@@ -50,6 +53,14 @@ struct RepositoryPickerNativeList<Content: View>: NSViewRepresentable {
             let appearanceChanged = model?.textScale != next.textScale || model?.dark != next.dark
             model = next
             rows = next.rows
+            let selectedID = rows.first(where: \.selected)?.id
+            defer {
+                if selectedID != old.first(where: \.selected)?.id,
+                   let index = rows.firstIndex(where: \.selected), next.onRepositorySelected != nil {
+                    table.window?.makeFirstResponder(table)
+                    table.scrollRowToVisible(index)
+                }
+            }
             table.enclosingScrollView?.appearance = NSAppearance(named: next.dark ? .darkAqua : .aqua)
             if old.map(\.id) != rows.map(\.id) || appearanceChanged {
                 let visible = table.rows(in: table.visibleRect)
@@ -70,6 +81,31 @@ struct RepositoryPickerNativeList<Content: View>: NSViewRepresentable {
             }
         }
 
+        private func handleKeyDown(_ event: NSEvent) -> Bool {
+            guard let model, let onSelect = model.onRepositorySelected,
+                  event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty else { return false }
+            let indexes = rows.indices.filter { rows[$0].repository != nil }
+            guard !indexes.isEmpty else { return false }
+            let current = indexes.firstIndex { rows[$0].selected }
+            switch event.keyCode {
+            case 125, 126: // Down and Up
+                let position = current.map {
+                    min(max($0 + (event.keyCode == 125 ? 1 : -1), 0), indexes.count - 1)
+                } ?? (event.keyCode == 125 ? 0 : indexes.count - 1)
+                let index = indexes[position]
+                if let repository = rows[index].repository { onSelect(repository) }
+                table.scrollRowToVisible(index)
+                return true
+            case 36, 76: // Return and keypad Enter
+                guard let current, let repository = rows[indexes[current]].repository,
+                      let onOpen = model.onRepositoryOpened else { return false }
+                onOpen(repository)
+                return true
+            default:
+                return false
+            }
+        }
+
         func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
         func tableView(_ tableView: NSTableView, viewFor column: NSTableColumn?, row: Int) -> NSView? {
@@ -84,6 +120,14 @@ struct RepositoryPickerNativeList<Content: View>: NSViewRepresentable {
             cell.identifier = identifier
             return cell
         }
+    }
+}
+
+private final class RepositoryPickerTableView: NSTableView {
+    var onKeyDown: ((NSEvent) -> Bool)?
+
+    override func keyDown(with event: NSEvent) {
+        if onKeyDown?(event) != true { super.keyDown(with: event) }
     }
 }
 

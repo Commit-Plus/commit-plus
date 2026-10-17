@@ -4,6 +4,7 @@ import SwiftUI
 
 struct RepositoryStatisticsView: View {
     let repositoryURL: URL
+    var isActive = true
     @State private var statistics: RepositoryStatistics?
     @State private var error: String?
     @State private var range = "All time"
@@ -143,7 +144,8 @@ struct RepositoryStatisticsView: View {
         .sheet(isPresented: $showingContributors) {
             RepositoryContributorsSheet(contributors: statistics?.contributors ?? [])
         }
-        .task(id: "\(repositoryURL.path)|\(query)|\(reloadGeneration)") {
+        .task(id: "\(repositoryURL.path)|\(query)|\(reloadGeneration)|\(isActive)") {
+            guard isActive else { return }
             await load(forceRefresh: reloadGeneration != completedReloadGeneration)
             if !Task.isCancelled { completedReloadGeneration = reloadGeneration }
         }

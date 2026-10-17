@@ -257,6 +257,9 @@ struct macgitApp: App {
                 .font(appState.textSize.font)
                 .environment(\.appTextScale, appState.textSize.scale)
                 .task {
+                    applicationDelegate.installRepositoryWindowOpener { [openWindow] request in
+                        openWindow(id: "main", value: request)
+                    }
                     appUpdateController.start()
                 }
                 .task(id: accountController.account?.uid) {

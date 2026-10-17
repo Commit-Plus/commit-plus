@@ -26,6 +26,8 @@ struct WelcomeView: View {
     @State private var hasStartedLoading = false
     @State private var refreshID = UUID()
     @State private var viewedRepository: URL?
+    @State private var repositoryDetailModels: [URL: RepositoryDetailModel] = [:]
+    @State private var recentDetailURLs: [URL] = []
     let accountDisplayName: String?
     let onOpenAccount: () -> Void
     let onRepositoryOpened: (URL, Bool?) -> Void
@@ -34,23 +36,37 @@ struct WelcomeView: View {
         PersistentHSplit(
             autosaveName: "WelcomeDashboardMainSplit",
             left: {
-                RepoPickerView(isDashboardSidebar: true, onRepositoryViewed: { viewedRepository = $0 }, selectedRepositoryURL: viewedRepository) { url in
+                RepoPickerView(isDashboardSidebar: true, onRepositoryViewed: viewRepository, selectedRepositoryURL: viewedRepository) { url in
                     onRepositoryOpened(url, nil)
                 }
                 .frame(minWidth: 340, idealWidth: 420, maxWidth: 600)
             },
             right: {
-                if let viewedRepository {
-                    RepositoryDetailView(repositoryURL: viewedRepository, onClose: { self.viewedRepository = nil }, onOpen: openRepository)
-                        .id(viewedRepository).frame(minWidth: 560)
-                } else {
-                    WelcomeDashboardContent(
-                    model: model, accountDisplayName: accountDisplayName, repositoryCount: store.repositories.count,
-                    onRefresh: refreshImmediately, onOpenAccount: onOpenAccount,
-                    onReviewAttention: reviewAttention, onRepositoryOpened: openRepository
-                )
-                .frame(minWidth: 560)
+                ZStack {
+                    if viewedRepository == nil {
+                        WelcomeDashboardContent(
+                            model: model, accountDisplayName: accountDisplayName, repositoryCount: store.repositories.count,
+                            onRefresh: refreshImmediately, onOpenAccount: onOpenAccount,
+                            onReviewAttention: reviewAttention, onRepositoryOpened: openRepository
+                        )
+                    }
+                    // Stable identities retain the rendered README and scroll/tab
+                    // state when another repository is selected.
+                    ForEach(recentDetailURLs, id: \.self) { url in
+                        if let detailModel = repositoryDetailModels[url] {
+                            RepositoryDetailView(
+                                repositoryURL: url, onClose: { viewedRepository = nil },
+                                onOpen: openRepository, model: detailModel,
+                                isActive: viewedRepository == url
+                            )
+                            .opacity(viewedRepository == url ? 1 : 0)
+                            .allowsHitTesting(viewedRepository == url)
+                            .disabled(viewedRepository != url)
+                            .accessibilityHidden(viewedRepository != url)
+                        }
+                    }
                 }
+                .frame(minWidth: 560)
             }
         )
         .frame(minWidth: 900, minHeight: 620)
@@ -144,6 +160,21 @@ struct WelcomeView: View {
     }
 
     private func refresh() { refreshID = UUID() }
+
+    private func viewRepository(_ url: URL) {
+        guard viewedRepository != url else { return }
+        if repositoryDetailModels[url] == nil {
+            repositoryDetailModels[url] = RepositoryDetailModel()
+        }
+        recentDetailURLs.removeAll { $0 == url }
+        recentDetailURLs.append(url)
+        // Bound the number of live WebViews, evicting the least recently viewed.
+        if recentDetailURLs.count > 3 {
+            let evicted = recentDetailURLs.removeFirst()
+            repositoryDetailModels[evicted] = nil
+        }
+        viewedRepository = url
+    }
 
     private func openRepository(_ url: URL) {
         guard FileManager.default.fileExists(atPath: url.appendingPathComponent(".git").path) else {

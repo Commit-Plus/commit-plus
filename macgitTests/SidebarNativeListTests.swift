@@ -26,6 +26,13 @@ final class SidebarNativeListTests: XCTestCase {
             appearance: .init(title: name), selection: .branch(name), select: select)
     }
 
+    private func row(_ name: String, select: (() -> Void)? = nil,
+                     activate: (() -> Void)?) -> SidebarNativeRow {
+        .init(id: .init(section: .branches, kind: "ref", key: name),
+            appearance: .init(title: name), selection: .branch(name),
+            select: select, activate: activate)
+    }
+
     private func coordinator(_ list: SidebarNativeList) -> (SidebarNativeList.Coordinator, SidebarNativeList.Table) {
         let owner = list.makeCoordinator()
         let table = SidebarNativeList.Table(frame: NSRect(x: 0, y: 0, width: 280, height: 300))
@@ -68,6 +75,47 @@ final class SidebarNativeListTests: XCTestCase {
         owner.update(list(input: input(branch: "changed"), selection: .branch("second")) { [second, first] })
         XCTAssertEqual(table.selectedRow, 0)
         XCTAssertEqual(selections, 0)
+    }
+
+    func testPrimaryPressSelectsOnlyAfterClickCompletes() {
+        var selections = 0
+        let branch = row("feature") { selections += 1 }
+        let (owner, table) = coordinator(list { [branch] })
+
+        XCTAssertFalse(owner.beginPrimaryClick(row: 0, at: 10))
+        XCTAssertEqual(selections, 0)
+        XCTAssertEqual(table.selectedRow, -1)
+
+        owner.completePrimaryClick(row: 0, at: 10.1)
+        XCTAssertEqual(selections, 1)
+        XCTAssertEqual(table.selectedRow, 0)
+    }
+
+    func testSecondMouseDownActivatesSameBranchWithinForkStyleWindow() {
+        var selections = 0, activations = 0
+        let branch = row("feature", select: { selections += 1 }, activate: { activations += 1 })
+        let (owner, _) = coordinator(list { [branch] })
+
+        owner.completePrimaryClick(row: 0, at: 10)
+
+        XCTAssertTrue(owner.beginPrimaryClick(row: 0, at: 10.79))
+        XCTAssertEqual(selections, 1)
+        XCTAssertEqual(activations, 1)
+    }
+
+    func testExpiredOrDifferentSecondPressDoesNotActivate() {
+        var activations = 0
+        let first = row("first", activate: { activations += 1 })
+        let second = row("second", activate: { activations += 1 })
+        let (owner, _) = coordinator(list { [first, second] })
+
+        owner.completePrimaryClick(row: 0, at: 10)
+        XCTAssertFalse(owner.beginPrimaryClick(row: 1, at: 10.4))
+        XCTAssertFalse(owner.beginPrimaryClick(row: 0, at: 10.7))
+
+        owner.completePrimaryClick(row: 0, at: 20)
+        XCTAssertFalse(owner.beginPrimaryClick(row: 0, at: 20.81))
+        XCTAssertEqual(activations, 0)
     }
 
     func testIdentitySeparatesFoldersAndRefNamespaces() {

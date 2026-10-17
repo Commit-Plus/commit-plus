@@ -119,6 +119,9 @@ struct SidebarNativeList: NSViewRepresentable {
         var generation = 0
         var dropID: SidebarNativeRow.ID?
         var dropLabel = ""
+        var pendingPrimaryClick: (id: SidebarNativeRow.ID, expiresAt: TimeInterval)?
+
+        static let activationClickInterval: TimeInterval = 0.8
 
         init(_ parent: SidebarNativeList) { self.parent = parent }
 
@@ -164,6 +167,7 @@ struct SidebarNativeList: NSViewRepresentable {
                 pasteboardKey = nil
                 dropID = nil
                 dropLabel = ""
+                pendingPrimaryClick = nil
                 retainedMenu?.cancelTracking()
                 retainedMenu = nil
                 table.reloadData()
@@ -262,14 +266,25 @@ struct SidebarNativeList: NSViewRepresentable {
                 rows[row].select?()
             }
         }
-        func completePrimaryClick(row: Int, clickCount: Int) {
+        func beginPrimaryClick(row: Int, at time: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+            guard rows.indices.contains(row) else { return false }
+            let id = rows[row].id
+            guard let pendingPrimaryClick,
+                  pendingPrimaryClick.id == id,
+                  time <= pendingPrimaryClick.expiresAt else {
+                self.pendingPrimaryClick = nil
+                return false
+            }
+            self.pendingPrimaryClick = nil
+            rows[row].activate?()
+            return true
+        }
+        func completePrimaryClick(row: Int, at time: TimeInterval = ProcessInfo.processInfo.systemUptime) {
             guard rows.indices.contains(row) else { return }
             mouseSelection = true
             mouseDown(row: row)
             mouseSelection = false
-            if clickCount == 2 {
-                rows[row].activate?()
-            }
+            pendingPrimaryClick = (rows[row].id, time + Self.activationClickInterval)
         }
         @objc func click() {
             guard let table, rows.indices.contains(table.clickedRow), rows[table.clickedRow].selection == nil else { return }
@@ -398,18 +413,22 @@ struct SidebarNativeList: NSViewRepresentable {
         override func mouseDown(with event: NSEvent) {
             let hit = row(at: convert(event.locationInWindow, from: nil))
             if let owner, owner.rows.indices.contains(hit), owner.rows[hit].selection == nil {
+                owner.pendingPrimaryClick = nil
                 let row = owner.rows[hit]
                 if row.id.kind == "header" || row.id.kind == "folder" || event.clickCount == 1 {
                     row.select?()
                 }
                 return
             }
-            if let owner, owner.rows.indices.contains(hit), owner.rows[hit].payload != nil {
+            if let owner, owner.rows.indices.contains(hit),
+               owner.rows[hit].payload != nil || owner.rows[hit].id.section == .tags {
                 // Custom click/drag tracking bypasses NSTableView's focus handling.
                 window?.makeFirstResponder(self)
+                if owner.beginPrimaryClick(row: hit) { return }
                 trackClickOrDrag(from: event, row: hit, owner: owner)
                 return
             }
+            owner?.pendingPrimaryClick = nil
             owner?.mouseSelection = true
             owner?.mouseDown(row: hit)
             super.mouseDown(with: event)
@@ -428,7 +447,7 @@ struct SidebarNativeList: NSViewRepresentable {
                 case .leftMouseUp:
                     let releaseRow = self.row(at: convert(event.locationInWindow, from: nil))
                     guard releaseRow == row else { return }
-                    owner.completePrimaryClick(row: row, clickCount: mouseDownEvent.clickCount)
+                    owner.completePrimaryClick(row: row)
                     return
                 default:
                     continue

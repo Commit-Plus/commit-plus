@@ -41,6 +41,7 @@ enum GitUndoResetMode: Equatable {
 indirect enum GitUndoOperation: Equatable {
     case requireCleanWorkingTree
     case requireHead(String)
+    case requireCurrentBranch(String)
     case requireLocalBranchTip(name: String, expectedTip: String)
     case requireLocalBranchAbsent(String)
     case stageFiles(paths: [String])

@@ -9,6 +9,7 @@ final class HistoryCommitActionController {
         case reset(Commit, branchName: String)
         case tag(Commit), branch(Commit), merge(Commit), rebase(Commit)
         case squash([Commit], message: String)
+        case interactiveRebase(HistoryRebasePlan)
 
         var id: String {
             switch self {
@@ -18,6 +19,7 @@ final class HistoryCommitActionController {
             case .branch(let commit): "branch:\(commit.hash)"
             case .merge(let commit): "merge:\(commit.hash)"
             case .rebase(let commit): "rebase:\(commit.hash)"
+            case .interactiveRebase(let plan): "interactiveRebase:\(plan.id)"
             case .squash(let commits, _): "squash:\(commits.map(\.hash).joined(separator: ","))"
             }
         }
@@ -38,6 +40,7 @@ final class HistoryCommitActionController {
     var presentation: Presentation?
     var revertCandidate: Commit?
     var errorMessage: String?
+    var rebaseNotice: String?
     @ObservationIgnored var dependencies: Dependencies
     @ObservationIgnored private var requestToken = UUID()
 
@@ -58,6 +61,50 @@ final class HistoryCommitActionController {
     func requestBranch(_ commit: Commit) { present(.branch(commit)) }
     func requestMerge(_ commit: Commit) { present(.merge(commit)) }
     func requestRebase(_ commit: Commit) { present(.rebase(commit)) }
+    func requestInteractiveRebase(_ commit: Commit, action: HistoryRebasePlan.Action? = nil) {
+        dismiss()
+        let token = requestToken
+        let dependencies = dependencies
+        dependencies.runOperation("Preparing interactive rebase...") {
+            do {
+                let plan = try await GitStatusService.shared.prepareHistoryRebase(
+                    commit: commit, action: action, in: dependencies.repositoryURL)
+                guard self.requestToken == token, self.dependencies.repositoryURL == dependencies.repositoryURL else { return }
+                self.presentation = .interactiveRebase(plan)
+            } catch {
+                guard self.requestToken == token else { return }
+                self.errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func interactiveRebase(_ plan: HistoryRebasePlan) {
+        let dependencies = dependencies
+        dependencies.runOperation("Rewriting commits...") {
+            do {
+                try await GitStatusService.shared.executeHistoryRebase(plan, in: dependencies.repositoryURL)
+                self.dismiss()
+                if await GitStatusService.shared.isRebaseInProgress(in: dependencies.repositoryURL) {
+                    self.rebaseNotice = "Rebase paused for editing. Open File Status, make and stage your changes, then use Amend last commit. Choose Continue when ready, or Abort to restore the original branch."
+                } else if let newHead = await GitStatusService.shared.tipHash(for: "HEAD", in: dependencies.repositoryURL), newHead != plan.head {
+                    dependencies.undoManager?.register(GitUndoEntry(
+                        repositoryURL: dependencies.repositoryURL,
+                        label: plan.quickAction?.title ?? "Interactive Rebase",
+                        undoOperation: .sequence([.requireCurrentBranch(plan.branch), .requireCleanWorkingTree,
+                            .resetHead(target: plan.head, mode: .hard, expectedHead: newHead)]),
+                        redoOperation: .sequence([.requireCurrentBranch(plan.branch), .requireCleanWorkingTree,
+                            .resetHead(target: newHead, mode: .hard, expectedHead: plan.head)])))
+                }
+            } catch {
+                self.dismiss()
+                let paused = await GitStatusService.shared.isRebaseInProgress(in: dependencies.repositoryURL)
+                self.errorMessage = error.localizedDescription + (paused
+                    ? "\n\nOpen File Status to resolve conflicts, then continue, skip, or abort the rebase." : "")
+            }
+            await dependencies.syncState?.refresh(repositoryURL: dependencies.repositoryURL)
+            self.notifyRepositoryChanged(dependencies: dependencies)
+        }
+    }
     func requestRevert(_ commit: Commit) { dismiss(); revertCandidate = commit }
     func requestSquash(_ commits: [Commit]) {
         guard HistoryLoadPolicy.canSquashCommits(commits, selectedHashes: commits.map(\.hash), headHash: dependencies.headHash()) else { return }
@@ -241,8 +288,11 @@ final class HistoryCommitActionController {
             dismiss()
             notifyRepositoryChanged(dependencies: dependencies)
         } catch {
+            dismiss()
             errorMessage = error.localizedDescription
         }
+        await dependencies.syncState?.refresh(repositoryURL: dependencies.repositoryURL)
+        notifyRepositoryChanged(dependencies: dependencies)
     }
 
     private func undoMode(for mode: ResetMode) -> GitUndoResetMode {

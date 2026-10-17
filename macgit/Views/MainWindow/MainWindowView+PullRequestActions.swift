@@ -82,24 +82,35 @@ extension MainWindowView {
 
     func submitCreatePullRequest(_ draft: PullRequestDraft) async {
         guard await authorizePullRequestAccess(presentNotice: false) else {
-            pullRequestController.detailErrorMessage = "Pull request access is unavailable for this repository."
+            let message = "Pull request access is unavailable for this repository."
+            pullRequestController.detailErrorMessage = message
+            PullRequestUserNotification.creationFailed(message: message, repositoryURL: repositoryURL)
             return
         }
         do {
             _ = try await prepareRemoteBranchForPullRequest(branch: draft.sourceBranch)
-            await pullRequestController.createPullRequest(draft)
-            if pullRequestController.createDraftSeed == nil {
+            if let result = await pullRequestController.createPullRequest(draft) {
                 await MainActor.run {
                     createPullRequestWindow.close()
                     if let detailErrorMessage = pullRequestController.detailErrorMessage {
                         syncState.showError(detailErrorMessage)
                         pullRequestController.detailErrorMessage = nil
                     }
+                    PullRequestUserNotification.created(
+                        result.summary,
+                        repositoryURL: repositoryURL,
+                        warnings: result.warnings
+                    )
                 }
+            } else {
+                let message = pullRequestController.detailErrorMessage ?? "Could not create pull request."
+                PullRequestUserNotification.creationFailed(message: message, repositoryURL: repositoryURL)
             }
         } catch {
             await MainActor.run {
-                pullRequestController.detailErrorMessage = error.localizedDescription
+                let message = error.localizedDescription
+                pullRequestController.detailErrorMessage = message
+                PullRequestUserNotification.creationFailed(message: message, repositoryURL: repositoryURL)
             }
         }
     }

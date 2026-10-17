@@ -842,18 +842,20 @@ final class PullRequestController: ObservableObject {
         isLoadingCreateDraftParticipants = false
     }
 
-    func createPullRequest(_ draft: PullRequestDraft) async {
+    @discardableResult
+    func createPullRequest(_ draft: PullRequestDraft) async -> PullRequestCreationResult? {
+        detailErrorMessage = nil
         do {
             try draft.validate()
         } catch {
             detailErrorMessage = error.localizedDescription
-            return
+            return nil
         }
         guard let repository = activeRepository,
               let token = activeToken,
               let service = services[repository.provider] else {
             detailErrorMessage = "Pull request creation is unavailable."
-            return
+            return nil
         }
 
         isPerformingAction = true
@@ -873,8 +875,10 @@ final class PullRequestController: ObservableObject {
             if !result.warnings.isEmpty {
                 detailErrorMessage = "Pull request #\(result.summary.number) was created, but \(result.warnings.joined(separator: " "))"
             }
+            return result
         } catch {
             detailErrorMessage = error.localizedDescription
+            return nil
         }
     }
 
