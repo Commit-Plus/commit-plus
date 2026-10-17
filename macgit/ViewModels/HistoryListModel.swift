@@ -120,6 +120,8 @@ final class HistoryListModel {
         }
     }
 
+    var isCurrentScopeLoaded: Bool { publishedKey == loadKey }
+
     func load() async { await reload(preservingSelection: false) }
 
     func refresh() async {
@@ -278,14 +280,55 @@ final class HistoryListModel {
         return true
     }
 
-    func resolveReferenceTipIfLoaded(_ reference: String) async -> Bool {
+    func revealReferenceTip(_ reference: String) async -> Bool {
         if selectReferenceTipIfLoaded(reference) { return true }
         guard branchFilter == .all, activeSearchQuery.isEmpty, publishedKey == loadKey else { return false }
         let requestedGeneration = generation
         let requestedKey = loadKey
         let hash = await GitStatusService.shared.tipHash(for: reference, in: repositoryURL)
         guard !Task.isCancelled, generation == requestedGeneration, loadKey == requestedKey,
-              selectedBranch == reference, let hash, let tip = commit(hash) else { return false }
+              selectedBranch == reference, let hash else { return false }
+
+        if let activePageTask = pageTask { await activePageTask.value }
+        guard !Task.isCancelled, generation == requestedGeneration, loadKey == requestedKey,
+              selectedBranch == reference else { return false }
+        if let tip = commit(hash) {
+            select(tip, focus: false)
+            storeSnapshot()
+            return true
+        }
+
+        isLoading = true
+        defer { isLoading = false }
+        while commit(hash) == nil, rows.hasMore {
+            let oldRows = rows
+            let previousGraphState = graphState
+            let page = await historyPage(currentRequest(), limit: paging.pageSize, skip: oldRows.commits.count)
+            guard !Task.isCancelled, generation == requestedGeneration, loadKey == requestedKey,
+                  selectedBranch == reference, rows.version == oldRows.version else { return false }
+            let commits = oldRows.commits + page
+            let graph: CommitGraphGenerationResult
+            if let previousGraphState,
+               let appended = await CommitGraphGenerator.appendAsync(
+                   commits: page, to: previousGraphState, allCommits: commits,
+                   highlighting: HistoryLoadPolicy.highlighting(for: branchFilter),
+                   headHash: headHash, highlightRootHash: graphRootHash
+               ) {
+                graph = appended
+            } else {
+                graph = await CommitGraphGenerator.generateIncrementalAsync(
+                    commits: commits, highlighting: HistoryLoadPolicy.highlighting(for: branchFilter),
+                    headHash: headHash, highlightRootHash: graphRootHash
+                )
+            }
+            guard !Task.isCancelled, generation == requestedGeneration, loadKey == requestedKey,
+                  selectedBranch == reference, rows.version == oldRows.version else { return false }
+            publish(commits: commits, graphResult: graph, hasMore: page.count == paging.pageSize,
+                    change: .appended(oldRows.commits.count..<commits.count), head: headHash,
+                    root: graphRootHash)
+        }
+
+        guard let tip = commit(hash) else { return false }
         select(tip, focus: false)
         storeSnapshot()
         return true
