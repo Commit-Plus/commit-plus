@@ -299,7 +299,9 @@ final class HistoryListModel {
         }
 
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            if generation == requestedGeneration { isLoading = false }
+        }
         while commit(hash) == nil, rows.hasMore {
             let oldRows = rows
             let previousGraphState = graphState
