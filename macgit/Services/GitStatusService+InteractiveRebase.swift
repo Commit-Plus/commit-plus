@@ -93,24 +93,36 @@ extension GitStatusService {
             attributes: [.posixPermissions: 0o700])
         var lines: [String] = []
         for entry in plan.entries {
-            let command = entry.action == .reword ? "pick" : entry.action.rawValue
             if entry.commit.isMerge {
                 lines.append("merge -C \(entry.id) \(entry.commit.parents.dropFirst().joined(separator: " "))")
             } else {
-                lines.append("\(command) \(entry.id)")
+                lines.append("\(entry.action.rawValue) \(entry.id)")
             }
             let replacementMessage = entry.action == .reword ? entry.message : entry.squashMessage
             if entry.action == .reword || (entry.action == .squash && !replacementMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                 let messageURL = directory.appendingPathComponent(entry.id + ".txt")
                 try replacementMessage.write(to: messageURL, atomically: true, encoding: .utf8)
-                lines.append("exec git -c core.editor=true commit --amend --only --file \(Self.rebaseShellQuote(messageURL.path))")
+                if entry.action == .squash { lines.append("exec true") }
             }
         }
+        let donePath = try await runGit(arguments: ["rev-parse", "--path-format=absolute", "--git-path", "rebase-merge/done"], in: repository)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let editor = directory.appendingPathComponent("message-editor.sh")
+        let editorSource = """
+        #!/bin/sh
+        set -eu
+        commit=$(/usr/bin/awk 'END { if ($1 == "reword" || $1 == "squash") print $2 }' \(Self.rebaseShellQuote(donePath)))
+        message=\(Self.rebaseShellQuote(directory.path))/"$commit.txt"
+        if [ -n "$commit" ] && [ -f "$message" ]; then
+            /bin/cp "$message" "$1"
+        fi
+        """
+        try editorSource.write(to: editor, atomically: true, encoding: .utf8)
         let todo = directory.appendingPathComponent("todo")
         try (lines.joined(separator: "\n") + "\n").write(to: todo, atomically: true, encoding: .utf8)
         var environment = ProcessInfo.processInfo.environment
         environment["GIT_SEQUENCE_EDITOR"] = "/bin/cp \(Self.rebaseShellQuote(todo.path))"
-        environment["GIT_EDITOR"] = "true"
+        environment["GIT_EDITOR"] = "/bin/sh \(Self.rebaseShellQuote(editor.path))"
         var arguments = ["-c", "rebase.autoStash=false", "-c", "rebase.updateRefs=false", "-c", "rebase.abbreviateCommands=false",
             "rebase", "--interactive", "--no-rebase-merges", "--no-autosquash", "--no-autostash", "--no-update-refs", "--keep-empty", "--empty=stop"]
         if let onto = plan.onto { arguments += ["--onto", onto] }
@@ -136,7 +148,9 @@ extension GitStatusService {
             throw GitError.commandFailed("No rebase is in progress.")
         }
         var environment = ProcessInfo.processInfo.environment
-        environment["GIT_EDITOR"] = "true"
+        let editor = try await historyRebaseDirectory(in: repository).appendingPathComponent("message-editor.sh")
+        environment["GIT_EDITOR"] = FileManager.default.fileExists(atPath: editor.path)
+            ? "/bin/sh \(Self.rebaseShellQuote(editor.path))" : "true"
         do {
             _ = try await runGit(arguments: ["rebase", command], in: repository, environment: environment)
         } catch {

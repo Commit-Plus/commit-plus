@@ -100,7 +100,75 @@ struct InteractiveRebaseChecks {
         try await checkPublishedCommitWithMergeParent(root)
         try await checkRootAndReorder(root)
         try await checkConflictRecovery(root)
+        try await checkSkippedMessageReplacement(root)
+        try await checkEmptyReword(root)
         print("All interactive rebase checks passed.")
+    }
+
+    static func checkSkippedMessageReplacement(_ root: URL) async throws {
+        for action in [HistoryRebasePlan.Action.reword, .squash] {
+            let repository = try await fixture(root, name: "skip-message-" + action.rawValue)
+            _ = try await command(["checkout", "-b", "destination", "HEAD~2"], in: repository)
+            try "destination".write(to: repository.appendingPathComponent("second.txt"), atomically: true, encoding: .utf8)
+            _ = try await command(["add", "."], in: repository)
+            _ = try await command(["commit", "-m", "Destination message"], in: repository)
+            let destination = try await commit("HEAD", in: repository)
+            _ = try await command(["checkout", "main"], in: repository)
+            if action == .squash {
+                let replay = try await command(["rev-list", "--reverse", "HEAD~2..HEAD"], in: repository)
+                    .split(separator: "\n").map(String.init)
+                _ = try await command(["reset", "--hard", "HEAD~2"], in: repository)
+                try "prefix".write(to: repository.appendingPathComponent("prefix.txt"), atomically: true, encoding: .utf8)
+                _ = try await command(["add", "."], in: repository)
+                _ = try await command(["commit", "-m", "Preceding message"], in: repository)
+                _ = try await command(["cherry-pick"] + replay, in: repository)
+            }
+            var plan = try await git.prepareHistoryRebase(commit: destination, in: repository)
+            let selectedIndex = action == .squash ? 1 : 0
+            plan.entries[selectedIndex].action = action
+            if action == .reword {
+                plan.entries[0].message = "Must not replace destination message"
+            } else {
+                plan.entries[1].squashMessage = "Must not replace preceding message"
+            }
+            try await expectFailure { try await git.executeHistoryRebase(plan, in: repository) }
+            let previous = try await commit("HEAD", in: repository)
+            try await git.resumeHistoryRebase("--skip", in: repository)
+            let restoredParent = try await commit("HEAD~1", in: repository)
+            precondition(restoredParent.hash == previous.hash)
+            precondition(restoredParent.message == previous.message)
+            let tip = try await commit("HEAD", in: repository)
+            precondition(tip.message == "third")
+            let destinationAfter = try await commit(destination.hash, in: repository)
+            precondition(destinationAfter.message == "Destination message")
+            let paused = await git.isRebaseInProgress(in: repository)
+            precondition(!paused)
+            print("PASS: conflict Skip for \(action.title) preserves preceding commit hash and message")
+        }
+    }
+
+    static func checkEmptyReword(_ root: URL) async throws {
+        let repository = try await fixture(root, name: "empty-reword")
+        _ = try await command(["commit", "--allow-empty", "-m", "Intentional empty commit"], in: repository)
+        let empty = try await commit("HEAD", in: repository)
+        let tree = try await command(["rev-parse", "HEAD^{tree}"], in: repository)
+        _ = try await command(["commit", "--allow-empty", "-m", "Empty descendant"], in: repository)
+        var plan = try await git.prepareHistoryRebase(commit: empty, action: .reword, in: repository)
+        plan.entries[0].message = "Reworded empty commit\n\nPreserved body."
+        try await git.executeHistoryRebase(plan, in: repository)
+        let rewritten = try await commit("HEAD~1", in: repository)
+        let message = try await command(["show", "-s", "--format=%B", "HEAD~1"], in: repository)
+        precondition(message == plan.entries[0].message)
+        precondition(rewritten.parents == empty.parents)
+        let newTree = try await command(["rev-parse", "HEAD^{tree}"], in: repository)
+        precondition(newTree == tree)
+        let count = try await command(["rev-list", "--count", "HEAD"], in: repository)
+        precondition(count == "6")
+        let descendant = try await commit("HEAD", in: repository)
+        precondition(descendant.message == "Empty descendant")
+        let paused = await git.isRebaseInProgress(in: repository)
+        precondition(!paused)
+        print("PASS: reword preserves intentional empty commit, body, tree, parent and empty descendant")
     }
 
     static func checkGuards(_ root: URL) async throws {

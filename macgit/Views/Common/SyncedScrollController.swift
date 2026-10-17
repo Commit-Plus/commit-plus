@@ -18,10 +18,20 @@
 import AppKit
 
 final class SyncedScrollController {
+    private struct PendingScroll {
+        var sourceID: String
+        var origin: CGPoint
+        var syncsHorizontally: Bool
+        var syncsVertically: Bool
+    }
+
     private var scrollViews: [String: WeakScrollView] = [:]
     private var observers: [String: NSObjectProtocol] = [:]
+    private var lastKnownOrigins: [String: CGPoint] = [:]
     private var isApplyingSynchronizedScroll = false
     private var lastRequestedOffset: CGFloat?
+    private var pendingScroll: PendingScroll?
+    private var pendingScrollWorkItem: DispatchWorkItem?
 
     func register(_ scrollView: NSScrollView, id: String) {
         removeReleasedScrollViews()
@@ -32,6 +42,7 @@ final class SyncedScrollController {
 
         unregister(id: id)
         scrollViews[id] = WeakScrollView(scrollView)
+        lastKnownOrigins[id] = scrollView.contentView.bounds.origin
 
         scrollView.contentView.postsBoundsChangedNotifications = true
         observers[id] = NotificationCenter.default.addObserver(
@@ -48,6 +59,7 @@ final class SyncedScrollController {
         // between SwiftUI and AppKit is fully wired up.
         if let lastRequestedOffset {
             setVerticalOffset(lastRequestedOffset, on: scrollView)
+            lastKnownOrigins[id] = scrollView.contentView.bounds.origin
         }
     }
 
@@ -60,6 +72,7 @@ final class SyncedScrollController {
             NotificationCenter.default.removeObserver(observer)
         }
         scrollViews.removeValue(forKey: id)
+        lastKnownOrigins.removeValue(forKey: id)
     }
 
     func scrollToTop() {
@@ -68,10 +81,15 @@ final class SyncedScrollController {
 
     func scrollToVerticalOffset(_ offset: CGFloat) {
         removeReleasedScrollViews()
+        pendingScrollWorkItem?.cancel()
+        pendingScrollWorkItem = nil
+        pendingScroll = nil
         lastRequestedOffset = offset
         isApplyingSynchronizedScroll = true
-        for scrollView in scrollViews.values.compactMap(\.value) {
+        for (id, weakScrollView) in scrollViews {
+            guard let scrollView = weakScrollView.value else { continue }
             setVerticalOffset(offset, on: scrollView)
+            lastKnownOrigins[id] = scrollView.contentView.bounds.origin
         }
         isApplyingSynchronizedScroll = false
     }
@@ -80,27 +98,90 @@ final class SyncedScrollController {
         guard !isApplyingSynchronizedScroll else { return }
         removeReleasedScrollViews()
 
-        let sourceY = source.contentView.bounds.origin.y
+        let sourceOrigin = source.contentView.bounds.origin
+        let previousOrigin = lastKnownOrigins[sourceID] ?? sourceOrigin
+        let didScrollHorizontally = abs(sourceOrigin.x - previousOrigin.x) > 0.5
+        let didScrollVertically = abs(sourceOrigin.y - previousOrigin.y) > 0.5
+
+        guard didScrollHorizontally || didScrollVertically else { return }
+        lastKnownOrigins[sourceID] = sourceOrigin
+
+        if var pendingScroll, pendingScroll.sourceID == sourceID {
+            pendingScroll.origin = sourceOrigin
+            pendingScroll.syncsHorizontally = pendingScroll.syncsHorizontally
+                || didScrollHorizontally
+            pendingScroll.syncsVertically = pendingScroll.syncsVertically
+                || didScrollVertically
+            self.pendingScroll = pendingScroll
+        } else {
+            pendingScroll = PendingScroll(
+                sourceID: sourceID,
+                origin: sourceOrigin,
+                syncsHorizontally: didScrollHorizontally,
+                syncsVertically: didScrollVertically
+            )
+        }
+
+        schedulePendingScroll()
+    }
+
+    private func schedulePendingScroll() {
+        guard pendingScrollWorkItem == nil else { return }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingScrollWorkItem = nil
+            self.applyPendingScroll()
+        }
+        pendingScrollWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60.0, execute: workItem)
+    }
+
+    private func applyPendingScroll() {
+        guard let pendingScroll else { return }
+        self.pendingScroll = nil
         isApplyingSynchronizedScroll = true
 
-        for (id, weakScrollView) in scrollViews where id != sourceID {
+        for (id, weakScrollView) in scrollViews where id != pendingScroll.sourceID {
             guard let scrollView = weakScrollView.value else { continue }
-            setVerticalOffset(sourceY, on: scrollView)
+            var targetOrigin = scrollView.contentView.bounds.origin
+            if pendingScroll.syncsHorizontally {
+                targetOrigin.x = pendingScroll.origin.x
+            }
+            if pendingScroll.syncsVertically {
+                targetOrigin.y = pendingScroll.origin.y
+            }
+            setScrollOrigin(targetOrigin, on: scrollView)
+            lastKnownOrigins[id] = scrollView.contentView.bounds.origin
         }
 
         isApplyingSynchronizedScroll = false
     }
 
-    private func setVerticalOffset(_ offset: CGFloat, on scrollView: NSScrollView) {
+    private func setScrollOrigin(_ origin: CGPoint, on scrollView: NSScrollView) {
         guard let documentView = scrollView.documentView else { return }
 
-        let maximumOffset = max(0, documentView.bounds.height - scrollView.contentView.bounds.height)
-        let clampedOffset = min(max(0, offset), maximumOffset)
-        var origin = scrollView.contentView.bounds.origin
-        origin.y = clampedOffset
+        let maximumX = max(0, documentView.bounds.width - scrollView.contentView.bounds.width)
+        let maximumY = max(0, documentView.bounds.height - scrollView.contentView.bounds.height)
+        let clampedOrigin = CGPoint(
+            x: min(max(0, origin.x), maximumX),
+            y: min(max(0, origin.y), maximumY)
+        )
 
-        scrollView.contentView.scroll(to: origin)
+        let currentOrigin = scrollView.contentView.bounds.origin
+        guard abs(clampedOrigin.x - currentOrigin.x) > 0.5
+                || abs(clampedOrigin.y - currentOrigin.y) > 0.5 else {
+            return
+        }
+
+        scrollView.contentView.scroll(to: clampedOrigin)
         scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    private func setVerticalOffset(_ offset: CGFloat, on scrollView: NSScrollView) {
+        var origin = scrollView.contentView.bounds.origin
+        origin.y = offset
+        setScrollOrigin(origin, on: scrollView)
     }
 
     private func removeReleasedScrollViews() {
