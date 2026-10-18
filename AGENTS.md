@@ -11,7 +11,7 @@ See `README.md` for features and `CONTRIBUTING.md` for setup and coding conventi
 - Inspect the current implementation before changing behavior; follow existing patterns instead of adding parallel abstractions.
 - Preserve unrelated local changes. Do not automatically stash, reset, commit, or push.
 - When a new branch is needed, use `codex/<topic>`. Do not commit directly to `main`.
-- Use `rtk` for shell commands; use `rtk proxy <command>` for commands without a dedicated wrapper.
+- `rtk` is an optional local tool, not a project requirement. Check `command -v rtk`: if available, prefix shell commands with `rtk` (or `rtk proxy <command>` when no dedicated wrapper exists); otherwise run commands directly. Commands in this file are written without `rtk`.
 
 ## Project Layout
 
@@ -66,13 +66,13 @@ See `README.md` for features and `CONTRIBUTING.md` for setup and coding conventi
 For app code changes that do not require XCTest coverage, build to verify compilation:
 
 ```bash
-rtk proxy xcodebuild -project macgit.xcodeproj -scheme macgit -destination 'platform=macOS' build
+xcodebuild -project macgit.xcodeproj -scheme macgit -destination 'platform=macOS' build
 ```
 
 For non-trivial logic changes, run relevant XCTest coverage; narrow the scope with `-only-testing:macgitTests/<TestClass>`:
 
 ```bash
-rtk proxy xcodebuild -project macgit.xcodeproj -scheme macgit -destination 'platform=macOS' -only-testing:macgitTests/GitUndoCommitIntegrationTests test
+xcodebuild -project macgit.xcodeproj -scheme macgit -destination 'platform=macOS' -only-testing:macgitTests/GitUndoCommitIntegrationTests test
 ```
 
 - `xcodebuild test` already builds the app and test bundle. When running tests, do not run a separate app build before or afterward unless the test build is blocked by an unrelated test-target failure and app-only compilation evidence is still needed.
@@ -81,6 +81,6 @@ rtk proxy xcodebuild -project macgit.xcodeproj -scheme macgit -destination 'plat
 - For layout changes, inspect the actual UI at relevant window sizes when needed. Review information hierarchy, spacing, alignment, and use of available space; widening a control alone does not resolve an unbalanced layout.
 - If the app crashes during Firebase initialization, report that runtime review is blocked; do not repeatedly relaunch it or treat the crash as a UI regression without evidence. If tests crash during bootstrapping (`Early unexpected exit` / `abort() called`, including Firebase initialization), do not retry; report the limitation and use a successful build as compilation evidence.
 - A successful build does not verify runtime UI behavior. State clearly when interaction has not been checked.
-- For CLI changes, run `rtk proxy bash scripts/test-command-line.sh`.
+- For CLI changes, run `bash scripts/test-command-line.sh`.
 - For documentation-only changes, review the diff; no app build is needed.
-- Run `rtk git diff --check` before handing off changes, and summarize validation and any remaining limitations.
+- Run `git diff --check` before handing off changes, and summarize validation and any remaining limitations.
