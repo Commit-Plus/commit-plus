@@ -19,7 +19,7 @@
 import CryptoKit
 import Foundation
 
-protocol ConflictAIFileServicing: Sendable {
+nonisolated protocol ConflictAIFileServicing: Sendable {
     func loadConflictAIFile(
         _ file: StatusFile,
         in repositoryURL: URL,

@@ -18,7 +18,7 @@
 
 import Foundation
 
-protocol RepositoryAIToolExecuting: Sendable {
+nonisolated protocol RepositoryAIToolExecuting: Sendable {
     func execute(
         _ tool: RepositoryAIToolCall,
         in repositoryURL: URL,

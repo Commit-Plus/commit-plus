@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import Foundation
 
-protocol ReferenceComparisonServing: Sendable {
+nonisolated protocol ReferenceComparisonServing: Sendable {
     func comparisonRevisions(in repositoryURL: URL) async throws -> [String]
     func pathComparisonSnapshot(base: String, target: ComparisonEndpoint, path: ComparisonPath,
                                 in repositoryURL: URL) async throws -> ReferenceComparisonSnapshot

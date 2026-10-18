@@ -18,7 +18,7 @@
 import CryptoKit
 import Foundation
 
-protocol GitRuntimeProcessRunning: Sendable {
+nonisolated protocol GitRuntimeProcessRunning: Sendable {
     func version(at executableURL: URL) async throws -> String
 }
 

@@ -22,7 +22,7 @@
 //
 import Foundation
 
-protocol GitCommandRunning {
+nonisolated protocol GitCommandRunning {
     func runGit(arguments: [String], in directory: URL) async throws -> String
     func runGit(arguments: [String], in directory: URL, environment: [String: String]) async throws -> String
 }
@@ -33,7 +33,7 @@ extension GitCommandRunning {
     }
 }
 
-protocol GitPatchApplying {
+nonisolated protocol GitPatchApplying {
     func applyPatch(_ patch: String, in repositoryURL: URL, cached: Bool, reverse: Bool) async throws
 }
 

@@ -152,6 +152,20 @@ extension GitStatusService {
         let result = try await runGit(
             arguments: ["update-ref", "--no-deref", "-d", "refs/heads/\(name)", expectedTip], in: repositoryURL
         )
+        // update-ref cannot check worktree use atomically, so restore the ref if
+        // another worktree checked the branch out before it was removed.
+        let worktreesAfterDelete = parseWorktreePorcelain(
+            (try? await runGit(arguments: ["worktree", "list", "--porcelain"], in: repositoryURL)) ?? ""
+        )
+        if worktreesAfterDelete.isEmpty || worktreesAfterDelete.contains(where: { $0.branch == name }) {
+            _ = try? await runGitRaw(
+                arguments: ["update-ref", "--no-deref", "--stdin"], in: repositoryURL,
+                environment: ProcessInfo.processInfo.environment,
+                inputData: Data("create refs/heads/\(name) \(expectedTip)\n".utf8)
+            )
+            await invalidateBranchListCache(in: repositoryURL)
+            throw GitError.commandFailed("Cannot delete '\(name)' because it was checked out in a worktree during deletion.")
+        }
         _ = try? await runGit(arguments: ["config", "--remove-section", "branch.\(name)"], in: repositoryURL)
         await invalidateBranchListCache(in: repositoryURL)
         return result

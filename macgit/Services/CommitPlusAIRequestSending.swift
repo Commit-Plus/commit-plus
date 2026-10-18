@@ -17,7 +17,7 @@
 //
 import Foundation
 
-protocol CommitPlusAIRequestSending: Sendable {
+nonisolated protocol CommitPlusAIRequestSending: Sendable {
     func send(operation: CommitPlusAIOperation, messages: [CommitPlusAIWireMessage], toolsData: Data,
               structured: Bool, onTextDelta: (@Sendable (String) async -> Void)?) async throws -> CommitPlusAIResult
 }

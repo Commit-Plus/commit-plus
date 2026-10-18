@@ -56,7 +56,9 @@ final class BranchMergeEvidenceServiceTests: XCTestCase {
             token: GitProviderToken(accessToken: "secret", tokenType: "Bearer")
         )
         XCTAssertEqual(changes.map(\.number), [8])
-        XCTAssertTrue(client.lastRequest?.url?.path.hasPrefix("/gitlab/api/v4/projects/team%2Fapp/merge_requests") == true)
+        let requestURL = try XCTUnwrap(client.lastRequest?.url)
+        let requestPath = URLComponents(url: requestURL, resolvingAgainstBaseURL: false)?.percentEncodedPath
+        XCTAssertTrue(requestPath?.hasPrefix("/gitlab/api/v4/projects/team%2Fapp/merge_requests") == true)
     }
 }
 
