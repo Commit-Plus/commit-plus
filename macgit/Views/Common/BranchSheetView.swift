@@ -76,6 +76,8 @@ struct BranchSheetView: View {
     var undoManager: GitUndoManager? = nil
     var initialStartPoint: GitBranchStartPoint? = nil
     let initiallySelectedLocalBranches: Set<String>
+    let localBranchFilter: Set<String>?
+    let validateLocalBranchDeletion: (@MainActor (String) async throws -> String)?
 
     @State private var selectedTab: BranchTab = .create
 
@@ -118,6 +120,8 @@ struct BranchSheetView: View {
         initialTab: BranchTab = .create,
         initiallySelectedLocalBranches: Set<String> = [],
         initialForceDelete: Bool = false,
+        localBranchFilter: Set<String>? = nil,
+        validateLocalBranchDeletion: (@MainActor (String) async throws -> String)? = nil,
         onRunRepositoryOperation: @escaping RepositoryOperationRunner = { _, operation in
             Task { await operation() }
         },
@@ -129,6 +133,8 @@ struct BranchSheetView: View {
         self.undoManager = undoManager
         self.initialStartPoint = initialStartPoint
         self.initiallySelectedLocalBranches = initiallySelectedLocalBranches
+        self.localBranchFilter = localBranchFilter
+        self.validateLocalBranchDeletion = validateLocalBranchDeletion
         self._selectedTab = State(initialValue: initialTab)
         self._forceDelete = State(initialValue: initialForceDelete)
     }
@@ -616,6 +622,12 @@ struct BranchSheetView: View {
                 case .local:
                     let support = GitBranchUndoSupport()
                     let tip = try await support.tip(of: branch.name, in: repositoryURL)
+                    if let validateLocalBranchDeletion {
+                        let validatedTip = try await validateLocalBranchDeletion(branch.name)
+                        guard validatedTip == tip else {
+                            throw GitError.commandFailed("The branch changed while its merge status was being verified. Refresh merge status and try again.")
+                        }
+                    }
                     let upstream = await support.upstream(of: branch.name, in: repositoryURL)
                     let remoteTarget = branch.remoteTarget.flatMap {
                         remoteTargetsFromLocal.contains($0) ? $0 : nil
@@ -742,6 +754,7 @@ struct BranchSheetView: View {
         var items: [BranchDeleteItem] = []
 
         for name in locals {
+            if let localBranchFilter, !localBranchFilter.contains(name) { continue }
             let upstream = await GitBranchUndoSupport().upstream(of: name, in: repositoryURL)
             items.append(
                 BranchDeleteItem(
@@ -758,6 +771,7 @@ struct BranchSheetView: View {
         }
 
         for remote in remotesList {
+            guard localBranchFilter == nil else { continue }
             for branchName in remoteBranchesByRemote[remote] ?? [] {
                 items.append(BranchDeleteItem(name: "\(remote)/\(branchName)", type: .remote))
             }

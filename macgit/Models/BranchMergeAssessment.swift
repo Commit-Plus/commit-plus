@@ -20,7 +20,7 @@ nonisolated struct BranchMergeEvidence: Codable, Equatable, Sendable {
     let mergedAt: Date?
 }
 
-nonisolated struct BranchMergeAssessment: Codable, Equatable, Sendable {
+nonisolated struct BranchMergeAssessment: Codable, Equatable, Sendable, Identifiable {
     let branch: String
     let tipSHA: String
     let state: BranchMergeAssessmentState
@@ -28,7 +28,15 @@ nonisolated struct BranchMergeAssessment: Codable, Equatable, Sendable {
     let detail: String
     let checkedAt: Date
 
-    var isFullyMerged: Bool { state == .fullyMerged }
+    var id: String { "\(branch)|\(tipSHA)" }
+
+    // An ancestry relationship alone also holds for an untouched branch created
+    // from main. Only a merged PR/MR covering this tip is actionable evidence.
+    var isFullyMerged: Bool {
+        state == .fullyMerged && !tipSHA.isEmpty && evidence.contains {
+            $0.kind == .pullRequest && $0.webURL?.host != nil
+        }
+    }
 }
 
 struct ProviderMergedChange: Equatable, Sendable {

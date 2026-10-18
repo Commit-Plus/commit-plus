@@ -25,10 +25,16 @@ struct SidebarNativeInput: Equatable {
     var gitFlowRoleDisplayMode: GitFlowRoleDisplayMode = .full
     var dataRepositoryURL: URL? = nil
     var mergeAssessments: [String: BranchMergeAssessment] = [:]
-    var mergeHintRevision: Int = 0
+    var showMergedBranchHints = true
 }
 
 extension SidebarView {
+    var displaysMergedBranchHints: Bool {
+        showMergedBranchHints && FeatureAccessResolver(policy: featureAccessController.policy).decision(
+            for: .branchMergeDetection, entitlement: accountController.entitlement
+        ).isAllowed
+    }
+
     var nativeInput: SidebarNativeInput {
         SidebarNativeInput(
             trees: [visibleBranchRows, visibleTagRows, visibleRemoteRows, visibleSubmoduleRows],
@@ -49,6 +55,6 @@ extension SidebarView {
             gitFlowRoleDisplayMode: gitFlowRoleDisplayMode,
             dataRepositoryURL: sidebarDataRepositoryURL,
             mergeAssessments: branchMergeDetectionController.assessments,
-            mergeHintRevision: branchMergeDetectionController.hintRevision)
+            showMergedBranchHints: displaysMergedBranchHints)
     }
 }

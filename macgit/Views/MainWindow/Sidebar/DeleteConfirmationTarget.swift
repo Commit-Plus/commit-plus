@@ -20,11 +20,13 @@ import Foundation
 enum DeleteConfirmationTarget: Identifiable {
     case single(String)
     case prefix(String)
+    case merged(Set<String>)
 
     var id: String {
         switch self {
         case .single(let branch): return "single:\(branch)"
         case .prefix(let prefix): return "prefix:\(prefix)"
+        case .merged(let branches): return "merged:\(branches.sorted().joined(separator: "|"))"
         }
     }
 }

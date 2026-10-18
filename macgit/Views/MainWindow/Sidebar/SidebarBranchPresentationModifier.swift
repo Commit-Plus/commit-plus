@@ -30,6 +30,7 @@ struct SidebarBranchPresentationModifier: ViewModifier {
     let remoteDeleteTarget: (String) -> RemoteBranchDeleteTarget?
     let cancelDeleteConfirmation: () -> Void
     let confirmDeleteBranch: (String) -> Void
+    let validateMergedBranchDeletion: @MainActor (String) async throws -> String
     let onPrefixDeleteCompleted: () -> Void
     let deleteRemoteBranch: (RemoteBranchDeleteTarget) async -> Void
     let onRunRepositoryOperation: RepositoryOperationRunner
@@ -62,6 +63,18 @@ struct SidebarBranchPresentationModifier: ViewModifier {
                 repositoryURL: repositoryURL,
                 branches: Set(branchesUnderPrefix(prefix).filter { $0 != currentBranch }),
                 undoManager: undoManager,
+                onRunRepositoryOperation: onRunRepositoryOperation,
+                onCompleted: onPrefixDeleteCompleted
+            )
+        case .merged(let branches):
+            BranchSheetView(
+                repositoryURL: repositoryURL,
+                undoManager: undoManager,
+                initialTab: .delete,
+                initiallySelectedLocalBranches: branches,
+                initialForceDelete: true,
+                localBranchFilter: branches,
+                validateLocalBranchDeletion: validateMergedBranchDeletion,
                 onRunRepositoryOperation: onRunRepositoryOperation,
                 onCompleted: onPrefixDeleteCompleted
             )

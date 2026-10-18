@@ -6,30 +6,23 @@ import Foundation
 final class BranchMergeDetectionController: ObservableObject {
     @Published private(set) var assessments: [String: BranchMergeAssessment] = [:]
     @Published private(set) var loadingBranches: Set<String> = []
-    @Published private(set) var hintRevision = 0
-    @Published private(set) var accountRevision = 0
     private var requestIDs: [String: UUID] = [:]
     private var contextTask: Task<[RemoteContext], Never>?
     private var jobs: [String: Task<Void, Never>] = [:]
-    private var jobFingerprints: [String: String] = [:]
     private var queue: [(String, UUID, @MainActor () async -> Void)] = []
     private var activeJobs = 0
-    private let diskCache = PullRequestDiskCache.shared
 
     private weak var providerAccountController: GitProviderAccountController?
     private let tokenVault: GitProviderTokenVault
     private let services: [GitProviderKind: any BranchMergeEvidenceProviding]
-    private let hintStore: BranchMergeHintStore
-    private var cache: [CacheKey: BranchMergeAssessment] = [:]
     private var generation = UUID()
-    private var accountObservation: AnyCancellable?
-    private let cacheTTL: TimeInterval = 5 * 60
+    private var openedRepositoryPath: String?
+    private var excludedBranches: Set<String> = ["main", "master", "develop"]
 
     init(
         providerAccountController: GitProviderAccountController? = nil,
         tokenVault: GitProviderTokenVault? = nil,
-        services: [GitProviderKind: any BranchMergeEvidenceProviding]? = nil,
-        hintStore: BranchMergeHintStore? = nil
+        services: [GitProviderKind: any BranchMergeEvidenceProviding]? = nil
     ) {
         self.providerAccountController = providerAccountController
         self.tokenVault = tokenVault ?? KeychainGitProviderTokenVault()
@@ -37,25 +30,20 @@ final class BranchMergeDetectionController: ObservableObject {
             .github: GitHubBranchMergeEvidenceService(),
             .gitlab: GitLabBranchMergeEvidenceService(),
         ]
-        self.hintStore = hintStore ?? BranchMergeHintStore()
-        accountObservation = providerAccountController?.$accounts.removeDuplicates().dropFirst().sink { [weak self] _ in
-            self?.invalidate()
-            self?.accountRevision += 1
-        }
     }
 
-    func assessment(for branch: String, repositoryURL: URL) -> BranchMergeAssessment? {
-        guard !hintStore.isSuppressed(repositoryURL: repositoryURL, branch: branch) else { return nil }
+    func assessment(for branch: String, repositoryURL: URL, configuration: GitFlowConfiguration? = nil) -> BranchMergeAssessment? {
+        guard isCleanupCandidate(branch, configuration: configuration) else { return nil }
         return assessments[branch]
     }
 
-    func isHintSuppressed(for branch: String, repositoryURL: URL) -> Bool {
-        hintStore.isSuppressed(repositoryURL: repositoryURL, branch: branch)
-    }
-
-    func setHintSuppressed(_ suppressed: Bool, for branch: String, repositoryURL: URL) {
-        hintStore.setSuppressed(suppressed, repositoryURL: repositoryURL, branch: branch)
-        hintRevision += 1
+    func isCleanupCandidate(_ branch: String, configuration: GitFlowConfiguration? = nil) -> Bool {
+        guard !excludedBranches.contains(branch) else { return false }
+        if let configuration {
+            let configuration = configuration.normalized()
+            guard branch != configuration.mainBranch, branch != configuration.developBranch else { return false }
+        }
+        return true
     }
 
     func invalidate() {
@@ -63,11 +51,9 @@ final class BranchMergeDetectionController: ObservableObject {
         requestIDs.removeAll()
         for job in jobs.values { job.cancel() }
         jobs.removeAll()
-        jobFingerprints.removeAll()
         queue.removeAll()
         contextTask?.cancel()
         contextTask = nil
-        cache.removeAll()
         assessments.removeAll()
         loadingBranches.removeAll()
     }
@@ -77,8 +63,13 @@ final class BranchMergeDetectionController: ObservableObject {
         repositoryURL: URL,
         entitlement: AccountEntitlement,
         policy: FeatureAccessPolicy,
+        configuration: GitFlowConfiguration = GitFlowConfiguration(),
         force: Bool = false
     ) async {
+        let repositoryPath = repositoryURL.standardizedFileURL.path
+        // Merge status belongs to an open-repository session, not the sidebar's
+        // local-status/fetch polling lifecycle. Only explicit refresh bypasses this.
+        guard force || openedRepositoryPath != repositoryPath else { return }
         guard FeatureAccessResolver(policy: policy).decision(
             for: .branchMergeDetection,
             entitlement: entitlement
@@ -86,44 +77,60 @@ final class BranchMergeDetectionController: ObservableObject {
             invalidate()
             return
         }
+        let isOpening = openedRepositoryPath != repositoryPath
+        openedRepositoryPath = repositoryPath
         let currentGeneration = generation
-        let contexts = await remoteContexts(repositoryURL: repositoryURL)
-        guard generation == currentGeneration, !Task.isCancelled else { return }
-        // One ref snapshot for the repository, rather than one subprocess per branch.
+        let configuration = configuration.normalized()
+        excludedBranches = ["main", "master", "develop", configuration.mainBranch, configuration.developBranch]
+        if isOpening,
+           let saved = try? await LocalDataStore.shared.readValue(
+               [String: BranchMergeAssessment].self, in: "branchMergeAssessments", id: repositoryPath
+           ), generation == currentGeneration {
+            assessments = saved.filter { isCleanupCandidate($0.key, configuration: configuration) }
+        }
+        // Read full ref names: short names can acquire a heads/ prefix when a
+        // tag has the same name, which would incorrectly remove a cached hint.
+        // Include remote tips so a fetch can reveal newly merged branches.
         let output = try? await GitStatusService.shared.runGit(
-            arguments: ["for-each-ref", "--format=%(refname:short)%09%(objectname)%09%(upstream:short)", "refs/heads/"],
+            arguments: ["for-each-ref", "--format=%(refname)%09%(objectname)%09%(upstream)", "refs/heads/", "refs/remotes/"],
             in: repositoryURL
         )
-        guard generation == currentGeneration, let output else { return }
+        guard generation == currentGeneration, !Task.isCancelled, let output else { return }
+        let contexts = await remoteContexts(repositoryURL: repositoryURL)
+        guard generation == currentGeneration, !Task.isCancelled else { return }
+        excludedBranches.formUnion(contexts.compactMap { context in
+            context.defaultRef.map { String($0.split(separator: "/", maxSplits: 1).last ?? "") }
+        })
         var refs: [String: (String, String)] = [:]
         for line in output.split(separator: "\n") {
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-            if fields.count == 3 { refs[fields[0]] = (fields[1], fields[2]) }
-        }
-        for removed in Set(assessments.keys).subtracting(refs.keys) { assessments.removeValue(forKey: removed) }
-        let context = contexts.map { "\($0.name)|\($0.identity.canonicalHTTPSURL)" }.joined(separator: "\n")
-        for branch in Set(branches).sorted() {
-            guard let (tip, upstream) = refs[branch] else { continue }
-            let fingerprint = "\(repositoryURL.path)|\(tip)|\(upstream)|\(context)"
-            if !force, jobFingerprints[branch] == fingerprint, requestIDs[branch] != nil { continue }
-            if !force, jobFingerprints[branch] == fingerprint, let result = assessments[branch],
-               result.isFullyMerged || Date.now.timeIntervalSince(result.checkedAt) < cacheTTL {
-                continue
+            if fields.count == 3, fields[0].hasPrefix("refs/heads/") {
+                refs[String(fields[0].dropFirst("refs/heads/".count))] = (fields[1], fields[2])
             }
+        }
+        for removed in Set(assessments.keys).subtracting(refs.keys).union(excludedBranches) {
+            if assessments[removed] != nil { assessments.removeValue(forKey: removed) }
+        }
+        for branch in Set(branches).sorted() {
+            guard isCleanupCandidate(branch, configuration: configuration) else { continue }
+            guard let (tip, _) = refs[branch] else { continue }
             jobs[branch]?.cancel()
             queue.removeAll { $0.0 == branch }
             let id = UUID()
             requestIDs[branch] = id
-            jobFingerprints[branch] = fingerprint
             loadingBranches.insert(branch)
             if assessments[branch]?.tipSHA != tip { assessments.removeValue(forKey: branch) }
             queue.append((branch, id, { [weak self] in
                 guard let self else { return }
-                let result = await detect(branch: branch, repositoryURL: repositoryURL, force: force,
+                let result = await detect(branch: branch, repositoryURL: repositoryURL,
                                           contexts: contexts, requestID: id)
                 guard generation == currentGeneration, requestIDs[branch] == id else { return }
                 if let result { updateAssessment(result) }
                 loadingBranches.remove(branch)
+                let snapshot = assessments
+                try? await LocalDataStore.shared.transaction { transaction in
+                    try transaction.set(snapshot, in: "branchMergeAssessments", id: repositoryPath)
+                }
             }))
         }
         startQueuedJobs()
@@ -158,12 +165,12 @@ final class BranchMergeDetectionController: ObservableObject {
             entitlement: entitlement
         ).isAllowed else { return nil }
         guard await isCleanupAllowed(branch: branch, repositoryURL: repositoryURL) else { return nil }
-        let result = await detect(branch: branch, repositoryURL: repositoryURL, force: true)
+        let result = await detect(branch: branch, repositoryURL: repositoryURL)
         if let result { updateAssessment(result) }
         return result?.isFullyMerged == true ? result : nil
     }
 
-    private func detect(branch: String, repositoryURL: URL, force: Bool, contexts: [RemoteContext]? = nil, requestID: UUID? = nil) async -> BranchMergeAssessment? {
+    private func detect(branch: String, repositoryURL: URL, contexts: [RemoteContext]? = nil, requestID: UUID? = nil) async -> BranchMergeAssessment? {
         guard let tip = await GitStatusService.shared.tipHash(for: branch, in: repositoryURL) else { return nil }
         let remoteContexts: [RemoteContext]
         if let contexts { remoteContexts = contexts } else { remoteContexts = await self.remoteContexts(repositoryURL: repositoryURL) }
@@ -175,17 +182,6 @@ final class BranchMergeDetectionController: ObservableObject {
         // automatic fetch cannot turn app activation into another API request.
         let fingerprint = remoteContexts.map { "\($0.name)|\($0.identity.canonicalHTTPSURL)" }.joined(separator: "\n") + "\n" + (upstream ?? "") + "\n" + accountContext
         let key = CacheKey(repository: repositoryURL.standardizedFileURL.path, branch: branch, tip: tip, context: fingerprint)
-        let diskGeneration = await diskCache.generation()
-        if !force, let saved = await diskCache.entry(BranchMergeAssessment.self, key: key.diskKey, generation: diskGeneration),
-           saved.value.isFullyMerged {
-            guard !Task.isCancelled, requestID == nil || requestIDs[branch] == requestID else { return nil }
-            cache[key] = saved.value
-            return saved.value
-        }
-        if !force, let cached = cache[key],
-           cached.isFullyMerged || Date.now.timeIntervalSince(cached.checkedAt) < cacheTTL {
-            return cached
-        }
 
         let accounts = providerAccountController?.accounts ?? []
         let sourceRemoteName = upstream?.split(separator: "/", maxSplits: 1).first.map(String.init)
@@ -198,14 +194,6 @@ final class BranchMergeDetectionController: ObservableObject {
         guard !Task.isCancelled, generation == epoch,
               requestID == nil || requestIDs[branch] == requestID,
               await GitStatusService.shared.tipHash(for: branch, in: repositoryURL) == tip else { return nil }
-        cache = cache.filter { $0.key.repository != key.repository || $0.key.branch != branch }
-        cache[key] = result
-        if result.isFullyMerged {
-            await diskCache.save(result, key: key.diskKey, accountID: "branch-merge", kind: "branch-merge-v1",
-                                 ttl: 365 * 24 * 60 * 60, generation: diskGeneration)
-        } else if force {
-            await diskCache.removeEntry(key: key.diskKey, generation: diskGeneration)
-        }
         return result
     }
 
@@ -256,21 +244,6 @@ final class BranchMergeDetectionController: ObservableObject {
         guard let sourceContext else {
             return publish(.init(branch: branch, tipSHA: tip, state: .unknown, evidence: [],
                                  detail: "No supported GitHub or GitLab remote could be resolved.", checkedAt: .now), key: key)
-        }
-
-        for context in remoteContexts {
-            if let defaultRef = context.defaultRef, let defaultTip = context.defaultTip,
-               await GitStatusService.shared.branchTipIsAncestor(tip, of: defaultTip, in: URL(fileURLWithPath: key.repository)) {
-                return publish(.init(
-                    branch: branch,
-                    tipSHA: tip,
-                    state: .fullyMerged,
-                    evidence: [.init(kind: .gitAncestry, title: "Contained in \(defaultRef)", webURL: nil,
-                                     targetBranch: String(defaultRef.split(separator: "/", maxSplits: 1).last ?? ""), mergedAt: nil)],
-                    detail: "The current branch tip is an ancestor of the remote default branch.",
-                    checkedAt: .now
-                ), key: key)
-            }
         }
 
         guard let service = services[sourceContext.identity.provider] else {
@@ -332,6 +305,15 @@ final class BranchMergeDetectionController: ObservableObject {
     }
 
     private func isCleanupAllowed(branch: String, repositoryURL: URL) async -> Bool {
+        guard isCleanupCandidate(branch) else { return false }
+        switch await GitFlowConfigurationStore().loadResult(in: repositoryURL) {
+        case .value(let configuration):
+            guard isCleanupCandidate(branch, configuration: configuration) else { return false }
+        case .invalid:
+            return false
+        case .none:
+            break
+        }
         let current = await GitStatusService.shared.currentBranch(in: repositoryURL)
         guard current != branch else { return false }
         let worktreePath = try? await GitStatusService.shared.worktreePath(for: branch, in: repositoryURL)

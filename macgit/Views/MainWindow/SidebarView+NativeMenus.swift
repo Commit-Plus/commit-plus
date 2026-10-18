@@ -4,6 +4,14 @@ import AppKit
 extension SidebarView {
     func nativeBackgroundMenu() -> NSMenu {
         let menu = SidebarNativeMenu()
+        menu.item("Refresh Status") {
+            Task {
+                await GitStatusService.shared.invalidateBranchListCache(in: repositoryURL)
+                await loadBranches(force: true)
+                await refreshMergeStatus()
+            }
+        }
+        menu.separator()
         menu.item("Add Submodule...", onRequestAddSubmodule)
         menu.item("Add/Link Subtree...", onRequestAddLinkSubtree)
         menu.separator()
@@ -59,31 +67,18 @@ extension SidebarView {
             entitlement: accountController.entitlement
         )
         if mergeAccess.isAllowed {
-            let assessment = branchMergeDetectionController.assessment(for: branch, repositoryURL: repositoryURL)
+            let assessment = branchMergeDetectionController.assessment(for: branch, repositoryURL: repositoryURL, configuration: gitFlowConfiguration)
             menu.submenu("Merge Status") { mergeMenu in
                 if let assessment, assessment.isFullyMerged {
                     mergeMenu.item("Review Merge Evidence…") {
-                        if let url = assessment.evidence.compactMap(\.webURL).first { NSWorkspace.shared.open(url) }
+                        mergeEvidenceAssessment = assessment
                     }
-                    mergeMenu.item("Delete Fully Merged Branch…", enabled: branch != currentBranch) {
+                    mergeMenu.item("Delete Fully Merged Branches…", enabled: branch != currentBranch) {
                         requestFullyMergedBranchDeletion(branch)
-                    }
-                    mergeMenu.item("Hide Fully Merged Hint") {
-                        branchMergeDetectionController.setHintSuppressed(true, for: branch, repositoryURL: repositoryURL)
-                    }
-                } else if branchMergeDetectionController.isHintSuppressed(for: branch, repositoryURL: repositoryURL) {
-                    mergeMenu.item("Show Fully Merged Hint") {
-                        branchMergeDetectionController.setHintSuppressed(false, for: branch, repositoryURL: repositoryURL)
                     }
                 }
                 mergeMenu.item("Refresh Merge Status") {
-                    Task {
-                        await branchMergeDetectionController.refresh(
-                            branches: [branch], repositoryURL: repositoryURL,
-                            entitlement: accountController.entitlement,
-                            policy: featureAccessController.policy, force: true
-                        )
-                    }
+                    Task { await refreshMergeStatus() }
                 }
             }
         } else {

@@ -31,6 +31,8 @@ struct SidebarView: View {
     @EnvironmentObject var featureAccessController: FeatureAccessController
     @EnvironmentObject var appState: AppState
     @ObservedObject var branchMergeDetectionController: BranchMergeDetectionController
+    @State var mergeEvidenceAssessment: BranchMergeAssessment?
+    var showMergedBranchHints = true
 
     let repositoryURL: URL
     @Binding var selection: SidebarSelection?
@@ -202,7 +204,6 @@ struct SidebarView: View {
     @State var remoteBranchDeleteTarget: RemoteBranchDeleteTarget?
     @State var deleteRemoteBranchAlongsideLocal = false
     @State var forceDeleteBranch = false
-    @State var mergeValidatedDeletionBranch: String?
     @State var activeDropTarget: GitDragTarget?
     @State var activeDropLabel: String?
     @State var isCurrentBranchDropTargeted = false
@@ -224,6 +225,7 @@ struct SidebarView: View {
         activeSyncBranchName: String? = nil,
         canUpdateCurrentBranch: Bool = true,
         branchMergeDetectionController: BranchMergeDetectionController,
+        showMergedBranchHints: Bool = true,
         onRequestCheckout: @escaping (String, Bool) -> Void,
         onRequestRemoteBranchCheckout: @escaping (RemoteBranchCheckoutTarget) -> Void,
         onRequestFetchBranch: @escaping (String) -> Void,
@@ -300,6 +302,7 @@ struct SidebarView: View {
         self.activeSyncBranchName = activeSyncBranchName
         self.canUpdateCurrentBranch = canUpdateCurrentBranch
         self.branchMergeDetectionController = branchMergeDetectionController
+        self.showMergedBranchHints = showMergedBranchHints
         self.onRequestCheckout = onRequestCheckout
         self.onRequestRemoteBranchCheckout = onRequestRemoteBranchCheckout
         self.onRequestFetchBranch = onRequestFetchBranch
@@ -586,6 +589,14 @@ struct SidebarView: View {
 
     private var sidebarContent: some View {
         sidebarList
+            .replacingSheet(item: $mergeEvidenceAssessment) { assessment in
+                VStack(alignment: .trailing, spacing: 0) {
+                    BranchMergeEvidenceView(assessment: assessment)
+                    Button("Done") { mergeEvidenceAssessment = nil }
+                        .keyboardShortcut(.defaultAction)
+                        .padding([.horizontal, .bottom], 14)
+                }
+            }
             .alert("Error", isPresented: $showingError) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -604,6 +615,7 @@ struct SidebarView: View {
                     remoteDeleteTarget: matchingRemoteDeleteTarget,
                     cancelDeleteConfirmation: cancelDeleteConfirmation,
                     confirmDeleteBranch: confirmDeleteBranch,
+                    validateMergedBranchDeletion: validateMergedBranchDeletion,
                     onPrefixDeleteCompleted: refreshAfterBranchDeletion,
                     deleteRemoteBranch: deleteRemoteBranch,
                     onRunRepositoryOperation: onRunRepositoryOperation
@@ -740,6 +752,7 @@ struct SidebarView: View {
                 Task {
                     if notification.userInfo?["userInitiated"] as? Bool == true {
                         await loadRemotes()
+                        await refreshMergeStatus()
                     }
                     await loadBranches(force: true)
                 }
@@ -771,17 +784,6 @@ struct SidebarView: View {
             guard isVisible, sectionStates.subtreesExpanded else { return }
             Task {
                 await loadSubtrees(force: false)
-            }
-        }
-        .task(id: "\(repositoryURL.path)|\(branchMergeDetectionController.accountRevision)|\(accountController.entitlement)|\(featureAccessController.policy)") {
-            while !Task.isCancelled {
-                await branchMergeDetectionController.refresh(
-                    branches: visibleBranchRows.filter { !$0.isFolder && $0.fullPath != currentBranch }.map(\.fullPath),
-                    repositoryURL: repositoryURL,
-                    entitlement: accountController.entitlement,
-                    policy: featureAccessController.policy
-                )
-                do { try await Task.sleep(for: .seconds(60)) } catch { return }
             }
         }
     }

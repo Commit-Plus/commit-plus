@@ -126,52 +126,41 @@ extension SidebarView {
         deleteConfirmationTarget = nil
         forceDeleteBranch = false
         deleteRemoteBranchAlongsideLocal = false
-        mergeValidatedDeletionBranch = nil
     }
 
     func requestFullyMergedBranchDeletion(_ branch: String) {
-        Task {
-            guard await branchMergeDetectionController.revalidateFullyMerged(
-                branch: branch,
-                repositoryURL: repositoryURL,
-                entitlement: accountController.entitlement,
-                policy: featureAccessController.policy
-            ) != nil else {
-                errorMessage = "The branch changed or its merged status could not be verified. Refresh and review the evidence before deleting it."
-                showingError = true
-                return
+        let branches = Set(branchMergeDetectionController.assessments.values
+            .filter {
+                $0.isFullyMerged && $0.branch != currentBranch
+                    && branchMergeDetectionController.isCleanupCandidate($0.branch, configuration: gitFlowConfiguration)
             }
-            mergeValidatedDeletionBranch = branch
-            forceDeleteBranch = true
-            deleteConfirmationTarget = .single(branch)
+            .map(\.branch))
+        guard branches.contains(branch) else { return }
+        deleteConfirmationTarget = .merged(branches)
+    }
+
+    @MainActor
+    func validateMergedBranchDeletion(_ branch: String) async throws -> String {
+        guard let assessment = await branchMergeDetectionController.revalidateFullyMerged(
+            branch: branch,
+            repositoryURL: repositoryURL,
+            entitlement: accountController.entitlement,
+            policy: featureAccessController.policy
+        ) else {
+            throw GitError.commandFailed("Deletion stopped because '\(branch)' changed, is protected or in use, or its merge evidence could not be verified.")
         }
+        return assessment.tipSHA
     }
 
     func confirmDeleteBranch(_ branch: String) {
         let force = forceDeleteBranch
-        let requiresMergeRevalidation = mergeValidatedDeletionBranch == branch
         let remoteTarget = deleteRemoteBranchAlongsideLocal
             ? matchingRemoteDeleteTarget(for: branch)
             : nil
         deleteConfirmationTarget = nil
         forceDeleteBranch = false
         deleteRemoteBranchAlongsideLocal = false
-        mergeValidatedDeletionBranch = nil
         onRunRepositoryOperation("Deleting \(branch)...") {
-            if requiresMergeRevalidation {
-                guard await branchMergeDetectionController.revalidateFullyMerged(
-                    branch: branch,
-                    repositoryURL: repositoryURL,
-                    entitlement: accountController.entitlement,
-                    policy: featureAccessController.policy
-                ) != nil else {
-                    await MainActor.run {
-                        errorMessage = "Deletion stopped because the branch or its verified merge evidence changed."
-                        showingError = true
-                    }
-                    return
-                }
-            }
             await deleteBranch(branch, force: force, remoteTarget: remoteTarget)
         }
     }

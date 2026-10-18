@@ -91,7 +91,8 @@ extension SidebarView {
                 if current { badges.append("HEAD") }
                 let mergeAssessment = branchMergeDetectionController.assessment(
                     for: item.fullPath,
-                    repositoryURL: repositoryURL
+                    repositoryURL: repositoryURL,
+                    configuration: gitFlowConfiguration
                 )
                 var row = SidebarNativeRow(id: .init(section: .branches, kind: "ref", key: item.fullPath),
                     appearance: .init(title: item.name, icon: current ? "circle.fill" : "", badge: badges.joined(separator: "  "), gitFlowRole: role, indent: item.indent, emphasized: current),
@@ -101,7 +102,7 @@ extension SidebarView {
                     payload: { GitDragPayload.branch(item.fullPath, repositoryURL: repositoryURL) },
                     dropTarget: .localBranch(name: item.fullPath, isCurrent: current))
                 row.appearance.gitFlowRoleDisplayMode = gitFlowRoleDisplayMode
-                row.appearance.merged = mergeAssessment?.isFullyMerged == true
+                row.appearance.merged = displaysMergedBranchHints && mergeAssessment?.isFullyMerged == true
                 if current, let status = currentBranchIntegrationStatus, status.predictsBaseConflict {
                     row.appearance.accessory = "exclamationmark.triangle.fill"
                     row.appearance.accessoryLabel = "Current branch integration status"

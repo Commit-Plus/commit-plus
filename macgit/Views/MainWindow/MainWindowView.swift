@@ -1002,6 +1002,7 @@ struct MainWindowView: View {
             activeSyncBranchName: (syncState.isUpdatingCurrentBranch || syncState.isPulling || syncState.isPushing) ? syncState.activeSyncBranch : nil,
             canUpdateCurrentBranch: canUpdateCurrentBranch,
             branchMergeDetectionController: branchMergeDetectionController,
+            showMergedBranchHints: repoSettings.showMergedBranchHints,
             onRequestCheckout: { ref, isTag in
                 if isTag {
                     tagToCheckout = ref

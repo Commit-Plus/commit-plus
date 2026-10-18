@@ -257,12 +257,18 @@ extension SidebarView {
                 }
             }
         }
+        if !hadLoadedBranches { await refreshMergeStatus(force: false) }
+    }
+
+    func refreshMergeStatus(force: Bool = true) async {
+        let branches = await GitStatusService.shared.localBranches(in: repositoryURL)
         await branchMergeDetectionController.refresh(
-            branches: filteredLocals.filter { $0 != current },
+            branches: branches,
             repositoryURL: repositoryURL,
             entitlement: accountController.entitlement,
             policy: featureAccessController.policy,
-            force: false
+            configuration: gitFlowConfiguration,
+            force: force
         )
     }
 
