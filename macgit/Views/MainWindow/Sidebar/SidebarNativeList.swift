@@ -523,6 +523,9 @@ struct SidebarNativeList: NSViewRepresentable {
         let badge = NSTextField(labelWithString: "")
         let rolePill = SidebarGitFlowRolePill()
         let mergedPill = SidebarMergedPill()
+        override var backgroundStyle: NSView.BackgroundStyle {
+            didSet { mergedPill.isHighlighted = backgroundStyle == .emphasized }
+        }
         let button = NSButton()
         let progress = NSProgressIndicator()
         var onAccessory: (() -> Void)?

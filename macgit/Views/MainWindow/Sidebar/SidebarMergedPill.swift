@@ -2,6 +2,12 @@
 import AppKit
 
 final class SidebarMergedPill: NSView {
+    var isHighlighted = false {
+        didSet {
+            guard isHighlighted != oldValue else { return }
+            updateColors()
+        }
+    }
     private let label = NSTextField(labelWithString: "Merged")
     private var font = NSFont.systemFont(ofSize: 10, weight: .semibold)
     private var scale: CGFloat = 1
@@ -55,7 +61,7 @@ final class SidebarMergedPill: NSView {
         // Keep the capsule in its backing layer instead of repainting a
         // transparent CoreText drawing whenever the window becomes active.
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            label.textColor = .systemPurple
+            label.textColor = isHighlighted ? .white : .systemPurple
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             layer?.backgroundColor = NSColor.systemPurple.withAlphaComponent(0.15).cgColor
