@@ -25,12 +25,15 @@ struct WelcomeRepositoryAttention: Identifiable, Equatable {
     var ahead = 0
     var behind = 0
     var conflicts = 0
+    var hasUncommittedChanges = false
     var operation: String?
     var unavailable = false
     var error: String?
 
     var needsAttention: Bool { priority < 6 }
-    var showsHistory: Bool { conflicts == 0 && operation == nil && (ahead > 0 || behind > 0) }
+    var showsHistory: Bool {
+        conflicts == 0 && operation == nil && !hasUncommittedChanges && !unavailable && error == nil
+    }
     var priority: Int {
         if conflicts > 0 || operation != nil { return 0 }
         if ahead > 0 && behind > 0 { return 1 }

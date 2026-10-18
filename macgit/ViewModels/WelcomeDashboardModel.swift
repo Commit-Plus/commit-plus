@@ -27,6 +27,7 @@ final class WelcomeDashboardModel {
     private(set) var attention: [WelcomeRepositoryAttention] = []
     private(set) var isCheckingAttention = true
     private(set) var attentionUpdatedAt: Date?
+    @ObservationIgnored private var initialHistoryDestinations: [URL: Bool] = [:]
     private var attentionGeneration = UUID()
     private var generation = UUID()
     private var dirtyActivityURLs: Set<URL> = []
@@ -54,8 +55,13 @@ final class WelcomeDashboardModel {
         let urls = Set(repositories.map { $0.url.standardizedFileURL })
         if activity { dirtyActivityURLs.formUnion(urls) }
         checkedAttentionURLs.subtract(urls)
+        initialHistoryDestinations = initialHistoryDestinations.filter { !urls.contains($0.key) }
         generation = UUID()
         attentionGeneration = UUID()
+    }
+
+    func initialShowsHistory(for repositoryURL: URL) -> Bool? {
+        initialHistoryDestinations[repositoryURL.standardizedFileURL]
     }
 
     func refreshAttention(repositories: [RecentRepository]) async {
@@ -66,6 +72,7 @@ final class WelcomeDashboardModel {
         checkedAttentionURLs.formIntersection(urls)
         var result = attention.filter { urls.contains($0.url.standardizedFileURL) }
         var checkedURLs = checkedAttentionURLs
+        initialHistoryDestinations = initialHistoryDestinations.filter { urls.contains($0.key) }
         for repository in recent {
             guard !Task.isCancelled, request == attentionGeneration else { return }
             let url = repository.url.standardizedFileURL
@@ -80,6 +87,9 @@ final class WelcomeDashboardModel {
                     return $0.name.localizedStandardCompare($1.name) == .orderedAscending
                 }
                 checkedURLs.insert(url)
+                // Publish each destination immediately so a superseded refresh
+                // keeps what it already learned; unknown states stay nil.
+                initialHistoryDestinations[url] = status.unavailable || status.error != nil ? nil : status.showsHistory
             } catch {
                 guard !Task.isCancelled, request == attentionGeneration else { return }
                 // Preserve the previous warning and retry on the next refresh.

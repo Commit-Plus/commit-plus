@@ -39,6 +39,31 @@ final class WelcomeAttentionTests: XCTestCase {
         XCTAssertTrue([diverged, ahead, behind].allSatisfy(\.showsHistory))
     }
 
+    func testTrackedChangesRouteToFileStatus() {
+        let output = """
+        # branch.head main
+        1 .M N... 100644 100644 100644 abc abc tracked.txt
+        """
+        let status = GitStatusService.parseWelcomeAttention(output, repository: repository)
+        XCTAssertTrue(status.hasUncommittedChanges)
+        XCTAssertFalse(status.showsHistory)
+    }
+
+    func testUntrackedFilesRouteToFileStatus() {
+        let status = GitStatusService.parseWelcomeAttention("# branch.head main\n? new.txt", repository: repository)
+        XCTAssertTrue(status.hasUncommittedChanges)
+        XCTAssertFalse(status.showsHistory)
+    }
+
+    func testUnreadableStatusDoesNotRouteToHistory() {
+        let malformed = GitStatusService.parseWelcomeAttention("# branch.ab garbage", repository: repository)
+        XCTAssertNotNil(malformed.error)
+        XCTAssertFalse(malformed.showsHistory)
+        var unavailable = WelcomeRepositoryAttention(url: repository.url, name: repository.name)
+        unavailable.unavailable = true
+        XCTAssertFalse(unavailable.showsHistory)
+    }
+
     func testUnfinishedOperationNeedsReviewEvenWithCleanIndex() {
         var status = GitStatusService.parseWelcomeAttention("# branch.head main", repository: repository)
         XCTAssertFalse(status.needsAttention)

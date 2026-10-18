@@ -74,6 +74,20 @@ final class WelcomeDashboardRefreshTests: XCTestCase {
         XCTAssertEqual(reads, 12)
     }
 
+    func testAttentionRefreshProvidesAndInvalidatesInitialDestination() async {
+        let repository = RecentRepository(url: URL(fileURLWithPath: "/repo"))
+        let model = WelcomeDashboardModel(attentionLoader: { repository in
+            WelcomeRepositoryAttention(url: repository.url, name: repository.name)
+        })
+
+        XCTAssertNil(model.initialShowsHistory(for: repository.url))
+        await model.refreshAttention(repositories: [repository])
+        XCTAssertEqual(model.initialShowsHistory(for: repository.url), true)
+
+        model.invalidate(repositories: [repository], activity: false)
+        XCTAssertNil(model.initialShowsHistory(for: repository.url))
+    }
+
     func testCancelledReadCannotPublishOrClearPendingInvalidation() async {
         let repository = RecentRepository(url: URL(fileURLWithPath: "/repo"))
         let cache = WelcomeActivityCache(fileURL: nil)

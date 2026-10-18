@@ -37,7 +37,7 @@ struct WelcomeView: View {
             autosaveName: "WelcomeDashboardMainSplit",
             left: {
                 RepoPickerView(isDashboardSidebar: true, onRepositoryViewed: viewRepository, selectedRepositoryURL: viewedRepository) { url in
-                    onRepositoryOpened(url, nil)
+                    onRepositoryOpened(url, model.initialShowsHistory(for: url))
                 }
                 .frame(minWidth: 340, idealWidth: 420, maxWidth: 600)
             },
@@ -183,6 +183,6 @@ struct WelcomeView: View {
             return
         }
         store.add(url)
-        onRepositoryOpened(url, nil)
+        onRepositoryOpened(url, model.initialShowsHistory(for: url))
     }
 }

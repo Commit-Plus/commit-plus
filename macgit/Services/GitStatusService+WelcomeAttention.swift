@@ -29,7 +29,7 @@ extension GitStatusService {
         }
         do {
             let output = try await runGit(
-                arguments: ["status", "--porcelain=v2", "--branch", "--ahead-behind", "--untracked-files=no", "--ignore-submodules=all"],
+                arguments: ["status", "--porcelain=v2", "--branch", "--ahead-behind", "--untracked-files=normal", "--ignore-submodules=all"],
                 in: repository.url, environment: environment
             )
             result = Self.parseWelcomeAttention(output, repository: repository)
@@ -68,6 +68,8 @@ extension GitStatusService {
                 }
             } else if line.hasPrefix("u ") {
                 result.conflicts += 1
+            } else if line.hasPrefix("1 ") || line.hasPrefix("2 ") || line.hasPrefix("? ") {
+                result.hasUncommittedChanges = true
             }
         }
         return result
