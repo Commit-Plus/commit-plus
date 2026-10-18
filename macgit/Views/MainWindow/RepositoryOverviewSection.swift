@@ -30,7 +30,9 @@ struct RepositoryOverviewSection: View {
                     RepositoryRemotesView(remotes: info.remotes)
                 }
             } else if isLoading {
-                ProgressView("Reading repository information").controlSize(.small)
+                ProgressView("Reading repository information")
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
     }

@@ -96,6 +96,7 @@ struct RepoPickerView: View {
     @State private var loadingRepoIcons: Set<URL> = []
     @State private var rowStates: [URL: RepoPickerRowState] = [:]
     @State private var missingRepository: RecentRepository?
+    @State private var pendingRepositoryClick: (url: URL, expiresAt: TimeInterval)?
     @State private var showingMissingRepositoryAlert = false
     @State private var localPreview: URL?
 
@@ -895,14 +896,7 @@ struct RepoPickerView: View {
         RepoPickerHoverRow {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 4) {
-                    Button(action: {
-                        viewRepositoryDetails(repo)
-                    }) {
-                        repoRowContent(repo, iconName: iconName)
-                    }
-                    .buttonStyle(.plain)
-                    .simultaneousGesture(TapGesture(count: 2).onEnded { openRecentRepository(repo) })
-                    .sidebarPointingHandCursor()
+                    repositoryRowLabel(repo, iconName: iconName)
 
                     VStack(alignment: .trailing, spacing: 5) {
                         HStack(spacing: 2) {
@@ -913,13 +907,7 @@ struct RepoPickerView: View {
                             .sidebarPointingHandCursor()
                             bookmarkButton(for: repo)
                         }
-                        Text(repo.lastOpened == .distantPast ? "Not opened" : timeAgoString(from: repo.lastOpened))
-                            .font(.caption.scaled(by: textScale))
-                            .foregroundStyle(.secondary)
-                            .fixedSize()
-                            .help(repo.lastOpened == .distantPast ? "Not opened" : repo.lastOpened.formatted())
-                            .onTapGesture { viewRepositoryDetails(repo) }
-                            .simultaneousGesture(TapGesture(count: 2).onEnded { openRecentRepository(repo) })
+                        repositoryLastOpenedLabel(repo)
                     }
                     .fixedSize(horizontal: true, vertical: false)
                     .padding(.trailing, 2)
@@ -1051,6 +1039,45 @@ struct RepoPickerView: View {
             .padding(.vertical, 12)
             .padding(.horizontal, 4)
         }
+    }
+
+    private func repositoryRowLabel(_ repo: RecentRepository, iconName: String) -> some View {
+        repoRowContent(repo, iconName: iconName)
+            .primaryClickActivation(
+                onMouseDown: { beginRepositoryClick(repo) },
+                onMouseUp: { completeRepositoryClick(repo) }
+            )
+            .sidebarPointingHandCursor()
+    }
+
+    private func repositoryLastOpenedLabel(_ repo: RecentRepository) -> some View {
+        Text(repo.lastOpened == .distantPast ? "Not opened" : timeAgoString(from: repo.lastOpened))
+            .font(.caption.scaled(by: textScale))
+            .foregroundStyle(.secondary)
+            .fixedSize()
+            .help(repo.lastOpened == .distantPast ? "Not opened" : repo.lastOpened.formatted())
+            .primaryClickActivation(
+                onMouseDown: { beginRepositoryClick(repo) },
+                onMouseUp: { completeRepositoryClick(repo) }
+            )
+    }
+
+    private func beginRepositoryClick(_ repo: RecentRepository) -> Bool {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard let pendingRepositoryClick,
+              pendingRepositoryClick.url == repo.url,
+              now <= pendingRepositoryClick.expiresAt else {
+            pendingRepositoryClick = nil
+            return false
+        }
+        self.pendingRepositoryClick = nil
+        openRecentRepository(repo)
+        return true
+    }
+
+    private func completeRepositoryClick(_ repo: RecentRepository) {
+        viewRepositoryDetails(repo)
+        pendingRepositoryClick = (repo.url, ProcessInfo.processInfo.systemUptime + 0.8)
     }
 
     private func viewRepositoryDetails(_ repo: RecentRepository) {
