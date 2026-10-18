@@ -164,7 +164,8 @@ struct BranchSheetView: View {
     }
 
     private var matchingRemoteTargets: [RemoteBranchDeleteTarget] {
-        Array(Set(selectedBranches.compactMap { item in
+        guard localBranchFilter == nil else { return [] }
+        return Array(Set(selectedBranches.compactMap { item in
             item.type == .local ? item.remoteTarget : nil
         })).sorted { $0.fullPath < $1.fullPath }
     }
@@ -614,14 +615,21 @@ struct BranchSheetView: View {
             ? Set(matchingRemoteTargets)
             : []
 
+        let selection = selectedBranches
+        var didDeleteBranch = false
         do {
-            for branch in selectedBranches {
+            var validatedTips: [String: String] = [:]
+            if let validateLocalBranchDeletion {
+                for branch in selection where branch.type == .local {
+                    validatedTips[branch.name] = try await validateLocalBranchDeletion(branch.name)
+                }
+            }
+            for branch in selection {
                 switch branch.type {
                 case .local:
                     let support = GitBranchUndoSupport()
-                    let tip = try await support.tip(of: branch.name, in: repositoryURL)
-                    if let validateLocalBranchDeletion {
-                        let validatedTip = try await validateLocalBranchDeletion(branch.name)
+                    let tip = try await support.tip(of: "refs/heads/\(branch.name)", in: repositoryURL)
+                    if let validatedTip = validatedTips[branch.name] {
                         guard validatedTip == tip else {
                             throw GitError.commandFailed("The branch changed while its merge status was being verified. Refresh merge status and try again.")
                         }
@@ -640,11 +648,16 @@ struct BranchSheetView: View {
                     } else {
                         remoteHash = nil
                     }
-                    _ = try await GitStatusService.shared.deleteBranch(
-                        name: branch.name,
-                        force: forceDelete,
-                        in: repositoryURL
-                    )
+                    if let expectedTip = validatedTips[branch.name] {
+                        _ = try await GitStatusService.shared.deleteValidatedMergedBranch(
+                            name: branch.name, expectedTip: expectedTip, in: repositoryURL
+                        )
+                    } else {
+                        _ = try await GitStatusService.shared.deleteBranch(
+                            name: branch.name, force: forceDelete, in: repositoryURL
+                        )
+                    }
+                    didDeleteBranch = true
                     do {
                         if let remoteTarget {
                             _ = try await GitStatusService.shared.deleteRemoteBranch(
@@ -687,6 +700,7 @@ struct BranchSheetView: View {
                         name: name,
                         in: repositoryURL
                     )
+                    didDeleteBranch = true
                 }
             }
             await MainActor.run {
@@ -697,7 +711,11 @@ struct BranchSheetView: View {
                 Task { await loadDeleteData() }
             }
         } catch {
+            if didDeleteBranch {
+                await loadDeleteData()
+            }
             await MainActor.run {
+                if didDeleteBranch { onCompleted() }
                 isDeleting = false
                 showingDeleteConfirmation = false
                 errorMessage = friendlyErrorMessage(for: error)

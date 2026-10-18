@@ -136,6 +136,27 @@ final class BranchMergeDetectionController: ObservableObject {
         startQueuedJobs()
     }
 
+    /// Reconcile local refs without issuing provider requests during sidebar reloads.
+    func pruneStaleAssessments(repositoryURL: URL) async {
+        let epoch = generation
+        guard openedRepositoryPath == repositoryURL.standardizedFileURL.path,
+              let output = try? await GitStatusService.shared.runGit(
+                arguments: ["for-each-ref", "--format=%(refname)%09%(objectname)", "refs/heads/"],
+                in: repositoryURL
+              ), generation == epoch else { return }
+        var tips: [String: String] = [:]
+        for line in output.split(separator: "\n") {
+            let fields = line.split(separator: "\t")
+            guard fields.count == 2, fields[0].hasPrefix("refs/heads/") else { continue }
+            tips[String(fields[0].dropFirst("refs/heads/".count))] = String(fields[1])
+        }
+        assessments = assessments.filter { tips[$0.key] == $0.value.tipSHA }
+        let snapshot = assessments
+        try? await LocalDataStore.shared.transaction { transaction in
+            try transaction.set(snapshot, in: "branchMergeAssessments", id: repositoryURL.standardizedFileURL.path)
+        }
+    }
+
     private func startQueuedJobs() {
         while activeJobs < 3, !queue.isEmpty {
             let (branch, id, operation) = queue.removeFirst()

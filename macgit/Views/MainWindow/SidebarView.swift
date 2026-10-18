@@ -780,6 +780,15 @@ struct SidebarView: View {
                 await loadBranches(force: true)
             }
         }
+        .onChange(of: featureAccessController.decision(
+            for: .branchMergeDetection, entitlement: accountController.entitlement
+        ).isAllowed) { _, isAllowed in
+            if isAllowed {
+                Task { await refreshMergeStatus() }
+            } else {
+                branchMergeDetectionController.invalidate()
+            }
+        }
         .onChange(of: appState.showSubtrees) { _, isVisible in
             guard isVisible, sectionStates.subtreesExpanded else { return }
             Task {

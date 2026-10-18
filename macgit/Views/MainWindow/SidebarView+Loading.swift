@@ -257,7 +257,11 @@ extension SidebarView {
                 }
             }
         }
-        if !hadLoadedBranches { await refreshMergeStatus(force: false) }
+        if !hadLoadedBranches {
+            await refreshMergeStatus(force: false)
+        } else {
+            await branchMergeDetectionController.pruneStaleAssessments(repositoryURL: repositoryURL)
+        }
     }
 
     func refreshMergeStatus(force: Bool = true) async {

@@ -57,8 +57,9 @@ extension GitStatusService {
     }
 
     func localBranches(in repositoryURL: URL) async -> [String] {
-        let output = (try? await runGit(arguments: ["branch", "--format=%(refname:short)"], in: repositoryURL)) ?? ""
-        return output.split(separator: "\n").map { String($0) }.filter { !$0.isEmpty }
+        let output = (try? await runGit(arguments: ["for-each-ref", "--format=%(refname)", "refs/heads/"], in: repositoryURL)) ?? ""
+        return output.split(separator: "\n").filter { $0.hasPrefix("refs/heads/") }
+            .map { String($0.dropFirst("refs/heads/".count)) }
     }
 
     func cachedLocalBranches(in repositoryURL: URL) async -> [String] {
@@ -133,6 +134,27 @@ extension GitStatusService {
         let output = try await runGit(arguments: ["branch", flag, name], in: repositoryURL)
         await invalidateBranchListCache(in: repositoryURL)
         return output
+    }
+
+    /// Delete only the exact local tip whose merge evidence was validated.
+    func deleteValidatedMergedBranch(name: String, expectedTip: String, in repositoryURL: URL) async throws -> String {
+        _ = try await runGit(arguments: ["check-ref-format", "refs/heads/\(name)"], in: repositoryURL)
+        let output = try await runGit(arguments: ["worktree", "list", "--porcelain"], in: repositoryURL)
+        let worktrees = parseWorktreePorcelain(output)
+        guard !worktrees.isEmpty, !worktrees.contains(where: { $0.branch == name }) else {
+            throw GitError.commandFailed("Cannot delete '\(name)' because it is checked out in a worktree.")
+        }
+        for worktree in worktrees {
+            guard await inProgressOperation(in: worktree.path) == nil else {
+                throw GitError.commandFailed("Finish the active Git operation in all worktrees before deleting '\(name)'.")
+            }
+        }
+        let result = try await runGit(
+            arguments: ["update-ref", "--no-deref", "-d", "refs/heads/\(name)", expectedTip], in: repositoryURL
+        )
+        _ = try? await runGit(arguments: ["config", "--remove-section", "branch.\(name)"], in: repositoryURL)
+        await invalidateBranchListCache(in: repositoryURL)
+        return result
     }
 
     func deleteFinishedGitFlowBranch(

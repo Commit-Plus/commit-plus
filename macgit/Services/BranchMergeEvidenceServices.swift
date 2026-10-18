@@ -26,6 +26,8 @@ struct GitHubBranchMergeEvidenceService: BranchMergeEvidenceProviding {
             URLQueryItem(name: "head", value: "\(sourceRepository.owner):\(sourceBranch)"),
             URLQueryItem(name: "per_page", value: "100"),
         ]
+        let encodedQuery = components?.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        components?.percentEncodedQuery = encodedQuery
         guard let url = components?.url else { throw PullRequestProviderError.repositoryUnavailable }
         var request = URLRequest(url: url)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
@@ -98,6 +100,7 @@ struct GitLabBranchMergeEvidenceService: BranchMergeEvidenceProviding {
             URLQueryItem(name: "source_branch", value: sourceBranch),
             URLQueryItem(name: "per_page", value: "100"),
         ]
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         guard let url = components.url else { throw PullRequestProviderError.repositoryUnavailable }
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -127,11 +130,19 @@ struct GitLabBranchMergeEvidenceService: BranchMergeEvidenceProviding {
                 if let cached = sourcePathsByID[sourceProjectID] {
                     resolvedPath = cached
                 } else {
-                    resolvedPath = try await projectPath(
-                        id: sourceProjectID,
-                        hostURL: targetRepository.hostURL,
-                        token: token
-                    )
+                    do {
+                        resolvedPath = try await projectPath(
+                            id: sourceProjectID,
+                            hostURL: targetRepository.hostURL,
+                            token: token
+                        )
+                    } catch PullRequestProviderError.reauthorizationRequired {
+                        throw PullRequestProviderError.reauthorizationRequired
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        resolvedPath = nil
+                    }
                     if let resolvedPath { sourcePathsByID[sourceProjectID] = resolvedPath }
                 }
                 matchesSourceRepository = resolvedPath?.caseInsensitiveCompare(sourcePath) == .orderedSame
