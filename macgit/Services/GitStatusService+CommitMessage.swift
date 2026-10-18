@@ -18,7 +18,7 @@
 import CryptoKit
 import Foundation
 
-protocol CommitChangeSnapshotLoading: Sendable {
+nonisolated protocol CommitChangeSnapshotLoading: Sendable {
     func commitChangeSnapshot(
         in repositoryURL: URL,
         source: CommitChangeSource,

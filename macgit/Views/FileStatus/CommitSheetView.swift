@@ -28,7 +28,6 @@ struct CommitSheetView: View {
     @AppStorage("commit.allChanges") private var commitAllChanges = false
     @ObservedObject var aiProviderController: AIProviderController
     @Binding var message: String
-    @State private var messageSelection: TextSelection?
     @State private var errorMessage: String?
     @State private var showingError = false
     @State private var isAIGenerationRequested = false
@@ -55,7 +54,6 @@ struct CommitSheetView: View {
                     TextField(
                         "Enter a commit message…",
                         text: $message,
-                        selection: $messageSelection,
                         axis: .vertical
                     )
                         .font(.body.scaled(by: textScale))
@@ -186,17 +184,8 @@ struct CommitSheetView: View {
     }
 
     private func insertNewlineInMessage() {
-        guard let messageSelection,
-              case let .selection(range) = messageSelection.indices else {
-            message.append("\n")
-            self.messageSelection = TextSelection(insertionPoint: message.endIndex)
-            return
-        }
-
-        let insertionOffset = message.distance(from: message.startIndex, to: range.lowerBound)
-        message.replaceSubrange(range, with: "\n")
-        let insertionPoint = message.index(message.startIndex, offsetBy: insertionOffset + 1)
-        self.messageSelection = TextSelection(insertionPoint: insertionPoint)
+        // A field editor treats insertNewline as ending editing and selects the text again.
+        NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
     }
 
     private func cancelCommitMessageGeneration() {

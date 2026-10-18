@@ -26,6 +26,7 @@ struct SidebarNativeRow {
         var tint = "secondary"
         var spinning = false
         var italic = false
+        var merged = false
     }
     let id: ID
     var appearance: Appearance
@@ -521,6 +522,10 @@ struct SidebarNativeList: NSViewRepresentable {
         let subtitle = NSTextField(labelWithString: "")
         let badge = NSTextField(labelWithString: "")
         let rolePill = SidebarGitFlowRolePill()
+        let mergedPill = SidebarMergedPill()
+        override var backgroundStyle: NSView.BackgroundStyle {
+            didSet { mergedPill.isHighlighted = backgroundStyle == .emphasized }
+        }
         let button = NSButton()
         let progress = NSProgressIndicator()
         var onAccessory: (() -> Void)?
@@ -532,6 +537,7 @@ struct SidebarNativeList: NSViewRepresentable {
             SidebarSignpost.event("NativeCellCreate")
             for view in [icon, title, subtitle, badge, button, progress] { addSubview(view) }
             addSubview(rolePill)
+            addSubview(mergedPill)
             progress.style = .spinning
             progress.controlSize = .small
             progress.isDisplayedWhenStopped = false
@@ -564,6 +570,7 @@ struct SidebarNativeList: NSViewRepresentable {
             subtitle.font = .systemFont(ofSize: 10 * scale)
             subtitle.textColor = .secondaryLabelColor
             rolePill.configure(role: value.gitFlowRole, mode: value.gitFlowRoleDisplayMode, scale: scale)
+            mergedPill.configure(visible: value.merged, scale: scale)
             badge.stringValue = value.badge
             badge.font = .systemFont(ofSize: 10 * scale)
             badge.textColor = .secondaryLabelColor
@@ -574,7 +581,7 @@ struct SidebarNativeList: NSViewRepresentable {
             button.isHidden = value.accessory.isEmpty
             button.toolTip = value.accessoryLabel
             button.setAccessibilityLabel(value.accessoryLabel)
-            setAccessibilityLabel([value.title, value.subtitle, value.gitFlowRole?.rawValue ?? "", value.badge].filter { !$0.isEmpty }.joined(separator: ", "))
+            setAccessibilityLabel([value.title, value.subtitle, value.gitFlowRole?.rawValue ?? "", value.badge, value.merged ? "Merged" : ""].filter { !$0.isEmpty }.joined(separator: ", "))
             toolTip = value.subtitle.isEmpty ? value.title : "\(value.title)\n\(value.subtitle)"
             needsLayout = true
         }
@@ -598,14 +605,20 @@ struct SidebarNativeList: NSViewRepresentable {
             let pillGap: CGFloat = pillWidth > 0 ? 6 * scale : 0
             let statusGap: CGFloat = badgeWidth > 0 && pillWidth > 0 ? 6 * scale : 0
             let pillRight = bounds.width - 8 - accessoryWidth
-            badge.frame = NSRect(x: floor(pillRight - pillWidth - statusGap - badgeWidth),
+            let mergedWidth = mergedPill.isHidden ? 0 : mergedPill.intrinsicContentSize.width
+            let mergedGap: CGFloat = mergedWidth > 0 ? 6 * scale : 0
+            let statusRight = pillRight - pillWidth - (pillWidth > 0 ? 6 * scale : 0)
+            mergedPill.frame = NSRect(x: statusRight - mergedWidth,
+                                     y: (bounds.height - mergedPill.intrinsicContentSize.height) / 2,
+                                     width: mergedWidth, height: mergedPill.intrinsicContentSize.height)
+            badge.frame = NSRect(x: floor(pillRight - pillWidth - statusGap - mergedWidth - mergedGap - badgeWidth),
                                  y: floor((bounds.height - badgeHeight) / 2),
                                  width: badgeWidth, height: badgeHeight)
             rolePill.frame = NSRect(x: pillRight - pillWidth,
                                     y: (bounds.height - rolePill.intrinsicContentSize.height) / 2,
                                     width: pillWidth, height: rolePill.intrinsicContentSize.height)
             let x = start + iconSize + 6
-            let width = max(0, bounds.width - x - badgeWidth - accessoryWidth - pillWidth - pillGap - statusGap - 14)
+            let width = max(0, bounds.width - x - badgeWidth - accessoryWidth - pillWidth - pillGap - statusGap - mergedWidth - mergedGap - 14)
             title.frame = NSRect(x: x, y: appearance.subtitle.isEmpty ? (bounds.height - 18 * scale) / 2 : bounds.height / 2, width: width, height: 18 * scale)
             subtitle.frame = NSRect(x: x, y: bounds.height / 2 - 15 * scale, width: width, height: 15 * scale)
         }

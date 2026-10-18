@@ -365,6 +365,10 @@ struct RepositorySettingsSheetView: View {
 
     private var advancedTab: some View {
         Group {
+            Section("Branch Merge Status") {
+                Toggle("Show merged branch hints", isOn: binding(\.showMergedBranchHints))
+                    .help("Show Merged pills for this repository. Status is checked when opening the repository or manually fetching or refreshing merge status.")
+            }
             Section("Safety & Confirmations") {
                 Toggle("Confirm detached HEAD checkout", isOn: binding(\.confirmDetachedHeadCheckout))
                 Toggle("Skip protected branch commit warnings", isOn: binding(\.skipProtectedBranchCommitWarnings))

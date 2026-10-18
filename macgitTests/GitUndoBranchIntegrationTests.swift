@@ -61,6 +61,63 @@ final class GitUndoBranchIntegrationTests: XCTestCase {
         XCTAssertEqual(currentRef, "feature")
     }
 
+    func testDeleteValidatedMergedBranchDeletesBranchAtExpectedTip() async throws {
+        let repoURL = try makeTempRepo()
+        let start = try await GitBranchUndoSupport().tip(of: "main", in: repoURL)
+        try runGit(["branch", "feature"], in: repoURL)
+        try runGit(["config", "branch.feature.description", "merged"], in: repoURL)
+
+        _ = try await GitStatusService.shared.deleteValidatedMergedBranch(
+            name: "feature", expectedTip: start, in: repoURL
+        )
+
+        let branches = await GitStatusService.shared.localBranches(in: repoURL)
+        XCTAssertFalse(branches.contains("feature"))
+        let config = try? await GitStatusService.shared.runGit(
+            arguments: ["config", "--get", "branch.feature.description"], in: repoURL
+        )
+        XCTAssertNil(config)
+    }
+
+    func testDeleteValidatedMergedBranchRejectsMovedTip() async throws {
+        let repoURL = try makeTempRepo()
+        let support = GitBranchUndoSupport()
+        let validatedTip = try await support.tip(of: "main", in: repoURL)
+        try runGit(["checkout", "-b", "feature"], in: repoURL)
+        try runGit(["commit", "--allow-empty", "-m", "unmerged"], in: repoURL)
+        try runGit(["checkout", "main"], in: repoURL)
+        let movedTip = try await support.tip(of: "feature", in: repoURL)
+
+        do {
+            _ = try await GitStatusService.shared.deleteValidatedMergedBranch(
+                name: "feature", expectedTip: validatedTip, in: repoURL
+            )
+            XCTFail("Expected deletion of a moved branch to fail")
+        } catch {}
+
+        let remainingTip = try await support.tip(of: "feature", in: repoURL)
+        XCTAssertEqual(remainingTip, movedTip)
+    }
+
+    func testDeleteValidatedMergedBranchRejectsBranchCheckedOutInWorktree() async throws {
+        let repoURL = try makeTempRepo()
+        let support = GitBranchUndoSupport()
+        let start = try await support.tip(of: "main", in: repoURL)
+        let worktreeURL = repoURL.deletingLastPathComponent()
+            .appendingPathComponent("macgit-undo-branch-worktree-\(UUID().uuidString)", isDirectory: true)
+        try runGit(["worktree", "add", "-b", "feature", worktreeURL.path], in: repoURL)
+
+        do {
+            _ = try await GitStatusService.shared.deleteValidatedMergedBranch(
+                name: "feature", expectedTip: start, in: repoURL
+            )
+            XCTFail("Expected deletion of a checked-out branch to fail")
+        } catch {}
+
+        let remainingTip = try await support.tip(of: "feature", in: repoURL)
+        XCTAssertEqual(remainingTip, start)
+    }
+
     private func makeTempRepo() throws -> URL {
         let repoURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("macgit-undo-branch-\(UUID().uuidString)", isDirectory: true)

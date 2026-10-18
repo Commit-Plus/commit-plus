@@ -17,7 +17,7 @@
 //
 import Foundation
 
-protocol GitSubtreeRegistryProtocol {
+nonisolated protocol GitSubtreeRegistryProtocol {
     func entries(in repositoryURL: URL) async throws -> [GitSubtreeEntry]
     func save(_ entry: GitSubtreeEntry, in repositoryURL: URL) async throws
     func remove(id: String, in repositoryURL: URL) async throws

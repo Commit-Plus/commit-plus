@@ -28,6 +28,18 @@ struct BranchSyncStatus: Equatable {
 }
 
 extension GitStatusService {
+    func branchTipIsAncestor(_ ancestor: String, of descendant: String, in repositoryURL: URL) async -> Bool {
+        do {
+            _ = try await runGit(
+                arguments: ["merge-base", "--is-ancestor", ancestor, descendant],
+                in: repositoryURL
+            )
+            return true
+        } catch {
+            return false
+        }
+    }
+
     func currentBranch(in repositoryURL: URL) async -> String? {
         let showCurrentOutput = try? await runGit(arguments: ["branch", "--show-current"], in: repositoryURL)
         if let branch = GitCurrentBranchResolver.resolve(
@@ -45,8 +57,9 @@ extension GitStatusService {
     }
 
     func localBranches(in repositoryURL: URL) async -> [String] {
-        let output = (try? await runGit(arguments: ["branch", "--format=%(refname:short)"], in: repositoryURL)) ?? ""
-        return output.split(separator: "\n").map { String($0) }.filter { !$0.isEmpty }
+        let output = (try? await runGit(arguments: ["for-each-ref", "--format=%(refname)", "refs/heads/"], in: repositoryURL)) ?? ""
+        return output.split(separator: "\n").filter { $0.hasPrefix("refs/heads/") }
+            .map { String($0.dropFirst("refs/heads/".count)) }
     }
 
     func cachedLocalBranches(in repositoryURL: URL) async -> [String] {
@@ -121,6 +134,41 @@ extension GitStatusService {
         let output = try await runGit(arguments: ["branch", flag, name], in: repositoryURL)
         await invalidateBranchListCache(in: repositoryURL)
         return output
+    }
+
+    /// Delete only the exact local tip whose merge evidence was validated.
+    func deleteValidatedMergedBranch(name: String, expectedTip: String, in repositoryURL: URL) async throws -> String {
+        _ = try await runGit(arguments: ["check-ref-format", "refs/heads/\(name)"], in: repositoryURL)
+        let output = try await runGit(arguments: ["worktree", "list", "--porcelain"], in: repositoryURL)
+        let worktrees = parseWorktreePorcelain(output)
+        guard !worktrees.isEmpty, !worktrees.contains(where: { $0.branch == name }) else {
+            throw GitError.commandFailed("Cannot delete '\(name)' because it is checked out in a worktree.")
+        }
+        for worktree in worktrees {
+            guard await inProgressOperation(in: worktree.path) == nil else {
+                throw GitError.commandFailed("Finish the active Git operation in all worktrees before deleting '\(name)'.")
+            }
+        }
+        let result = try await runGit(
+            arguments: ["update-ref", "--no-deref", "-d", "refs/heads/\(name)", expectedTip], in: repositoryURL
+        )
+        // update-ref cannot check worktree use atomically, so restore the ref if
+        // another worktree checked the branch out before it was removed.
+        let worktreesAfterDelete = parseWorktreePorcelain(
+            (try? await runGit(arguments: ["worktree", "list", "--porcelain"], in: repositoryURL)) ?? ""
+        )
+        if worktreesAfterDelete.isEmpty || worktreesAfterDelete.contains(where: { $0.branch == name }) {
+            _ = try? await runGitRaw(
+                arguments: ["update-ref", "--no-deref", "--stdin"], in: repositoryURL,
+                environment: ProcessInfo.processInfo.environment,
+                inputData: Data("create refs/heads/\(name) \(expectedTip)\n".utf8)
+            )
+            await invalidateBranchListCache(in: repositoryURL)
+            throw GitError.commandFailed("Cannot delete '\(name)' because it was checked out in a worktree during deletion.")
+        }
+        _ = try? await runGit(arguments: ["config", "--remove-section", "branch.\(name)"], in: repositoryURL)
+        await invalidateBranchListCache(in: repositoryURL)
+        return result
     }
 
     func deleteFinishedGitFlowBranch(

@@ -162,6 +162,7 @@ struct MainWindowView: View {
     @StateObject var syncState = SyncState()
     @StateObject var undoManager = GitUndoManager()
     @StateObject var pullRequestController: PullRequestController
+    @StateObject var branchMergeDetectionController: BranchMergeDetectionController
     @State var pullRequestAccessDecision: FeatureAccessDecision?
     @State var featureAccessNotice: FeatureAccessNotice?
     @State var proUpgradePresentation: ProUpgradePresentation?
@@ -258,6 +259,9 @@ struct MainWindowView: View {
         _syncState = StateObject(wrappedValue: syncState)
         _undoManager = StateObject(wrappedValue: undoManager)
         _pullRequestController = StateObject(wrappedValue: pullRequestController)
+        _branchMergeDetectionController = StateObject(wrappedValue: BranchMergeDetectionController(
+            providerAccountController: providerAccountController
+        ))
         _repositoryAIChatController = StateObject(wrappedValue: RepositoryAIChatController(
             repositoryURL: repositoryURL,
             providerController: aiProviderController,
@@ -997,6 +1001,8 @@ struct MainWindowView: View {
             },
             activeSyncBranchName: (syncState.isUpdatingCurrentBranch || syncState.isPulling || syncState.isPushing) ? syncState.activeSyncBranch : nil,
             canUpdateCurrentBranch: canUpdateCurrentBranch,
+            branchMergeDetectionController: branchMergeDetectionController,
+            showMergedBranchHints: repoSettings.showMergedBranchHints,
             onRequestCheckout: { ref, isTag in
                 if isTag {
                     tagToCheckout = ref
@@ -1192,6 +1198,10 @@ struct MainWindowView: View {
             },
             onRequestCreatePullRequestFromWorkspace: {
                 prepareCreatePullRequest()
+            },
+            onRequestBranchMergeUpgrade: {
+                proUpgradeErrorMessage = nil
+                proUpgradePresentation = ProUpgradePresentation(feature: .branchMergeDetection)
             },
             onRequestShowSubtreeInFinder: { path in
                 NSWorkspace.shared.activateFileViewerSelecting([path])
@@ -1620,7 +1630,7 @@ struct MainWindowView: View {
                 _ = await authorizeGitFlowAccess(forceRefresh: true)
             }
         case .privateRepositories, .gitLFS, .aiCommitMessage, .repositoryChat, .repositoryAIActions,
-             .aiConflictResolution, .aiBringYourOwnKey, .multipleProviderAccounts:
+             .aiConflictResolution, .aiBringYourOwnKey, .multipleProviderAccounts, .branchMergeDetection:
             break
         }
     }

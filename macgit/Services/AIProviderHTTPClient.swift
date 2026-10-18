@@ -18,7 +18,7 @@
 
 import Foundation
 
-protocol AIProviderHTTPClient: Sendable {
+nonisolated protocol AIProviderHTTPClient: Sendable {
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse)
 }
 

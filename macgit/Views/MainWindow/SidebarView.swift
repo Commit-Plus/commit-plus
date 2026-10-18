@@ -27,8 +27,12 @@ import SwiftUI
 struct SidebarView: View {
     @Environment(\.appTextScale) private var textScale
     @EnvironmentObject private var appUpdateController: AppUpdateController
-    @EnvironmentObject private var accountController: AccountSessionController
+    @EnvironmentObject var accountController: AccountSessionController
+    @EnvironmentObject var featureAccessController: FeatureAccessController
     @EnvironmentObject var appState: AppState
+    @ObservedObject var branchMergeDetectionController: BranchMergeDetectionController
+    @State var mergeEvidenceAssessment: BranchMergeAssessment?
+    var showMergedBranchHints = true
 
     let repositoryURL: URL
     @Binding var selection: SidebarSelection?
@@ -80,6 +84,7 @@ struct SidebarView: View {
     let onRequestCreateBranch: () -> Void
     let onRequestCreateTag: () -> Void
     let onRequestCreatePullRequestFromWorkspace: () -> Void
+    let onRequestBranchMergeUpgrade: () -> Void
     let onRequestShowSubtreeInFinder: (URL) -> Void
     let onRequestOpenSubtreeInTerminal: (URL) -> Void
     let onRequestPullSubtree: (GitSubtreeEntry) -> Void
@@ -219,6 +224,8 @@ struct SidebarView: View {
         isBranchSyncing: @escaping (String) -> Bool = { _ in false },
         activeSyncBranchName: String? = nil,
         canUpdateCurrentBranch: Bool = true,
+        branchMergeDetectionController: BranchMergeDetectionController,
+        showMergedBranchHints: Bool = true,
         onRequestCheckout: @escaping (String, Bool) -> Void,
         onRequestRemoteBranchCheckout: @escaping (RemoteBranchCheckoutTarget) -> Void,
         onRequestFetchBranch: @escaping (String) -> Void,
@@ -255,6 +262,7 @@ struct SidebarView: View {
         onRequestCreateBranch: @escaping () -> Void = {},
         onRequestCreateTag: @escaping () -> Void = {},
         onRequestCreatePullRequestFromWorkspace: @escaping () -> Void = {},
+        onRequestBranchMergeUpgrade: @escaping () -> Void = {},
         onRequestShowSubtreeInFinder: @escaping (URL) -> Void = { _ in },
         onRequestOpenSubtreeInTerminal: @escaping (URL) -> Void = { _ in },
         onRequestPullSubtree: @escaping (GitSubtreeEntry) -> Void = { _ in },
@@ -293,6 +301,8 @@ struct SidebarView: View {
         self.isBranchSyncing = isBranchSyncing
         self.activeSyncBranchName = activeSyncBranchName
         self.canUpdateCurrentBranch = canUpdateCurrentBranch
+        self.branchMergeDetectionController = branchMergeDetectionController
+        self.showMergedBranchHints = showMergedBranchHints
         self.onRequestCheckout = onRequestCheckout
         self.onRequestRemoteBranchCheckout = onRequestRemoteBranchCheckout
         self.onRequestFetchBranch = onRequestFetchBranch
@@ -329,6 +339,7 @@ struct SidebarView: View {
         self.onRequestCreateBranch = onRequestCreateBranch
         self.onRequestCreateTag = onRequestCreateTag
         self.onRequestCreatePullRequestFromWorkspace = onRequestCreatePullRequestFromWorkspace
+        self.onRequestBranchMergeUpgrade = onRequestBranchMergeUpgrade
         self.onRequestShowSubtreeInFinder = onRequestShowSubtreeInFinder
         self.onRequestOpenSubtreeInTerminal = onRequestOpenSubtreeInTerminal
         self.onRequestPullSubtree = onRequestPullSubtree
@@ -578,6 +589,14 @@ struct SidebarView: View {
 
     private var sidebarContent: some View {
         sidebarList
+            .replacingSheet(item: $mergeEvidenceAssessment) { assessment in
+                VStack(alignment: .trailing, spacing: 0) {
+                    BranchMergeEvidenceView(assessment: assessment)
+                    Button("Done") { mergeEvidenceAssessment = nil }
+                        .keyboardShortcut(.defaultAction)
+                        .padding([.horizontal, .bottom], 14)
+                }
+            }
             .alert("Error", isPresented: $showingError) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -596,6 +615,7 @@ struct SidebarView: View {
                     remoteDeleteTarget: matchingRemoteDeleteTarget,
                     cancelDeleteConfirmation: cancelDeleteConfirmation,
                     confirmDeleteBranch: confirmDeleteBranch,
+                    validateMergedBranchDeletion: validateMergedBranchDeletion,
                     onPrefixDeleteCompleted: refreshAfterBranchDeletion,
                     deleteRemoteBranch: deleteRemoteBranch,
                     onRunRepositoryOperation: onRunRepositoryOperation
@@ -732,6 +752,7 @@ struct SidebarView: View {
                 Task {
                     if notification.userInfo?["userInitiated"] as? Bool == true {
                         await loadRemotes()
+                        await refreshMergeStatus()
                     }
                     await loadBranches(force: true)
                 }
@@ -759,6 +780,15 @@ struct SidebarView: View {
                 await loadBranches(force: true)
             }
         }
+        .onChange(of: featureAccessController.decision(
+            for: .branchMergeDetection, entitlement: accountController.entitlement
+        ).isAllowed) { _, isAllowed in
+            if isAllowed {
+                Task { await refreshMergeStatus() }
+            } else {
+                branchMergeDetectionController.invalidate()
+            }
+        }
         .onChange(of: appState.showSubtrees) { _, isVisible in
             guard isVisible, sectionStates.subtreesExpanded else { return }
             Task {
@@ -783,6 +813,7 @@ struct SidebarView: View {
         repositoryURL: URL(fileURLWithPath: "/tmp"),
         selection: .constant(nil),
         isBranchSyncing: { _ in false },
+        branchMergeDetectionController: BranchMergeDetectionController(),
         onRequestCheckout: { _, _ in },
         onRequestRemoteBranchCheckout: { _ in },
         onRequestFetchBranch: { _ in },

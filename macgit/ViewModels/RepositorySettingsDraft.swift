@@ -41,6 +41,7 @@ struct RepositorySettingsDraft: Equatable {
     var useGlobalUserSettings: Bool
     var userName: String
     var userEmail: String
+    var showMergedBranchHints: Bool
     let remotes: [String]
     let branches: [String]
 
@@ -80,6 +81,7 @@ struct RepositorySettingsDraft: Equatable {
         useGlobalUserSettings = settings.useGlobalUserSettings
         userName = settings.userName
         userEmail = settings.userEmail
+        showMergedBranchHints = settings.showMergedBranchHints
     }
 
     var resolvedSettings: RepoSettings {
@@ -94,7 +96,8 @@ struct RepositorySettingsDraft: Equatable {
             skipProtectedBranchCommitWarnings: skipProtectedBranchCommitWarnings,
             useGlobalUserSettings: useGlobalUserSettings,
             userName: userName,
-            userEmail: userEmail
+            userEmail: userEmail,
+            showMergedBranchHints: showMergedBranchHints
         )
     }
 

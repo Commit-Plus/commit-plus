@@ -128,6 +128,30 @@ extension SidebarView {
         deleteRemoteBranchAlongsideLocal = false
     }
 
+    func requestFullyMergedBranchDeletion(_ branch: String) {
+        let branches = Set(branchMergeDetectionController.assessments.values
+            .filter {
+                $0.isFullyMerged && $0.branch != currentBranch
+                    && branchMergeDetectionController.isCleanupCandidate($0.branch, configuration: gitFlowConfiguration)
+            }
+            .map(\.branch))
+        guard branches.contains(branch) else { return }
+        deleteConfirmationTarget = .merged(branches)
+    }
+
+    @MainActor
+    func validateMergedBranchDeletion(_ branch: String) async throws -> String {
+        guard let assessment = await branchMergeDetectionController.revalidateFullyMerged(
+            branch: branch,
+            repositoryURL: repositoryURL,
+            entitlement: accountController.entitlement,
+            policy: featureAccessController.policy
+        ) else {
+            throw GitError.commandFailed("Deletion stopped because '\(branch)' changed, is protected or in use, or its merge evidence could not be verified.")
+        }
+        return assessment.tipSHA
+    }
+
     func confirmDeleteBranch(_ branch: String) {
         let force = forceDeleteBranch
         let remoteTarget = deleteRemoteBranchAlongsideLocal

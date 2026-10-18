@@ -4,6 +4,14 @@ import AppKit
 extension SidebarView {
     func nativeBackgroundMenu() -> NSMenu {
         let menu = SidebarNativeMenu()
+        menu.item("Refresh Status") {
+            Task {
+                await GitStatusService.shared.invalidateBranchListCache(in: repositoryURL)
+                await loadBranches(force: true)
+                await refreshMergeStatus()
+            }
+        }
+        menu.separator()
         menu.item("Add Submodule...", onRequestAddSubmodule)
         menu.item("Add/Link Subtree...", onRequestAddLinkSubtree)
         menu.separator()
@@ -53,6 +61,29 @@ extension SidebarView {
         menu.item("Create Tag from '\(branch)'...") { actions.createTagFrom(branch) }
         menu.separator()
         menu.item("Compare with…") { actions.compare(branch) }
+        menu.separator()
+        let mergeAccess = FeatureAccessResolver(policy: featureAccessController.policy).decision(
+            for: .branchMergeDetection,
+            entitlement: accountController.entitlement
+        )
+        if mergeAccess.isAllowed {
+            let assessment = branchMergeDetectionController.assessment(for: branch, repositoryURL: repositoryURL, configuration: gitFlowConfiguration)
+            menu.submenu("Merge Status") { mergeMenu in
+                if let assessment, assessment.isFullyMerged {
+                    mergeMenu.item("Review Merge Evidence…") {
+                        mergeEvidenceAssessment = assessment
+                    }
+                    mergeMenu.item("Delete Fully Merged Branches…", enabled: branch != currentBranch) {
+                        requestFullyMergedBranchDeletion(branch)
+                    }
+                }
+                mergeMenu.item("Refresh Merge Status") {
+                    Task { await refreshMergeStatus() }
+                }
+            }
+        } else {
+            menu.item("PR Merge Detection (Pro)…", onRequestBranchMergeUpgrade)
+        }
         menu.separator()
         menu.item("Rename...") { actions.rename(branch) }
         menu.item("Delete \(branch)", enabled: branch != currentBranch) { actions.confirmDelete(.single(branch)) }

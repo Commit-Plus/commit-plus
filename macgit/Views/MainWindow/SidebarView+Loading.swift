@@ -238,7 +238,11 @@ extension SidebarView {
         let initiallyVisibleBranches = cachedVisibleBranchRows
         .filter { !$0.isFolder }
         .map(\.fullPath)
-        startBranchSync(for: initiallyVisibleBranches, loadID: loadID)
+        startBranchSync(
+            for: initiallyVisibleBranches,
+            loadID: loadID,
+            showsProgress: !hadLoadedBranches
+        )
         if !current.isEmpty {
             let integrationStatus = await GitStatusService.shared.currentBranchIntegrationStatus(
                 branch: current,
@@ -253,9 +257,26 @@ extension SidebarView {
                 }
             }
         }
+        if !hadLoadedBranches {
+            await refreshMergeStatus(force: false)
+        } else {
+            await branchMergeDetectionController.pruneStaleAssessments(repositoryURL: repositoryURL)
+        }
     }
 
-    func startBranchSync(for branches: [String], loadID: UUID) {
+    func refreshMergeStatus(force: Bool = true) async {
+        let branches = await GitStatusService.shared.localBranches(in: repositoryURL)
+        await branchMergeDetectionController.refresh(
+            branches: branches,
+            repositoryURL: repositoryURL,
+            entitlement: accountController.entitlement,
+            policy: featureAccessController.policy,
+            configuration: gitFlowConfiguration,
+            force: force
+        )
+    }
+
+    func startBranchSync(for branches: [String], loadID: UUID, showsProgress: Bool = true) {
         let pendingBranches = branches.filter {
             $0 != currentBranch
                 && !loadedBranchSyncBranches.contains($0)
@@ -263,7 +284,9 @@ extension SidebarView {
         }
         guard !pendingBranches.isEmpty else { return }
 
-        syncingBranchSyncBranches.formUnion(pendingBranches)
+        if showsProgress {
+            syncingBranchSyncBranches.formUnion(pendingBranches)
+        }
         Task {
             await loadBranchSyncStatuses(for: pendingBranches, loadID: loadID)
         }

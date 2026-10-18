@@ -39,6 +39,7 @@ struct RepoSettings: Codable, Equatable {
     var useGlobalUserSettings: Bool
     var userName: String
     var userEmail: String
+    var showMergedBranchHints: Bool = true
 
     init(
         defaultRemoteName: String? = nil,
@@ -51,7 +52,8 @@ struct RepoSettings: Codable, Equatable {
         skipProtectedBranchCommitWarnings: Bool = false,
         useGlobalUserSettings: Bool = true,
         userName: String = "",
-        userEmail: String = ""
+        userEmail: String = "",
+        showMergedBranchHints: Bool = true
     ) {
         self.defaultRemoteName = defaultRemoteName
         self.defaultPullBranch = defaultPullBranch
@@ -64,6 +66,7 @@ struct RepoSettings: Codable, Equatable {
         self.useGlobalUserSettings = useGlobalUserSettings
         self.userName = userName
         self.userEmail = userEmail
+        self.showMergedBranchHints = showMergedBranchHints
     }
 
     init(from decoder: Decoder) throws {
@@ -79,6 +82,7 @@ struct RepoSettings: Codable, Equatable {
         useGlobalUserSettings = try container.decodeIfPresent(Bool.self, forKey: .useGlobalUserSettings) ?? true
         userName = try container.decodeIfPresent(String.self, forKey: .userName) ?? ""
         userEmail = try container.decodeIfPresent(String.self, forKey: .userEmail) ?? ""
+        showMergedBranchHints = try container.decodeIfPresent(Bool.self, forKey: .showMergedBranchHints) ?? true
     }
 
     static func defaults(currentBranch: String?, remotes: [String]) -> RepoSettings {
@@ -108,5 +112,6 @@ struct RepoSettings: Codable, Equatable {
         case useGlobalUserSettings
         case userName
         case userEmail
+        case showMergedBranchHints
     }
 }

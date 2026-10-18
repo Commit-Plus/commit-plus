@@ -204,6 +204,7 @@ final class GitSubmoduleLifecycleTests: XCTestCase {
         var view = SidebarView(
             repositoryURL: setup.parent,
             selection: .constant(nil),
+            branchMergeDetectionController: BranchMergeDetectionController(),
             onRequestCheckout: { _, _ in },
             onRequestRemoteBranchCheckout: { _ in },
             onRequestFetchBranch: { _ in },

@@ -76,6 +76,8 @@ struct BranchSheetView: View {
     var undoManager: GitUndoManager? = nil
     var initialStartPoint: GitBranchStartPoint? = nil
     let initiallySelectedLocalBranches: Set<String>
+    let localBranchFilter: Set<String>?
+    let validateLocalBranchDeletion: (@MainActor (String) async throws -> String)?
 
     @State private var selectedTab: BranchTab = .create
 
@@ -118,6 +120,8 @@ struct BranchSheetView: View {
         initialTab: BranchTab = .create,
         initiallySelectedLocalBranches: Set<String> = [],
         initialForceDelete: Bool = false,
+        localBranchFilter: Set<String>? = nil,
+        validateLocalBranchDeletion: (@MainActor (String) async throws -> String)? = nil,
         onRunRepositoryOperation: @escaping RepositoryOperationRunner = { _, operation in
             Task { await operation() }
         },
@@ -129,6 +133,8 @@ struct BranchSheetView: View {
         self.undoManager = undoManager
         self.initialStartPoint = initialStartPoint
         self.initiallySelectedLocalBranches = initiallySelectedLocalBranches
+        self.localBranchFilter = localBranchFilter
+        self.validateLocalBranchDeletion = validateLocalBranchDeletion
         self._selectedTab = State(initialValue: initialTab)
         self._forceDelete = State(initialValue: initialForceDelete)
     }
@@ -158,7 +164,8 @@ struct BranchSheetView: View {
     }
 
     private var matchingRemoteTargets: [RemoteBranchDeleteTarget] {
-        Array(Set(selectedBranches.compactMap { item in
+        guard localBranchFilter == nil else { return [] }
+        return Array(Set(selectedBranches.compactMap { item in
             item.type == .local ? item.remoteTarget : nil
         })).sorted { $0.fullPath < $1.fullPath }
     }
@@ -193,15 +200,16 @@ struct BranchSheetView: View {
                     .padding(.top, 12)
 
                 // Content
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        if selectedTab == .create {
+                if selectedTab == .create {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
                             createBranchContent
-                        } else {
-                            deleteBranchesContent
                         }
+                        .padding(24)
                     }
-                    .padding(24)
+                } else {
+                    deleteBranchesContent
+                        .padding(24)
                 }
 
                 // Buttons
@@ -251,8 +259,8 @@ struct BranchSheetView: View {
                 }
                 .padding([.horizontal, .bottom], 24)
             }
-            .frame(minWidth: 480, idealWidth: 520, maxWidth: 560)
-            .frame(minHeight: 400, idealHeight: 460, maxHeight: 600)
+            .frame(minWidth: 640, idealWidth: 700, maxWidth: 780)
+            .frame(minHeight: 440, idealHeight: 520, maxHeight: 680)
 
             // Custom confirmation overlay
             if showingDeleteConfirmation {
@@ -499,60 +507,57 @@ struct BranchSheetView: View {
     // MARK: - Delete Branches Content
 
     private var deleteBranchesContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Select the branches you wish to delete:")
                 .font(.system(size: 13))
 
-            // Table header
-            HStack(spacing: 0) {
-                Toggle("Select all branches", sources: $branches, isOn: \.isSelected)
-                    .toggleStyle(.checkbox)
-                    .labelsHidden()
-                    .frame(width: 30)
-                    .disabled(branches.isEmpty)
-                Text("Branch name")
-                    .font(.system(size: 11, weight: .medium))
-                    .frame(minWidth: 120, alignment: .leading)
-                Spacer()
-                Text("Type")
-                    .font(.system(size: 11, weight: .medium))
-                    .frame(width: 60, alignment: .leading)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.quaternary.opacity(0.3))
-
-            // Table rows
-            VStack(spacing: 0) {
-                ForEach($branches) { $branch in
-                    HStack(spacing: 0) {
+            ZStack(alignment: .topLeading) {
+                Table($branches) {
+                    TableColumn("") { $branch in
                         Toggle(branch.name, isOn: $branch.isSelected)
                             .toggleStyle(.checkbox)
                             .labelsHidden()
-                            .frame(width: 30)
+                    }
+                    .width(44)
 
+                    TableColumn("Branch name") { $branch in
                         Button {
                             branch.isSelected.toggle()
                         } label: {
                             Text(branch.name)
-                                .font(.system(size: 12))
-                                .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 3)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityHidden(true)
-
-                        Text(branch.type.rawValue)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 60, alignment: .leading)
                     }
-                    .padding(.horizontal, 8)
+                    .width(min: 220, ideal: 300)
+
+                    TableColumn("Type") { $branch in
+                        Text(branch.type.rawValue)
+                            .foregroundStyle(.secondary)
+                    }
+                    .width(70)
+
+                    TableColumn("Remote branch") { $branch in
+                        Text(branch.remoteTarget?.fullPath ?? "—")
+                            .foregroundStyle(branch.remoteTarget == nil ? .tertiary : .secondary)
+                            .help(branch.remoteTarget.map {
+                                "This branch will be deleted when remote deletion is enabled: \($0.fullPath)"
+                            } ?? "No unambiguous matching remote branch")
+                    }
+                    .width(min: 150, ideal: 210)
                 }
+
+                Toggle("Select all branches", sources: $branches, isOn: \.isSelected)
+                    .toggleStyle(.checkbox)
+                    .labelsHidden()
+                    .disabled(branches.isEmpty)
+                    .accessibilityLabel("Select all branches")
+                    .help("Select or deselect all branches")
+                    .padding(.leading, 12)
+                    .padding(.top, 5)
             }
-            .background(.quaternary.opacity(0.1))
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
     }
 
@@ -610,12 +615,25 @@ struct BranchSheetView: View {
             ? Set(matchingRemoteTargets)
             : []
 
+        let selection = selectedBranches
+        var didDeleteBranch = false
         do {
-            for branch in selectedBranches {
+            var validatedTips: [String: String] = [:]
+            if let validateLocalBranchDeletion {
+                for branch in selection where branch.type == .local {
+                    validatedTips[branch.name] = try await validateLocalBranchDeletion(branch.name)
+                }
+            }
+            for branch in selection {
                 switch branch.type {
                 case .local:
                     let support = GitBranchUndoSupport()
-                    let tip = try await support.tip(of: branch.name, in: repositoryURL)
+                    let tip = try await support.tip(of: "refs/heads/\(branch.name)", in: repositoryURL)
+                    if let validatedTip = validatedTips[branch.name] {
+                        guard validatedTip == tip else {
+                            throw GitError.commandFailed("The branch changed while its merge status was being verified. Refresh merge status and try again.")
+                        }
+                    }
                     let upstream = await support.upstream(of: branch.name, in: repositoryURL)
                     let remoteTarget = branch.remoteTarget.flatMap {
                         remoteTargetsFromLocal.contains($0) ? $0 : nil
@@ -630,11 +648,16 @@ struct BranchSheetView: View {
                     } else {
                         remoteHash = nil
                     }
-                    _ = try await GitStatusService.shared.deleteBranch(
-                        name: branch.name,
-                        force: forceDelete,
-                        in: repositoryURL
-                    )
+                    if let expectedTip = validatedTips[branch.name] {
+                        _ = try await GitStatusService.shared.deleteValidatedMergedBranch(
+                            name: branch.name, expectedTip: expectedTip, in: repositoryURL
+                        )
+                    } else {
+                        _ = try await GitStatusService.shared.deleteBranch(
+                            name: branch.name, force: forceDelete, in: repositoryURL
+                        )
+                    }
+                    didDeleteBranch = true
                     do {
                         if let remoteTarget {
                             _ = try await GitStatusService.shared.deleteRemoteBranch(
@@ -677,6 +700,7 @@ struct BranchSheetView: View {
                         name: name,
                         in: repositoryURL
                     )
+                    didDeleteBranch = true
                 }
             }
             await MainActor.run {
@@ -687,7 +711,11 @@ struct BranchSheetView: View {
                 Task { await loadDeleteData() }
             }
         } catch {
+            if didDeleteBranch {
+                await loadDeleteData()
+            }
             await MainActor.run {
+                if didDeleteBranch { onCompleted() }
                 isDeleting = false
                 showingDeleteConfirmation = false
                 errorMessage = friendlyErrorMessage(for: error)
@@ -742,6 +770,7 @@ struct BranchSheetView: View {
         var items: [BranchDeleteItem] = []
 
         for name in locals {
+            if let localBranchFilter, !localBranchFilter.contains(name) { continue }
             let upstream = await GitBranchUndoSupport().upstream(of: name, in: repositoryURL)
             items.append(
                 BranchDeleteItem(
@@ -758,6 +787,7 @@ struct BranchSheetView: View {
         }
 
         for remote in remotesList {
+            guard localBranchFilter == nil else { continue }
             for branchName in remoteBranchesByRemote[remote] ?? [] {
                 items.append(BranchDeleteItem(name: "\(remote)/\(branchName)", type: .remote))
             }
