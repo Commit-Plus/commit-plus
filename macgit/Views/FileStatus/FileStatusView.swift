@@ -80,7 +80,6 @@ struct FileStatusView: View {
     @State private var isCommitBarExpanded = false
     @State private var isCommitting = false
     @State private var commitMessage = ""
-    @State private var commitMessageSelection: TextSelection?
     @FocusState private var isCommitMessageFocused: Bool
     @State private var showingCommitConfirmation = false
     @State private var emptyCommitAction: EmptyCommitAction?
@@ -1097,7 +1096,6 @@ struct FileStatusView: View {
                 TextField(
                     "",
                     text: $commitMessage,
-                    selection: $commitMessageSelection,
                     axis: .vertical
                 )
                     .focused($isCommitMessageFocused)
@@ -1348,23 +1346,8 @@ struct FileStatusView: View {
     }
 
     private func insertNewlineInCommitMessage() {
-        guard let commitMessageSelection,
-              case let .selection(range) = commitMessageSelection.indices else {
-            commitMessage.append("\n")
-            self.commitMessageSelection = TextSelection(insertionPoint: commitMessage.endIndex)
-            return
-        }
-
-        let insertionOffset = commitMessage.distance(
-            from: commitMessage.startIndex,
-            to: range.lowerBound
-        )
-        commitMessage.replaceSubrange(range, with: "\n")
-        let insertionPoint = commitMessage.index(
-            commitMessage.startIndex,
-            offsetBy: insertionOffset + 1
-        )
-        self.commitMessageSelection = TextSelection(insertionPoint: insertionPoint)
+        // Insert into the multiline field without ending its field editor session.
+        NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
     }
 
     private func requestCommit() {
