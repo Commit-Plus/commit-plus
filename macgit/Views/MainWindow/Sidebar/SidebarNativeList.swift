@@ -10,11 +10,18 @@ struct SidebarNativeRow {
         let kind: String
         let key: String
     }
+    struct BadgeSegment: Equatable {
+        var text: String
+        var tint = "secondary"
+    }
     struct Appearance: Equatable {
         var title: String
         var subtitle = ""
         var icon = ""
         var badge = ""
+        var badgeToolTip = ""
+        /// Colored badge text; `badge` keeps the plain text for layout and accessibility.
+        var badgeSegments: [BadgeSegment] = []
         var gitFlowRole: GitFlowBranchRole?
         var gitFlowRoleDisplayMode: GitFlowRoleDisplayMode = .full
         var indent = 0
@@ -544,6 +551,7 @@ struct SidebarNativeList: NSViewRepresentable {
             title.lineBreakMode = .byTruncatingTail
             subtitle.lineBreakMode = .byTruncatingMiddle
             badge.alignment = .right
+            badge.maximumNumberOfLines = 1
             button.isBordered = false
             button.title = ""
             button.imagePosition = .imageOnly
@@ -571,9 +579,25 @@ struct SidebarNativeList: NSViewRepresentable {
             subtitle.textColor = .secondaryLabelColor
             rolePill.configure(role: value.gitFlowRole, mode: value.gitFlowRoleDisplayMode, scale: scale)
             mergedPill.configure(visible: value.merged, scale: scale)
-            badge.stringValue = value.badge
-            badge.font = .systemFont(ofSize: 10 * scale)
-            badge.textColor = .secondaryLabelColor
+            if value.badgeSegments.isEmpty {
+                badge.stringValue = value.badge
+                badge.font = .systemFont(ofSize: 10 * scale)
+                badge.textColor = .secondaryLabelColor
+            } else {
+                let font = NSFont.monospacedDigitSystemFont(ofSize: 11 * scale, weight: .semibold)
+                // Without an explicit paragraph style the attributed text word-wraps
+                // and the last segment drops onto a hidden second line.
+                let paragraph = NSMutableParagraphStyle()
+                paragraph.alignment = .right
+                paragraph.lineBreakMode = .byClipping
+                badge.font = font
+                badge.attributedStringValue = value.badgeSegments.reduce(into: NSMutableAttributedString()) { text, segment in
+                    text.append(NSAttributedString(string: segment.text, attributes: [
+                        .font: font, .foregroundColor: tint(segment.tint), .paragraphStyle: paragraph
+                    ]))
+                }
+            }
+            badge.toolTip = value.badgeToolTip.isEmpty ? nil : value.badgeToolTip
             icon.image = value.icon.isEmpty ? nil : NSImage(systemSymbolName: value.icon, accessibilityDescription: nil)
             icon.contentTintColor = value.emphasized ? .controlAccentColor : tint(value.tint)
             if value.spinning { progress.startAnimation(nil) } else { progress.stopAnimation(nil) }
@@ -581,7 +605,7 @@ struct SidebarNativeList: NSViewRepresentable {
             button.isHidden = value.accessory.isEmpty
             button.toolTip = value.accessoryLabel
             button.setAccessibilityLabel(value.accessoryLabel)
-            setAccessibilityLabel([value.title, value.subtitle, value.gitFlowRole?.rawValue ?? "", value.badge, value.merged ? "Merged" : ""].filter { !$0.isEmpty }.joined(separator: ", "))
+            setAccessibilityLabel([value.title, value.subtitle, value.gitFlowRole?.rawValue ?? "", value.badgeToolTip.isEmpty ? value.badge : value.badgeToolTip, value.merged ? "Merged" : ""].filter { !$0.isEmpty }.joined(separator: ", "))
             toolTip = value.subtitle.isEmpty ? value.title : "\(value.title)\n\(value.subtitle)"
             needsLayout = true
         }
@@ -634,6 +658,14 @@ struct SidebarNativeList: NSViewRepresentable {
             case "SUBTREES": .systemPink
             case "red": .systemRed
             case "accent": .controlAccentColor
+            case "label": .labelColor
+            // System yellow is too light to read on a light sidebar. The provider
+            // returns concrete colors rather than another dynamic system color.
+            case "deepYellow": NSColor(name: nil) { appearance in
+                appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                    ? NSColor(srgbRed: 1, green: 0.8, blue: 0.04, alpha: 1)
+                    : NSColor(srgbRed: 0.72, green: 0.52, blue: 0, alpha: 1)
+            }
             default: .secondaryLabelColor
             }
         }

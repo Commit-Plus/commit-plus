@@ -59,6 +59,16 @@ extension SidebarView {
             if item == .gitLFS && !appState.showWorkspaceGitLFS { continue }
             var row = SidebarNativeRow(id: .init(section: .workspace, kind: "item", key: item.rawValue),
                 appearance: .init(title: item.rawValue, icon: item.icon))
+            if item == .fileStatus && (stagedFileCount > 0 || changedFileCount > 0) {
+                // Total uncommitted files are already on the Commit toolbar badge.
+                row.appearance.badge = "\(stagedFileCount) / \(changedFileCount)"
+                row.appearance.badgeToolTip = "\(stagedFileCount) staged, \(changedFileCount) changed"
+                row.appearance.badgeSegments = [
+                    .init(text: "\(stagedFileCount)", tint: "green"),
+                    .init(text: " / ", tint: "label"),
+                    .init(text: "\(changedFileCount)", tint: "deepYellow")
+                ]
+            }
             if item == .search { row.select = onRequestSearch }
             else {
                 row.selection = .item(item)

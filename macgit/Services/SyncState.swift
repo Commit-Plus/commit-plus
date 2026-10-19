@@ -95,6 +95,8 @@ private actor SyncRefreshCoordinator {
 class SyncState: ObservableObject {
     @Published var commitBadgeCount: Int = 0
     @Published var stagedBadgeCount: Int = 0
+    /// Unstaged and untracked files, matching the File Status "Changed" list.
+    @Published var changedFileCount: Int = 0
     @Published var stashableCount: Int = 0
     @Published var pushBadgeCount: Int = 0
     @Published var pullBadgeCount: Int = 0
@@ -203,6 +205,10 @@ class SyncState: ObservableObject {
             let previousBranch = refreshedCurrentBranches.updateValue(currentBranch, forKey: repositoryURL)
             let localStatusDidChange: Bool
             if let localStatus {
+                let changedFileCount = localStatus.unstaged.count + localStatus.untracked.count
+                if self.changedFileCount != changedFileCount {
+                    self.changedFileCount = changedFileCount
+                }
                 localStatusDidChange = refreshedLocalStatuses[repositoryURL] != localStatus
                 if localStatusDidChange {
                     refreshedLocalStatuses[repositoryURL] = localStatus

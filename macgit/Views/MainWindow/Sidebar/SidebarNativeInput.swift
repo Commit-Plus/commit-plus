@@ -26,6 +26,7 @@ struct SidebarNativeInput: Equatable {
     var dataRepositoryURL: URL? = nil
     var mergeAssessments: [String: BranchMergeAssessment] = [:]
     var showMergedBranchHints = true
+    var fileStatusCounts: [Int] = []
 }
 
 extension SidebarView {
@@ -55,6 +56,7 @@ extension SidebarView {
             gitFlowRoleDisplayMode: gitFlowRoleDisplayMode,
             dataRepositoryURL: sidebarDataRepositoryURL,
             mergeAssessments: branchMergeDetectionController.assessments,
-            showMergedBranchHints: displaysMergedBranchHints)
+            showMergedBranchHints: displaysMergedBranchHints,
+            fileStatusCounts: [stagedFileCount, changedFileCount])
     }
 }

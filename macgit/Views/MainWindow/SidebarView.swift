@@ -39,6 +39,8 @@ struct SidebarView: View {
     @Binding var selection: SidebarSelection?
     let undoManager: GitUndoManager?
     let currentBranchFallbackSyncStatus: BranchSyncStatus?
+    let stagedFileCount: Int
+    let changedFileCount: Int
     let defaultRemoteName: String?
     let isAccountMenuDisabled: Bool
     let gitFlowRoleDisplayMode: GitFlowRoleDisplayMode
@@ -215,6 +217,8 @@ struct SidebarView: View {
         selection: Binding<SidebarSelection?>,
         undoManager: GitUndoManager? = nil,
         currentBranchFallbackSyncStatus: BranchSyncStatus? = nil,
+        stagedFileCount: Int = 0,
+        changedFileCount: Int = 0,
         defaultRemoteName: String? = nil,
         isAccountMenuDisabled: Bool = false,
         gitFlowRoleDisplayMode: GitFlowRoleDisplayMode = .full,
@@ -292,6 +296,8 @@ struct SidebarView: View {
         self._selection = selection
         self.undoManager = undoManager
         self.currentBranchFallbackSyncStatus = currentBranchFallbackSyncStatus
+        self.stagedFileCount = stagedFileCount
+        self.changedFileCount = changedFileCount
         self.defaultRemoteName = defaultRemoteName
         self.isAccountMenuDisabled = isAccountMenuDisabled
         self.gitFlowRoleDisplayMode = gitFlowRoleDisplayMode

@@ -983,6 +983,8 @@ struct MainWindowView: View {
             selection: $selectedItem,
             undoManager: undoManager,
             currentBranchFallbackSyncStatus: currentBranchFallbackSyncStatus,
+            stagedFileCount: syncState.stagedBadgeCount,
+            changedFileCount: syncState.changedFileCount,
             defaultRemoteName: repoSettings.defaultRemoteName,
             isAccountMenuDisabled: operationProgress.activeOperation != nil,
             gitFlowRoleDisplayMode: gitFlowConfiguration.roleDisplayMode,
