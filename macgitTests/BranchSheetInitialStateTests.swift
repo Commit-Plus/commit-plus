@@ -107,7 +107,7 @@ final class BranchSheetInitialStateTests: XCTestCase {
     }
 
     func testDeletionSummaryReportsSuccessesAndEachFailure() {
-        let summary = BranchSheetView.deletionSummary(
+        let summary = GitStatusService.branchDeletionSummary(
             deletedCount: 2,
             failures: [
                 .init(name: "feature/stale", message: "Merge evidence could not be verified."),

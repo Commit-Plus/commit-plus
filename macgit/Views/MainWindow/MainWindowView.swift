@@ -168,6 +168,7 @@ struct MainWindowView: View {
     @State var proUpgradePresentation: ProUpgradePresentation?
     @State var proUpgradeErrorMessage: String?
     @State private var repoIconName: String = "code-branch"
+    @State private var backgroundErrorDetail: RepositoryBackgroundActivityItem?
     @State private var remoteURLString: String = ""
     @State var selectedBranchName: String? = nil
     @State private var pathComparisonWindow = PathComparisonWindowController()
@@ -247,6 +248,9 @@ struct MainWindowView: View {
             openURL: NSWorkspace.shared.open
         )
         let syncState = SyncState()
+        syncState.shouldDeferAutomaticFetch = { [weak operationProgress] in
+            operationProgress?.hasPendingBackgroundWork ?? false
+        }
         let undoManager = GitUndoManager()
         let mutationContextProvider = RepositoryAIMutationContextProvider()
         let remoteOperationContextProvider = RepositoryAIRemoteOperationContextProvider()
@@ -322,6 +326,11 @@ struct MainWindowView: View {
             .replacingSheet(item: $releaseNotesPresentation) { presentation in
                 ReleaseNotesSheet(presentation: presentation)
             }
+            .replacingSheet(item: $backgroundErrorDetail) { item in
+                if case .failed(_, let detail) = item.state {
+                    RepositoryBackgroundErrorDetailSheet(title: "\(item.title) failed", message: detail)
+                }
+            }
             .confirmationDialog(
                 "Open Repository in Editor",
                 isPresented: $showingExternalEditorChooser
@@ -358,8 +367,13 @@ struct MainWindowView: View {
                 Button(pendingConfirmedUndo?.action == .redo ? "Redo" : "Undo", role: .destructive) {
                     guard let pending = pendingConfirmedUndo else { return }
                     pendingConfirmedUndo = nil
-                    runRepositoryOperation(pending.action == .redo ? "Redoing Git action..." : "Undoing Git action...") {
-                        await executeUndoEntry(pending.entry, menuAction: pending.action)
+                    let operation = pending.action == .redo ? pending.entry.redoOperation : pending.entry.undoOperation
+                    if GitUndoExecutor.canRunInBackground(operation) {
+                        runUndoEntry(pending.entry, menuAction: pending.action)
+                    } else {
+                        runRepositoryOperation(pending.action == .redo ? "Redoing Git action..." : "Undoing Git action...") {
+                            await executeUndoEntry(pending.entry, menuAction: pending.action)
+                        }
                     }
                 }
                 Button("Cancel", role: .cancel) {}
@@ -381,11 +395,11 @@ struct MainWindowView: View {
                 Button("Force Push", role: .destructive) {
                     guard let confirmation = pendingForcePushTagConfirmation else { return }
                     pendingForcePushTagConfirmation = nil
-                    runRemoteOperation(
-                        "Force-pushing \(confirmation.tag) to \(confirmation.remote)...",
+                    runBackgroundRemoteOperation(
+                        "Force-pushing \(confirmation.tag) to \(confirmation.remote)",
                         remotes: [confirmation.remote]
                     ) { credentialResolver in
-                        await syncState.performPush(
+                        await syncState.performBackgroundPush(
                             options: GitStatusService.PushOptions(
                                 remote: confirmation.remote,
                                 tags: [confirmation.tag],
@@ -837,6 +851,9 @@ struct MainWindowView: View {
                 )
             }
             windowContext.attachUndoManager(undoManager, syncState: syncState, for: repositoryURL)
+            operationProgress.waitBeforeBackgroundOperation = { [weak syncState] in
+                await syncState?.waitForAutomaticFetchToFinish()
+            }
             OpenRepositoryRegistry.shared.register(repositoryURL)
         }
         .onDisappear {
@@ -855,6 +872,7 @@ struct MainWindowView: View {
             repositoryAIChatController.windowWillClose()
             OpenRepositoryRegistry.shared.unregister(repositoryURL)
             syncState.stopBackgroundSync()
+            operationProgress.cancelAllBackground()
         }
     }
 
@@ -1027,6 +1045,7 @@ struct MainWindowView: View {
                 Task {
                     let remote = await trackedRemote(for: branch)
                     runRemoteOperation("Fetching \(branch)...", remotes: remote.map { [$0] } ?? []) { credentialResolver in
+                        guard await waitForBackgroundRemoteActivity() else { return }
                         await syncState.performFetchAndFastForwardBranch(
                             branch: branch,
                             repositoryURL: repositoryURL,
@@ -1037,6 +1056,7 @@ struct MainWindowView: View {
             },
             onRequestPullRemoteBranch: { remote, branch in
                 runRemoteOperation("Pulling \(remote)/\(branch)...", remotes: [remote]) { credentialResolver in
+                    guard await waitForBackgroundRemoteActivity() else { return }
                     await syncState.performPull(
                         remote: remote,
                         branch: branch,
@@ -1051,6 +1071,7 @@ struct MainWindowView: View {
                 Task {
                     let remote = await trackedRemote(for: branch)
                     runRemoteOperation("Pulling \(branch)...", remotes: remote.map { [$0] } ?? []) { credentialResolver in
+                        guard await waitForBackgroundRemoteActivity() else { return }
                         await syncState.performPullBranch(
                             branch: branch,
                             repositoryURL: repositoryURL,
@@ -1107,12 +1128,12 @@ struct MainWindowView: View {
                 )
             },
             onRequestPushTagToRemote: { tag, remote in
-                runRemoteOperation("Pushing \(tag) to \(remote)...", remotes: [remote]) { credentialResolver in
+                runBackgroundRemoteOperation("Pushing \(tag) to \(remote)", remotes: [remote]) { credentialResolver in
                     let options = GitStatusService.PushOptions(
                         remote: remote,
                         tags: [tag]
                     )
-                    await syncState.performPush(
+                    return await syncState.performBackgroundPush(
                         options: options,
                         repositoryURL: repositoryURL,
                         undoManager: undoManager,
@@ -1289,7 +1310,8 @@ struct MainWindowView: View {
             onRequestDragDrop: { request in
                 handleDragDropRequest(request)
             },
-            onRunRepositoryOperation: runRepositoryOperation
+            onRunRepositoryOperation: runRepositoryOperation,
+            onRunBackgroundRemoteBranchDeletion: runBackgroundRemoteBranchDeletion
         )
         .navigationSplitViewColumnWidth(
             min: 200 * appState.textSize.scale,
@@ -1313,6 +1335,7 @@ struct MainWindowView: View {
 
     private func requestCurrentBranchIntegrationUpdate(_ status: CurrentBranchIntegrationStatus) {
         runRemoteOperation("Updating \(status.branch)...", remotes: [status.remote]) { credentialResolver in
+            guard await waitForBackgroundRemoteActivity() else { return }
             await syncState.performCurrentBranchIntegrationUpdate(
                 status: status,
                 preferredRemote: repoSettings.defaultRemoteName,
@@ -1674,12 +1697,15 @@ struct MainWindowView: View {
 
         ToolbarItem(placement: .principal) {
             HStack(spacing: 6) {
-                Image(repoIconName)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 18, height: 18)
-                Text(repositoryURL.lastPathComponent)
-                    .font(.headline.scaled(by: appState.textSize.scale))
+                RepositoryActivityHeaderButton(
+                    operationProgress: operationProgress,
+                    repositoryName: repositoryURL.lastPathComponent,
+                    providerIconName: repoIconName,
+                    textScale: appState.textSize.scale,
+                    isAutomaticFetching: syncState.isAutomaticFetching
+                ) { item in
+                    backgroundErrorDetail = item
+                }
                 GitHubNotificationBell()
             }
             .padding(.leading, 12)

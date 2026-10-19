@@ -101,6 +101,137 @@ final class GitUndoRemoteIntegrationTests: XCTestCase {
         XCTAssertEqual(afterRedo, publishedHash)
     }
 
+    func testRemoteNamesCollectsUniqueRemotesFromSequences() {
+        let operation = GitUndoOperation.sequence([
+            .createLocalBranch(name: "topic", startPoint: "abc", checkout: false),
+            .pushBranch(remote: "origin", localBranch: "abc", remoteBranch: "refs/heads/topic"),
+            .sequence([.deleteRemoteBranch(remote: "fork", branch: "topic", expectedHash: "abc")]),
+            .pushBranch(remote: "origin", localBranch: "def", remoteBranch: "refs/heads/other"),
+        ])
+
+        XCTAssertEqual(GitUndoExecutor.remoteNames(in: operation), ["origin", "fork"])
+        XCTAssertEqual(GitUndoExecutor.remoteNames(in: .setUpstream(branch: "a", upstream: "origin/a")), [])
+    }
+
+    func testBackgroundEligibilityCoversRemoteOnlyEntries() {
+        let deleteEntry = GitBranchUndoSupport.deletedBranchUndoEntry(
+            repositoryURL: URL(fileURLWithPath: "/tmp/repo"),
+            branch: "topic",
+            force: true,
+            tip: "abc",
+            upstream: "origin/topic",
+            remoteTarget: RemoteBranchDeleteTarget(remote: "origin", branch: "topic"),
+            remoteHash: "abc"
+        )
+        let localOnlyDelete = GitBranchUndoSupport.deletedBranchUndoEntry(
+            repositoryURL: URL(fileURLWithPath: "/tmp/repo"),
+            branch: "topic",
+            force: true,
+            tip: "abc",
+            upstream: nil,
+            remoteTarget: nil,
+            remoteHash: nil
+        )
+        let plan = BranchForcePushPlan(
+            id: UUID(),
+            remote: "origin",
+            remoteURL: "/tmp/remote.git",
+            localBranch: "main",
+            remoteBranch: "main",
+            localHash: "def",
+            remoteHash: "abc",
+            removedCommitCount: 1,
+            isDefaultBranch: true
+        )
+
+        XCTAssertTrue(GitUndoExecutor.canRunInBackground(deleteEntry.undoOperation))
+        XCTAssertTrue(GitUndoExecutor.canRunInBackground(deleteEntry.redoOperation))
+        XCTAssertTrue(GitUndoExecutor.canRunInBackground(.deleteRemoteBranch(remote: "origin", branch: "topic", expectedHash: "abc")))
+        XCTAssertTrue(GitUndoExecutor.canRunInBackground(.pushBranch(remote: "origin", localBranch: "topic", remoteBranch: "topic")))
+        XCTAssertTrue(GitUndoExecutor.canRunInBackground(.replaceRemoteBranch(plan, restoring: true)))
+
+        XCTAssertFalse(GitUndoExecutor.canRunInBackground(localOnlyDelete.undoOperation), "No remote, stays foreground")
+        XCTAssertFalse(GitUndoExecutor.canRunInBackground(.resetHead(target: "abc", mode: .hard, expectedHead: "def")))
+        XCTAssertFalse(GitUndoExecutor.canRunInBackground(.sequence([
+            .createLocalBranch(name: "topic", startPoint: "abc", checkout: true),
+            .pushBranch(remote: "origin", localBranch: "topic", remoteBranch: "topic"),
+        ])))
+        XCTAssertFalse(GitUndoExecutor.canRunInBackground(.sequence([
+            .updateLocalBranch(name: "main", newTip: "abc", expectedTip: "def"),
+            .pushBranch(remote: "origin", localBranch: "main", remoteBranch: "main"),
+        ])))
+    }
+
+    @MainActor
+    func testRemoteUndoOperationsConsultCredentialResolverBeforeRunningGit() async throws {
+        let fixture = try makePublishFixture()
+        try runGit(["remote", "add", "gh", "https://github.com/octocat/Hello-World.git"], in: fixture.sourceURL)
+        let resolver = GitProviderCredentialResolver(
+            accounts: [makeUndoProviderAccount(id: "connection-1"), makeUndoProviderAccount(id: "connection-2", username: "monalisa")],
+            tokenVault: EmptyUndoTokenVault()
+        )
+        let executor = GitUndoExecutor()
+
+        for operation: GitUndoOperation in [
+            .pushBranch(remote: "gh", localBranch: "feature", remoteBranch: "feature"),
+            .deleteRemoteBranch(remote: "gh", branch: "feature", expectedHash: "abc"),
+        ] {
+            do {
+                try await executor.execute(operation, in: fixture.sourceURL, credentialResolver: resolver)
+                XCTFail("Expected the resolver error for \(operation)")
+            } catch {
+                XCTAssertEqual(error as? GitProviderCredentialError, .multipleMatchingAccounts(host: "github.com"))
+            }
+        }
+    }
+
+    @MainActor
+    func testPublishUndoAndRedoRoundTripWithCredentialResolver() async throws {
+        let fixture = try makePublishFixture()
+        let syncState = SyncState()
+        let undoManager = GitUndoManager()
+        let executor = GitUndoExecutor()
+        let resolver = GitProviderCredentialResolver(accounts: [], tokenVault: EmptyUndoTokenVault())
+
+        await syncState.performPush(
+            options: GitStatusService.PushOptions(remote: "origin", branches: ["feature"]),
+            repositoryURL: fixture.sourceURL,
+            undoManager: undoManager
+        )
+        let support = GitRemoteUndoSupport()
+        let publishedHash = try await support.remoteHash(remote: "origin", branch: "feature", in: fixture.sourceURL)
+        let entry = try XCTUnwrap(undoManager.popForUndo())
+
+        try await executor.execute(entry.undoOperation, in: fixture.sourceURL, credentialResolver: resolver)
+        let afterUndo = try await support.remoteHash(remote: "origin", branch: "feature", in: fixture.sourceURL)
+        XCTAssertNil(afterUndo)
+
+        undoManager.completeUndo(entry)
+        let redoEntry = try XCTUnwrap(undoManager.popForRedo())
+        try await executor.execute(redoEntry.redoOperation, in: fixture.sourceURL, credentialResolver: resolver)
+        let afterRedo = try await support.remoteHash(remote: "origin", branch: "feature", in: fixture.sourceURL)
+        XCTAssertEqual(afterRedo, publishedHash)
+    }
+
+    private func makeUndoProviderAccount(id: String, username: String = "octocat") -> GitProviderAccount {
+        GitProviderAccount(
+            id: id,
+            macgitUID: "macgit-user-1",
+            provider: .github,
+            hostURL: URL(string: "https://github.com")!,
+            providerUserID: id,
+            username: username,
+            displayName: nil,
+            avatarURL: nil,
+            scopes: [],
+            permissions: [:],
+            tokenStatus: .valid,
+            transportProtocol: .https,
+            connectedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            lastValidatedAt: nil
+        )
+    }
+
     private func makePullFixture() throws -> (sourceURL: URL, remoteURL: URL, cloneURL: URL) {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("macgit-pull-undo-\(UUID().uuidString)", isDirectory: true)
@@ -196,4 +327,10 @@ final class GitUndoRemoteIntegrationTests: XCTestCase {
             throw GitError.commandFailed(output)
         }
     }
+}
+
+private final class EmptyUndoTokenVault: GitProviderTokenVault {
+    func readToken(for account: GitProviderAccount) throws -> GitProviderToken? { nil }
+    func saveToken(_ token: GitProviderToken, for account: GitProviderAccount) throws {}
+    func deleteToken(for account: GitProviderAccount) throws {}
 }

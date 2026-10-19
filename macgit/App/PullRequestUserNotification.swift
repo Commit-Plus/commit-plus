@@ -11,6 +11,9 @@ extension Notification.Name {
 
 enum PullRequestUserNotification {
     nonisolated static let repositoryPathKey = "repositoryPath"
+    /// Lets an existing window absorb the notification click instead of SwiftUI
+    /// spawning a new scene; the app delegate performs the actual navigation.
+    nonisolated static let externalEventIdentifier = "macgit://pull-request-notification"
 
     @MainActor
     static func created(
@@ -48,6 +51,7 @@ enum PullRequestUserNotification {
                 content.body = body
                 content.sound = .default
                 content.userInfo = [repositoryPathKey: repositoryURL.standardizedFileURL.path]
+                content.targetContentIdentifier = externalEventIdentifier
                 try await center.add(UNNotificationRequest(
                     identifier: UUID().uuidString,
                     content: content,

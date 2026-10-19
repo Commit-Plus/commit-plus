@@ -53,4 +53,51 @@ struct GitBranchUndoSupport {
         let upstream = output?.trimmingCharacters(in: .whitespacesAndNewlines)
         return upstream?.isEmpty == false ? upstream : nil
     }
+
+    /// Undo recreates the local branch (and its upstream), plus the remote branch when it was deleted too.
+    static func deletedBranchUndoEntry(
+        repositoryURL: URL,
+        branch: String,
+        force: Bool,
+        tip: String,
+        upstream: String?,
+        remoteTarget: RemoteBranchDeleteTarget?,
+        remoteHash: String?
+    ) -> GitUndoEntry {
+        var undoOperations: [GitUndoOperation] = [
+            .createLocalBranch(name: branch, startPoint: tip, checkout: false)
+        ]
+        // Restore the remote first: the upstream may be the remote-tracking ref it recreates.
+        if let remoteTarget, let remoteHash {
+            undoOperations.append(
+                .pushBranch(
+                    remote: remoteTarget.remote,
+                    localBranch: remoteHash,
+                    remoteBranch: "refs/heads/\(remoteTarget.branch)"
+                )
+            )
+        }
+        if let upstream {
+            undoOperations.append(.setUpstream(branch: branch, upstream: upstream))
+        }
+
+        var redoOperations: [GitUndoOperation] = [
+            .deleteLocalBranch(name: branch, force: force, expectedTip: tip)
+        ]
+        if let remoteTarget, let remoteHash {
+            redoOperations.append(
+                .deleteRemoteBranch(
+                    remote: remoteTarget.remote,
+                    branch: remoteTarget.branch,
+                    expectedHash: remoteHash
+                )
+            )
+        }
+        return GitUndoEntry(
+            repositoryURL: repositoryURL,
+            label: "Delete branch \(branch)",
+            undoOperation: .sequence(undoOperations),
+            redoOperation: .sequence(redoOperations)
+        )
+    }
 }

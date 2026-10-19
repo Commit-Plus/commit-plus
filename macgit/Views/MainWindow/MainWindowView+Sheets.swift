@@ -45,6 +45,7 @@ extension MainWindowView {
             defaultPullStrategy: repoSettings.pullStrategy
         ) { remote, branch, options in
             runRemoteOperation("Pulling \(remote)/\(branch)...", remotes: [remote]) { credentialResolver in
+                guard await waitForBackgroundRemoteActivity() else { return }
                 await syncState.performPull(
                     remote: remote,
                     branch: branch,
@@ -66,8 +67,8 @@ extension MainWindowView {
                       onForcePush: { branch, remote, remoteBranch in
             pendingSheetForcePush = (branch, remote, remoteBranch)
         }) { options in
-            runRemoteOperation("Pushing branches...", remotes: [options.remote]) { credentialResolver in
-                await syncState.performPush(
+            runBackgroundRemoteOperation("Pushing to \(options.remote)", remotes: [options.remote]) { credentialResolver in
+                await syncState.performBackgroundPush(
                     options: options,
                     repositoryURL: repositoryURL,
                     undoManager: undoManager,
@@ -82,8 +83,8 @@ extension MainWindowView {
         FetchSheetView(repositoryURL: repositoryURL) { options in
             Task {
                 guard let credentialResolver = await credentialResolverForFetch(options: options) else { return }
-                runRepositoryOperation("Fetching remotes...") {
-                    await syncState.performFetch(
+                operationProgress.runInBackground(title: "Fetching remotes") {
+                    await syncState.performBackgroundFetch(
                         options: options,
                         repositoryURL: repositoryURL,
                         credentialResolver: credentialResolver
@@ -140,6 +141,7 @@ extension MainWindowView {
             repositoryURL: repositoryURL,
             undoManager: undoManager,
             initialStartPoint: startPoint,
+            onRunBackgroundRemoteBranchDeletion: runBackgroundRemoteBranchDeletion,
             onRunRepositoryOperation: runRepositoryOperation,
             onCompleted: {
                 Task {

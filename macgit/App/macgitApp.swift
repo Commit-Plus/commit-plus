@@ -354,6 +354,9 @@ struct macgitApp: App {
         .defaultSize(width: 1180, height: 780)
         .windowResizability(.contentMinSize)
         .defaultLaunchBehavior(.suppressed)
+        // Pull request notification clicks are routed by the app delegate; never
+        // let them create an empty repository window.
+        .handlesExternalEvents(matching: ["macgit://session", "macgit://open-repository"])
         .commands {
             RepositoryFileCommands()
 

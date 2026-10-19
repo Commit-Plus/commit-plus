@@ -263,7 +263,11 @@ struct ContentView: View {
         .environment(\.gitLFSCredentialResolver, providerAccountController.credentialResolver())
         .handlesExternalEvents(
             preferring: preferredExternalEvents,
-            allowing: ["macgit://session", "macgit://open-repository"]
+            allowing: [
+                "macgit://session",
+                "macgit://open-repository",
+                PullRequestUserNotification.externalEventIdentifier
+            ]
         )
         .windowDismissBehavior(
             operationProgress.activeOperation == nil ? .automatic : .disabled

@@ -1,0 +1,17 @@
+# Design
+
+## Context
+
+See `openspec/specs/branch-deletion/spec.md`. The Delete Branches sheet already uses `GitStatusService.deleteLocalBranches`, `deleteRemoteBranches`, and `MainWindowView.runBackgroundRemoteBranchDeletion`. `SidebarView` already receives `onRunBackgroundRemoteBranchDeletion`. `GitUndoExecutor` runs remote operations through its injected `runner` without credentials, and `executeUndoEntry` resolves credentials only for `.replaceRemoteBranch`.
+
+## Decisions
+
+1. **Sidebar Delete branch:** `confirmDeleteBranch` keeps `onRunRepositoryOperation`, but the body calls `deleteLocalBranches` for one branch. A failure keeps the existing alert. On success, the branch gets an immediate undo entry when it has no remote target, or is handed to `onRunBackgroundRemoteBranchDeletion` when it does. The old inline `deleteBranch(_:force:remoteTarget:)` and the private `registerDeletedBranchUndo` are removed.
+2. **Sidebar Delete remote branch:** `confirmDeleteRemoteBranch` clears the target and calls `onRunBackgroundRemoteBranchDeletion([pending without local])`, with no overlay. `SidebarView.deleteRemoteBranch(_:)` is removed. `MainWindowView.runBackgroundRemoteBranchDeletion` resets `selectedItem` from `.remoteBranch(path)` to History for successfully deleted remote-only targets. That code is window-scoped because it runs inside the closure that captures the window's state.
+3. **Undo credentials:** add `GitUndoExecutor.execute(_:in:credentialResolver:)`, with the resolver defaulting to nil and threaded through `.sequence`, plus `static func remoteNames(in:)`. When a resolver is present, `.deleteRemoteBranch` uses `GitStatusService.remoteBranchHash` and `deleteRemoteBranch` with it, and `.pushBranch` uses a new `GitStatusService.pushRefSpec(remote:refSpec:in:credentialResolver:)`. With no resolver, the runner path is unchanged, which keeps mock-runner tests valid. `executeUndoEntry` resolves `credentialResolverForRemoteOperation(remotes:)` when the operation names remotes, and restores the entry when it returns nil, mirroring the `.replaceRemoteBranch` path.
+
+4. **Background undo/redo:** `GitUndoExecutor.canRunInBackground(_:)` is true when the operation names a remote (`remoteNames`, extended to `.replaceRemoteBranch`) and every step is ref-only. Ref-only steps are `.pushBranch`, `.deleteRemoteBranch`, `.replaceRemoteBranch`, `.createLocalBranch(checkout: false)`, `.deleteLocalBranch`, `.setUpstream`, `.createTag`, `.deleteTag`, `.requireLocalBranchTip`, `.requireLocalBranchAbsent`, and `.sequence` of these. `.updateLocalBranch` and `.renameLocalBranch` are excluded because they can move or rename the checked-out branch. `executeUndoEntry` resolves credentials first. For a background-eligible entry it calls `operationProgress.runInBackground(title: "Undoing/Redoing <label>")`, which executes, refreshes, and on success calls `completeUndo`/`completeRedo` with no info alert. On failure it restores the entry and returns `.failed`. Other entries keep the existing wait-for-lane, overlay, and alert path. `runUndoEntry` and the confirmation dialog skip the overlay wrapper for eligible entries. The top-level `.replaceRemoteBranch` special case (with its `isPushing` flag) is folded into the executor, which now passes the resolver to `GitStatusService.replaceRemoteBranch`. The lane serializes background undo with fetch and push.
+
+## Non-Goals
+
+- Repository AI remote operations.

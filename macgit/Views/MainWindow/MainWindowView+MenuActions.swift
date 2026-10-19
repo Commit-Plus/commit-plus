@@ -89,9 +89,7 @@ extension MainWindowView {
                 pendingConfirmedUndo = (entry, action)
                 return
             }
-            Task {
-                await executeUndoEntry(entry, menuAction: .undo)
-            }
+            runUndoEntry(entry, menuAction: .undo)
         case .redo:
             guard let entry = undoManager.popForRedo() else {
                 syncState.showInfo("Nothing to redo.")
@@ -101,50 +99,71 @@ extension MainWindowView {
                 pendingConfirmedUndo = (entry, action)
                 return
             }
+            runUndoEntry(entry, menuAction: .redo)
+        }
+    }
+
+    /// Remote-only entries run in the background lane. Other entries can touch remote refs too,
+    /// so they wait behind the overlay for queued background work.
+    func runUndoEntry(_ entry: GitUndoEntry, menuAction: GitUndoMenuAction) {
+        let operation = menuAction == .redo ? entry.redoOperation : entry.undoOperation
+        guard operationProgress.hasPendingBackgroundWork,
+              !GitUndoExecutor.canRunInBackground(operation) else {
             Task {
-                await executeUndoEntry(entry, menuAction: .redo)
+                await executeUndoEntry(entry, menuAction: menuAction)
             }
+            return
+        }
+        runRepositoryOperation(menuAction == .redo ? "Redoing Git action..." : "Undoing Git action...") {
+            await executeUndoEntry(entry, menuAction: menuAction)
         }
     }
 
     func executeUndoEntry(_ entry: GitUndoEntry, menuAction: GitUndoMenuAction) async {
-        let operation: GitUndoOperation
-        switch menuAction {
-        case .undo:
-            operation = entry.undoOperation
-        case .redo:
-            operation = entry.redoOperation
+        let operation = menuAction == .redo ? entry.redoOperation : entry.undoOperation
+        let restoreEntry = {
+            switch menuAction {
+            case .undo: undoManager.restoreUndo(entry)
+            case .redo: undoManager.restoreRedo(entry)
+            }
         }
 
-        do {
-            if case .replaceRemoteBranch(let plan, let restoring) = operation {
-                guard let resolver = await credentialResolverForRemoteOperation(remotes: [plan.remote]) else {
-                    switch menuAction {
-                    case .undo: undoManager.restoreUndo(entry)
-                    case .redo: undoManager.restoreRedo(entry)
-                    }
-                    return
-                }
-                guard !syncState.isAnySyncing else {
-                    throw GitError.commandFailed("Wait for the current Git operation to finish before undoing.")
-                }
-                syncState.isPushing = true
-                defer { syncState.isPushing = false }
-                try await GitStatusService.shared.replaceRemoteBranch(
-                    plan, restoring: restoring, in: entry.repositoryURL, credentialResolver: resolver
-                )
-            } else {
-                try await undoExecutor.execute(operation, in: entry.repositoryURL)
+        let remotes = GitUndoExecutor.remoteNames(in: operation)
+        var resolver: GitProviderCredentialResolver?
+        if !remotes.isEmpty {
+            guard let remoteResolver = await credentialResolverForRemoteOperation(remotes: remotes) else {
+                restoreEntry()
+                return
             }
-            // Undo/redo executes Git commands directly, bypassing the branch
-            // service methods that normally invalidate sidebar list caches.
-            await GitStatusService.shared.invalidateBranchListCache(in: entry.repositoryURL)
-            await syncState.refresh(repositoryURL: repositoryURL)
-            NotificationCenter.default.post(
-                name: .repositoryDidChange,
-                object: nil,
-                userInfo: ["repositoryURL": repositoryURL]
-            )
+            resolver = remoteResolver
+        }
+
+        if GitUndoExecutor.canRunInBackground(operation) {
+            let verb = menuAction == .redo ? "Redoing" : "Undoing"
+            operationProgress.runInBackground(title: "\(verb) \(entry.label)") {
+                do {
+                    try await performUndoOperation(operation, of: entry, credentialResolver: resolver)
+                    await MainActor.run {
+                        switch menuAction {
+                        case .undo: undoManager.completeUndo(entry)
+                        case .redo: undoManager.completeRedo(entry)
+                        }
+                    }
+                    return .succeeded
+                } catch {
+                    await MainActor.run { restoreEntry() }
+                    return .failed(error.localizedDescription)
+                }
+            }
+            return
+        }
+
+        guard await waitForBackgroundRemoteActivity() else {
+            restoreEntry()
+            return
+        }
+        do {
+            try await performUndoOperation(operation, of: entry, credentialResolver: resolver)
             await MainActor.run {
                 switch menuAction {
                 case .undo:
@@ -157,14 +176,28 @@ extension MainWindowView {
             }
         } catch {
             await MainActor.run {
-                switch menuAction {
-                case .undo:
-                    undoManager.restoreUndo(entry)
-                case .redo:
-                    undoManager.restoreRedo(entry)
-                }
+                restoreEntry()
                 syncState.showError(error.localizedDescription)
             }
+        }
+    }
+
+    private func performUndoOperation(
+        _ operation: GitUndoOperation,
+        of entry: GitUndoEntry,
+        credentialResolver: GitProviderCredentialResolver?
+    ) async throws {
+        try await undoExecutor.execute(operation, in: entry.repositoryURL, credentialResolver: credentialResolver)
+        // Undo/redo executes Git commands directly, bypassing the branch
+        // service methods that normally invalidate sidebar list caches.
+        await GitStatusService.shared.invalidateBranchListCache(in: entry.repositoryURL)
+        await syncState.refresh(repositoryURL: repositoryURL)
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .repositoryDidChange,
+                object: nil,
+                userInfo: ["repositoryURL": repositoryURL]
+            )
         }
     }
 }

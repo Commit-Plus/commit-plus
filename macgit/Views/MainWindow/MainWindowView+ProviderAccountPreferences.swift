@@ -40,6 +40,38 @@ extension MainWindowView {
         }
     }
 
+    /// Runs a remote operation in this window's background lane instead of the blocking overlay.
+    /// Credentials, including any reconnect prompt, are resolved before the item is queued.
+    /// `onNotQueued` runs when credential resolution is cancelled or the window's background
+    /// lane was cancelled (e.g. the window closed) while credentials were being resolved.
+    func runBackgroundRemoteOperation(
+        _ title: String,
+        remotes: [String],
+        onNotQueued: (@MainActor () -> Void)? = nil,
+        operation: @escaping (GitProviderCredentialResolver) async -> RepositoryBackgroundActivityOutcome
+    ) {
+        let generation = operationProgress.backgroundGeneration
+        Task {
+            guard let credentialResolver = await credentialResolverForRemoteOperation(remotes: remotes) else {
+                onNotQueued?()
+                return
+            }
+            let queuedID = operationProgress.runInBackground(ifGeneration: generation, title: title) {
+                await operation(credentialResolver)
+            }
+            if queuedID == nil {
+                onNotQueued?()
+            }
+        }
+    }
+
+    /// Foreground actions that also update remote-tracking refs wait for this window's
+    /// queued background fetches and pushes. Returns false when the wait was cancelled.
+    func waitForBackgroundRemoteActivity() async -> Bool {
+        await operationProgress.waitForBackgroundIdle()
+        return !Task.isCancelled
+    }
+
     func executeRepositoryAIRemoteOperation(
         _ operation: RepositoryAIValidatedRemoteOperation
     ) async throws -> RepositoryAIRemoteOperationExecutionResult {

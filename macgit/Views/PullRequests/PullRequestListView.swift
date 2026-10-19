@@ -16,7 +16,6 @@
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 
-import MarkdownUI
 import SwiftUI
 
 struct PullRequestListView: View {
@@ -636,10 +635,7 @@ private struct PullRequestDetailPane: View {
                                         .italic()
                                         .foregroundStyle(.secondary)
                                 } else {
-                                    Markdown(detail.body)
-                                        .markdownTheme(.gitHub)
-                                        .markdownTextStyle { FontSize(.em(textScale)) }
-                                        .textSelection(.enabled)
+                                    PullRequestMarkdownContent(content: detail.body, baseURL: detail.summary.webURL, textScale: textScale)
                                 }
                             }
 
@@ -649,10 +645,12 @@ private struct PullRequestDetailPane: View {
                                     date: comment.createdAt,
                                     action: "commented"
                                 ) {
-                                    Markdown(comment.body)
-                                        .markdownTheme(.gitHub)
-                                        .markdownTextStyle { FontSize(.em(textScale)) }
-                                        .textSelection(.enabled)
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        if let context = comment.reviewContext {
+                                            PullRequestReviewContextView(context: context, webURL: comment.webURL)
+                                        }
+                                        PullRequestMarkdownContent(content: comment.body, baseURL: detail.summary.webURL, textScale: textScale)
+                                    }
                                 }
                             }
 

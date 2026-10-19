@@ -835,6 +835,13 @@ private struct GitHubReviewCommentResponse: Decodable {
     var htmlURL: URL
     var createdAt: Date
     var updatedAt: Date
+    var path: String?
+    var diffHunk: String?
+    var line: Int?
+    var startLine: Int?
+    var originalLine: Int?
+    var originalStartLine: Int?
+    var side: String?
     var user: GitHubPullRequestResponse.User
 
     var comment: PullRequestComment {
@@ -844,7 +851,17 @@ private struct GitHubReviewCommentResponse: Decodable {
             body: body,
             webURL: htmlURL,
             createdAt: createdAt,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            reviewContext: path.map {
+                PullRequestReviewContext(
+                    path: $0,
+                    diffHunk: diffHunk,
+                    line: line ?? originalLine,
+                    startLine: line == nil ? originalStartLine : startLine,
+                    side: side,
+                    isOutdated: line == nil && originalLine != nil
+                )
+            }
         )
     }
 
@@ -854,7 +871,11 @@ private struct GitHubReviewCommentResponse: Decodable {
         case htmlURL = "html_url"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
-        case user
+        case user, path, line, side
+        case diffHunk = "diff_hunk"
+        case startLine = "start_line"
+        case originalLine = "original_line"
+        case originalStartLine = "original_start_line"
     }
 }
 
