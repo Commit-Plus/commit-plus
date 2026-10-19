@@ -44,6 +44,36 @@ struct RepositoryOperationProgressEvent {
     }
 }
 
+enum RepositoryBackgroundActivityState: Equatable {
+    case queued
+    case running
+    case failed(summary: String, detail: String)
+}
+
+struct RepositoryBackgroundActivityItem: Identifiable, Equatable {
+    let id: UUID
+    let title: String
+    var state: RepositoryBackgroundActivityState
+
+    var isPending: Bool {
+        switch state {
+        case .queued, .running: true
+        case .failed: false
+        }
+    }
+}
+
+enum RepositoryBackgroundActivityOutcome: Equatable {
+    case succeeded
+    case failed(String)
+}
+
+enum RepositoryBackgroundActivityIndicator: Equatable {
+    case idle
+    case running
+    case failed
+}
+
 extension Notification.Name {
     static let repositoryOperationProgressBegan = Notification.Name("macgit.repositoryOperationProgressBegan")
     static let repositoryOperationProgressEnded = Notification.Name("macgit.repositoryOperationProgressEnded")
@@ -142,6 +172,126 @@ final class RepositoryOperationProgress: ObservableObject {
 
     private func updateActiveOperation() {
         activeOperation = orderedOperationIDs.reversed().compactMap { operationsByID[$0] }.first
+    }
+
+    // MARK: - Background lane
+
+    /// Background actions run one at a time per window without the blocking overlay.
+    /// They never affect `activeOperation`, so foreground guards are unchanged.
+    @Published private(set) var backgroundItems: [RepositoryBackgroundActivityItem] = []
+
+    private var backgroundOperations: [UUID: () async -> RepositoryBackgroundActivityOutcome] = [:]
+    private var backgroundDrainTask: Task<Void, Never>?
+    private var backgroundDrainGeneration = 0
+    private var backgroundIdleWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+    var backgroundIndicator: RepositoryBackgroundActivityIndicator {
+        if hasPendingBackgroundWork { return .running }
+        if !backgroundItems.isEmpty { return .failed }
+        return .idle
+    }
+
+    var hasPendingBackgroundWork: Bool {
+        backgroundItems.contains(where: \.isPending)
+    }
+
+    @discardableResult
+    func runInBackground(
+        title: String,
+        operation: @escaping () async -> RepositoryBackgroundActivityOutcome
+    ) -> UUID {
+        let id = UUID()
+        backgroundItems.append(RepositoryBackgroundActivityItem(id: id, title: title, state: .queued))
+        backgroundOperations[id] = operation
+        startBackgroundDrainIfNeeded()
+        return id
+    }
+
+    func dismissBackgroundItem(id: UUID) {
+        guard let index = backgroundItems.firstIndex(where: { $0.id == id }),
+              !backgroundItems[index].isPending else { return }
+        backgroundItems.remove(at: index)
+    }
+
+    /// Suspends until no background action is queued or running. Returns early when cancelled.
+    func waitForBackgroundIdle() async {
+        guard hasPendingBackgroundWork, !Task.isCancelled else { return }
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if !hasPendingBackgroundWork || Task.isCancelled {
+                    continuation.resume()
+                } else {
+                    backgroundIdleWaiters[waiterID] = continuation
+                }
+            }
+        } onCancel: {
+            Task { @MainActor in
+                self.backgroundIdleWaiters.removeValue(forKey: waiterID)?.resume()
+            }
+        }
+    }
+
+    func cancelAllBackground() {
+        backgroundDrainGeneration += 1
+        backgroundDrainTask?.cancel()
+        backgroundDrainTask = nil
+        backgroundOperations.removeAll()
+        backgroundItems.removeAll()
+        resumeBackgroundIdleWaitersIfIdle()
+    }
+
+    nonisolated static func backgroundErrorSummary(_ message: String) -> String {
+        let line = message
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty } ?? ""
+        guard !line.isEmpty else { return "Unknown error" }
+        let limit = 140
+        guard line.count > limit else { return line }
+        return String(line.prefix(limit - 1)) + "…"
+    }
+
+    private func startBackgroundDrainIfNeeded() {
+        guard backgroundDrainTask == nil else { return }
+        let generation = backgroundDrainGeneration
+        backgroundDrainTask = Task {
+            await drainBackgroundQueue(generation: generation)
+        }
+    }
+
+    private func drainBackgroundQueue(generation: Int) async {
+        while generation == backgroundDrainGeneration,
+              let index = backgroundItems.firstIndex(where: { $0.state == .queued }) {
+            let id = backgroundItems[index].id
+            guard let operation = backgroundOperations.removeValue(forKey: id) else {
+                backgroundItems.remove(at: index)
+                continue
+            }
+            backgroundItems[index].state = .running
+            let outcome = await operation()
+            guard generation == backgroundDrainGeneration,
+                  let current = backgroundItems.firstIndex(where: { $0.id == id }) else { break }
+            switch outcome {
+            case .succeeded:
+                backgroundItems.remove(at: current)
+            case .failed(let message):
+                backgroundItems[current].state = .failed(
+                    summary: Self.backgroundErrorSummary(message),
+                    detail: message
+                )
+            }
+        }
+        guard generation == backgroundDrainGeneration else { return }
+        backgroundDrainTask = nil
+        resumeBackgroundIdleWaitersIfIdle()
+    }
+
+    private func resumeBackgroundIdleWaitersIfIdle() {
+        guard !hasPendingBackgroundWork else { return }
+        let waiters = backgroundIdleWaiters.values
+        backgroundIdleWaiters.removeAll()
+        waiters.forEach { $0.resume() }
     }
 }
 

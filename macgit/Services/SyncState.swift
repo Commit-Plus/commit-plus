@@ -376,6 +376,47 @@ class SyncState: ObservableObject {
             }
         }
 
+        if let message = await runPush(
+            options: options,
+            repositoryURL: repositoryURL,
+            undoManager: undoManager,
+            credentialResolver: credentialResolver,
+            tracksActiveSyncBranch: true
+        ) {
+            showError(message)
+        }
+    }
+
+    /// Pushes without setting sync flags or presenting alerts, for the background activity lane.
+    func performBackgroundPush(
+        options: GitStatusService.PushOptions,
+        repositoryURL: URL,
+        undoManager: GitUndoManager? = nil,
+        credentialResolver: GitProviderCredentialResolver? = nil
+    ) async -> RepositoryBackgroundActivityOutcome {
+        if await GitStatusService.shared.hasConflicts(in: repositoryURL) {
+            return .failed("There are unresolved merge conflicts. Please resolve them before pushing.")
+        }
+        if let message = await runPush(
+            options: options,
+            repositoryURL: repositoryURL,
+            undoManager: undoManager,
+            credentialResolver: credentialResolver,
+            tracksActiveSyncBranch: false
+        ) {
+            return .failed(message)
+        }
+        return .succeeded
+    }
+
+    /// Returns a user-facing error message, or nil on success.
+    private func runPush(
+        options: GitStatusService.PushOptions,
+        repositoryURL: URL,
+        undoManager: GitUndoManager?,
+        credentialResolver: GitProviderCredentialResolver?,
+        tracksActiveSyncBranch: Bool
+    ) async -> String? {
         let remoteSupport = GitRemoteUndoSupport()
         var unpublishedBranches: [(local: String, remote: String)] = []
         for local in options.branches {
@@ -393,8 +434,10 @@ class SyncState: ObservableObject {
         }
 
         do {
-            await MainActor.run {
-                activeSyncBranch = options.branches.count == 1 ? options.branches.first : nil
+            if tracksActiveSyncBranch {
+                await MainActor.run {
+                    activeSyncBranch = options.branches.count == 1 ? options.branches.first : nil
+                }
             }
             _ = try await GitStatusService.shared.push(
                 options: options,
@@ -418,8 +461,9 @@ class SyncState: ObservableObject {
                     }
                 }
             }
+            return nil
         } catch {
-            showError(Self.pushErrorMessage(error, options: options))
+            return Self.pushErrorMessage(error, options: options)
         }
     }
 
@@ -637,6 +681,49 @@ class SyncState: ObservableObject {
     ) async {
         await MainActor.run { isFetching = true }
         defer { Task { @MainActor in isFetching = false } }
+        if let error = await runFetch(
+            options: options,
+            repositoryURL: repositoryURL,
+            credentialResolver: credentialResolver
+        ) {
+            showError(error.localizedDescription)
+        }
+    }
+
+    /// Fetches without setting sync flags or presenting alerts, for the background activity lane.
+    func performBackgroundFetch(
+        options: GitStatusService.FetchOptions,
+        repositoryURL: URL,
+        credentialResolver: GitProviderCredentialResolver? = nil
+    ) async -> RepositoryBackgroundActivityOutcome {
+        if let error = await runFetch(
+            options: options,
+            repositoryURL: repositoryURL,
+            credentialResolver: credentialResolver
+        ) {
+            return .failed(Self.backgroundFetchErrorMessage(error))
+        }
+        return .succeeded
+    }
+
+    /// Lists failing remotes first so the one-line summary names the failure, not the partial success.
+    nonisolated static func backgroundFetchErrorMessage(_ error: Error) -> String {
+        guard let fetchError = error as? GitFetchError, !fetchError.failures.isEmpty else {
+            return error.localizedDescription
+        }
+        var sections = fetchError.failures.map { "Could not fetch '\($0.remote)': \($0.message)" }
+        if !fetchError.succeededRemotes.isEmpty {
+            sections.append("Fetched \(fetchError.succeededRemotes.joined(separator: ", ")).")
+        }
+        return sections.joined(separator: "\n\n")
+    }
+
+    /// Returns the fetch error, or nil on success. Partial successes still refresh.
+    private func runFetch(
+        options: GitStatusService.FetchOptions,
+        repositoryURL: URL,
+        credentialResolver: GitProviderCredentialResolver?
+    ) async -> Error? {
         do {
             try await GitStatusService.shared.fetch(
                 options: options,
@@ -646,6 +733,7 @@ class SyncState: ObservableObject {
             await refresh(repositoryURL: repositoryURL)
             notifyUserInitiatedRemoteRefsRefresh(repositoryURL)
             notifyRepositoryChanged(repositoryURL)
+            return nil
         } catch {
             if let fetchError = error as? GitFetchError,
                !fetchError.succeededRemotes.isEmpty {
@@ -653,7 +741,7 @@ class SyncState: ObservableObject {
                 notifyUserInitiatedRemoteRefsRefresh(repositoryURL)
                 notifyRepositoryChanged(repositoryURL)
             }
-            showError(error.localizedDescription)
+            return error
         }
     }
 

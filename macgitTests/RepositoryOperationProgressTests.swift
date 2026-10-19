@@ -74,4 +74,176 @@ final class RepositoryOperationProgressTests: XCTestCase {
 
         XCTAssertNil(progress.activeOperation)
     }
+
+    func testBackgroundItemsRunInOrderOneAtATime() async {
+        let progress = RepositoryOperationProgress()
+        var order: [String] = []
+        var concurrent = 0
+        var maxConcurrent = 0
+
+        for title in ["Pushing", "Fetching", "Pushing tag"] {
+            progress.runInBackground(title: title) {
+                concurrent += 1
+                maxConcurrent = max(maxConcurrent, concurrent)
+                order.append(title)
+                try? await Task.sleep(nanoseconds: 5_000_000)
+                concurrent -= 1
+                return .succeeded
+            }
+        }
+
+        XCTAssertEqual(progress.backgroundItems.map(\.title), ["Pushing", "Fetching", "Pushing tag"])
+        XCTAssertEqual(progress.backgroundIndicator, .running)
+        XCTAssertNil(progress.activeOperation)
+
+        await progress.waitForBackgroundIdle()
+
+        XCTAssertEqual(order, ["Pushing", "Fetching", "Pushing tag"])
+        XCTAssertEqual(maxConcurrent, 1)
+        XCTAssertTrue(progress.backgroundItems.isEmpty)
+        XCTAssertEqual(progress.backgroundIndicator, .idle)
+        XCTAssertNil(progress.activeOperation)
+    }
+
+    func testQueuedItemWaitsWhileFirstItemRuns() async {
+        let progress = RepositoryOperationProgress()
+        let firstStarted = expectation(description: "first started")
+        var releaseFirst: CheckedContinuation<Void, Never>?
+
+        progress.runInBackground(title: "Pushing") {
+            await withCheckedContinuation { continuation in
+                releaseFirst = continuation
+                firstStarted.fulfill()
+            }
+            return .succeeded
+        }
+        progress.runInBackground(title: "Fetching") { .succeeded }
+
+        await fulfillment(of: [firstStarted], timeout: 1)
+
+        XCTAssertEqual(progress.backgroundItems.map(\.state), [.running, .queued])
+
+        releaseFirst?.resume()
+        await progress.waitForBackgroundIdle()
+
+        XCTAssertTrue(progress.backgroundItems.isEmpty)
+    }
+
+    func testFailedBackgroundItemIsRetainedUntilDismissed() async {
+        let progress = RepositoryOperationProgress()
+        let detail = "\n  ! [rejected] main -> main (non-fast-forward)\nhint: Updates were rejected"
+
+        let id = progress.runInBackground(title: "Pushing branches") { .failed(detail) }
+        await progress.waitForBackgroundIdle()
+
+        XCTAssertEqual(progress.backgroundItems.count, 1)
+        XCTAssertEqual(
+            progress.backgroundItems.first?.state,
+            .failed(summary: "! [rejected] main -> main (non-fast-forward)", detail: detail)
+        )
+        XCTAssertEqual(progress.backgroundIndicator, .failed)
+        XCTAssertFalse(progress.hasPendingBackgroundWork)
+
+        progress.dismissBackgroundItem(id: id)
+
+        XCTAssertTrue(progress.backgroundItems.isEmpty)
+        XCTAssertEqual(progress.backgroundIndicator, .idle)
+    }
+
+    func testRunningWinsOverFailedIndicator() async {
+        let progress = RepositoryOperationProgress()
+        progress.runInBackground(title: "Fetching") { .failed("network down") }
+        await progress.waitForBackgroundIdle()
+
+        progress.runInBackground(title: "Pushing") {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+            return .succeeded
+        }
+
+        XCTAssertEqual(progress.backgroundIndicator, .running)
+
+        await progress.waitForBackgroundIdle()
+
+        XCTAssertEqual(progress.backgroundIndicator, .failed)
+    }
+
+    func testDismissIgnoresPendingItems() {
+        let progress = RepositoryOperationProgress()
+        let id = progress.runInBackground(title: "Fetching") {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+            return .succeeded
+        }
+
+        progress.dismissBackgroundItem(id: id)
+
+        XCTAssertEqual(progress.backgroundItems.map(\.id), [id])
+        progress.cancelAllBackground()
+    }
+
+    func testWaitForBackgroundIdleReturnsImmediatelyWhenIdle() async {
+        let progress = RepositoryOperationProgress()
+        progress.runInBackground(title: "Fetching") { .failed("boom") }
+        await progress.waitForBackgroundIdle()
+
+        // A failed item does not count as pending work.
+        await progress.waitForBackgroundIdle()
+
+        XCTAssertEqual(progress.backgroundItems.count, 1)
+    }
+
+    func testWaitForBackgroundIdleStopsWaitingWhenCancelled() async {
+        let progress = RepositoryOperationProgress()
+        progress.runInBackground(title: "Pushing") {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000)
+            }
+            return .succeeded
+        }
+
+        let waiter = Task { await progress.waitForBackgroundIdle() }
+        try? await Task.sleep(nanoseconds: 5_000_000)
+        waiter.cancel()
+        await waiter.value
+
+        XCTAssertTrue(progress.hasPendingBackgroundWork)
+        progress.cancelAllBackground()
+    }
+
+    func testCancelAllBackgroundClearsItemsAndCancelsRunningWork() async {
+        let progress = RepositoryOperationProgress()
+        let workCancelled = expectation(description: "work cancelled")
+
+        progress.runInBackground(title: "Pushing") {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000)
+            }
+            workCancelled.fulfill()
+            return .succeeded
+        }
+        progress.runInBackground(title: "Fetching") {
+            XCTFail("Queued item must not run after cancel-all")
+            return .succeeded
+        }
+        try? await Task.sleep(nanoseconds: 5_000_000)
+
+        let waiter = Task { await progress.waitForBackgroundIdle() }
+        progress.cancelAllBackground()
+
+        await fulfillment(of: [workCancelled], timeout: 1)
+        await waiter.value
+        try? await Task.sleep(nanoseconds: 5_000_000)
+
+        XCTAssertTrue(progress.backgroundItems.isEmpty)
+        XCTAssertEqual(progress.backgroundIndicator, .idle)
+    }
+
+    func testBackgroundErrorSummaryUsesFirstLineAndTruncates() {
+        XCTAssertEqual(RepositoryOperationProgress.backgroundErrorSummary("\n\n  fatal: bad\nmore"), "fatal: bad")
+        XCTAssertEqual(RepositoryOperationProgress.backgroundErrorSummary("   \n"), "Unknown error")
+
+        let long = String(repeating: "x", count: 200)
+        let summary = RepositoryOperationProgress.backgroundErrorSummary(long)
+        XCTAssertEqual(summary.count, 140)
+        XCTAssertTrue(summary.hasSuffix("…"))
+    }
 }

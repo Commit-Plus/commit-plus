@@ -315,6 +315,42 @@ final class GitStatusServiceStatusTests: XCTestCase {
         XCTAssertEqual(count, fileCount)
     }
 
+    func testStatusRefreshDoesNotRewriteIndexWithOptionalLocks() async throws {
+        let repoURL = try makeTempRepo()
+        let indexURL = repoURL.appendingPathComponent(".git/index")
+        // Stale stat info makes a plain `git status` refresh and rewrite the index.
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(60)],
+            ofItemAtPath: repoURL.appendingPathComponent("tracked.txt").path
+        )
+        let indexBefore = try Data(contentsOf: indexURL)
+
+        let status = try await GitStatusService.shared.status(for: repoURL)
+        let counts = await GitStatusService.shared.trackedStatusCounts(in: repoURL)
+
+        XCTAssertTrue(status.staged.isEmpty && status.unstaged.isEmpty)
+        XCTAssertEqual(counts.staged, 0)
+        XCTAssertEqual(counts.unstaged, 0)
+        XCTAssertEqual(try Data(contentsOf: indexURL), indexBefore)
+
+        // Sanity check: without the environment, git does take the lock and rewrite the index.
+        try runGit(["status", "--porcelain"], in: repoURL)
+        XCTAssertNotEqual(try Data(contentsOf: indexURL), indexBefore)
+    }
+
+    func testStatusSucceedsWhileIndexLockIsHeld() async throws {
+        let repoURL = try makeTempRepo()
+        try "local\n".write(to: repoURL.appendingPathComponent("tracked.txt"), atomically: true, encoding: .utf8)
+        let lockURL = repoURL.appendingPathComponent(".git/index.lock")
+        try Data().write(to: lockURL)
+        defer { try? FileManager.default.removeItem(at: lockURL) }
+
+        let status = try await GitStatusService.shared.status(for: repoURL)
+
+        XCTAssertEqual(status.unstaged.map(\.path), ["tracked.txt"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: lockURL.path))
+    }
+
     private func makeTempRepo() throws -> URL {
         let repoURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("macgit-status-binary-\(UUID().uuidString)", isDirectory: true)

@@ -37,10 +37,19 @@ extension GitStatusService {
         return Int(text ?? "") ?? 0
     }
 
+    /// Status refreshes run alongside user staging and commits; skip the opportunistic
+    /// index refresh so they never hold `index.lock`.
+    nonisolated static var statusReadEnvironment: [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["GIT_OPTIONAL_LOCKS"] = "0"
+        return environment
+    }
+
     func trackedStatusCounts(in repositoryURL: URL) async -> (staged: Int, unstaged: Int) {
         let output = (try? await runGit(
             arguments: ["status", "--porcelain", "--untracked-files=no"],
-            in: repositoryURL
+            in: repositoryURL,
+            environment: Self.statusReadEnvironment
         )) ?? ""
 
         var staged = 0
@@ -58,7 +67,11 @@ extension GitStatusService {
     }
 
     func status(for repositoryURL: URL) async throws -> GitStatus {
-        let output = try await runGit(arguments: ["status", "--porcelain=v1", "-z", "--untracked-files=all"], in: repositoryURL)
+        let output = try await runGit(
+            arguments: ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+            in: repositoryURL,
+            environment: Self.statusReadEnvironment
+        )
         var staged: [StatusFile] = []
         var unstaged: [StatusFile] = []
         var untracked: [StatusFile] = []

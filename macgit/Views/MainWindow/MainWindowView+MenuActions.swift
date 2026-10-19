@@ -89,9 +89,7 @@ extension MainWindowView {
                 pendingConfirmedUndo = (entry, action)
                 return
             }
-            Task {
-                await executeUndoEntry(entry, menuAction: .undo)
-            }
+            runUndoEntry(entry, menuAction: .undo)
         case .redo:
             guard let entry = undoManager.popForRedo() else {
                 syncState.showInfo("Nothing to redo.")
@@ -101,13 +99,31 @@ extension MainWindowView {
                 pendingConfirmedUndo = (entry, action)
                 return
             }
+            runUndoEntry(entry, menuAction: .redo)
+        }
+    }
+
+    /// Undo/redo can touch remote refs, so it waits behind the overlay for queued background work.
+    private func runUndoEntry(_ entry: GitUndoEntry, menuAction: GitUndoMenuAction) {
+        guard operationProgress.hasPendingBackgroundWork else {
             Task {
-                await executeUndoEntry(entry, menuAction: .redo)
+                await executeUndoEntry(entry, menuAction: menuAction)
             }
+            return
+        }
+        runRepositoryOperation(menuAction == .redo ? "Redoing Git action..." : "Undoing Git action...") {
+            await executeUndoEntry(entry, menuAction: menuAction)
         }
     }
 
     func executeUndoEntry(_ entry: GitUndoEntry, menuAction: GitUndoMenuAction) async {
+        guard await waitForBackgroundRemoteActivity() else {
+            switch menuAction {
+            case .undo: undoManager.restoreUndo(entry)
+            case .redo: undoManager.restoreRedo(entry)
+            }
+            return
+        }
         let operation: GitUndoOperation
         switch menuAction {
         case .undo:

@@ -40,6 +40,30 @@ extension MainWindowView {
         }
     }
 
+    /// Runs a remote operation in this window's background lane instead of the blocking overlay.
+    /// Credentials, including any reconnect prompt, are resolved before the item is queued.
+    func runBackgroundRemoteOperation(
+        _ title: String,
+        remotes: [String],
+        operation: @escaping (GitProviderCredentialResolver) async -> RepositoryBackgroundActivityOutcome
+    ) {
+        Task {
+            guard let credentialResolver = await credentialResolverForRemoteOperation(remotes: remotes) else {
+                return
+            }
+            operationProgress.runInBackground(title: title) {
+                await operation(credentialResolver)
+            }
+        }
+    }
+
+    /// Foreground actions that also update remote-tracking refs wait for this window's
+    /// queued background fetches and pushes. Returns false when the wait was cancelled.
+    func waitForBackgroundRemoteActivity() async -> Bool {
+        await operationProgress.waitForBackgroundIdle()
+        return !Task.isCancelled
+    }
+
     func executeRepositoryAIRemoteOperation(
         _ operation: RepositoryAIValidatedRemoteOperation
     ) async throws -> RepositoryAIRemoteOperationExecutionResult {
