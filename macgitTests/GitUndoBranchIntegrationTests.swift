@@ -118,6 +118,83 @@ final class GitUndoBranchIntegrationTests: XCTestCase {
         XCTAssertEqual(remainingTip, start)
     }
 
+    @MainActor
+    func testDeletedBranchUndoEntryRestoresAndRedeletesLocalAndRemote() async throws {
+        let (remoteURL, cloneURL) = try makeRepoWithRemote()
+        try runGit(["branch", "topic"], in: cloneURL)
+        try runGit(["push", "-q", "-u", "origin", "topic"], in: cloneURL)
+        let support = GitBranchUndoSupport()
+        let tip = try await support.tip(of: "topic", in: cloneURL)
+        let target = RemoteBranchDeleteTarget(remote: "origin", branch: "topic")
+        let remoteHash = try await GitStatusService.shared.remoteBranchHash(remote: "origin", branch: "topic", in: cloneURL)
+        _ = try await GitStatusService.shared.deleteBranch(name: "topic", force: true, in: cloneURL)
+        _ = try await GitStatusService.shared.deleteRemoteBranch(remote: "origin", name: "topic", in: cloneURL)
+        let entry = GitBranchUndoSupport.deletedBranchUndoEntry(
+            repositoryURL: cloneURL,
+            branch: "topic",
+            force: true,
+            tip: tip,
+            upstream: "origin/topic",
+            remoteTarget: target,
+            remoteHash: remoteHash
+        )
+        let executor = GitUndoExecutor()
+
+        XCTAssertEqual(entry.label, "Delete branch topic")
+        try await executor.execute(entry.undoOperation, in: cloneURL)
+
+        let restoredTip = try await support.tip(of: "topic", in: cloneURL)
+        let restoredUpstream = await support.upstream(of: "topic", in: cloneURL)
+        let remoteAfterUndo = try await GitStatusService.shared.remoteBranchHash(remote: "origin", branch: "topic", in: cloneURL)
+        XCTAssertEqual(restoredTip, tip)
+        XCTAssertEqual(restoredUpstream, "origin/topic")
+        XCTAssertEqual(remoteAfterUndo, remoteHash)
+
+        try await executor.execute(entry.redoOperation, in: cloneURL)
+
+        let branchesAfterRedo = await GitStatusService.shared.localBranches(in: cloneURL)
+        let remoteAfterRedo = try await GitStatusService.shared.remoteBranchHash(remote: "origin", branch: "topic", in: cloneURL)
+        XCTAssertFalse(branchesAfterRedo.contains("topic"))
+        XCTAssertNil(remoteAfterRedo)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: remoteURL.path))
+    }
+
+    func testDeletedBranchUndoEntryWithoutRemoteOnlyRestoresLocalBranch() {
+        let repositoryURL = URL(fileURLWithPath: "/tmp/repo")
+        let entry = GitBranchUndoSupport.deletedBranchUndoEntry(
+            repositoryURL: repositoryURL,
+            branch: "topic",
+            force: false,
+            tip: "abc123",
+            upstream: nil,
+            remoteTarget: RemoteBranchDeleteTarget(remote: "origin", branch: "topic"),
+            remoteHash: nil
+        )
+
+        XCTAssertEqual(entry.undoOperation, .sequence([
+            .createLocalBranch(name: "topic", startPoint: "abc123", checkout: false)
+        ]))
+        XCTAssertEqual(entry.redoOperation, .sequence([
+            .deleteLocalBranch(name: "topic", force: false, expectedTip: "abc123")
+        ]))
+    }
+
+    private func makeRepoWithRemote() throws -> (remoteURL: URL, cloneURL: URL) {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("macgit-undo-branch-remote-\(UUID().uuidString)", isDirectory: true)
+        let remoteURL = root.appendingPathComponent("remote.git", isDirectory: true)
+        let cloneURL = try makeTempRepo()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try runGit(["init", "-q", "--bare", "-b", "main", remoteURL.path], in: root)
+        try runGit(["remote", "add", "origin", remoteURL.path], in: cloneURL)
+        try runGit(["push", "-q", "-u", "origin", "main"], in: cloneURL)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: cloneURL)
+        }
+        return (remoteURL, cloneURL)
+    }
+
     private func makeTempRepo() throws -> URL {
         let repoURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("macgit-undo-branch-\(UUID().uuidString)", isDirectory: true)

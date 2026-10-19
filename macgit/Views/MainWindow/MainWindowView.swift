@@ -1297,7 +1297,8 @@ struct MainWindowView: View {
             onRequestDragDrop: { request in
                 handleDragDropRequest(request)
             },
-            onRunRepositoryOperation: runRepositoryOperation
+            onRunRepositoryOperation: runRepositoryOperation,
+            onRunBackgroundRemoteBranchDeletion: runBackgroundRemoteBranchDeletion
         )
         .navigationSplitViewColumnWidth(
             min: 200 * appState.textSize.scale,

@@ -69,11 +69,6 @@ struct BranchSheetView: View {
         let selectedStartReference: String
     }
 
-    struct BranchDeletionFailure: Equatable {
-        let name: String
-        let message: String
-    }
-
     @Environment(\.dismiss) private var dismiss
     let repositoryURL: URL
     let onCompleted: () -> Void
@@ -83,6 +78,7 @@ struct BranchSheetView: View {
     let initiallySelectedLocalBranches: Set<String>
     let localBranchFilter: Set<String>?
     let validateLocalBranchDeletion: (@MainActor (String) async throws -> String)?
+    let onRunBackgroundRemoteBranchDeletion: RemoteBranchDeletionRunner
 
     @State private var selectedTab: BranchTab = .create
 
@@ -127,6 +123,7 @@ struct BranchSheetView: View {
         initialForceDelete: Bool = false,
         localBranchFilter: Set<String>? = nil,
         validateLocalBranchDeletion: (@MainActor (String) async throws -> String)? = nil,
+        onRunBackgroundRemoteBranchDeletion: @escaping RemoteBranchDeletionRunner,
         onRunRepositoryOperation: @escaping RepositoryOperationRunner = { _, operation in
             Task { await operation() }
         },
@@ -140,6 +137,7 @@ struct BranchSheetView: View {
         self.initiallySelectedLocalBranches = initiallySelectedLocalBranches
         self.localBranchFilter = localBranchFilter
         self.validateLocalBranchDeletion = validateLocalBranchDeletion
+        self.onRunBackgroundRemoteBranchDeletion = onRunBackgroundRemoteBranchDeletion
         self._selectedTab = State(initialValue: initialTab)
         self._forceDelete = State(initialValue: initialForceDelete)
     }
@@ -613,126 +611,78 @@ struct BranchSheetView: View {
             isDeleting = true
         }
 
-        let remoteTargetsFromLocal: Set<RemoteBranchDeleteTarget> = deleteMatchingRemoteBranches
-            ? Set(matchingRemoteTargets)
-            : []
-
         let selection = selectedBranches
-        var didDeleteBranch = false
-        var deletedCount = 0
-        var failures: [BranchDeletionFailure] = []
-        for branch in selection {
-            do {
-                switch branch.type {
-                case .local:
-                    guard branch.name != currentBranch else {
-                        throw GitError.commandFailed("Cannot delete the currently checked out branch. Please switch to another branch first.")
-                    }
-                    let validatedTip = try await validateLocalBranchDeletion?(branch.name)
-                    let support = GitBranchUndoSupport()
-                    let tip = try await support.tip(of: "refs/heads/\(branch.name)", in: repositoryURL)
-                    if let validatedTip {
-                        guard validatedTip == tip else {
-                            throw GitError.commandFailed("The branch changed while its merge status was being verified. Refresh merge status and try again.")
-                        }
-                    }
-                    let upstream = await support.upstream(of: branch.name, in: repositoryURL)
-                    let remoteTarget = branch.remoteTarget.flatMap {
-                        remoteTargetsFromLocal.contains($0) ? $0 : nil
-                    }
-                    let remoteHash: String?
-                    if let remoteTarget {
-                        remoteHash = try await GitRemoteUndoSupport().remoteHash(
-                            remote: remoteTarget.remote,
-                            branch: remoteTarget.branch,
-                            in: repositoryURL
-                        )
-                    } else {
-                        remoteHash = nil
-                    }
-                    if let expectedTip = validatedTip {
-                        _ = try await GitStatusService.shared.deleteValidatedMergedBranch(
-                            name: branch.name, expectedTip: expectedTip, in: repositoryURL
-                        )
-                    } else {
-                        _ = try await GitStatusService.shared.deleteBranch(
-                            name: branch.name, force: forceDelete, in: repositoryURL
-                        )
-                    }
-                    didDeleteBranch = true
-                    deletedCount += 1
-                    do {
-                        if let remoteTarget {
-                            _ = try await GitStatusService.shared.deleteRemoteBranch(
-                                remote: remoteTarget.remote,
-                                name: remoteTarget.branch,
-                                in: repositoryURL
-                            )
-                        }
-                    } catch {
-                        registerDeletedBranchUndo(
-                            branch: branch.name,
-                            tip: tip,
-                            upstream: upstream,
-                            remoteTarget: nil,
-                            remoteHash: nil
-                        )
-                        failures.append(
-                            BranchDeletionFailure(
-                                name: remoteTarget?.fullPath ?? branch.name,
-                                message: friendlyErrorMessage(for: error)
-                            )
-                        )
-                        continue
-                    }
-                    await MainActor.run {
-                        registerDeletedBranchUndo(
-                            branch: branch.name,
-                            tip: tip,
-                            upstream: upstream,
-                            remoteTarget: remoteTarget,
-                            remoteHash: remoteHash
-                        )
-                    }
-                case .remote:
-                    let parts = branch.name.split(separator: "/", maxSplits: 1)
-                    guard parts.count == 2 else { continue }
-                    let remote = String(parts[0])
-                    let name = String(parts[1])
-                    if remoteTargetsFromLocal.contains(
-                        RemoteBranchDeleteTarget(remote: remote, branch: name)
-                    ) {
-                        continue
-                    }
-                    _ = try await GitStatusService.shared.deleteRemoteBranch(
-                        remote: remote,
-                        name: name,
-                        in: repositoryURL
-                    )
-                    didDeleteBranch = true
-                    deletedCount += 1
-                }
-            } catch {
-                failures.append(
-                    BranchDeletionFailure(
-                        name: branch.name,
-                        message: friendlyErrorMessage(for: error)
+        let remoteTargets: [String: RemoteBranchDeleteTarget] = deleteMatchingRemoteBranches
+            ? Dictionary(
+                selection.compactMap { item in
+                    item.type == .local ? item.remoteTarget.map { (item.name, $0) } : nil
+                },
+                uniquingKeysWith: { first, _ in first }
+            )
+            : [:]
+        let result = await GitStatusService.shared.deleteLocalBranches(
+            GitLocalBranchDeletionRequest(
+                branches: selection.filter { $0.type == .local }.map(\.name),
+                force: forceDelete,
+                currentBranch: currentBranch,
+                remoteTargets: remoteTargets
+            ),
+            validate: validateLocalBranchDeletion,
+            in: repositoryURL
+        )
+
+        // Remote targets of failed local deletes are skipped; directly selected remotes always run.
+        var pending = result.deleted.compactMap { local in
+            local.remoteTarget.map { GitPendingRemoteBranchDeletion(target: $0, localBranch: local) }
+        }
+        let pendingTargets = Set(pending.map(\.target))
+        for item in selection where item.type == .remote {
+            guard let target = RemoteBranchDeleteTarget(fullPath: item.name),
+                  !pendingTargets.contains(target) else { continue }
+            pending.append(GitPendingRemoteBranchDeletion(target: target, localBranch: nil))
+        }
+
+        let didDeleteBranch = !result.deleted.isEmpty || !pending.isEmpty
+        await MainActor.run {
+            for local in result.deleted where local.remoteTarget == nil {
+                undoManager?.register(
+                    GitBranchUndoSupport.deletedBranchUndoEntry(
+                        repositoryURL: repositoryURL,
+                        branch: local.name,
+                        force: local.force,
+                        tip: local.tip,
+                        upstream: local.upstream,
+                        remoteTarget: nil,
+                        remoteHash: nil
                     )
                 )
             }
+            if !pending.isEmpty {
+                onRunBackgroundRemoteBranchDeletion(pending)
+            }
+            if didDeleteBranch { onCompleted() }
+        }
+
+        guard !result.failures.isEmpty else {
+            await MainActor.run {
+                isDeleting = false
+                showingDeleteConfirmation = false
+                dismiss()
+            }
+            return
         }
 
         if didDeleteBranch {
             await loadDeleteData()
         }
         await MainActor.run {
-            if didDeleteBranch { onCompleted() }
             isDeleting = false
             showingDeleteConfirmation = false
-            if !failures.isEmpty {
-                errorMessage = Self.deletionSummary(deletedCount: deletedCount, failures: failures)
-                showingError = true
-            }
+            errorMessage = GitStatusService.branchDeletionSummary(
+                deletedCount: result.deleted.count,
+                failures: result.failures
+            )
+            showingError = true
         }
     }
 
@@ -814,51 +764,6 @@ struct BranchSheetView: View {
     // MARK: - Helpers
 
     @MainActor
-    private func registerDeletedBranchUndo(
-        branch: String,
-        tip: String,
-        upstream: String?,
-        remoteTarget: RemoteBranchDeleteTarget?,
-        remoteHash: String?
-    ) {
-        var undoOperations: [GitUndoOperation] = [
-            .createLocalBranch(name: branch, startPoint: tip, checkout: false)
-        ]
-        if let upstream {
-            undoOperations.append(.setUpstream(branch: branch, upstream: upstream))
-        }
-        if let remoteTarget, let remoteHash {
-            undoOperations.append(
-                .pushBranch(
-                    remote: remoteTarget.remote,
-                    localBranch: remoteHash,
-                    remoteBranch: "refs/heads/\(remoteTarget.branch)"
-                )
-            )
-        }
-
-        var redoOperations: [GitUndoOperation] = [
-            .deleteLocalBranch(name: branch, force: forceDelete, expectedTip: tip)
-        ]
-        if let remoteTarget, let remoteHash {
-            redoOperations.append(
-                .deleteRemoteBranch(
-                    remote: remoteTarget.remote,
-                    branch: remoteTarget.branch,
-                    expectedHash: remoteHash
-                )
-            )
-        }
-        undoManager?.register(
-            GitUndoEntry(
-                repositoryURL: repositoryURL,
-                label: "Delete branch \(branch)",
-                undoOperation: .sequence(undoOperations),
-                redoOperation: .sequence(redoOperations)
-            )
-        )
-    }
-
     static func initialCreateState(
         initialStartPoint: GitBranchStartPoint?,
         recentCommits: [BranchCommitInfo]
@@ -952,36 +857,8 @@ struct BranchSheetView: View {
             return selectedStartReference.isEmpty ? nil : selectedStartReference
         }
     }
-
-    private func friendlyErrorMessage(for error: Error) -> String {
-        let raw = error.localizedDescription.lowercased()
-        if raw.contains("cannot delete branch") && raw.contains("used by worktree") {
-            // Try to extract branch name
-            if let range = error.localizedDescription.range(of: "'", options: .backwards),
-               let startRange = error.localizedDescription.range(of: "'") {
-                let branchName = String(error.localizedDescription[startRange.upperBound..<range.lowerBound])
-                return "Cannot delete branch '\(branchName)' because it is currently checked out. Please switch to another branch first."
-            }
-            return "Cannot delete the currently checked out branch. Please switch to another branch first."
-        }
-        if raw.contains("not fully merged") {
-            return "This branch is not fully merged. Enable 'Force delete regardless of merge status' to delete it anyway."
-        }
-        if raw.contains("remote ref does not exist") {
-            return "The remote branch does not exist or has already been deleted."
-        }
-        return error.localizedDescription
-    }
-
-    static func deletionSummary(deletedCount: Int, failures: [BranchDeletionFailure]) -> String {
-        let deletion = deletedCount == 1
-            ? "Deleted 1 selected branch."
-            : "Deleted \(deletedCount) selected branches."
-        let skipped = failures.map { "• \($0.name): \($0.message)" }.joined(separator: "\n")
-        return "\(deletion)\n\nCould not complete:\n\(skipped)"
-    }
 }
 
 #Preview {
-    BranchSheetView(repositoryURL: URL(fileURLWithPath: "/tmp")) {}
+    BranchSheetView(repositoryURL: URL(fileURLWithPath: "/tmp"), onRunBackgroundRemoteBranchDeletion: { _ in }) {}
 }

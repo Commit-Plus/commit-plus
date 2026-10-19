@@ -22,6 +22,7 @@ struct SidebarDeletePrefixSheet: View {
     let branches: Set<String>
     let undoManager: GitUndoManager?
     let onRunRepositoryOperation: RepositoryOperationRunner
+    let onRunBackgroundRemoteBranchDeletion: RemoteBranchDeletionRunner
     let onCompleted: () -> Void
 
     var body: some View {
@@ -31,6 +32,7 @@ struct SidebarDeletePrefixSheet: View {
             initialTab: .delete,
             initiallySelectedLocalBranches: branches,
             initialForceDelete: true,
+            onRunBackgroundRemoteBranchDeletion: onRunBackgroundRemoteBranchDeletion,
             onRunRepositoryOperation: onRunRepositoryOperation,
             onCompleted: onCompleted
         )

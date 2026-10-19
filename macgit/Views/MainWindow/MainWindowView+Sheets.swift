@@ -141,6 +141,7 @@ extension MainWindowView {
             repositoryURL: repositoryURL,
             undoManager: undoManager,
             initialStartPoint: startPoint,
+            onRunBackgroundRemoteBranchDeletion: runBackgroundRemoteBranchDeletion,
             onRunRepositoryOperation: runRepositoryOperation,
             onCompleted: {
                 Task {

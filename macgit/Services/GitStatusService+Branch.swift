@@ -215,10 +215,52 @@ extension GitStatusService {
         return output
     }
 
-    func deleteRemoteBranch(remote: String, name: String, in repositoryURL: URL) async throws -> String {
-        let output = try await runGit(arguments: ["push", remote, "--delete", name], in: repositoryURL)
+    func deleteRemoteBranch(
+        remote: String,
+        name: String,
+        in repositoryURL: URL,
+        credentialResolver: GitProviderCredentialResolver? = nil,
+        credentialInjector: GitCredentialInjecting = TemporaryGitCredentialInjector(),
+        sshCredentialInjector: GitSSHCredentialInjecting = TemporaryGitSSHCredentialInjector()
+    ) async throws -> String {
+        let injection = try await credentialInjection(
+            for: remote,
+            in: repositoryURL,
+            credentialResolver: credentialResolver,
+            credentialInjector: credentialInjector,
+            sshCredentialInjector: sshCredentialInjector
+        )
+        defer { injection?.cleanup() }
+        let output = try await runRemoteGit(arguments: ["push", remote, "--delete", name], in: repositoryURL, injection: injection)
         await branchListCache.invalidateRemote(repositoryURL: repositoryURL, remote: remote)
         return output
+    }
+
+    /// Current hash of `refs/heads/<branch>` on the remote, or nil when it does not exist.
+    func remoteBranchHash(
+        remote: String,
+        branch: String,
+        in repositoryURL: URL,
+        credentialResolver: GitProviderCredentialResolver? = nil,
+        credentialInjector: GitCredentialInjecting = TemporaryGitCredentialInjector(),
+        sshCredentialInjector: GitSSHCredentialInjecting = TemporaryGitSSHCredentialInjector()
+    ) async throws -> String? {
+        let injection = try await credentialInjection(
+            for: remote,
+            in: repositoryURL,
+            credentialResolver: credentialResolver,
+            credentialInjector: credentialInjector,
+            sshCredentialInjector: sshCredentialInjector
+        )
+        defer { injection?.cleanup() }
+        let output = try await runRemoteGit(
+            arguments: ["ls-remote", remote, "refs/heads/\(branch)"],
+            in: repositoryURL,
+            injection: injection
+        )
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed.split(separator: "\t").first.map(String.init)
     }
 
     func tags(in repositoryURL: URL) async -> [String] {

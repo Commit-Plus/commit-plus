@@ -107,6 +107,7 @@ struct SidebarView: View {
     let onRequestDisableGitFlow: () -> Void
     let onRequestDragDrop: (GitDragDropRequest) -> Void
     let onRunRepositoryOperation: RepositoryOperationRunner
+    let onRunBackgroundRemoteBranchDeletion: RemoteBranchDeletionRunner
 
     @State var branchNodes: [BranchNode] = []
     @State var sidebarDataRepositoryURL: URL?
@@ -286,7 +287,8 @@ struct SidebarView: View {
         onRequestDragDrop: @escaping (GitDragDropRequest) -> Void = { _ in },
         onRunRepositoryOperation: @escaping RepositoryOperationRunner = { _, operation in
             Task { await operation() }
-        }
+        },
+        onRunBackgroundRemoteBranchDeletion: @escaping RemoteBranchDeletionRunner = { _ in }
     ) {
         self.repositoryURL = repositoryURL
         self._selection = selection
@@ -362,6 +364,7 @@ struct SidebarView: View {
         self.onRequestDisableGitFlow = onRequestDisableGitFlow
         self.onRequestDragDrop = onRequestDragDrop
         self.onRunRepositoryOperation = onRunRepositoryOperation
+        self.onRunBackgroundRemoteBranchDeletion = onRunBackgroundRemoteBranchDeletion
     }
 
     var body: some View {
@@ -619,7 +622,8 @@ struct SidebarView: View {
                     validateMergedBranchDeletion: validateMergedBranchDeletion,
                     onPrefixDeleteCompleted: refreshAfterBranchDeletion,
                     deleteRemoteBranch: deleteRemoteBranch,
-                    onRunRepositoryOperation: onRunRepositoryOperation
+                    onRunRepositoryOperation: onRunRepositoryOperation,
+                    onRunBackgroundRemoteBranchDeletion: onRunBackgroundRemoteBranchDeletion
                 )
             )
             .modifier(

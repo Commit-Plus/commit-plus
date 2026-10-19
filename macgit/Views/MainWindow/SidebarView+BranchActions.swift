@@ -276,41 +276,15 @@ extension SidebarView {
         remoteTarget: RemoteBranchDeleteTarget?,
         remoteHash: String?
     ) {
-        var undoOperations: [GitUndoOperation] = [
-            .createLocalBranch(name: branch, startPoint: tip, checkout: false)
-        ]
-        if let upstream {
-            undoOperations.append(.setUpstream(branch: branch, upstream: upstream))
-        }
-        if let remoteTarget, let remoteHash {
-            undoOperations.append(
-                .pushBranch(
-                    remote: remoteTarget.remote,
-                    localBranch: remoteHash,
-                    remoteBranch: "refs/heads/\(remoteTarget.branch)"
-                )
-            )
-        }
-
-        var redoOperations: [GitUndoOperation] = [
-            .deleteLocalBranch(name: branch, force: force, expectedTip: tip)
-        ]
-        if let remoteTarget, let remoteHash {
-            redoOperations.append(
-                .deleteRemoteBranch(
-                    remote: remoteTarget.remote,
-                    branch: remoteTarget.branch,
-                    expectedHash: remoteHash
-                )
-            )
-        }
-
         undoManager?.register(
-            GitUndoEntry(
+            GitBranchUndoSupport.deletedBranchUndoEntry(
                 repositoryURL: repositoryURL,
-                label: "Delete branch \(branch)",
-                undoOperation: .sequence(undoOperations),
-                redoOperation: .sequence(redoOperations)
+                branch: branch,
+                force: force,
+                tip: tip,
+                upstream: upstream,
+                remoteTarget: remoteTarget,
+                remoteHash: remoteHash
             )
         )
     }
