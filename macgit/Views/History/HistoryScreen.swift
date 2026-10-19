@@ -175,6 +175,7 @@ struct HistoryScreen: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .advancedClearSessionCaches)) { _ in
             listModel.clearCache()
+            detailModel.clearCache()
             requestRefresh()
         }
         .onChange(of: isWorkSuspended) { _, suspended in

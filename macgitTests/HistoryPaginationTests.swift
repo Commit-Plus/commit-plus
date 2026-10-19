@@ -263,7 +263,72 @@ final class HistoryPaginationTests: XCTestCase {
         XCTAssertFalse(regular.isEmpty)
     }
 
+    func testCommitDetailRestoresCachedFilesAndDiffWithoutRepositoryAccess() async throws {
+        let repoURL = try makeRepoWithLinearHistory(commitCount: 2)
+        defer { try? FileManager.default.removeItem(at: repoURL) }
+        let commits = await GitStatusService.shared.commitHistory(branch: "main", limit: 10, in: repoURL)
+        let first = try XCTUnwrap(commits.first)
+        let second = try XCTUnwrap(commits.dropFirst().first)
+        let model = HistoryCommitDetailModel(repositoryURL: repoURL)
+
+        model.show(first, debounce: false)
+        try await waitForDetailLoad(model)
+        let expectedPaths = model.fileChanges.map(\.path)
+        let expectedDiffPath = model.diff?.path
+        XCTAssertFalse(expectedPaths.isEmpty)
+        XCTAssertNotNil(expectedDiffPath)
+
+        model.show(second, debounce: false)
+        try await waitForDetailLoad(model)
+        try FileManager.default.removeItem(at: repoURL)
+        model.show(first, debounce: false)
+
+        // Everything is restored synchronously, before any git call could complete.
+        XCTAssertEqual(model.fileChanges.map(\.path), expectedPaths)
+        XCTAssertEqual(model.selectedFile?.path, expectedDiffPath)
+        XCTAssertEqual(model.diff?.commit, first.hash)
+        XCTAssertEqual(model.diff?.path, expectedDiffPath)
+        XCTAssertNotNil(model.patchUnavailableReasons)
+    }
+
+    func testCommitDetailDoesNotCacheFailedLoads() async throws {
+        let repoURL = try makeRepoWithLinearHistory(commitCount: 2)
+        let movedURL = repoURL.deletingLastPathComponent()
+            .appendingPathComponent(repoURL.lastPathComponent + "-moved")
+        defer {
+            try? FileManager.default.removeItem(at: repoURL)
+            try? FileManager.default.removeItem(at: movedURL)
+        }
+        let commits = await GitStatusService.shared.commitHistory(branch: "main", limit: 10, in: repoURL)
+        let first = try XCTUnwrap(commits.first)
+        let second = try XCTUnwrap(commits.dropFirst().first)
+        let model = HistoryCommitDetailModel(repositoryURL: repoURL)
+
+        try FileManager.default.moveItem(at: repoURL, to: movedURL)
+        model.show(first, debounce: false)
+        try await waitForDetailLoad(model, requireDiff: false)
+        XCTAssertTrue(model.fileChanges.isEmpty)
+
+        model.show(second, debounce: false)
+        try await waitForDetailLoad(model, requireDiff: false)
+        try FileManager.default.moveItem(at: movedURL, to: repoURL)
+        // A cached failure would restore an empty file list here and never load a diff.
+        model.show(first, debounce: false)
+        try await waitForDetailLoad(model)
+
+        XCTAssertFalse(model.fileChanges.isEmpty)
+        XCTAssertEqual(model.diff?.commit, first.hash)
+    }
+
     // MARK: - Helpers
+
+    private func waitForDetailLoad(_ model: HistoryCommitDetailModel, requireDiff: Bool = true) async throws {
+        for _ in 0..<300 where model.patchUnavailableReasons == nil || (requireDiff && model.diff == nil) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertNotNil(model.patchUnavailableReasons, "Timed out waiting for commit details")
+        if requireDiff { XCTAssertNotNil(model.diff, "Timed out waiting for the diff") }
+    }
 
     private func makeRepoWithLinearHistory(commitCount: Int) throws -> URL {
         let repoURL = try makeTempRepo(named: "macgit-history-linear")

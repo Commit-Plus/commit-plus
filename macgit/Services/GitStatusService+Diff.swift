@@ -24,15 +24,20 @@ import Foundation
 
 extension GitStatusService {
     func diff(for file: String, in commit: String, in repositoryURL: URL) async -> [DiffHunk] {
+        (try? await commitDiff(for: file, in: commit, in: repositoryURL)) ?? []
+    }
+
+    /// Like `diff(for:in:in:)`, but throws when git fails so callers can tell an error from an empty diff.
+    func commitDiff(for file: String, in commit: String, in repositoryURL: URL) async throws -> [DiffHunk] {
         if isStashRef(commit) {
-            let output = (try? await runGit(arguments: ["diff", "--no-color", "-U3", "\(commit)^1", commit, "--", file], in: repositoryURL)) ?? ""
+            let output = try await runGit(arguments: ["diff", "--no-color", "-U3", "\(commit)^1", commit, "--", file], in: repositoryURL)
             return DiffParser.parse(output)
         }
 
-        let output = (try? await runGit(
+        let output = try await runGit(
             arguments: ["show", "--no-color", "--first-parent", "-p", "-U3", commit, "--", file],
             in: repositoryURL
-        )) ?? ""
+        )
         // Strip the commit header; diff starts at "diff --git"
         guard let diffStart = output.range(of: "diff --git") else { return [] }
         let diffText = String(output[diffStart.lowerBound...])
@@ -84,10 +89,13 @@ extension GitStatusService {
     }
 
     func changedFiles(in commit: String, in repositoryURL: URL) async -> [CommitFileChange] {
-        do {
-            let output = try await runGitRaw(arguments: ["show", "--name-status", "-z", "--find-renames", "--first-parent", "--format=", commit], in: repositoryURL)
-            return try Self.parseComparisonFiles(output)
-        } catch { return [] }
+        (try? await commitChangedFiles(in: commit, in: repositoryURL)) ?? []
+    }
+
+    /// Like `changedFiles(in:in:)`, but throws when git fails so callers can tell an error from an empty commit.
+    func commitChangedFiles(in commit: String, in repositoryURL: URL) async throws -> [CommitFileChange] {
+        let output = try await runGitRaw(arguments: ["show", "--name-status", "-z", "--find-renames", "--first-parent", "--format=", commit], in: repositoryURL)
+        return try Self.parseComparisonFiles(output)
     }
 
     func changedFiles(from baseRef: String, to targetRef: String, in repositoryURL: URL) async -> [CommitFileChange] {
