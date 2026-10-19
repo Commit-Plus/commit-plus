@@ -69,6 +69,11 @@ struct BranchSheetView: View {
         let selectedStartReference: String
     }
 
+    struct BranchDeletionFailure: Equatable {
+        let name: String
+        let message: String
+    }
+
     @Environment(\.dismiss) private var dismiss
     let repositoryURL: URL
     let onCompleted: () -> Void
@@ -608,37 +613,25 @@ struct BranchSheetView: View {
             isDeleting = true
         }
 
-        // Pre-check: cannot delete the currently checked-out branch
-        let checkedOut = selectedBranches.first { $0.type == .local && $0.name == currentBranch }
-        if let checkedOut = checkedOut {
-            await MainActor.run {
-                isDeleting = false
-                showingDeleteConfirmation = false
-                errorMessage = "Cannot delete the currently checked out branch '\(checkedOut.name)'. Please switch to another branch first."
-                showingError = true
-            }
-            return
-        }
-
         let remoteTargetsFromLocal: Set<RemoteBranchDeleteTarget> = deleteMatchingRemoteBranches
             ? Set(matchingRemoteTargets)
             : []
 
         let selection = selectedBranches
         var didDeleteBranch = false
-        do {
-            var validatedTips: [String: String] = [:]
-            if let validateLocalBranchDeletion {
-                for branch in selection where branch.type == .local {
-                    validatedTips[branch.name] = try await validateLocalBranchDeletion(branch.name)
-                }
-            }
-            for branch in selection {
+        var deletedCount = 0
+        var failures: [BranchDeletionFailure] = []
+        for branch in selection {
+            do {
                 switch branch.type {
                 case .local:
+                    guard branch.name != currentBranch else {
+                        throw GitError.commandFailed("Cannot delete the currently checked out branch. Please switch to another branch first.")
+                    }
+                    let validatedTip = try await validateLocalBranchDeletion?(branch.name)
                     let support = GitBranchUndoSupport()
                     let tip = try await support.tip(of: "refs/heads/\(branch.name)", in: repositoryURL)
-                    if let validatedTip = validatedTips[branch.name] {
+                    if let validatedTip {
                         guard validatedTip == tip else {
                             throw GitError.commandFailed("The branch changed while its merge status was being verified. Refresh merge status and try again.")
                         }
@@ -657,7 +650,7 @@ struct BranchSheetView: View {
                     } else {
                         remoteHash = nil
                     }
-                    if let expectedTip = validatedTips[branch.name] {
+                    if let expectedTip = validatedTip {
                         _ = try await GitStatusService.shared.deleteValidatedMergedBranch(
                             name: branch.name, expectedTip: expectedTip, in: repositoryURL
                         )
@@ -667,6 +660,7 @@ struct BranchSheetView: View {
                         )
                     }
                     didDeleteBranch = true
+                    deletedCount += 1
                     do {
                         if let remoteTarget {
                             _ = try await GitStatusService.shared.deleteRemoteBranch(
@@ -683,7 +677,13 @@ struct BranchSheetView: View {
                             remoteTarget: nil,
                             remoteHash: nil
                         )
-                        throw error
+                        failures.append(
+                            BranchDeletionFailure(
+                                name: remoteTarget?.fullPath ?? branch.name,
+                                message: friendlyErrorMessage(for: error)
+                            )
+                        )
+                        continue
                     }
                     await MainActor.run {
                         registerDeletedBranchUndo(
@@ -710,24 +710,27 @@ struct BranchSheetView: View {
                         in: repositoryURL
                     )
                     didDeleteBranch = true
+                    deletedCount += 1
                 }
+            } catch {
+                failures.append(
+                    BranchDeletionFailure(
+                        name: branch.name,
+                        message: friendlyErrorMessage(for: error)
+                    )
+                )
             }
-            await MainActor.run {
-                isDeleting = false
-                showingDeleteConfirmation = false
-                onCompleted()
-                // Refresh branch list and keep modal open
-                Task { await loadDeleteData() }
-            }
-        } catch {
-            if didDeleteBranch {
-                await loadDeleteData()
-            }
-            await MainActor.run {
-                if didDeleteBranch { onCompleted() }
-                isDeleting = false
-                showingDeleteConfirmation = false
-                errorMessage = friendlyErrorMessage(for: error)
+        }
+
+        if didDeleteBranch {
+            await loadDeleteData()
+        }
+        await MainActor.run {
+            if didDeleteBranch { onCompleted() }
+            isDeleting = false
+            showingDeleteConfirmation = false
+            if !failures.isEmpty {
+                errorMessage = Self.deletionSummary(deletedCount: deletedCount, failures: failures)
                 showingError = true
             }
         }
@@ -968,6 +971,14 @@ struct BranchSheetView: View {
             return "The remote branch does not exist or has already been deleted."
         }
         return error.localizedDescription
+    }
+
+    static func deletionSummary(deletedCount: Int, failures: [BranchDeletionFailure]) -> String {
+        let deletion = deletedCount == 1
+            ? "Deleted 1 selected branch."
+            : "Deleted \(deletedCount) selected branches."
+        let skipped = failures.map { "• \($0.name): \($0.message)" }.joined(separator: "\n")
+        return "\(deletion)\n\nCould not complete:\n\(skipped)"
     }
 }
 

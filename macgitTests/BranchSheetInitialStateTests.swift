@@ -105,4 +105,25 @@ final class BranchSheetInitialStateTests: XCTestCase {
             RemoteBranchDeleteTarget(remote: "origin", branch: "feature/one")
         ])
     }
+
+    func testDeletionSummaryReportsSuccessesAndEachFailure() {
+        let summary = BranchSheetView.deletionSummary(
+            deletedCount: 2,
+            failures: [
+                .init(name: "feature/stale", message: "Merge evidence could not be verified."),
+                .init(name: "origin/feature/remote", message: "The remote branch no longer exists.")
+            ]
+        )
+
+        XCTAssertEqual(
+            summary,
+            """
+            Deleted 2 selected branches.
+
+            Could not complete:
+            • feature/stale: Merge evidence could not be verified.
+            • origin/feature/remote: The remote branch no longer exists.
+            """
+        )
+    }
 }
