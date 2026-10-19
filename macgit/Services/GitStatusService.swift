@@ -32,6 +32,19 @@ nonisolated private struct GitProcessResult: Sendable {
     let isTruncated: Bool
 }
 
+/// Classifies a failed `Process.run()`: a missing working directory means the repository
+/// was moved or deleted, not that Git is missing. `SyncState` tells the window.
+nonisolated func gitLaunchError(_ error: Error, executable: String, directory: URL) -> GitError {
+    let fileManager = FileManager.default
+    if !fileManager.fileExists(atPath: directory.path) {
+        return .repositoryUnavailable(directory.path)
+    }
+    if !fileManager.isExecutableFile(atPath: executable) {
+        return .gitNotFound
+    }
+    return .commandFailed(error.localizedDescription)
+}
+
 nonisolated private final class GitProcessExecution: @unchecked Sendable {
     private let executable: String
     private let arguments: [String]
@@ -129,7 +142,7 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
             stderr.fileHandleForWriting.closeFile()
             outputGroup.leave()
             outputGroup.leave()
-            resume(throwing: GitError.gitNotFound)
+            resume(throwing: gitLaunchError(error, executable: executable, directory: directory))
         }
     }
 

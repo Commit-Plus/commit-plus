@@ -1302,21 +1302,14 @@ struct RepoPickerView: View {
                     return
                 }
 
-                if let bookmarkID = bookmarkController.bookmarkID(linkedTo: repo.url),
-                   let bookmark = bookmarkController.bookmark(forID: bookmarkID) {
-                    Task {
-                        do {
-                            try await bookmarkController.validateAndLink(bookmark, to: url)
-                            catalog.relink(repo.url, to: url)
-                            onRepositoryOpened(url)
-                        } catch {
-                            errorMessage = error.localizedDescription
-                            showingError = true
-                        }
+                Task {
+                    do {
+                        try await bookmarkController.relinkRepository(from: repo.url, to: url)
+                        onRepositoryOpened(url)
+                    } catch {
+                        errorMessage = error.localizedDescription
+                        showingError = true
                     }
-                } else {
-                    catalog.relink(repo.url, to: url)
-                    onRepositoryOpened(url)
                 }
             }
         }

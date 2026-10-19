@@ -25,6 +25,7 @@ import Foundation
 enum GitError: LocalizedError {
     case notARepository
     case gitNotFound
+    case repositoryUnavailable(String)
     case commandFailed(String)
 
     var errorDescription: String? {
@@ -33,6 +34,8 @@ enum GitError: LocalizedError {
             return "The selected folder is not a Git repository."
         case .gitNotFound:
             return "Git command not found. Please install Git."
+        case .repositoryUnavailable(let path):
+            return "The repository is no longer available at \(path)."
         case .commandFailed(let message):
             return message
         }

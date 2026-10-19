@@ -30,6 +30,7 @@ extension Notification.Name {
     static let repositoryRemoteRefsDidRefresh = Notification.Name("macgit.repositoryRemoteRefsDidRefresh")
     static let repositoryCurrentBranchDidChange = Notification.Name("macgit.repositoryCurrentBranchDidChange")
     static let repositoryBranchDidCreate = Notification.Name("macgit.repositoryBranchDidCreate")
+    static let repositoryBecameUnavailable = Notification.Name("macgit.repositoryBecameUnavailable")
 }
 
 private actor SyncRefreshCoordinator {
@@ -138,6 +139,14 @@ class SyncState: ObservableObject {
     }
 
     func refresh(repositoryURL: URL, force: Bool = true) async {
+        guard Self.repositoryIsAvailable(at: repositoryURL) else {
+            NotificationCenter.default.post(
+                name: .repositoryBecameUnavailable,
+                object: nil,
+                userInfo: ["repositoryURL": repositoryURL]
+            )
+            return
+        }
         guard await refreshCoordinator.beginLocalRefresh(
             force: force,
             minimumInterval: Self.localRefreshCoalescingInterval,
@@ -233,6 +242,12 @@ class SyncState: ObservableObject {
                 }
             }
         }
+    }
+
+    /// A moved or deleted folder, or a removed `.git`, makes the repository unavailable.
+    /// `.git` is a file for linked worktrees and submodules, so only its existence is checked.
+    static func repositoryIsAvailable(at repositoryURL: URL) -> Bool {
+        FileManager.default.fileExists(atPath: repositoryURL.appendingPathComponent(".git").path)
     }
 
     func startBackgroundSync(

@@ -178,7 +178,11 @@ extension GitStatusService {
                 }
                 stdin.fileHandleForWriting.closeFile()
             } catch {
-                continuation.resume(throwing: GitError.gitNotFound)
+                continuation.resume(throwing: gitLaunchError(
+                    error,
+                    executable: context.executable,
+                    directory: repositoryURL
+                ))
             }
         }
     }

@@ -39,6 +39,7 @@ struct ContentView: View {
     @State private var showingRepositoryOpenError = false
     @State private var externalOpenTask: Task<Void, Never>?
     @State private var repositoryURL: URL?
+    @State private var unavailableRepositoryURL: URL?
     @State private var showingRepoPickerSheet = false
     @State private var showingCloneSheet = false
     @State private var showingKeepCurrentAlert = false
@@ -84,6 +85,13 @@ struct ContentView: View {
                 WelcomeView(accountDisplayName: accountController.account?.displayLabel, onOpenAccount: openWelcomeAccount, onRepositoryOpened: { url, showsHistory in
                     openRepository(url, inNewWindow: true, showsHistory: showsHistory)
                 })
+            } else if let url = repositoryURL, unavailableRepositoryURL == url {
+                RepositoryUnavailableView(
+                    repositoryURL: url,
+                    onLocate: { locateRepository(missingURL: url) },
+                    onRetry: { retryRepository(missingURL: url) },
+                    onClose: closeUnavailableRepository
+                )
             } else if let url = repositoryURL {
                 MainWindowView(
                     repositoryURL: url,
@@ -203,6 +211,14 @@ struct ContentView: View {
             guard windowContext.owns(notification),
                   let action = notification.userInfo?["action"] as? FileMenuAction else { return }
             handleFileMenuAction(action)
+        }
+        // Posted on the main actor by `SyncState.refresh`.
+        .onReceive(NotificationCenter.default.publisher(for: .repositoryBecameUnavailable)) { notification in
+            guard let missingURL = notification.userInfo?["repositoryURL"] as? URL,
+                  let repositoryURL,
+                  RepositoryCatalogSnapshot.path(missingURL) == RepositoryCatalogSnapshot.path(repositoryURL)
+            else { return }
+            unavailableRepositoryURL = repositoryURL
         }
         .onReceive(NotificationCenter.default.publisher(for: .showAppSettings)) { notification in
             if let targetWindow = notification.object as? NSWindow {
@@ -346,6 +362,7 @@ struct ContentView: View {
             }
         case .closeRepository:
             repositoryURL = nil
+            unavailableRepositoryURL = nil
             showingRepoPickerSheet = false
             showingCloneSheet = false
         }
@@ -375,11 +392,13 @@ struct ContentView: View {
             openRepository(url, inNewWindow: inNewWindow)
         case .closeRepository:
             repositoryURL = nil
+            unavailableRepositoryURL = nil
         }
     }
 
     private func closeCurrentAndPerformPending() {
         repositoryURL = nil
+        unavailableRepositoryURL = nil
         if let action = pendingAction {
             performAction(action, inNewWindow: false)
             pendingAction = nil
@@ -418,6 +437,48 @@ struct ContentView: View {
                 : nil
             initialRepositoryWindowFrame = nil
             repositoryURL = url
+            unavailableRepositoryURL = nil
         }
+    }
+
+    private func retryRepository(missingURL: URL) {
+        Task { @MainActor in
+            // A folder recreated at the same path must be the repository root, not a subfolder of another repository.
+            if let root = try? await RepositoryPathResolver().root(at: missingURL),
+               RepositoryCatalogSnapshot.path(root) == RepositoryCatalogSnapshot.path(missingURL) {
+                unavailableRepositoryURL = nil
+            } else {
+                repositoryOpenError = "The repository is still unavailable at \(missingURL.path)."
+                showingRepositoryOpenError = true
+            }
+        }
+    }
+
+    private func locateRepository(missingURL: URL) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Select the new location for \(missingURL.lastPathComponent)"
+        panel.prompt = "Use Folder"
+        guard let window = windowContext.window else { return }
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let selectedURL = panel.url else { return }
+            Task { @MainActor in
+                do {
+                    let root = try await RepositoryPathResolver().root(at: selectedURL)
+                    try await repositoryBookmarkController.relinkRepository(from: missingURL, to: root)
+                    openRepository(root, inNewWindow: false)
+                } catch {
+                    repositoryOpenError = "Could not use this repository folder. \(error.localizedDescription)"
+                    showingRepositoryOpenError = true
+                }
+            }
+        }
+    }
+
+    private func closeUnavailableRepository() {
+        repositoryURL = nil
+        unavailableRepositoryURL = nil
     }
 }

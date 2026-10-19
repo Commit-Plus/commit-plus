@@ -243,6 +243,14 @@ final class RepositoryBookmarkController: ObservableObject {
         try await link(bookmark, to: repositoryURL)
     }
 
+    /// Moves a relocated repository's linked bookmark and catalog entry to its new folder.
+    func relinkRepository(from oldURL: URL, to newURL: URL) async throws {
+        if let id = bookmarkID(linkedTo: oldURL), let bookmark = bookmark(forID: id) {
+            try await validateAndLink(bookmark, to: newURL)
+        }
+        RepositoryCatalogStore.shared.relink(oldURL, to: newURL)
+    }
+
     func linkMatchingBookmarks(to repositoryURLs: [URL]) async {
         var visited: Set<URL> = []
         for repositoryURL in repositoryURLs where visited.insert(repositoryURL).inserted {
