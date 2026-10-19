@@ -1,0 +1,52 @@
+schema: spec-driven
+
+context: |
+  Project rules in AGENTS.md apply to every artifact; do not restate them, but do not contradict them.
+  Native macOS-only app (macOS 26.2+, Swift/SwiftUI with AppKit where needed). No iOS, Windows, or Linux scope.
+  Firebase backend (Firestore rules, indexes, Cloud Functions, feature-policy provisioning) is owned by the sibling ../landing-page repository. This repo only holds native client integration and local policy fallbacks.
+  A change that touches a Firebase contract (CloudSettingsDocument fields, document paths, queries, callables, plan features) is cross-repository: the design must name the ../landing-page changes and any required Firebase deployment as a rollout step.
+  Plan-gated features must state which plan/feature key gates them and the behavior when the feature policy is unavailable (local fallback).
+  Repository mutations must be undoable where the app already supports undo for that kind of action, and must refresh state through the existing SyncState flow.
+  Repository AI capabilities may only be added as typed tools behind a policy; mutations keep user confirmation and revalidation, and credentials never reach model context.
+  Release notes are not part of a change; CHANGELOG.md is rewritten only at release time.
+
+rules:
+  design:
+    - State which existing controller, view model, or GitStatusService extension owns the new behavior instead of introducing a parallel abstraction
+    - Call out window scoping for any menu, toolbar, or notification-driven command
+  tasks:
+    - Include a validation task naming the exact XCTest class(es) to run, or a build when no test coverage applies
+    - Use *IntegrationTests (temporary git repositories) for GitStatusService and undo behavior
+    - Include a manual UI review task for layout or interaction changes, since a build does not verify runtime behavior
+    - Do not include Firebase Emulator tests; list Firebase deployment as a separate task requiring explicit user authorization
+
+# Project context (optional)
+# Add only constraints that should guide OpenSpec artifacts and workflows.
+# Include constraints an agent cannot infer by reading the code.
+# Keep general project documentation and discoverable codebase facts out.
+# Example:
+#   context: |
+#     Designs and tasks must cover Windows, macOS, and Linux
+#     Write all artifacts in Spanish
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always state what is out of scope
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing

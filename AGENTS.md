@@ -7,11 +7,18 @@ See `README.md` for features and `CONTRIBUTING.md` for setup and coding conventi
 ## Working Style
 
 - Work directly on clear tasks. Keep changes focused and preserve existing behavior outside the requested scope.
-- Do not create specs, plans, or roadmaps unless the user asks. Existing documents in `docs/` are reference material, not required workflow steps.
+- Do not create specs, plans, or roadmaps unless the user asks, except through the OpenSpec workflow below. Existing documents in `docs/` are reference material, not required workflow steps.
 - Inspect the current implementation before changing behavior; follow existing patterns instead of adding parallel abstractions.
 - Preserve unrelated local changes. Do not automatically stash, reset, commit, or push.
 - When a new branch is needed, use `codex/<topic>`. Do not commit directly to `main`.
 - `rtk` is an optional local tool, not a project requirement. Check `command -v rtk`: if available, prefix shell commands with `rtk` (or `rtk proxy <command>` when no dedicated wrapper exists); otherwise run commands directly. Commands in this file are written without `rtk`.
+
+## OpenSpec
+
+- Spec-driven changes use OpenSpec (`openspec/`, CLI `@fission-ai/openspec` 1.x). Current specs live in `openspec/specs/`; proposed changes in `openspec/changes/<id>/`.
+- Use the OpenSpec workflow (`/opsx:propose`, `/opsx:apply`, `/opsx:archive` in Claude Code; `openspec-*` skills in `.agents/skills/` for Codex) when the user asks for a proposal/spec or for new capabilities, breaking changes, or architecture shifts. Small fixes and clear tasks do not need a change proposal.
+- When implementing an OpenSpec change, keep `tasks.md` in sync with the actual work and archive the change only after it is implemented and validated.
+- Run `openspec update` after upgrading the CLI to refresh generated skills and commands; do not hand-edit them.
 
 ## Project Layout
 
