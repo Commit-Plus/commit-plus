@@ -13,6 +13,7 @@ struct PullRequestMarkdownContent: View {
             baseURL: baseURL,
             textScale: Double(textScale),
             compact: true,
+            isUntrustedContent: true,
             contentHeight: $contentHeight
         )
         .frame(height: contentHeight)

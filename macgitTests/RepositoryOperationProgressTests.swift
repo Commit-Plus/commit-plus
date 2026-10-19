@@ -258,6 +258,36 @@ final class RepositoryOperationProgressTests: XCTestCase {
         await fulfillment(of: [ran], timeout: 1)
     }
 
+    func testQueuedItemWaitsForBeforeOperationHook() async {
+        let progress = RepositoryOperationProgress()
+        let hookEntered = expectation(description: "hook entered")
+        var releaseHook: CheckedContinuation<Void, Never>?
+        var didRun = false
+        progress.waitBeforeBackgroundOperation = {
+            guard releaseHook == nil else { return }
+            await withCheckedContinuation { continuation in
+                releaseHook = continuation
+                hookEntered.fulfill()
+            }
+        }
+
+        progress.runInBackground(title: "Fetching") {
+            didRun = true
+            return .succeeded
+        }
+        await fulfillment(of: [hookEntered], timeout: 1)
+
+        XCTAssertFalse(didRun)
+        XCTAssertEqual(progress.backgroundItems.map(\.state), [.queued])
+        XCTAssertTrue(progress.hasPendingBackgroundWork)
+
+        releaseHook?.resume()
+        await progress.waitForBackgroundIdle()
+
+        XCTAssertTrue(didRun)
+        XCTAssertTrue(progress.backgroundItems.isEmpty)
+    }
+
     func testBackgroundErrorSummaryUsesFirstLineAndTruncates() {
         XCTAssertEqual(RepositoryOperationProgress.backgroundErrorSummary("\n\n  fatal: bad\nmore"), "fatal: bad")
         XCTAssertEqual(RepositoryOperationProgress.backgroundErrorSummary("   \n"), "Unknown error")

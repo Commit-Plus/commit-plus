@@ -125,6 +125,9 @@ class SyncState: ObservableObject {
     @Published private(set) var isAutomaticFetching: Bool = false
     /// Returns true while the owning window has queued or running background remote work.
     var shouldDeferAutomaticFetch: @MainActor () -> Bool = { false }
+    /// Covers the whole automatic fetch, including throttle checks, unlike `isAutomaticFetching`.
+    private var automaticFetchActive = false
+    private var automaticFetchIdleWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     var isAnySyncing: Bool {
         isCommitting || isPushing || isPulling || isFetching || isMerging || isStashing || isUpdatingCurrentBranch
@@ -308,9 +311,11 @@ class SyncState: ObservableObject {
     ) async -> Bool {
         // Queued background fetches/pushes would race this fetch for remote-tracking ref locks.
         // A deferred fetch is skipped without touching the backoff.
-        if await MainActor.run(body: { shouldDeferAutomaticFetch() }) {
+        guard !automaticFetchActive, !shouldDeferAutomaticFetch() else {
             return false
         }
+        automaticFetchActive = true
+        defer { finishAutomaticFetchActivity() }
         guard await refreshCoordinator.beginAutomaticFetch(force: force, now: .now) else {
             return false
         }
@@ -335,6 +340,33 @@ class SyncState: ObservableObject {
             await finishAutomaticFetch(succeeded: false)
             return false
         }
+    }
+
+    /// Suspends while an automatic fetch runs, so the window's background lane never runs a
+    /// fetch or push alongside it. Returns early when cancelled.
+    func waitForAutomaticFetchToFinish() async {
+        guard automaticFetchActive, !Task.isCancelled else { return }
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if !automaticFetchActive || Task.isCancelled {
+                    continuation.resume()
+                } else {
+                    automaticFetchIdleWaiters[waiterID] = continuation
+                }
+            }
+        } onCancel: {
+            Task { @MainActor in
+                self.automaticFetchIdleWaiters.removeValue(forKey: waiterID)?.resume()
+            }
+        }
+    }
+
+    private func finishAutomaticFetchActivity() {
+        automaticFetchActive = false
+        let waiters = automaticFetchIdleWaiters.values
+        automaticFetchIdleWaiters.removeAll()
+        waiters.forEach { $0.resume() }
     }
 
     private func finishAutomaticFetch(succeeded: Bool) async {

@@ -9,6 +9,8 @@ struct RepositoryReadmeWebView: NSViewRepresentable {
     var baseURL: URL? = nil
     var textScale: Double = 1
     var compact: Bool = false
+    /// Content written by other users (pull requests); see `RepositoryReadmeHTML.render`.
+    var isUntrustedContent: Bool = false
     @Binding var contentHeight: CGFloat
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -51,7 +53,13 @@ struct RepositoryReadmeWebView: NSViewRepresentable {
         coordinator.baseURL = baseURL
         coordinator.textScale = textScale
         coordinator.compact = compact
-        view.loadHTMLString(RepositoryReadmeHTML.render(content, textScale: textScale, compact: compact), baseURL: baseURL ?? URL(string: "commitplus-readme://repository/"))
+        let html = RepositoryReadmeHTML.render(
+            content,
+            textScale: textScale,
+            compact: compact,
+            untrustedContentHost: isUntrustedContent ? (baseURL?.host ?? "") : nil
+        )
+        view.loadHTMLString(html, baseURL: baseURL ?? URL(string: "commitplus-readme://repository/"))
     }
 
     static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {

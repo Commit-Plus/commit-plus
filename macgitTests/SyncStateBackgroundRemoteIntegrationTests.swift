@@ -28,6 +28,37 @@ final class SyncStateBackgroundRemoteIntegrationTests: XCTestCase {
         XCTAssertFalse(syncState.showingError)
     }
 
+    func testAutomaticFetchIsDeferredWhileBackgroundWorkIsPending() async throws {
+        let fixture = try makeFixture()
+        let initialTip = try gitOutput(["rev-parse", "origin/main"], in: fixture.cloneURL)
+        try commitAndPush("upstream change", file: "remote.txt", in: fixture.sourceURL)
+        let expectedTip = try gitOutput(["rev-parse", "main"], in: fixture.sourceURL)
+        let syncState = SyncState()
+        var hasPendingBackgroundWork = true
+        syncState.shouldDeferAutomaticFetch = { hasPendingBackgroundWork }
+
+        let deferred = await syncState.performAutomaticFetch(
+            options: GitStatusService.FetchOptions(),
+            repositoryURL: fixture.cloneURL,
+            force: false
+        )
+
+        XCTAssertFalse(deferred)
+        XCTAssertEqual(try gitOutput(["rev-parse", "origin/main"], in: fixture.cloneURL), initialTip)
+        await syncState.waitForAutomaticFetchToFinish()
+
+        // A deferred fetch does not count toward the throttle or backoff.
+        hasPendingBackgroundWork = false
+        let fetched = await syncState.performAutomaticFetch(
+            options: GitStatusService.FetchOptions(),
+            repositoryURL: fixture.cloneURL,
+            force: false
+        )
+
+        XCTAssertTrue(fetched)
+        XCTAssertEqual(try gitOutput(["rev-parse", "origin/main"], in: fixture.cloneURL), expectedTip)
+    }
+
     func testBackgroundFetchReportsMissingRemoteFailure() async throws {
         let fixture = try makeFixture()
         try runGit(["remote", "set-url", "origin", fixture.root.appendingPathComponent("missing.git").path], in: fixture.cloneURL)

@@ -185,6 +185,9 @@ final class RepositoryOperationProgress: ObservableObject {
     private var backgroundDrainGeneration = 0
     private var backgroundIdleWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
+    /// Awaited before each queued item starts, e.g. to let an in-flight automatic fetch finish.
+    var waitBeforeBackgroundOperation: () async -> Void = {}
+
     var backgroundIndicator: RepositoryBackgroundActivityIndicator {
         if hasPendingBackgroundWork { return .running }
         if !backgroundItems.isEmpty { return .failed }
@@ -279,7 +282,12 @@ final class RepositoryOperationProgress: ObservableObject {
 
     private func drainBackgroundQueue(generation: Int) async {
         while generation == backgroundDrainGeneration,
-              let index = backgroundItems.firstIndex(where: { $0.state == .queued }) {
+              backgroundItems.contains(where: { $0.state == .queued }) {
+            // Queued items count as pending work, so no new automatic fetch starts while
+            // this waits; the item is marked running in the same main-actor turn it resumes.
+            await waitBeforeBackgroundOperation()
+            guard generation == backgroundDrainGeneration,
+                  let index = backgroundItems.firstIndex(where: { $0.state == .queued }) else { continue }
             let id = backgroundItems[index].id
             guard let operation = backgroundOperations.removeValue(forKey: id) else {
                 backgroundItems.remove(at: index)

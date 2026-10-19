@@ -851,6 +851,9 @@ struct MainWindowView: View {
                 )
             }
             windowContext.attachUndoManager(undoManager, syncState: syncState, for: repositoryURL)
+            operationProgress.waitBeforeBackgroundOperation = { [weak syncState] in
+                await syncState?.waitForAutomaticFetchToFinish()
+            }
             OpenRepositoryRegistry.shared.register(repositoryURL)
         }
         .onDisappear {
