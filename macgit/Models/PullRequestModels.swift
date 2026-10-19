@@ -154,6 +154,7 @@ nonisolated struct PullRequestComment: Identifiable, Equatable, Codable {
     var webURL: URL
     var createdAt: Date
     var updatedAt: Date
+    var reviewContext: PullRequestReviewContext? = nil
 }
 
 nonisolated struct PullRequestDetail: Identifiable, Equatable, Codable {

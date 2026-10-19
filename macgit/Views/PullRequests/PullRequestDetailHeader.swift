@@ -59,38 +59,62 @@ struct PullRequestDetailHeader: View {
                     .lineLimit(1)
             }
 
-            HStack(spacing: 7) {
-                HStack(spacing: 7) {
-                    Text(summary.source.ref)
-                        .branchBadge(scale: textScale)
-                    Image(systemName: "arrow.right")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .accessibilityLabel("into")
-                    Text(summary.target.ref)
-                        .branchBadge(scale: textScale)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    branches
+                    Spacer(minLength: 12)
+                    actions
                 }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("From \(summary.source.ref) into \(summary.target.ref)")
-
-                Spacer(minLength: 12)
-
-                HStack(spacing: 8) {
-                    Button("Open PR", systemImage: "safari", action: onOpenPullRequest)
-                    Button("Merge Pull Request", systemImage: "arrow.triangle.merge", action: onMerge)
-                        .buttonStyle(.borderedProminent)
-                        .tint(.green)
-                        .disabled(isMergeDisabled)
-                        .help(mergeButtonHelp)
+                VStack(alignment: .leading, spacing: 12) {
+                    branches
+                    actions
                 }
-                .font(.body.scaled(by: textScale))
-                .fixedSize()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
         .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private var branches: some View {
+        HStack(spacing: 7) {
+            branchBadge(summary.source.ref, role: "source")
+            Image(systemName: "arrow.right")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("into")
+            branchBadge(summary.target.ref, role: "target")
+        }
+    }
+
+    private func branchBadge(_ name: String, role: String) -> some View {
+        HStack(spacing: 5) {
+            Text(name)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(name)
+            PullRequestCopyButton(title: "Copy \(role) branch name", value: name)
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .help("Copy \(name)")
+        }
+        .branchBadge(scale: textScale)
+    }
+
+    private var actions: some View {
+        HStack(spacing: 8) {
+            Button("Open PR", systemImage: "safari", action: onOpenPullRequest)
+            PullRequestCopyButton(title: "Copy link", value: summary.webURL.absoluteString, systemImage: "link")
+            .help("Copy pull request link")
+            Button("Merge Pull Request", systemImage: "arrow.triangle.merge", action: onMerge)
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+                .disabled(isMergeDisabled)
+                .help(mergeButtonHelp)
+        }
+        .font(.body.scaled(by: textScale))
+        .fixedSize()
     }
 
     private var stateTitle: String {

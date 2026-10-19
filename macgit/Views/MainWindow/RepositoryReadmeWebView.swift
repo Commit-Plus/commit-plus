@@ -5,7 +5,10 @@ import UniformTypeIdentifiers
 
 struct RepositoryReadmeWebView: NSViewRepresentable {
     let content: String
-    let directory: URL
+    var directory: URL? = nil
+    var baseURL: URL? = nil
+    var textScale: Double = 1
+    var compact: Bool = false
     @Binding var contentHeight: CGFloat
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -41,11 +44,14 @@ struct RepositoryReadmeWebView: NSViewRepresentable {
         coordinator.onHeightChange = { height in
             if abs(contentHeight - height) > 1 { contentHeight = height }
         }
-        let resolvedDirectory = directory.resolvingSymlinksInPath().standardizedFileURL
-        guard coordinator.content != content || coordinator.directory != resolvedDirectory else { return }
+        let resolvedDirectory = directory?.resolvingSymlinksInPath().standardizedFileURL
+        guard coordinator.content != content || coordinator.directory != resolvedDirectory || coordinator.baseURL != baseURL || coordinator.textScale != textScale || coordinator.compact != compact else { return }
         coordinator.content = content
         coordinator.directory = resolvedDirectory
-        view.loadHTMLString(RepositoryReadmeHTML.render(content), baseURL: URL(string: "commitplus-readme://repository/"))
+        coordinator.baseURL = baseURL
+        coordinator.textScale = textScale
+        coordinator.compact = compact
+        view.loadHTMLString(RepositoryReadmeHTML.render(content, textScale: textScale, compact: compact), baseURL: baseURL ?? URL(string: "commitplus-readme://repository/"))
     }
 
     static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
@@ -59,6 +65,9 @@ struct RepositoryReadmeWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKURLSchemeHandler, WKScriptMessageHandler {
         var content: String?
         var directory: URL?
+        var baseURL: URL?
+        var textScale: Double = 1
+        var compact = false
         var onHeightChange: ((CGFloat) -> Void)?
         private var requests: [ObjectIdentifier: Task<Void, Never>] = [:]
 
@@ -114,9 +123,12 @@ struct RepositoryReadmeWebView: NSViewRepresentable {
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             guard navigationAction.navigationType == .linkActivated else {
                 let url = navigationAction.request.url
+                // loadHTMLString uses its base URL for the initial navigation.
+                // PR content has an HTTPS base URL instead of the README scheme.
                 let isDocument = url?.absoluteString == "about:blank" ||
+                    (baseURL != nil && url == baseURL) ||
                     (url?.scheme == "commitplus-readme" && url?.host == "repository" && url?.path == "/")
-                decisionHandler(isDocument ? .allow : .cancel)
+                decisionHandler(isDocument && navigationAction.targetFrame?.isMainFrame == true ? .allow : .cancel)
                 return
             }
             if let url = navigationAction.request.url {
