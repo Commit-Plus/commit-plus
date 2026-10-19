@@ -61,7 +61,53 @@ struct GitUndoExecutor {
         self.snapshotStore = snapshotStore
     }
 
-    func execute(_ operation: GitUndoOperation, in repositoryURL: URL) async throws {
+    /// Remotes an operation pushes to or deletes from, so callers can resolve credentials first.
+    static func remoteNames(in operation: GitUndoOperation) -> [String] {
+        switch operation {
+        case .pushBranch(let remote, _, _), .deleteRemoteBranch(let remote, _, _):
+            return [remote]
+        case .replaceRemoteBranch(let plan, _):
+            return [plan.remote]
+        case .sequence(let operations):
+            var names: [String] = []
+            for name in operations.flatMap(remoteNames(in:)) where !names.contains(name) {
+                names.append(name)
+            }
+            return names
+        default:
+            return []
+        }
+    }
+
+    /// Entries that contact a remote and otherwise only touch branch, tag, or upstream refs
+    /// never write the index, working tree, or HEAD, so they can run in the background lane.
+    static func canRunInBackground(_ operation: GitUndoOperation) -> Bool {
+        !remoteNames(in: operation).isEmpty && isRefOnly(operation)
+    }
+
+    private static func isRefOnly(_ operation: GitUndoOperation) -> Bool {
+        switch operation {
+        case .pushBranch, .deleteRemoteBranch, .replaceRemoteBranch,
+             .deleteLocalBranch, .setUpstream, .createTag, .deleteTag,
+             .requireLocalBranchTip, .requireLocalBranchAbsent:
+            return true
+        case .createLocalBranch(_, _, let checkout):
+            return !checkout
+        case .sequence(let operations):
+            return operations.allSatisfy(isRefOnly)
+        default:
+            // Includes updateLocalBranch and renameLocalBranch, which can move or rename the checked-out branch.
+            return false
+        }
+    }
+
+    /// With a credential resolver, remote branch operations inject provider credentials
+    /// like push and fetch; without one they run through `runner` as before.
+    func execute(
+        _ operation: GitUndoOperation,
+        in repositoryURL: URL,
+        credentialResolver: GitProviderCredentialResolver? = nil
+    ) async throws {
         switch operation {
         case .requireCleanWorkingTree:
             let status = try await runner.runGit(arguments: ["status", "--porcelain"], in: repositoryURL)
@@ -199,16 +245,37 @@ struct GitUndoExecutor {
         case .renameLocalBranch(let from, let to):
             _ = try await runner.runGit(arguments: ["branch", "-m", from, to], in: repositoryURL)
         case .deleteRemoteBranch(let remote, let branch, let expectedHash):
-            let actualHash = try await remoteSupport.remoteHash(remote: remote, branch: branch, in: repositoryURL)
+            let actualHash: String?
+            if let credentialResolver {
+                actualHash = try await GitStatusService.shared.remoteBranchHash(
+                    remote: remote, branch: branch, in: repositoryURL, credentialResolver: credentialResolver
+                )
+            } else {
+                actualHash = try await remoteSupport.remoteHash(remote: remote, branch: branch, in: repositoryURL)
+            }
             guard actualHash == expectedHash else {
                 throw GitError.commandFailed("Cannot delete remote branch '\(branch)' because it is no longer at the expected hash.")
             }
-            _ = try await runner.runGit(arguments: ["push", remote, "--delete", branch], in: repositoryURL)
+            if let credentialResolver {
+                _ = try await GitStatusService.shared.deleteRemoteBranch(
+                    remote: remote, name: branch, in: repositoryURL, credentialResolver: credentialResolver
+                )
+            } else {
+                _ = try await runner.runGit(arguments: ["push", remote, "--delete", branch], in: repositoryURL)
+            }
         case .pushBranch(let remote, let localBranch, let remoteBranch):
             let refSpec = localBranch == remoteBranch ? localBranch : "\(localBranch):\(remoteBranch)"
-            _ = try await runner.runGit(arguments: ["push", remote, refSpec], in: repositoryURL)
+            if let credentialResolver {
+                _ = try await GitStatusService.shared.pushRefSpec(
+                    remote: remote, refSpec: refSpec, in: repositoryURL, credentialResolver: credentialResolver
+                )
+            } else {
+                _ = try await runner.runGit(arguments: ["push", remote, refSpec], in: repositoryURL)
+            }
         case .replaceRemoteBranch(let plan, let restoring):
-            try await GitStatusService.shared.replaceRemoteBranch(plan, restoring: restoring, in: repositoryURL)
+            try await GitStatusService.shared.replaceRemoteBranch(
+                plan, restoring: restoring, in: repositoryURL, credentialResolver: credentialResolver
+            )
         case .setUpstream(let branch, let upstream):
             _ = try await runner.runGit(
                 arguments: ["branch", "--set-upstream-to", upstream, branch],
@@ -216,7 +283,7 @@ struct GitUndoExecutor {
             )
         case .sequence(let operations):
             for operation in operations {
-                try await execute(operation, in: repositoryURL)
+                try await execute(operation, in: repositoryURL, credentialResolver: credentialResolver)
             }
         case .resetHardToHead(let expectedHead):
             if let expectedHead {

@@ -32,7 +32,6 @@ struct SidebarBranchPresentationModifier: ViewModifier {
     let confirmDeleteBranch: (String) -> Void
     let validateMergedBranchDeletion: @MainActor (String) async throws -> String
     let onPrefixDeleteCompleted: () -> Void
-    let deleteRemoteBranch: (RemoteBranchDeleteTarget) async -> Void
     let onRunRepositoryOperation: RepositoryOperationRunner
     let onRunBackgroundRemoteBranchDeletion: RemoteBranchDeletionRunner
 
@@ -101,8 +100,7 @@ struct SidebarBranchPresentationModifier: ViewModifier {
 
     private func confirmDeleteRemoteBranch() {
         guard let target = remoteBranchDeleteTarget else { return }
-        onRunRepositoryOperation("Deleting \(target.fullPath)...") {
-            await deleteRemoteBranch(target)
-        }
+        remoteBranchDeleteTarget = nil
+        onRunBackgroundRemoteBranchDeletion([GitPendingRemoteBranchDeletion(target: target, localBranch: nil)])
     }
 }

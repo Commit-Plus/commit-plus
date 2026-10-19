@@ -61,34 +61,6 @@ extension SidebarView {
         )
     }
 
-    func deleteRemoteBranch(_ target: RemoteBranchDeleteTarget) async {
-        do {
-            _ = try await GitStatusService.shared.deleteRemoteBranch(
-                remote: target.remote,
-                name: target.branch,
-                in: repositoryURL
-            )
-            await loadRemotes()
-            await MainActor.run {
-                remoteBranchDeleteTarget = nil
-                if selection == .remoteBranch(target.fullPath) {
-                    selection = .item(.history)
-                }
-            }
-            NotificationCenter.default.post(
-                name: .repositoryDidChange,
-                object: nil,
-                userInfo: ["repositoryURL": repositoryURL]
-            )
-        } catch {
-            await MainActor.run {
-                remoteBranchDeleteTarget = nil
-                errorMessage = error.localizedDescription
-                showingError = true
-            }
-        }
-    }
-
     @MainActor
     func expandBranchesSection() {
         guard !sectionStates.branchesExpanded else { return }
@@ -208,62 +180,45 @@ extension SidebarView {
         )
     }
 
+    /// Deletes the local branch now; its remote target, if any, is deleted in the background lane.
     func deleteBranch(
         _ branch: String,
         force: Bool = false,
         remoteTarget: RemoteBranchDeleteTarget? = nil
     ) async {
-        do {
-            let support = GitBranchUndoSupport()
-            let tip = try await support.tip(of: branch, in: repositoryURL)
-            let upstream = await support.upstream(of: branch, in: repositoryURL)
-            let remoteHash: String?
-            if let remoteTarget {
-                remoteHash = try await GitRemoteUndoSupport().remoteHash(
-                    remote: remoteTarget.remote,
-                    branch: remoteTarget.branch,
-                    in: repositoryURL
-                )
-            } else {
-                remoteHash = nil
+        let result = await GitStatusService.shared.deleteLocalBranches(
+            GitLocalBranchDeletionRequest(
+                branches: [branch],
+                force: force,
+                currentBranch: currentBranch,
+                remoteTargets: remoteTarget.map { [branch: $0] } ?? [:]
+            ),
+            validate: nil,
+            in: repositoryURL
+        )
+        await MainActor.run {
+            if let failure = result.failures.first {
+                errorMessage = failure.message
+                showingError = true
+                return
             }
-            _ = try await GitStatusService.shared.deleteBranch(name: branch, force: force, in: repositoryURL)
-
-            do {
-                if let remoteTarget {
-                    _ = try await GitStatusService.shared.deleteRemoteBranch(
-                        remote: remoteTarget.remote,
-                        name: remoteTarget.branch,
-                        in: repositoryURL
+            for local in result.deleted {
+                if let target = local.remoteTarget {
+                    onRunBackgroundRemoteBranchDeletion([
+                        GitPendingRemoteBranchDeletion(target: target, localBranch: local)
+                    ])
+                } else {
+                    registerDeletedBranchUndo(
+                        branch: local.name,
+                        force: local.force,
+                        tip: local.tip,
+                        upstream: local.upstream,
+                        remoteTarget: nil,
+                        remoteHash: nil
                     )
                 }
-            } catch {
-                registerDeletedBranchUndo(
-                    branch: branch,
-                    force: force,
-                    tip: tip,
-                    upstream: upstream,
-                    remoteTarget: nil,
-                    remoteHash: nil
-                )
-                throw error
             }
-
-            registerDeletedBranchUndo(
-                branch: branch,
-                force: force,
-                tip: tip,
-                upstream: upstream,
-                remoteTarget: remoteTarget,
-                remoteHash: remoteHash
-            )
-
             NotificationCenter.default.post(name: .repositoryDidChange, object: nil, userInfo: ["repositoryURL": repositoryURL])
-        } catch {
-            await MainActor.run {
-                errorMessage = error.localizedDescription
-                showingError = true
-            }
         }
     }
 

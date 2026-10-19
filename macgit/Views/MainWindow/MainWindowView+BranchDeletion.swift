@@ -40,6 +40,11 @@ extension MainWindowView {
             }
             await syncState.refresh(repositoryURL: repositoryURL)
             await MainActor.run {
+                for result in results where result.failure == nil && result.pending.localBranch == nil {
+                    if selectedItem == .remoteBranch(result.pending.target.fullPath) {
+                        selectedItem = .item(.history)
+                    }
+                }
                 NotificationCenter.default.post(
                     name: .repositoryRemoteRefsDidRefresh,
                     object: nil,

@@ -621,7 +621,6 @@ struct SidebarView: View {
                     confirmDeleteBranch: confirmDeleteBranch,
                     validateMergedBranchDeletion: validateMergedBranchDeletion,
                     onPrefixDeleteCompleted: refreshAfterBranchDeletion,
-                    deleteRemoteBranch: deleteRemoteBranch,
                     onRunRepositoryOperation: onRunRepositoryOperation,
                     onRunBackgroundRemoteBranchDeletion: onRunBackgroundRemoteBranchDeletion
                 )

@@ -364,8 +364,13 @@ struct MainWindowView: View {
                 Button(pendingConfirmedUndo?.action == .redo ? "Redo" : "Undo", role: .destructive) {
                     guard let pending = pendingConfirmedUndo else { return }
                     pendingConfirmedUndo = nil
-                    runRepositoryOperation(pending.action == .redo ? "Redoing Git action..." : "Undoing Git action...") {
-                        await executeUndoEntry(pending.entry, menuAction: pending.action)
+                    let operation = pending.action == .redo ? pending.entry.redoOperation : pending.entry.undoOperation
+                    if GitUndoExecutor.canRunInBackground(operation) {
+                        runUndoEntry(pending.entry, menuAction: pending.action)
+                    } else {
+                        runRepositoryOperation(pending.action == .redo ? "Redoing Git action..." : "Undoing Git action...") {
+                            await executeUndoEntry(pending.entry, menuAction: pending.action)
+                        }
                     }
                 }
                 Button("Cancel", role: .cancel) {}

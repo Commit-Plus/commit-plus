@@ -236,6 +236,28 @@ extension GitStatusService {
         return output
     }
 
+    /// Pushes a raw refspec (for example `<hash>:refs/heads/<branch>`) with provider credentials.
+    func pushRefSpec(
+        remote: String,
+        refSpec: String,
+        in repositoryURL: URL,
+        credentialResolver: GitProviderCredentialResolver? = nil,
+        credentialInjector: GitCredentialInjecting = TemporaryGitCredentialInjector(),
+        sshCredentialInjector: GitSSHCredentialInjecting = TemporaryGitSSHCredentialInjector()
+    ) async throws -> String {
+        let injection = try await credentialInjection(
+            for: remote,
+            in: repositoryURL,
+            credentialResolver: credentialResolver,
+            credentialInjector: credentialInjector,
+            sshCredentialInjector: sshCredentialInjector
+        )
+        defer { injection?.cleanup() }
+        let output = try await runRemoteGit(arguments: ["push", remote, refSpec], in: repositoryURL, injection: injection)
+        await branchListCache.invalidateRemote(repositoryURL: repositoryURL, remote: remote)
+        return output
+    }
+
     /// Current hash of `refs/heads/<branch>` on the remote, or nil when it does not exist.
     func remoteBranchHash(
         remote: String,
