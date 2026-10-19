@@ -83,4 +83,26 @@ final class BranchSheetInitialStateTests: XCTestCase {
         XCTAssertEqual(options.first?.hash, "feature")
         XCTAssertEqual(options.first?.message, "Branch")
     }
+
+    func testMatchingRemoteTargetsAreAvailableForFilteredLocalBranches() {
+        let targets = BranchSheetView.matchingRemoteTargets(for: [
+            BranchDeleteItem(
+                name: "feature/one",
+                type: .local,
+                remoteTarget: RemoteBranchDeleteTarget(remote: "origin", branch: "feature/one"),
+                isSelected: true
+            ),
+            BranchDeleteItem(
+                name: "feature/two",
+                type: .local,
+                remoteTarget: RemoteBranchDeleteTarget(remote: "fork", branch: "review/two"),
+                isSelected: true
+            )
+        ])
+
+        XCTAssertEqual(targets, [
+            RemoteBranchDeleteTarget(remote: "fork", branch: "review/two"),
+            RemoteBranchDeleteTarget(remote: "origin", branch: "feature/one")
+        ])
+    }
 }

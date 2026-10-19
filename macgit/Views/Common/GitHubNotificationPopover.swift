@@ -4,8 +4,11 @@ import SwiftUI
 struct GitHubNotificationPopover: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var controller: GitHubNotificationController
+    @ObservedObject var appNotificationController: AppNotificationController
     let onConnect: () -> Void
+    let onAppNotification: (AppNotification) -> Void
     let onReleaseNotes: (ReleaseNotesPresentation) -> Void
+    @AppStorage("notifications.selectedSource") private var notificationSource: NotificationSource = .github
     @State private var visibleLimit = 20
     @State private var isLoadingReleaseNotes = false
     @State private var releaseNotesUnavailable = false
@@ -16,15 +19,46 @@ struct GitHubNotificationPopover: View {
                 Image(systemName: "bell.fill").foregroundStyle(.secondary)
                 Text("Notifications").font(.system(size: 15, weight: .semibold))
                 Spacer()
-                if controller.isRefreshing { ProgressView().controlSize(.mini) }
-                GitHubNotificationRefreshButton(controller: controller)
-                    .buttonStyle(.borderless).controlSize(.small)
+                Picker("Notification source", selection: $notificationSource) {
+                    ForEach(NotificationSource.allCases) { source in
+                        Text(source.title).tag(source)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .controlSize(.small)
+                .fixedSize()
+                .help("Choose which notifications to view")
+                if notificationSource == .github {
+                    if controller.isRefreshing { ProgressView().controlSize(.mini) }
+                    GitHubNotificationRefreshButton(controller: controller)
+                        .buttonStyle(.borderless).controlSize(.small)
+                }
             }
             .frame(height: 24)
             .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 12)
-            changelogSection
             Divider()
-            if controller.accounts.isEmpty {
+            if notificationSource == .app {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        changelogSection
+                        if !appNotificationController.notifications.isEmpty {
+                            Divider().padding(.horizontal, 18)
+                            ForEach(appNotificationController.notifications) { notification in
+                                AppNotificationRow(
+                                    notification: notification,
+                                    onOpen: {
+                                        dismiss()
+                                        onAppNotification(notification)
+                                    }
+                                )
+                                Divider().padding(.leading, 56).padding(.trailing, 18)
+                            }
+                        }
+                    }
+                }
+                .frame(minHeight: 0, maxHeight: .infinity)
+            } else if controller.accounts.isEmpty {
                 ContentUnavailableView {
                     Label("Connect GitHub", systemImage: "bell")
                 } description: {
@@ -89,7 +123,10 @@ struct GitHubNotificationPopover: View {
                         ForEach(Array(rows.prefix(visibleLimit))) { row in
                             GitHubNotificationRow(notification: row.notification, account: row.account,
                                 showAccount: controller.selectedAccountKey == "all",
-                                onOpen: { controller.open(row.notification, account: row.account) },
+                                onOpen: {
+                                    dismiss()
+                                    controller.open(row.notification, account: row.account)
+                                },
                                 onRead: { controller.update(row.notification, account: row.account, done: false) })
                             Divider().padding(.leading, 50).padding(.trailing, 12)
                         }
@@ -131,7 +168,13 @@ struct GitHubNotificationPopover: View {
         } message: {
             Text("Could not load the release notes for this version. Please try again later.")
         }
-        .task { controller.opened() }
+        .task {
+            controller.opened()
+            await appNotificationController.load()
+        }
+        .onChange(of: notificationSource) { _, source in
+            if source == .github { controller.opened() }
+        }
         .onChange(of: controller.selectedAccountKey) { _, _ in
             visibleLimit = 20
             controller.opened()
@@ -182,7 +225,7 @@ struct GitHubNotificationPopover: View {
             .pointingHandCursor()
             .help("View release notes for this version of Commit+")
         }
-        .padding(.horizontal, 18).padding(.bottom, 12)
+        .padding(18)
     }
 
     private var rows: [GitHubNotificationDisplayRow] {

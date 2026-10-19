@@ -164,8 +164,11 @@ struct BranchSheetView: View {
     }
 
     private var matchingRemoteTargets: [RemoteBranchDeleteTarget] {
-        guard localBranchFilter == nil else { return [] }
-        return Array(Set(selectedBranches.compactMap { item in
+        Self.matchingRemoteTargets(for: selectedBranches)
+    }
+
+    static func matchingRemoteTargets(for branches: [BranchDeleteItem]) -> [RemoteBranchDeleteTarget] {
+        Array(Set(branches.compactMap { item in
             item.type == .local ? item.remoteTarget : nil
         })).sorted { $0.fullPath < $1.fullPath }
     }
@@ -219,15 +222,16 @@ struct BranchSheetView: View {
                             Toggle("Force delete", isOn: $forceDelete)
                                 .help("Delete branches regardless of merge status")
 
-                            if !matchingRemoteTargets.isEmpty {
-                                Toggle(
-                                    matchingRemoteTargets.count == 1
-                                        ? "Also delete \(matchingRemoteTargets[0].fullPath)"
-                                        : "Also delete matching remote branches",
-                                    isOn: $deleteMatchingRemoteBranches
-                                )
-                                .help("Delete tracked or matching branches from their remotes")
-                            }
+                            Toggle(
+                                "Also delete matching remote branches",
+                                isOn: $deleteMatchingRemoteBranches
+                            )
+                            .disabled(matchingRemoteTargets.isEmpty)
+                            .help(
+                                matchingRemoteTargets.isEmpty
+                                    ? "No tracked or matching remote branches are available"
+                                    : "Delete tracked or matching branches from their remotes"
+                            )
                         }
                         .toggleStyle(.checkbox)
                         .font(.system(size: 12))
@@ -281,6 +285,11 @@ struct BranchSheetView: View {
                 Task { await loadCreateData() }
             } else {
                 Task { await loadDeleteData() }
+            }
+        }
+        .onChange(of: matchingRemoteTargets.isEmpty) { _, isEmpty in
+            if isEmpty {
+                deleteMatchingRemoteBranches = false
             }
         }
     }

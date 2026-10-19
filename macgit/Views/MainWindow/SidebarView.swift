@@ -30,6 +30,7 @@ struct SidebarView: View {
     @EnvironmentObject var accountController: AccountSessionController
     @EnvironmentObject var featureAccessController: FeatureAccessController
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var appNotificationController: AppNotificationController
     @ObservedObject var branchMergeDetectionController: BranchMergeDetectionController
     @State var mergeEvidenceAssessment: BranchMergeAssessment?
     var showMergedBranchHints = true
@@ -718,6 +719,17 @@ struct SidebarView: View {
             loadSectionStates()
             resetLazySectionData()
             await loadAllSections(force: false)
+        }
+        .onChange(of: branchMergeDetectionController.loadingBranches) { _, loadingBranches in
+            guard loadingBranches.isEmpty else { return }
+            recordDailyBranchCleanupCheckIfReady()
+            presentPendingBranchCleanupIfReady()
+        }
+        .onChange(of: appNotificationController.pendingBranchCleanup?.id, initial: true) { _, _ in
+            presentPendingBranchCleanupIfReady()
+        }
+        .onChange(of: currentBranch) { _, _ in
+            presentPendingBranchCleanupIfReady()
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange)) { notification in
             if let url = notification.userInfo?["repositoryURL"] as? URL, url == repositoryURL {

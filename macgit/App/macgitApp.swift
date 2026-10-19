@@ -26,6 +26,7 @@ struct macgitApp: App {
     @StateObject private var appUpdateController = AppUpdateController(updater: SparkleAppUpdater())
     @StateObject private var accountController: AccountSessionController
     @StateObject private var notificationController: GitHubNotificationController
+    @StateObject private var appNotificationController: AppNotificationController
     @StateObject private var providerAccountController: GitProviderAccountController
     @StateObject private var aiProviderController: AIProviderController
     @StateObject private var featureAccessController: FeatureAccessController
@@ -105,6 +106,7 @@ struct macgitApp: App {
         _providerAccountController = StateObject(wrappedValue: providerAccountController)
         let notificationController = GitHubNotificationController(tokenVault: providerTokenVault)
         _notificationController = StateObject(wrappedValue: notificationController)
+        _appNotificationController = StateObject(wrappedValue: AppNotificationController())
         if !FirebaseBootstrap.isRunningUnitTests { notificationController.start(provider: providerAccountController) }
         let managedUsage = CommitPlusAIUsageController()
         managedUsage.setSession(uid: accountController.account?.uid)
@@ -246,6 +248,7 @@ struct macgitApp: App {
                 repositoryWindowLifecycleController: repositoryWindowLifecycleController
             )
                 .environmentObject(notificationController)
+                .environmentObject(appNotificationController)
                 .environmentObject(appState)
                 .environmentObject(appUpdateController)
                 .environmentObject(featureAccessController)
@@ -261,6 +264,7 @@ struct macgitApp: App {
                         openWindow(id: "main", value: request)
                     }
                     appUpdateController.start()
+                    await appNotificationController.load()
                 }
                 .task(id: accountController.account?.uid) {
                     cloudLifecycleController.start()
@@ -300,26 +304,41 @@ struct macgitApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            GitHubNotificationPopover(controller: notificationController, onConnect: {
-                NSApp.activate()
-                selectedAppSettingsSection = .connections
-                openWindow(id: "settings")
-            }, onReleaseNotes: { presentation in
-                NotificationCenter.default.post(
-                    name: .showReleaseNotes,
-                    object: NSApp.mainWindow,
-                    userInfo: ["presentation": presentation]
-                )
-            })
+            GitHubNotificationPopover(
+                controller: notificationController,
+                appNotificationController: appNotificationController,
+                onConnect: {
+                    NSApp.activate()
+                    selectedAppSettingsSection = .connections
+                    openWindow(id: "settings")
+                },
+                onAppNotification: { notification in
+                    appNotificationController.activate(notification)
+                    let repositoryURL = notification.repositoryURL.resolvingSymlinksInPath().standardizedFileURL
+                    if !RepositoryWindowContext.focusRepository(at: repositoryURL) {
+                        openWindow(id: "main", value: RepositoryWindowRequest.repository(
+                            repositoryURL,
+                            shouldFitVisibleScreen: true
+                        ))
+                    }
+                },
+                onReleaseNotes: { presentation in
+                    NotificationCenter.default.post(
+                        name: .showReleaseNotes,
+                        object: NSApp.mainWindow,
+                        userInfo: ["presentation": presentation]
+                    )
+                }
+            )
         } label: {
             HStack(spacing: 3) {
                 Image(nsImage: Self.notificationMenuBarIcon)
-                if notificationController.unreadCount > 0 {
+                if notificationController.unreadCount + appNotificationController.unreadCount > 0 {
                     Text("•")
                 }
             }
-            .accessibilityLabel("GitHub Notifications")
-            .help("GitHub notifications · \(notificationController.unreadCount) unread")
+            .accessibilityLabel("Notifications")
+            .help("Notifications · \(notificationController.unreadCount + appNotificationController.unreadCount) unread")
         }
         .menuBarExtraStyle(.window)
 

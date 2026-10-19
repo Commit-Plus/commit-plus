@@ -139,6 +139,41 @@ extension SidebarView {
         deleteConfirmationTarget = .merged(branches)
     }
 
+    func recordDailyBranchCleanupCheckIfReady() {
+        guard hasLoadedBranches,
+              branchMergeDetectionController.loadingBranches.isEmpty,
+              featureAccessController.decision(
+                for: .branchMergeDetection,
+                entitlement: accountController.entitlement
+              ).isAllowed else { return }
+        let branches = branchMergeDetectionController.assessments.values
+            .filter {
+                $0.isFullyMerged && $0.branch != currentBranch
+                    && branchMergeDetectionController.isCleanupCandidate(
+                        $0.branch,
+                        configuration: gitFlowConfiguration
+                    )
+            }
+            .map(\.branch)
+        Task {
+            await appNotificationController.recordDailyBranchCleanupCheck(
+                repositoryURL: repositoryURL,
+                branchNames: branches
+            )
+        }
+    }
+
+    func presentPendingBranchCleanupIfReady() {
+        guard let notification = appNotificationController.pendingBranchCleanup,
+              notification.repositoryURL.resolvingSymlinksInPath().standardizedFileURL
+                == repositoryURL.resolvingSymlinksInPath().standardizedFileURL,
+              !currentBranch.isEmpty else { return }
+        let branches = Set(notification.branchNames.filter { $0 != currentBranch })
+        appNotificationController.consumePendingBranchCleanup(id: notification.id)
+        guard !branches.isEmpty else { return }
+        deleteConfirmationTarget = .merged(branches)
+    }
+
     @MainActor
     func validateMergedBranchDeletion(_ branch: String) async throws -> String {
         guard let assessment = await branchMergeDetectionController.revalidateFullyMerged(

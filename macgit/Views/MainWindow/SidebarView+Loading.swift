@@ -274,6 +274,10 @@ extension SidebarView {
             configuration: gitFlowConfiguration,
             force: force
         )
+        if branchMergeDetectionController.loadingBranches.isEmpty {
+            recordDailyBranchCleanupCheckIfReady()
+            presentPendingBranchCleanupIfReady()
+        }
     }
 
     func startBranchSync(for branches: [String], loadID: UUID, showsProgress: Bool = true) {
