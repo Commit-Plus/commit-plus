@@ -1693,7 +1693,8 @@ struct MainWindowView: View {
                     operationProgress: operationProgress,
                     repositoryName: repositoryURL.lastPathComponent,
                     providerIconName: repoIconName,
-                    textScale: appState.textSize.scale
+                    textScale: appState.textSize.scale,
+                    isAutomaticFetching: syncState.isAutomaticFetching
                 ) { item in
                     backgroundErrorDetail = item
                 }

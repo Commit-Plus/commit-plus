@@ -38,7 +38,8 @@ private actor SyncRefreshCoordinator {
     private var lastLocalRefreshDate: Date?
     private var queuedForcedRefreshes: [URL] = []
     private var automaticFetchInFlight = false
-    private var lastAutomaticFetchDate = Date.distantPast
+    private var nextAutomaticFetchDate = Date.distantPast
+    private var consecutiveAutomaticFetchFailures = 0
 
     func beginLocalRefresh(
         force: Bool,
@@ -69,14 +70,9 @@ private actor SyncRefreshCoordinator {
         return queuedForcedRefreshes
     }
 
-    func beginAutomaticFetch(
-        force: Bool,
-        minimumInterval: TimeInterval,
-        now: Date
-    ) -> Bool {
+    func beginAutomaticFetch(force: Bool, now: Date) -> Bool {
         guard !automaticFetchInFlight else { return false }
-        if !force,
-           now.timeIntervalSince(lastAutomaticFetchDate) < minimumInterval {
+        if !force, now < nextAutomaticFetchDate {
             return false
         }
 
@@ -84,10 +80,22 @@ private actor SyncRefreshCoordinator {
         return true
     }
 
-    func finishAutomaticFetch(succeeded: Bool, at date: Date) {
+    /// Failures back off exponentially (interval, 2x, 4x, ...) up to `maximumBackoff`,
+    /// so an unreachable remote or expired credential is not retried on every poll.
+    func finishAutomaticFetch(
+        succeeded: Bool,
+        at date: Date,
+        minimumInterval: TimeInterval,
+        maximumBackoff: TimeInterval
+    ) {
         automaticFetchInFlight = false
         if succeeded {
-            lastAutomaticFetchDate = date
+            consecutiveAutomaticFetchFailures = 0
+            nextAutomaticFetchDate = date.addingTimeInterval(minimumInterval)
+        } else {
+            consecutiveAutomaticFetchFailures += 1
+            let multiplier = pow(2, Double(min(consecutiveAutomaticFetchFailures - 1, 10)))
+            nextAutomaticFetchDate = date.addingTimeInterval(min(minimumInterval * multiplier, maximumBackoff))
         }
     }
 }
@@ -113,6 +121,8 @@ class SyncState: ObservableObject {
     @Published var isUpdatingCurrentBranch: Bool = false
     @Published var activeSyncBranch: String? = nil
     @Published var inProgressOperation: GitInProgressOperation? = nil
+    /// True while an automatic (non-user-initiated) fetch runs, for the header activity indicator.
+    @Published private(set) var isAutomaticFetching: Bool = false
 
     var isAnySyncing: Bool {
         isCommitting || isPushing || isPulling || isFetching || isMerging || isStashing || isUpdatingCurrentBranch
@@ -128,7 +138,8 @@ class SyncState: ObservableObject {
     private static let backgroundRefreshInterval: Duration = .seconds(10)
     private static let backgroundPollingInterval: Duration = .seconds(5)
     private static let localRefreshCoalescingInterval: TimeInterval = 2
-    private static let autoFetchInterval: TimeInterval = 15
+    private static let autoFetchInterval: TimeInterval = 20
+    private static let autoFetchMaximumBackoff: TimeInterval = 300
 
     init() {
         networkMonitor.start(queue: networkMonitorQueue)
@@ -293,13 +304,11 @@ class SyncState: ObservableObject {
         credentialResolver: GitProviderCredentialResolver? = nil,
         force: Bool
     ) async -> Bool {
-        guard await refreshCoordinator.beginAutomaticFetch(
-            force: force,
-            minimumInterval: Self.autoFetchInterval,
-            now: .now
-        ) else {
+        guard await refreshCoordinator.beginAutomaticFetch(force: force, now: .now) else {
             return false
         }
+        await MainActor.run { isAutomaticFetching = true }
+        defer { Task { @MainActor in isAutomaticFetching = false } }
 
         do {
             try await GitStatusService.shared.fetch(
@@ -307,18 +316,27 @@ class SyncState: ObservableObject {
                 in: repositoryURL,
                 credentialResolver: credentialResolver
             )
-            await refreshCoordinator.finishAutomaticFetch(succeeded: true, at: .now)
+            await finishAutomaticFetch(succeeded: true)
             return true
         } catch let error as GitFetchError where !error.succeededRemotes.isEmpty {
             // Automatic fetch is non-interrupting. Keep successful remote updates
             // and leave reconnect guidance for the account and manual-fetch UI.
-            await refreshCoordinator.finishAutomaticFetch(succeeded: true, at: .now)
+            await finishAutomaticFetch(succeeded: true)
             return true
         } catch {
             // Automatic fetch remains best effort. Manual actions surface errors.
-            await refreshCoordinator.finishAutomaticFetch(succeeded: false, at: .now)
+            await finishAutomaticFetch(succeeded: false)
             return false
         }
+    }
+
+    private func finishAutomaticFetch(succeeded: Bool) async {
+        await refreshCoordinator.finishAutomaticFetch(
+            succeeded: succeeded,
+            at: .now,
+            minimumInterval: Self.autoFetchInterval,
+            maximumBackoff: Self.autoFetchMaximumBackoff
+        )
     }
 
     func stopBackgroundSync() {

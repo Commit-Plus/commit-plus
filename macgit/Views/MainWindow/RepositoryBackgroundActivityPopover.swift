@@ -3,6 +3,7 @@ import SwiftUI
 
 struct RepositoryBackgroundActivityPopover: View {
     @ObservedObject var operationProgress: RepositoryOperationProgress
+    let isAutomaticFetching: Bool
     let onViewDetail: (RepositoryBackgroundActivityItem) -> Void
 
     var body: some View {
@@ -15,13 +16,21 @@ struct RepositoryBackgroundActivityPopover: View {
             .frame(height: 24)
             .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 12)
             Divider()
+            if isAutomaticFetching {
+                RepositoryAutomaticFetchRow()
+                if !operationProgress.backgroundItems.isEmpty {
+                    Divider().padding(.leading, 46).padding(.trailing, 18)
+                }
+            }
             if operationProgress.backgroundItems.isEmpty {
-                ContentUnavailableView(
-                    "No Background Activity",
-                    systemImage: "checkmark.circle",
-                    description: Text("No background Git actions are running.")
-                )
-                .frame(maxWidth: .infinity, minHeight: 140)
+                if !isAutomaticFetching {
+                    ContentUnavailableView(
+                        "No Background Activity",
+                        systemImage: "checkmark.circle",
+                        description: Text("No background Git actions are running.")
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 140)
+                }
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -42,6 +51,26 @@ struct RepositoryBackgroundActivityPopover: View {
             }
         }
         .frame(width: 360)
+    }
+}
+
+/// Transient row for an automatic fetch; it disappears when the fetch ends and never reports errors.
+private struct RepositoryAutomaticFetchRow: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ProgressView().controlSize(.small)
+                .frame(width: 16, height: 16)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Fetching from remotes")
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
+                Text("Checking for remote changes…").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
     }
 }
 
