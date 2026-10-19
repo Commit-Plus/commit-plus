@@ -6,6 +6,8 @@ typealias RemoteBranchDeletionRunner = ([GitPendingRemoteBranchDeletion]) -> Voi
 extension MainWindowView {
     /// Remote phase of batch branch deletion. Runs in this window's background lane and
     /// registers undo for locally deleted branches once their remote deletion finishes.
+    /// If the remote phase never runs (credential prompt cancelled, window closed), the
+    /// locally deleted branches still get local-only undo entries.
     func runBackgroundRemoteBranchDeletion(_ pending: [GitPendingRemoteBranchDeletion]) {
         guard !pending.isEmpty else { return }
         var remotes: [String] = []
@@ -14,7 +16,23 @@ extension MainWindowView {
         }
         runBackgroundRemoteOperation(
             GitStatusService.remoteBranchDeletionTitle(pending),
-            remotes: remotes
+            remotes: remotes,
+            onNotQueued: {
+                for item in pending {
+                    guard let local = item.localBranch else { continue }
+                    undoManager.register(
+                        GitBranchUndoSupport.deletedBranchUndoEntry(
+                            repositoryURL: repositoryURL,
+                            branch: local.name,
+                            force: local.force,
+                            tip: local.tip,
+                            upstream: local.upstream,
+                            remoteTarget: nil,
+                            remoteHash: nil
+                        )
+                    )
+                }
+            }
         ) { credentialResolver in
             let results = await GitStatusService.shared.deleteRemoteBranches(
                 pending,

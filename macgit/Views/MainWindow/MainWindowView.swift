@@ -248,6 +248,9 @@ struct MainWindowView: View {
             openURL: NSWorkspace.shared.open
         )
         let syncState = SyncState()
+        syncState.shouldDeferAutomaticFetch = { [weak operationProgress] in
+            operationProgress?.hasPendingBackgroundWork ?? false
+        }
         let undoManager = GitUndoManager()
         let mutationContextProvider = RepositoryAIMutationContextProvider()
         let remoteOperationContextProvider = RepositoryAIRemoteOperationContextProvider()

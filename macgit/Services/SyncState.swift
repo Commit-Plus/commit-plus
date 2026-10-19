@@ -123,6 +123,8 @@ class SyncState: ObservableObject {
     @Published var inProgressOperation: GitInProgressOperation? = nil
     /// True while an automatic (non-user-initiated) fetch runs, for the header activity indicator.
     @Published private(set) var isAutomaticFetching: Bool = false
+    /// Returns true while the owning window has queued or running background remote work.
+    var shouldDeferAutomaticFetch: @MainActor () -> Bool = { false }
 
     var isAnySyncing: Bool {
         isCommitting || isPushing || isPulling || isFetching || isMerging || isStashing || isUpdatingCurrentBranch
@@ -304,6 +306,11 @@ class SyncState: ObservableObject {
         credentialResolver: GitProviderCredentialResolver? = nil,
         force: Bool
     ) async -> Bool {
+        // Queued background fetches/pushes would race this fetch for remote-tracking ref locks.
+        // A deferred fetch is skipped without touching the backoff.
+        if await MainActor.run(body: { shouldDeferAutomaticFetch() }) {
+            return false
+        }
         guard await refreshCoordinator.beginAutomaticFetch(force: force, now: .now) else {
             return false
         }

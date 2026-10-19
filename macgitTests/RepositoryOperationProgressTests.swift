@@ -237,6 +237,27 @@ final class RepositoryOperationProgressTests: XCTestCase {
         XCTAssertEqual(progress.backgroundIndicator, .idle)
     }
 
+    func testRunInBackgroundDropsOperationFromStaleGeneration() async {
+        let progress = RepositoryOperationProgress()
+        let staleGeneration = progress.backgroundGeneration
+        progress.cancelAllBackground()
+
+        let dropped = progress.runInBackground(ifGeneration: staleGeneration, title: "Pushing") {
+            XCTFail("Operation queued before cancel-all must not run")
+            return .succeeded
+        }
+        XCTAssertNil(dropped)
+        XCTAssertTrue(progress.backgroundItems.isEmpty)
+
+        let ran = expectation(description: "current generation runs")
+        let queued = progress.runInBackground(ifGeneration: progress.backgroundGeneration, title: "Pushing") {
+            ran.fulfill()
+            return .succeeded
+        }
+        XCTAssertNotNil(queued)
+        await fulfillment(of: [ran], timeout: 1)
+    }
+
     func testBackgroundErrorSummaryUsesFirstLineAndTruncates() {
         XCTAssertEqual(RepositoryOperationProgress.backgroundErrorSummary("\n\n  fatal: bad\nmore"), "fatal: bad")
         XCTAssertEqual(RepositoryOperationProgress.backgroundErrorSummary("   \n"), "Unknown error")

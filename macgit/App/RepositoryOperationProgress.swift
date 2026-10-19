@@ -195,6 +195,11 @@ final class RepositoryOperationProgress: ObservableObject {
         backgroundItems.contains(where: \.isPending)
     }
 
+    /// Advances when `cancelAllBackground()` runs, e.g. when the window closes.
+    var backgroundGeneration: Int {
+        backgroundDrainGeneration
+    }
+
     @discardableResult
     func runInBackground(
         title: String,
@@ -205,6 +210,18 @@ final class RepositoryOperationProgress: ObservableObject {
         backgroundOperations[id] = operation
         startBackgroundDrainIfNeeded()
         return id
+    }
+
+    /// Queues the operation only if the background lane was not cancelled since `generation`
+    /// was captured. Returns nil when the operation was dropped.
+    @discardableResult
+    func runInBackground(
+        ifGeneration generation: Int,
+        title: String,
+        operation: @escaping () async -> RepositoryBackgroundActivityOutcome
+    ) -> UUID? {
+        guard generation == backgroundDrainGeneration else { return nil }
+        return runInBackground(title: title, operation: operation)
     }
 
     func dismissBackgroundItem(id: UUID) {

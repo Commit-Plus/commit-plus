@@ -288,7 +288,7 @@ struct SidebarView: View {
         onRunRepositoryOperation: @escaping RepositoryOperationRunner = { _, operation in
             Task { await operation() }
         },
-        onRunBackgroundRemoteBranchDeletion: @escaping RemoteBranchDeletionRunner = { _ in }
+        onRunBackgroundRemoteBranchDeletion: @escaping RemoteBranchDeletionRunner
     ) {
         self.repositoryURL = repositoryURL
         self._selection = selection
@@ -839,7 +839,8 @@ struct SidebarView: View {
         onRequestRebaseOnto: { _ in },
         onRequestMergeBranchIntoCurrent: { _ in },
         onRequestOpenWorktree: { _ in },
-        onRequestOpenWorktreeInTerminal: { _ in }
+        onRequestOpenWorktreeInTerminal: { _ in },
+        onRunBackgroundRemoteBranchDeletion: { _ in }
     )
     .environmentObject(AppState.shared)
 }
