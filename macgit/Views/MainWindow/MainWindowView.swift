@@ -123,6 +123,8 @@ struct MainWindowView: View {
     let initialShowsHistory: Bool?
     @State var selectedItem: SidebarSelection? = .item(.fileStatus)
     @State private var windowWidth: CGFloat = 0
+    @State private var appActivationSyncTask: Task<Void, Never>?
+    private static let appActivationSyncDebounce: Duration = .milliseconds(1500)
     @State var showingCommitSheet = false
     @State var showingPullSheet = false
     @State var showingPushSheet = false
@@ -608,32 +610,36 @@ struct MainWindowView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 Task { await reconcileCommitRulePreference() }
-                guard repoSettings.resolvedRefreshOnAppActive(
-                    globalValue: appState.refreshOnAppActive
-                ) else { return }
-                Task {
-                    await syncState.refresh(repositoryURL: repositoryURL, force: true)
-                    NotificationCenter.default.post(
-                        name: .repositoryLocalStateDidRefresh,
-                        object: nil,
-                        userInfo: ["repositoryURL": repositoryURL]
-                    )
-                    var didFetchRemoteRefs = false
-                    if let credentialResolver = await credentialResolverForFetch(
-                        options: GitStatusService.FetchOptions()
+                // Debounced so rapid app switching does not refresh and fetch on every activation.
+                appActivationSyncTask?.cancel()
+                appActivationSyncTask = Task {
+                    do {
+                        try await Task.sleep(for: Self.appActivationSyncDebounce)
+                    } catch {
+                        return
+                    }
+                    if repoSettings.resolvedRefreshOnAppActive(
+                        globalValue: appState.refreshOnAppActive
                     ) {
-                        didFetchRemoteRefs = await syncState.performAutomaticFetch(
-                            options: GitStatusService.FetchOptions(),
-                            repositoryURL: repositoryURL,
-                            credentialResolver: credentialResolver,
-                            force: true
-                        )
-                    }
-                    if didFetchRemoteRefs {
                         await syncState.refresh(repositoryURL: repositoryURL, force: true)
-                    }
-                    await MainActor.run {
+                        NotificationCenter.default.post(
+                            name: .repositoryLocalStateDidRefresh,
+                            object: nil,
+                            userInfo: ["repositoryURL": repositoryURL]
+                        )
+                        var didFetchRemoteRefs = false
+                        if let credentialResolver = await credentialResolverForFetch(
+                            options: GitStatusService.FetchOptions()
+                        ) {
+                            didFetchRemoteRefs = await syncState.performAutomaticFetch(
+                                options: GitStatusService.FetchOptions(),
+                                repositoryURL: repositoryURL,
+                                credentialResolver: credentialResolver,
+                                force: true
+                            )
+                        }
                         if didFetchRemoteRefs {
+                            await syncState.refresh(repositoryURL: repositoryURL, force: true)
                             NotificationCenter.default.post(
                                 name: .repositoryRemoteRefsDidRefresh,
                                 object: nil,
@@ -641,7 +647,13 @@ struct MainWindowView: View {
                             )
                         }
                     }
+                    startBackgroundSyncIfAppActive(defersInitialWork: true)
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+                appActivationSyncTask?.cancel()
+                appActivationSyncTask = nil
+                syncState.stopBackgroundSync()
             }
             .onReceive(NotificationCenter.default.publisher(for: .showSearchModal)) { notification in
                 guard windowContext.owns(notification) else { return }
@@ -784,11 +796,7 @@ struct MainWindowView: View {
             }
         }
         .onChange(of: appState.autoFetchEnabled) { _, globalAutoFetchEnabled in
-            syncState.startBackgroundSync(
-                repositoryURL: repositoryURL,
-                settings: repoSettings,
-                globalAutoFetchEnabled: globalAutoFetchEnabled
-            )
+            startBackgroundSyncIfAppActive(globalAutoFetchEnabled: globalAutoFetchEnabled)
         }
         .onChange(of: selectedItem) { _, newItem in
             if newItem != .item(.gitLFS) { lfsTrackingPath = nil }
@@ -862,6 +870,8 @@ struct MainWindowView: View {
             OpenRepositoryRegistry.shared.register(repositoryURL)
         }
         .onDisappear {
+            appActivationSyncTask?.cancel()
+            appActivationSyncTask = nil
             repositorySettingsWindow.close()
             branchComparisonWindow.close()
             createPullRequestWindow.close()
@@ -1712,6 +1722,8 @@ struct MainWindowView: View {
                     repositoryName: repositoryURL.lastPathComponent,
                     providerIconName: repoIconName,
                     textScale: appState.textSize.scale,
+                    syncActivity: syncState.currentSyncActivity,
+                    lastFetchSucceeded: syncState.lastFetchSucceeded,
                     isAutomaticFetching: syncState.isAutomaticFetching
                 ) { item in
                     backgroundErrorDetail = item
@@ -1961,11 +1973,7 @@ struct MainWindowView: View {
         await MainActor.run {
             didPerformInitialLoad = true
         }
-        syncState.startBackgroundSync(
-            repositoryURL: repositoryURL,
-            settings: loadedSettings,
-            globalAutoFetchEnabled: appState.autoFetchEnabled
-        )
+        startBackgroundSyncIfAppActive(settings: loadedSettings)
 
         await MainActor.run {
             if initialShowsHistory == nil,
@@ -1979,6 +1987,25 @@ struct MainWindowView: View {
 
     private var gitFlowConfigurationSyncTaskID: String {
         "\(didPerformInitialLoad)|\(accountController.account?.uid ?? "signed-out")"
+    }
+
+    /// The only entry point for starting background polling. Polling pauses while the app is
+    /// inactive and waits for the initial load so it never runs with placeholder settings.
+    func startBackgroundSyncIfAppActive(
+        settings: RepoSettings? = nil,
+        globalAutoFetchEnabled: Bool? = nil,
+        defersInitialWork: Bool = false
+    ) {
+        guard didPerformInitialLoad, NSApp.isActive else {
+            syncState.stopBackgroundSync()
+            return
+        }
+        syncState.startBackgroundSync(
+            repositoryURL: repositoryURL,
+            settings: settings ?? repoSettings,
+            globalAutoFetchEnabled: globalAutoFetchEnabled ?? appState.autoFetchEnabled,
+            defersInitialWork: defersInitialWork
+        )
     }
 
     private func reconcileGitFlowConfigurationWithCloud() async {

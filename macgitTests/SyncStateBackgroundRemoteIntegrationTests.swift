@@ -26,6 +26,33 @@ final class SyncStateBackgroundRemoteIntegrationTests: XCTestCase {
         XCTAssertEqual(try gitOutput(["rev-parse", "origin/main"], in: fixture.cloneURL), expectedTip)
         XCTAssertFalse(recorder.sawSyncing)
         XCTAssertFalse(syncState.showingError)
+
+        let immediatelyRepeatedAutomaticFetch = await syncState.performAutomaticFetch(
+            options: GitStatusService.FetchOptions(),
+            repositoryURL: fixture.cloneURL,
+            force: false
+        )
+        XCTAssertFalse(immediatelyRepeatedAutomaticFetch)
+    }
+
+    func testNarrowUserFetchDoesNotDelayAutomaticFetchOfAllRemotes() async throws {
+        let fixture = try makeFixture()
+        let syncState = SyncState()
+        var narrowOptions = GitStatusService.FetchOptions()
+        narrowOptions.fetchAllRemotes = false
+
+        let outcome = await syncState.performBackgroundFetch(
+            options: narrowOptions,
+            repositoryURL: fixture.cloneURL
+        )
+        XCTAssertEqual(outcome, .succeeded)
+
+        let automaticFetch = await syncState.performAutomaticFetch(
+            options: GitStatusService.FetchOptions(),
+            repositoryURL: fixture.cloneURL,
+            force: false
+        )
+        XCTAssertTrue(automaticFetch)
     }
 
     func testAutomaticFetchIsDeferredWhileBackgroundWorkIsPending() async throws {

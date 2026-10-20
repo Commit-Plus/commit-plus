@@ -80,6 +80,12 @@ private actor SyncRefreshCoordinator {
         return true
     }
 
+    /// Releases a cancelled automatic fetch without touching the schedule or backoff,
+    /// so pausing sync (app deactivation, window close) is not counted as a remote failure.
+    func abandonAutomaticFetch() {
+        automaticFetchInFlight = false
+    }
+
     /// Failures back off exponentially (interval, 2x, 4x, ...) up to `maximumBackoff`,
     /// so an unreachable remote or expired credential is not retried on every poll.
     func finishAutomaticFetch(
@@ -89,6 +95,20 @@ private actor SyncRefreshCoordinator {
         maximumBackoff: TimeInterval
     ) {
         automaticFetchInFlight = false
+        recordFetchCompletion(
+            succeeded: succeeded,
+            at: date,
+            minimumInterval: minimumInterval,
+            maximumBackoff: maximumBackoff
+        )
+    }
+
+    func recordFetchCompletion(
+        succeeded: Bool,
+        at date: Date,
+        minimumInterval: TimeInterval,
+        maximumBackoff: TimeInterval
+    ) {
         if succeeded {
             consecutiveAutomaticFetchFailures = 0
             nextAutomaticFetchDate = date.addingTimeInterval(minimumInterval)
@@ -96,6 +116,29 @@ private actor SyncRefreshCoordinator {
             consecutiveAutomaticFetchFailures += 1
             let multiplier = pow(2, Double(min(consecutiveAutomaticFetchFailures - 1, 10)))
             nextAutomaticFetchDate = date.addingTimeInterval(min(minimumInterval * multiplier, maximumBackoff))
+        }
+    }
+}
+
+/// The sync flag currently driving the window header, in display priority order.
+enum RepositorySyncActivity: Equatable {
+    case fetching
+    case pushing
+    case pulling
+    case committing
+    case merging
+    case stashing
+    case updatingCurrentBranch
+
+    var label: String {
+        switch self {
+        case .fetching: "Fetching"
+        case .pushing: "Pushing"
+        case .pulling: "Pulling"
+        case .committing: "Committing"
+        case .merging: "Merging"
+        case .stashing: "Stashing"
+        case .updatingCurrentBranch: "Updating"
         }
     }
 }
@@ -125,6 +168,9 @@ class SyncState: ObservableObject {
     @Published var inProgressOperation: GitInProgressOperation? = nil
     /// True while an automatic (non-user-initiated) fetch runs, for the header activity indicator.
     @Published private(set) var isAutomaticFetching: Bool = false
+    /// Whether the most recent fetch (manual or automatic) updated any remote. Cancelled
+    /// fetches leave it unchanged.
+    @Published private(set) var lastFetchSucceeded: Bool?
     /// Returns true while the owning window has queued or running background remote work.
     var shouldDeferAutomaticFetch: @MainActor () -> Bool = { false }
     /// Covers the whole automatic fetch, including throttle checks, unlike `isAutomaticFetching`.
@@ -133,6 +179,17 @@ class SyncState: ObservableObject {
 
     var isAnySyncing: Bool {
         isCommitting || isPushing || isPulling || isFetching || isMerging || isStashing || isUpdatingCurrentBranch
+    }
+
+    var currentSyncActivity: RepositorySyncActivity? {
+        if isFetching { return .fetching }
+        if isPushing { return .pushing }
+        if isPulling { return .pulling }
+        if isCommitting { return .committing }
+        if isMerging { return .merging }
+        if isStashing { return .stashing }
+        if isUpdatingCurrentBranch { return .updatingCurrentBranch }
+        return nil
     }
 
     private var backgroundTask: Task<Void, Never>? = nil
@@ -272,22 +329,29 @@ class SyncState: ObservableObject {
         FileManager.default.fileExists(atPath: repositoryURL.appendingPathComponent(".git").path)
     }
 
+    /// `defersInitialWork` delays the first local refresh and automatic fetch by their regular
+    /// intervals, so resuming after app activation does not refresh or fetch immediately; the
+    /// activation handler decides that from the "Refresh on app active" setting.
     func startBackgroundSync(
         repositoryURL: URL,
         settings: RepoSettings,
-        globalAutoFetchEnabled: Bool
+        globalAutoFetchEnabled: Bool,
+        defersInitialWork: Bool = false
     ) {
         stopBackgroundSync()
         let autoFetchEnabled = settings.resolvedAutoFetchEnabled(globalValue: globalAutoFetchEnabled)
         backgroundTask = Task {
             let clock = ContinuousClock()
-            var nextLocalRefresh = clock.now
+            let start = clock.now
+            var nextLocalRefresh = defersInitialWork ? start.advanced(by: Self.backgroundRefreshInterval) : start
+            let firstAutomaticFetch = defersInitialWork ? start.advanced(by: .seconds(Self.autoFetchInterval)) : start
             while !Task.isCancelled {
                 if clock.now >= nextLocalRefresh {
                     await refresh(repositoryURL: repositoryURL, force: false)
                     nextLocalRefresh = clock.now.advanced(by: Self.backgroundRefreshInterval)
                 }
                 if autoFetchEnabled,
+                   clock.now >= firstAutomaticFetch,
                    networkMonitor.currentPath.status == .satisfied,
                    await performAutomaticFetch(
                        options: GitStatusService.FetchOptions(),
@@ -335,15 +399,22 @@ class SyncState: ObservableObject {
                 credentialResolver: credentialResolver
             )
             await finishAutomaticFetch(succeeded: true)
+            await MainActor.run { lastFetchSucceeded = true }
             return true
         } catch let error as GitFetchError where !error.succeededRemotes.isEmpty {
             // Automatic fetch is non-interrupting. Keep successful remote updates
             // and leave reconnect guidance for the account and manual-fetch UI.
             await finishAutomaticFetch(succeeded: true)
+            await MainActor.run { lastFetchSucceeded = true }
             return true
         } catch {
+            if Task.isCancelled || error is CancellationError {
+                await refreshCoordinator.abandonAutomaticFetch()
+                return false
+            }
             // Automatic fetch remains best effort. Manual actions surface errors.
             await finishAutomaticFetch(succeeded: false)
+            await MainActor.run { lastFetchSucceeded = false }
             return false
         }
     }
@@ -793,19 +864,40 @@ class SyncState: ObservableObject {
                 in: repositoryURL,
                 credentialResolver: credentialResolver
             )
+            if options.fetchAllRemotes {
+                await recordUserInitiatedFullFetch()
+            }
+            await MainActor.run { lastFetchSucceeded = true }
             await refresh(repositoryURL: repositoryURL)
             notifyUserInitiatedRemoteRefsRefresh(repositoryURL)
             notifyRepositoryChanged(repositoryURL)
             return nil
         } catch {
-            if let fetchError = error as? GitFetchError,
-               !fetchError.succeededRemotes.isEmpty {
+            let wasCancelled = Task.isCancelled || error is CancellationError
+            let fetchedSomeRemote = (error as? GitFetchError)?.succeededRemotes.isEmpty == false
+            if !wasCancelled {
+                // Matches automatic fetch: refs from any remote that fetched count as fetched.
+                // The failing remotes are still reported through the returned error.
+                await MainActor.run { lastFetchSucceeded = fetchedSomeRemote }
+            }
+            if fetchedSomeRemote {
                 await refresh(repositoryURL: repositoryURL)
                 notifyUserInitiatedRemoteRefsRefresh(repositoryURL)
                 notifyRepositoryChanged(repositoryURL)
             }
             return error
         }
+    }
+
+    /// A user fetch of every remote stands in for the next automatic fetch. Narrower,
+    /// partial, failed, or cancelled user fetches leave the automatic schedule and backoff alone.
+    private func recordUserInitiatedFullFetch() async {
+        await refreshCoordinator.recordFetchCompletion(
+            succeeded: true,
+            at: .now,
+            minimumInterval: Self.autoFetchInterval,
+            maximumBackoff: Self.autoFetchMaximumBackoff
+        )
     }
 
     func performFetchBranch(

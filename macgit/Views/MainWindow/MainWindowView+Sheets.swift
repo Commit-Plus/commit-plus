@@ -334,11 +334,7 @@ extension MainWindowView {
                             email: newSettings.userEmail,
                             in: repositoryURL
                         )
-                        syncState.startBackgroundSync(
-                            repositoryURL: repositoryURL,
-                            settings: newSettings,
-                            globalAutoFetchEnabled: appState.autoFetchEnabled
-                        )
+                        startBackgroundSyncIfAppActive(settings: newSettings)
                         await refreshRemotePresentation(for: newSettings.defaultRemoteName)
                         if commitRuleChanged { await reconcileCommitRulePreference() }
                     } catch { syncState.showError(error.localizedDescription) }
