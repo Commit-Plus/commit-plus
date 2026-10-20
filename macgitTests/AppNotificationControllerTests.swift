@@ -81,4 +81,35 @@ final class AppNotificationControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.notifications.count, 2)
     }
+
+    func testDeleteAllRemovesPersistedNotificationsWithoutResettingDailyChecks() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let controller = AppNotificationController(dataStore: fixture.store, calendar: calendar)
+        let repository = URL(fileURLWithPath: "/tmp/example", isDirectory: true)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+        await controller.recordDailyBranchCleanupCheck(
+            repositoryURL: repository,
+            branchNames: ["feature/one"],
+            now: now
+        )
+        await controller.deleteAll()
+
+        XCTAssertTrue(controller.notifications.isEmpty)
+
+        let reopenedStore = try await fixture.reopen()
+        let reopened = AppNotificationController(dataStore: reopenedStore, calendar: calendar)
+        await reopened.load()
+        XCTAssertTrue(reopened.notifications.isEmpty)
+
+        await reopened.recordDailyBranchCleanupCheck(
+            repositoryURL: repository,
+            branchNames: ["feature/two"],
+            now: now.addingTimeInterval(60)
+        )
+        XCTAssertTrue(reopened.notifications.isEmpty)
+    }
 }

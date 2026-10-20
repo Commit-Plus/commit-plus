@@ -12,6 +12,7 @@ struct GitHubNotificationPopover: View {
     @State private var visibleLimit = 20
     @State private var isLoadingReleaseNotes = false
     @State private var releaseNotesUnavailable = false
+    @State private var isConfirmingDeleteAllAppNotifications = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -58,6 +59,19 @@ struct GitHubNotificationPopover: View {
                     }
                 }
                 .frame(minHeight: 0, maxHeight: .infinity)
+                if !appNotificationController.notifications.isEmpty {
+                    Divider()
+                    HStack {
+                        Spacer()
+                        Button("Delete All", systemImage: "trash", role: .destructive) {
+                            isConfirmingDeleteAllAppNotifications = true
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Delete all app notifications")
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                }
             } else if controller.accounts.isEmpty {
                 ContentUnavailableView {
                     Label("Connect GitHub", systemImage: "bell")
@@ -167,6 +181,17 @@ struct GitHubNotificationPopover: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text("Could not load the release notes for this version. Please try again later.")
+        }
+        .confirmationDialog(
+            "Delete all app notifications?",
+            isPresented: $isConfirmingDeleteAllAppNotifications
+        ) {
+            Button("Delete All", role: .destructive) {
+                Task { await appNotificationController.deleteAll() }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This action cannot be undone.")
         }
         .task {
             controller.opened()

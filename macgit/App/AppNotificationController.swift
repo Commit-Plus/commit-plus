@@ -87,6 +87,24 @@ final class AppNotificationController: ObservableObject {
         pendingBranchCleanup = nil
     }
 
+    func deleteAll() async {
+        let ids = notifications.map(\.id)
+        guard !ids.isEmpty else { return }
+        do {
+            try await dataStore.transaction { transaction in
+                for id in ids {
+                    transaction.remove(in: Self.notificationCollection, id: id)
+                }
+            }
+            notifications.removeAll { ids.contains($0.id) }
+            if let pendingBranchCleanup, ids.contains(pendingBranchCleanup.id) {
+                self.pendingBranchCleanup = nil
+            }
+        } catch {
+            // Keep the notifications visible when persistence fails so deletion can be retried.
+        }
+    }
+
     private func markRead(_ notification: AppNotification) async {
         guard let index = notifications.firstIndex(where: { $0.id == notification.id }),
               notifications[index].readAt == nil else { return }
