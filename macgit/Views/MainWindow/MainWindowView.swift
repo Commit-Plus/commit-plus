@@ -647,13 +647,7 @@ struct MainWindowView: View {
                             )
                         }
                     }
-                    startBackgroundSyncIfAppActive(defersInitialWork: true)
                 }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-                appActivationSyncTask?.cancel()
-                appActivationSyncTask = nil
-                syncState.stopBackgroundSync()
             }
             .onReceive(NotificationCenter.default.publisher(for: .showSearchModal)) { notification in
                 guard windowContext.owns(notification) else { return }
@@ -796,7 +790,7 @@ struct MainWindowView: View {
             }
         }
         .onChange(of: appState.autoFetchEnabled) { _, globalAutoFetchEnabled in
-            startBackgroundSyncIfAppActive(globalAutoFetchEnabled: globalAutoFetchEnabled)
+            startBackgroundSyncIfLoaded(globalAutoFetchEnabled: globalAutoFetchEnabled)
         }
         .onChange(of: selectedItem) { _, newItem in
             if newItem != .item(.gitLFS) { lfsTrackingPath = nil }
@@ -1989,7 +1983,7 @@ struct MainWindowView: View {
         await MainActor.run {
             didPerformInitialLoad = true
         }
-        startBackgroundSyncIfAppActive(settings: loadedSettings)
+        startBackgroundSyncIfLoaded(settings: loadedSettings)
 
         await MainActor.run {
             if initialShowsHistory == nil,
@@ -2005,14 +1999,15 @@ struct MainWindowView: View {
         "\(didPerformInitialLoad)|\(accountController.account?.uid ?? "signed-out")"
     }
 
-    /// The only entry point for starting background polling. Polling pauses while the app is
-    /// inactive and waits for the initial load so it never runs with placeholder settings.
-    func startBackgroundSyncIfAppActive(
+    /// The only entry point for starting background polling. Polling keeps running while the app
+    /// is inactive (e.g. visible on a second display) and waits for the initial load so it never
+    /// runs with placeholder settings.
+    func startBackgroundSyncIfLoaded(
         settings: RepoSettings? = nil,
         globalAutoFetchEnabled: Bool? = nil,
         defersInitialWork: Bool = false
     ) {
-        guard didPerformInitialLoad, NSApp.isActive else {
+        guard didPerformInitialLoad else {
             syncState.stopBackgroundSync()
             return
         }

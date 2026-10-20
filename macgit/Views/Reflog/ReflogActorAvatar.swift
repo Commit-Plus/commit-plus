@@ -22,6 +22,7 @@ import CryptoKit
 struct ReflogActorAvatar: View {
     let name: String
     let email: String
+    var size: CGFloat = 36
 
     var body: some View {
         AsyncImage(url: avatarURL) { phase in
@@ -36,14 +37,14 @@ struct ReflogActorAvatar: View {
                                 .foregroundStyle(.secondary)
                         } else {
                             Text(initials)
-                                .font(.callout.weight(.semibold))
+                                .font(size < 30 ? .system(size: size * 0.42, weight: .semibold) : .callout.weight(.semibold))
                                 .foregroundStyle(.primary)
                         }
                     }
             }
         }
         .id(email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
-        .frame(width: 36, height: 36)
+        .frame(width: size, height: size)
         .clipShape(Circle())
         .accessibilityHidden(true)
     }

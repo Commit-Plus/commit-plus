@@ -5,6 +5,7 @@ import Observation
 @MainActor @Observable
 final class RepositoryDetailModel {
     private(set) var info: GitStatusService.RepositoryInfo?
+    private(set) var summary: GitStatusService.RepositorySummary?
     private(set) var readme: String?
     private(set) var readmeURL: URL?
     private(set) var size: Int64?
@@ -14,7 +15,7 @@ final class RepositoryDetailModel {
 
     func load(_ url: URL) async {
         if currentURL != url {
-            info = nil; readme = nil; readmeURL = nil; size = nil; error = nil
+            info = nil; summary = nil; readme = nil; readmeURL = nil; size = nil; error = nil
             currentURL = url
         }
         isLoading = info == nil
@@ -26,6 +27,7 @@ final class RepositoryDetailModel {
         error = nil
         let readmeWorker = Task.detached(priority: .userInitiated) { try Self.readREADME(at: url) }
         async let metadata = GitStatusService.shared.repositoryInfo(in: url)
+        async let recent = GitStatusService.shared.repositorySummary(in: url)
         do {
             let result = try await withTaskCancellationHandler { try await readmeWorker.value } onCancel: { readmeWorker.cancel() }
             guard !Task.isCancelled, currentURL == url else { return }
@@ -35,6 +37,9 @@ final class RepositoryDetailModel {
         let result = await metadata
         guard !Task.isCancelled, currentURL == url else { return }
         if info != result { info = result }
+        let recentResult = await recent
+        guard !Task.isCancelled, currentURL == url else { return }
+        if summary != recentResult { summary = recentResult }
         isLoading = false
         let gitPath = try? await GitStatusService.shared.runGit(arguments: ["rev-parse", "--path-format=absolute", "--git-path", "objects"], in: url)
         let gitURL = gitPath.map { URL(fileURLWithPath: $0.trimmingCharacters(in: .whitespacesAndNewlines), isDirectory: true) }

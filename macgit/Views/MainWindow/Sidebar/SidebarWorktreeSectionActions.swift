@@ -24,6 +24,7 @@ struct SidebarWorktreeSectionActions {
     let select: (WorktreeEntry) -> Void
     let open: (WorktreeEntry) -> Void
     let openInTerminal: (URL) -> Void
+    let showInFinder: (URL) -> Void
     let editLabel: (WorktreeEntry) -> Void
     let clearLabel: (WorktreeEntry) -> Void
     let editLock: (WorktreeEntry) -> Void

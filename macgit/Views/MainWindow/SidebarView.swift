@@ -572,6 +572,7 @@ struct SidebarView: View {
             select: selectWorktree,
             open: openWorktree,
             openInTerminal: onRequestOpenWorktreeInTerminal,
+            showInFinder: { NSWorkspace.shared.activateFileViewerSelecting([$0]) },
             editLabel: beginEditingWorktreeLabel,
             clearLabel: { entry in
                 onRunRepositoryOperation("Clearing worktree label...") {

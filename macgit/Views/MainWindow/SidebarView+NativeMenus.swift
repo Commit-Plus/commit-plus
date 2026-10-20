@@ -134,6 +134,9 @@ extension SidebarView {
         let menu = SidebarNativeMenu(), actions = worktreeSectionActions
         menu.item("Open in New Window") { onRequestOpenWorktree(entry.path) }
         menu.item("Open in Terminal") { actions.openInTerminal(entry.path) }
+        menu.item("Show in Finder", enabled: FileManager.default.fileExists(atPath: entry.path.path)) {
+            actions.showInFinder(entry.path)
+        }
         menu.separator()
         menu.item(entry.label?.isEmpty == false ? "Edit Label..." : "Set Label...") { actions.editLabel(entry) }
         if entry.label?.isEmpty == false { menu.item("Clear Label") { actions.clearLabel(entry) } }
