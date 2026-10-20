@@ -185,6 +185,7 @@ struct MainWindowView: View {
     @State var showingRepositorySettings = false
     @State var initiallySelectGitFlowSettings = false
     @State var pendingSearchFileOpenRequest: SearchFileOpenRequest?
+    @State var searchFileOpenTask: Task<Void, Never>?
     @StateObject var commitRuleSyncController = RepositoryCommitRuleSyncController()
     @StateObject var protectedBranchCommitController = ProtectedBranchCommitController()
     @State var toolbarCommitMessage = ""
@@ -500,7 +501,11 @@ struct MainWindowView: View {
                     if rememberChoice {
                         appState.preferredSearchFileApplicationBundleIdentifier = application.bundleIdentifier
                     }
-                    openSearchFile(request.relativePath, using: application)
+                    openSearchFile(
+                        request.relativePath,
+                        lineTarget: request.lineTarget,
+                        using: application
+                    )
                 }
             }
             .replacingSheet(isPresented: stashActionSheetBinding) { stashActionSheet }
@@ -1529,6 +1534,9 @@ struct MainWindowView: View {
                     ),
                     surface: .selectedFiles
                 )
+            },
+            onOpenFileInEditor: { path, lineTarget in
+                prepareToOpenSearchFile(path, lineTarget: lineTarget)
             }
         )
         .repositoryScreenVisibility(isActive: isFileStatusActive)
@@ -1564,7 +1572,9 @@ struct MainWindowView: View {
                 headHash: { nil }
             ),
             selectionSink: historySelectionSink,
-            onOpenFile: prepareToOpenSearchFile
+            onOpenFile: { path, lineTarget in
+                prepareToOpenSearchFile(path, lineTarget: lineTarget)
+            }
         )
         .id(repositoryURL)
         .repositoryScreenVisibility(isActive: isHistoryActive)

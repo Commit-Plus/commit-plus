@@ -86,10 +86,19 @@ enum SearchFileApplicationResolver {
     }
 }
 
+/// Where an editor should place the cursor when opening a working-tree file.
+nonisolated enum SearchFileLineTarget: Equatable, Sendable {
+    /// The first change in the working-tree file compared with HEAD.
+    case workingTreeChange
+    /// The first line a commit changed, used only while the working-tree file still matches that commit.
+    case commitChange(String)
+}
+
 enum SearchFileOpener {
     @MainActor
     static func open(
         relativePath: String,
+        lineTarget: SearchFileLineTarget? = nil,
         in repositoryURL: URL,
         using application: SearchFileApplication,
         workspace: NSWorkspace = .shared
@@ -105,6 +114,21 @@ enum SearchFileOpener {
         guard FileManager.default.fileExists(atPath: application.applicationURL.path) else {
             throw SearchFileOpenError.applicationNotFound(application.displayName)
         }
+
+        if let lineTarget,
+           let command = editorCommand(application: application, fileURL: fileURL) {
+            let lineNumber = await GitStatusService.shared.editorLineNumber(
+                for: relativePath,
+                target: lineTarget,
+                in: repositoryURL
+            )
+            try Task.checkCancellation()
+            // Fall back to a plain open when the line is unknown or the editor CLI fails.
+            if let lineNumber, await run(command(lineNumber)) {
+                return
+            }
+        }
+        try Task.checkCancellation()
 
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
@@ -122,5 +146,71 @@ enum SearchFileOpener {
                 }
             }
         }
+    }
+
+    private struct EditorCommand {
+        let executableURL: URL
+        let arguments: [String]
+    }
+
+    private static func run(_ command: EditorCommand) async -> Bool {
+        let process = Process()
+        process.executableURL = command.executableURL
+        process.arguments = command.arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        return await withCheckedContinuation { continuation in
+            process.terminationHandler = { process in
+                continuation.resume(returning: process.terminationStatus == 0)
+            }
+            do {
+                try process.run()
+            } catch {
+                process.terminationHandler = nil
+                continuation.resume(returning: false)
+            }
+        }
+    }
+
+    /// Returns a builder for the editor's command-line tool, or nil when the editor has no supported CLI.
+    private static func editorCommand(
+        application: SearchFileApplication,
+        fileURL: URL
+    ) -> ((Int) -> EditorCommand)? {
+        let path = fileURL.path
+        // An explicit column keeps a path that ends in ":<digits>" from being read as a position.
+        let position: (Int) -> String = { "\(path):\($0):1" }
+        let relativeExecutable: String
+        let arguments: (Int) -> [String]
+        switch application.bundleIdentifier {
+        case "com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.todesktop.230313mzl4w4u92":
+            relativeExecutable = switch application.bundleIdentifier {
+            case "com.microsoft.VSCodeInsiders": "Contents/Resources/app/bin/code-insiders"
+            case "com.todesktop.230313mzl4w4u92": "Contents/Resources/app/bin/cursor"
+            default: "Contents/Resources/app/bin/code"
+            }
+            arguments = { ["--reuse-window", "--goto", position($0)] }
+        case "dev.zed.Zed":
+            relativeExecutable = "Contents/MacOS/cli"
+            arguments = { [position($0)] }
+        case "com.sublimetext.4":
+            relativeExecutable = "Contents/SharedSupport/bin/subl"
+            arguments = { [position($0)] }
+        case "com.apple.dt.Xcode":
+            relativeExecutable = "Contents/Developer/usr/bin/xed"
+            arguments = { ["--line", String($0), path] }
+        case "com.barebones.bbedit":
+            relativeExecutable = "Contents/Helpers/bbedit_tool"
+            arguments = { ["+\($0)", path] }
+        case "com.macromates.TextMate":
+            relativeExecutable = "Contents/MacOS/mate"
+            arguments = { ["--line", String($0), path] }
+        default:
+            return nil
+        }
+
+        let executableURL = application.applicationURL.appendingPathComponent(relativeExecutable)
+        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else { return nil }
+        return { EditorCommand(executableURL: executableURL, arguments: arguments($0)) }
     }
 }

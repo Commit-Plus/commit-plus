@@ -84,6 +84,11 @@ nonisolated struct DiffHunk: Identifiable, Sendable {
     let removedCount: Int
     let contentRevision: DiffContentRevision
 
+    var editorLineNumber: Int? {
+        lines.first(where: { $0.type == .added && $0.newLineNumber != nil })?.newLineNumber
+            ?? lines.first(where: { $0.newLineNumber != nil })?.newLineNumber
+    }
+
     init(id: UUID = UUID(), header: String, lines: [DiffLine]) {
         self.id = id
         self.header = header

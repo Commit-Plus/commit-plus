@@ -50,6 +50,7 @@ struct FileStatusView: View {
     var onRunRepositoryOperation: RepositoryOperationRunner
     var onCustomActionSelectionChanged: ([String]) -> Void = { _ in }
     var onRunCustomAction: (UUID, [String]) -> Void = { _, _ in }
+    var onOpenFileInEditor: (String, SearchFileLineTarget?) -> Void = { _, _ in }
 
     @ObservedObject private var integrationSettings = IntegrationSettingsStore.shared
     @State private var gitStatus: GitStatus = GitStatus(staged: [], unstaged: [], untracked: [])
@@ -578,12 +579,7 @@ struct FileStatusView: View {
                         else { await stage(file: file) }
                     }
                 },
-                onDoubleClick: { file in
-                    Task {
-                        if isStaged { await unstage(file: file) }
-                        else { await stage(file: file) }
-                    }
-                },
+                onDoubleClick: { file in openFileInEditor(file: file) },
                 onOpenPotentialConflict: presentPotentialConflictDetails,
                 dragPaths: { selection.dragPaths(startingAt: $0, isStaged: isStaged) },
                 makeDragPayload: { .files($0, repositoryURL: repositoryURL) },
@@ -684,8 +680,8 @@ struct FileStatusView: View {
         selection: FileStatusActionSelection
     ) -> some View {
         comparisonMenu(file: file, selection: selection)
-        Button("Open") { openFile(file: file) }
-            .disabled(selection.isSingleFileActionDisabled)
+        Button("Open in Editor") { openFileInEditor(file: file) }
+            .disabled(selection.isSingleFileActionDisabled || file.status == .deleted)
         Button("Show in Finder") { showInFinder(file: file) }
             .disabled(selection.isSingleFileActionDisabled)
         if hasPotentialConflict(file) {
@@ -796,8 +792,8 @@ struct FileStatusView: View {
         Divider()
 
         comparisonMenu(file: file, selection: selection)
-        Button("Open") { openFile(file: file) }
-            .disabled(selection.isSingleFileActionDisabled)
+        Button("Open in Editor") { openFileInEditor(file: file) }
+            .disabled(selection.isSingleFileActionDisabled || file.status == .deleted)
         Button("Show in Finder") { showInFinder(file: file) }
             .disabled(selection.isSingleFileActionDisabled)
         Button("External Diff") {
@@ -1893,9 +1889,9 @@ struct FileStatusView: View {
         NSWorkspace.shared.selectFile(fileURL.path, inFileViewerRootedAtPath: "")
     }
 
-    private func openFile(file: StatusFile) {
-        let fileURL = repositoryURL.appendingPathComponent(file.path)
-        NSWorkspace.shared.open(fileURL)
+    private func openFileInEditor(file: StatusFile) {
+        // Untracked files have no HEAD diff, so they open at the top.
+        onOpenFileInEditor(file.path, file.status == .untracked ? nil : .workingTreeChange)
     }
 
     private func discard(file: StatusFile) async {

@@ -44,6 +44,27 @@ extension GitStatusService {
         return DiffParser.parse(diffText)
     }
 
+    /// The working-tree line an editor should jump to for `target`, or nil when no line maps reliably onto the current file.
+    func editorLineNumber(for file: String, target: SearchFileLineTarget, in repositoryURL: URL) async -> Int? {
+        let hunks: [DiffHunk]
+        switch target {
+        case .workingTreeChange:
+            let output = (try? await runGit(
+                arguments: ["diff", "--no-color", "--no-ext-diff", "-U0", "HEAD", "--", file],
+                in: repositoryURL
+            )) ?? ""
+            hunks = DiffParser.parse(output)
+        case .commitChange(let commit):
+            // Commit line numbers only apply while the working-tree file still matches the commit.
+            guard let changed = try? await runGit(
+                arguments: ["diff", "--name-only", "--no-ext-diff", commit, "--", file],
+                in: repositoryURL
+            ), changed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            hunks = (try? await commitDiff(for: file, in: commit, in: repositoryURL)) ?? []
+        }
+        return hunks.lazy.compactMap(\.editorLineNumber).first
+    }
+
     func diff(for file: StatusFile, in repositoryURL: URL) async throws -> [DiffHunk] {
         // Untracked file → read directly and show all lines as added (green)
         if file.status == .untracked {

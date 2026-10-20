@@ -11,7 +11,7 @@ struct HistoryScreen: View {
     @Binding var includeRemotes: Bool
     let dependencies: HistoryCommitActionController.Dependencies
     let selectionSink: HistoryCommitSelectionSink
-    let onOpenFile: (String) -> Void
+    let onOpenFile: (String, SearchFileLineTarget?) -> Void
     @EnvironmentObject private var customActionStore: CustomActionStore
     @Environment(\.appTextScale) private var textScale
     @AppStorage("advanced.historyLoadSize") private var historyLoadSizeRaw = HistoryLoadSize.balanced.rawValue
@@ -27,7 +27,7 @@ struct HistoryScreen: View {
 
     init(repositoryURL: URL, isActive: Bool, isWorkSuspended: Bool = false, selectedBranch: String?, branchFilter: Binding<HistoryBranchFilter>,
          includeRemotes: Binding<Bool>, dependencies: HistoryCommitActionController.Dependencies,
-         selectionSink: HistoryCommitSelectionSink, onOpenFile: @escaping (String) -> Void) {
+         selectionSink: HistoryCommitSelectionSink, onOpenFile: @escaping (String, SearchFileLineTarget?) -> Void) {
         self.repositoryURL = repositoryURL
         self.isActive = isActive
         self.isWorkSuspended = isWorkSuspended

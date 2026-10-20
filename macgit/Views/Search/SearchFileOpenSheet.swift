@@ -21,6 +21,7 @@ import SwiftUI
 struct SearchFileOpenRequest: Identifiable {
     let id = UUID()
     let relativePath: String
+    var lineTarget: SearchFileLineTarget? = nil
     let applications: [SearchFileApplication]
 }
 

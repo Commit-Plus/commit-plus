@@ -59,6 +59,8 @@ struct CommitFileNativeList: NSViewRepresentable {
             tableView.allowsEmptySelection = true
             tableView.dataSource = self
             tableView.delegate = self
+            tableView.target = self
+            tableView.doubleAction = #selector(doubleClickedRow)
             tableView.contextMenuProvider = { [weak self] row in self?.contextMenu(for: row) }
             scrollView.documentView = tableView
             return scrollView
@@ -139,6 +141,12 @@ struct CommitFileNativeList: NSViewRepresentable {
                 : tableView.selectedRow
             let primary = rows.indices.contains(primaryRow) ? rows[primaryRow].change : selected.first
             model.onSelectionChange(selected, primary)
+        }
+
+        @objc private func doubleClickedRow() {
+            let row = tableView.clickedRow
+            guard rows.indices.contains(row) else { return }
+            model?.onOpenFile?(rows[row].change)
         }
 
         private func applySelection(_ selectedIDs: Set<UUID>) {

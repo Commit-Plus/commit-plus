@@ -42,14 +42,14 @@ extension MainWindowView {
         }
     }
 
-    func prepareToOpenSearchFile(_ relativePath: String) {
+    func prepareToOpenSearchFile(_ relativePath: String, lineTarget: SearchFileLineTarget? = nil) {
         let applications = SearchFileApplicationResolver.availableApplications()
 
         if let preferredBundleIdentifier = appState.preferredSearchFileApplicationBundleIdentifier {
             if let preferredApplication = applications.first(where: {
                 $0.bundleIdentifier == preferredBundleIdentifier
             }) {
-                openSearchFile(relativePath, using: preferredApplication)
+                openSearchFile(relativePath, lineTarget: lineTarget, using: preferredApplication)
                 return
             }
 
@@ -63,12 +63,14 @@ extension MainWindowView {
 
         pendingSearchFileOpenRequest = SearchFileOpenRequest(
             relativePath: relativePath,
+            lineTarget: lineTarget,
             applications: applications
         )
     }
 
     func openSearchFile(
         _ relativePath: String,
+        lineTarget: SearchFileLineTarget? = nil,
         using application: SearchFileApplication
     ) {
         let progressID = operationProgress.begin(
@@ -76,14 +78,18 @@ extension MainWindowView {
             canCancel: false
         )
 
-        Task {
+        // A newer open request replaces one that is still resolving its line.
+        searchFileOpenTask?.cancel()
+        searchFileOpenTask = Task {
             defer { operationProgress.end(progressID) }
             do {
                 try await SearchFileOpener.open(
                     relativePath: relativePath,
+                    lineTarget: lineTarget,
                     in: repositoryURL,
                     using: application
                 )
+            } catch is CancellationError {
             } catch {
                 syncState.showError(error.localizedDescription)
             }

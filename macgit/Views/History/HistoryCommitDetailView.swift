@@ -8,7 +8,7 @@ struct HistoryCommitDetailView: View {
     let syncState: SyncState?
     let runOperation: RepositoryOperationRunner
     @Environment(\.appTextScale) private var textScale
-    let onOpenFile: (String) -> Void
+    let onOpenFile: (String, SearchFileLineTarget?) -> Void
 
     @State private var imageComparisonMode: ImageComparisonMode = .overlay
 
@@ -34,7 +34,7 @@ struct HistoryCommitDetailView: View {
                             CommitFileListView(changes: model.fileChanges, lineCounts: model.lineCounts,
                                 selectedFile: $model.selectedFile,
                                 showsLayoutControls: true,
-                                onOpenFile: { onOpenFile($0.path) },
+                                onOpenFile: { onOpenFile($0.path, .commitChange(commit.hash)) },
                                 onPatch: { files, direction in
                                     patch.prepare(CommitPatchRequest(commit: commit.hash, files: files,
                                         direction: direction, lines: nil,

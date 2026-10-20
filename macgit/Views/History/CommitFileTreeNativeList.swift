@@ -30,7 +30,7 @@ struct CommitFileTreeNativeList: NSViewRepresentable {
             let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = false
             let column = NSTableColumn(identifier: .init("commit-tree")); column.resizingMask = .autoresizingMask
             table.addTableColumn(column); table.headerView = nil; table.backgroundColor = .clear; table.rowHeight = 36; table.intercellSpacing = .zero; table.selectionHighlightStyle = .none
-            table.dataSource = self; table.delegate = self; table.target = self; table.action = #selector(clicked)
+            table.dataSource = self; table.delegate = self; table.target = self; table.action = #selector(clicked); table.doubleAction = #selector(doubleClicked)
             table.contextMenuProvider = { [weak self] in self?.contextMenu($0) }; scroll.documentView = table; return scroll
         }
         func apply(_ model: CommitFileTreeNativeList) {
@@ -61,6 +61,7 @@ struct CommitFileTreeNativeList: NSViewRepresentable {
             return cell
         }
         @objc private func clicked() { let i = table.clickedRow; guard rows.indices.contains(i), let model else { return }; switch rows[i].content { case .folder(let path, _, _): model.onToggleFolder(path); case .file(let change, _, _): model.onSelect(change) } }
+        @objc private func doubleClicked() { let i = table.clickedRow; guard rows.indices.contains(i), case .file(let change, _, _) = rows[i].content else { return }; model?.onOpenFile?(change) }
         private func contextMenu(_ i: Int) -> NSMenu? { guard rows.indices.contains(i), case .file(let change, _, _) = rows[i].content, let menu = model?.makeContextMenu?(change) else { return nil }; hostedMenu = menu; menu.delegate = self; return menu }
         func menuDidClose(_ menu: NSMenu) { if hostedMenu === menu { hostedMenu = nil } }
         private func viewportAnchor(_ source: [Row]) -> (String, CGFloat)? { let visible = table.rows(in: table.visibleRect); guard visible.location != NSNotFound, source.indices.contains(visible.location) else { return nil }; return (source[visible.location].id, table.visibleRect.minY - table.rect(ofRow: visible.location).minY) }
