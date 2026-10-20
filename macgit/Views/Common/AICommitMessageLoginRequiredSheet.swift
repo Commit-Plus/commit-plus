@@ -91,7 +91,13 @@ struct AICommitMessageLoginRequiredSheet: View {
             AuthenticationSheet(controller: controller, mode: .signIn)
         }
         .onChange(of: controller.account?.uid) { _, accountUID in
-            if accountUID != nil {
+            // While the sign-in sheet is open it owns the flow, including its welcome.
+            if accountUID != nil, !showingAuthentication {
+                dismiss()
+            }
+        }
+        .onChange(of: showingAuthentication) { _, showing in
+            if !showing, controller.account != nil {
                 dismiss()
             }
         }

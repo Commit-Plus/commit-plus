@@ -41,6 +41,7 @@ final class AccountSessionController: ObservableObject {
     @Published private(set) var settingsSyncStatus: SettingsSyncStatus = .off
     @Published private(set) var deviceAccessState: AccountDeviceAccessState = .unavailable
     @Published private(set) var isUpdatingDeviceAccess = false
+    @Published private(set) var welcome: AccountWelcome?
 
     let cloudFeaturesAvailable: Bool
 
@@ -59,11 +60,22 @@ final class AccountSessionController: ObservableObject {
     private var settingsEligibilityTask: Task<Void, Never>?
     private var pendingTemporaryAccount: AccountSnapshot?
     private var currentDeviceMetadata: AccountDeviceMetadata?
+    /// The welcome owed to the interactive sign-in in flight, consumed once activation succeeds.
+    private var pendingWelcome: PendingWelcome?
     private var cancellables = Set<AnyCancellable>()
+
+    private struct PendingWelcome {
+        let host: AccountWelcomeHost
+        weak var window: NSWindow?
+    }
 
     var account: AccountSnapshot? {
         guard case .authenticated(let account) = state else { return nil }
         return account
+    }
+
+    var welcomeState: AccountWelcomeState? {
+        welcome?.state
     }
 
     var isLoading: Bool {
@@ -171,6 +183,8 @@ final class AccountSessionController: ObservableObject {
     func presentAuthentication(_ mode: AuthenticationMode) {
         errorMessage = nil
         passwordResetMessage = nil
+        // A new request always shows the form; drop a welcome nobody displayed.
+        discardWelcome()
         presentSheet(.authentication(mode), in: NSApp.keyWindow ?? NSApp.mainWindow)
     }
 
@@ -208,14 +222,22 @@ final class AccountSessionController: ObservableObject {
         presentedSheet = sheet
     }
 
-    func signIn(email: String, password: String) async {
-        await authenticate { [auth] in
+    func signIn(
+        email: String,
+        password: String,
+        welcomeHost: AccountWelcomeHost = .controllerSheet
+    ) async {
+        await authenticate(welcomeHost: welcomeHost) { [auth] in
             try await auth.signIn(email: email, password: password)
         }
     }
 
-    func createAccount(email: String, password: String) async {
-        await authenticate { [auth] in
+    func createAccount(
+        email: String,
+        password: String,
+        welcomeHost: AccountWelcomeHost = .controllerSheet
+    ) async {
+        await authenticate(welcomeHost: welcomeHost) { [auth] in
             try await auth.createAccount(email: email, password: password)
         }
     }
@@ -265,6 +287,7 @@ final class AccountSessionController: ObservableObject {
         guard url.scheme?.lowercased() == "macgit", url.host?.lowercased() == "session" else { return false }
         guard !isLoading, account == nil else { return true }
         let signInWindow = NSApp.windows.first { $0.windowNumber == webSignInWindowNumber }
+        discardWelcome()
         presentSheet(.authentication(.signIn), in: signInWindow)
         guard url.path.isEmpty, url.user == nil, url.password == nil, url.port == nil,
               let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
@@ -278,7 +301,8 @@ final class AccountSessionController: ObservableObject {
             return true
         }
         cancelWebSignIn()
-        await authenticate { [auth] in
+        // The callback re-presents the controller sheet in the originating window, so it hosts the welcome.
+        await authenticate(welcomeHost: .controllerSheet) { [auth] in
             try await auth.signIn(customToken: token)
         }
         return true
@@ -290,15 +314,18 @@ final class AccountSessionController: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "webSignInExpiresAt")
     }
 
-    func signInWithGoogle() async {
-        await authenticate { [auth] in
+    func signInWithGoogle(welcomeHost: AccountWelcomeHost = .controllerSheet) async {
+        await authenticate(welcomeHost: welcomeHost) { [auth] in
             try await auth.signInWithGoogle()
         }
     }
 
-    func completePendingLink(password: String) async {
+    func completePendingLink(
+        password: String,
+        welcomeHost: AccountWelcomeHost = .controllerSheet
+    ) async {
         guard let email = pendingLinkEmail else { return }
-        await authenticate { [auth] in
+        await authenticate(welcomeHost: welcomeHost) { [auth] in
             try await auth.completePendingLink(email: email, password: password)
         }
     }
@@ -360,6 +387,7 @@ final class AccountSessionController: ObservableObject {
             deviceSessionCache?.removeSession(for: deletedUID)
             stopEntitlementObservation()
             entitlementCache?.removeEntitlement(for: deletedUID)
+            discardWelcome()
             state = .guest
             presentedSheet = nil
             pendingLinkEmail = nil
@@ -445,6 +473,7 @@ final class AccountSessionController: ObservableObject {
     }
 
     private func authenticate(
+        welcomeHost: AccountWelcomeHost,
         operation: () async throws -> AccountSnapshot
     ) async {
         guard cloudFeaturesAvailable else {
@@ -454,6 +483,14 @@ final class AccountSessionController: ObservableObject {
         }
 
         cancelWebSignIn()
+        discardWelcome()
+        // Re-authenticating a signed-in account (for example before deletion) is not a new sign-in.
+        if account == nil {
+            pendingWelcome = PendingWelcome(
+                host: welcomeHost,
+                window: presentedSheet == nil ? nil : sheetPresentationWindow
+            )
+        }
         let previousState = state
         state = .loading
         errorMessage = nil
@@ -467,12 +504,14 @@ final class AccountSessionController: ObservableObject {
                 completeAuthentication(account)
             }
         } catch let error as AccountAuthError {
+            pendingWelcome = nil
             state = previousState == .loading ? .guest : previousState
             if case .needsExistingMethod(let email, _) = error {
                 pendingLinkEmail = email
             }
             errorMessage = error.localizedDescription
         } catch {
+            pendingWelcome = nil
             state = previousState == .loading ? .guest : previousState
             errorMessage = Self.message(for: error)
         }
@@ -484,6 +523,7 @@ final class AccountSessionController: ObservableObject {
     }
 
     func cancelDeviceActivation() {
+        discardWelcome()
         pendingTemporaryAccount = nil
         try? auth.signOut()
         state = .guest
@@ -494,6 +534,7 @@ final class AccountSessionController: ObservableObject {
     }
 
     private func restoreInitialDeviceSession(for initialAccount: AccountSnapshot) async {
+        pendingWelcome = nil
         pendingTemporaryAccount = initialAccount
         await claimAndActivate(account: initialAccount)
 
@@ -556,12 +597,46 @@ final class AccountSessionController: ObservableObject {
     }
 
     private func completeAuthentication(_ account: AccountSnapshot) {
+        let pendingWelcome = pendingWelcome
+        self.pendingWelcome = nil
+        welcome = pendingWelcome.map { AccountWelcome(uid: account.uid, host: $0.host) }
         state = .authenticated(account)
         startEntitlementObservation(for: account.uid)
         requiresRecentAuthentication = false
         pendingLinkEmail = nil
-        presentedSheet = nil
+        if let pendingWelcome, pendingWelcome.host == .controllerSheet {
+            // Keep the sheet's identity (and mode) so the form turns into the welcome in place;
+            // this also replaces a device-limit sheet left from activation.
+            presentSheet(.authentication(currentAuthenticationMode), in: pendingWelcome.window)
+        } else {
+            presentedSheet = nil
+        }
         scheduleSettingsSyncEligibilityUpdate()
+    }
+
+    private var currentAuthenticationMode: AuthenticationMode {
+        if case .authentication(let mode) = presentedSheet { return mode }
+        return .signIn
+    }
+
+    func dismissWelcome() {
+        guard let welcome else { return }
+        self.welcome = nil
+        if welcome.host == .controllerSheet, case .authentication = presentedSheet {
+            presentedSheet = nil
+        }
+    }
+
+    /// Called when an authentication sheet leaves the screen. The welcome ends with the sheet
+    /// that hosts it, however it was closed, unless a settings conflict only deferred it.
+    func authenticationSheetDidDisappear(host: AccountWelcomeHost) {
+        guard let welcome, welcome.host == host, !welcome.isDeferred else { return }
+        dismissWelcome()
+    }
+
+    private func discardWelcome() {
+        welcome = nil
+        pendingWelcome = nil
     }
 
     private func resolveCurrentDeviceMetadata() throws -> AccountDeviceMetadata {
@@ -603,6 +678,7 @@ final class AccountSessionController: ObservableObject {
     }
 
     private func handleDeviceRevocation(_ reason: AccountDeviceRevocationReason?, uid: String) {
+        discardWelcome()
         stopDeviceObservation()
         stopEntitlementObservation()
         deviceSessionCache?.removeSession(for: uid)
@@ -622,6 +698,7 @@ final class AccountSessionController: ObservableObject {
             stopDeviceObservation()
             stopEntitlementObservation()
             pendingTemporaryAccount = nil
+            discardWelcome()
             state = .guest
             deviceAccessState = deviceAccessProvider == nil ? .unavailable : .unverified
             presentedSheet = nil
@@ -677,6 +754,9 @@ final class AccountSessionController: ObservableObject {
     private func applyEntitlement(_ entitlement: AccountEntitlement, uid: String) {
         guard account?.uid == uid else { return }
         self.entitlement = entitlement
+        if welcome?.uid == uid {
+            welcome?.state = entitlement.hasProAccess ? .pro : .free
+        }
         entitlementError = nil
         let updatedAt = Date.now
         entitlementLastUpdatedAt = updatedAt
@@ -728,7 +808,13 @@ final class AccountSessionController: ObservableObject {
                 if case .needsInitialChoice = status {
                     presentSettingsConflictSheet()
                 } else if presentedSheet == .settingsConflict {
+                    let sourceWindow = sheetPresentationWindow
                     presentedSheet = nil
+                    if welcome?.isDeferred == true {
+                        Task { @MainActor [weak self, weak sourceWindow] in
+                            self?.resumeDeferredWelcome(in: sourceWindow)
+                        }
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -774,12 +860,30 @@ final class AccountSessionController: ObservableObject {
         }
 
         let sourceWindow = sheetPresentationWindow
+        if welcome?.host == .controllerSheet, case .authentication = presentedSheet {
+            // Settings recovery takes priority; show the welcome again once it is resolved.
+            welcome?.isDeferred = true
+        }
         presentedSheet = nil
         Task { @MainActor [weak self, weak sourceWindow] in
             guard let self else { return }
-            guard case .needsInitialChoice = settingsSyncStatus else { return }
+            guard case .needsInitialChoice = settingsSyncStatus else {
+                resumeDeferredWelcome(in: sourceWindow)
+                return
+            }
             presentSheet(.settingsConflict, in: sourceWindow)
         }
+    }
+
+    private func resumeDeferredWelcome(in sourceWindow: NSWindow?) {
+        guard let welcome, welcome.isDeferred else { return }
+        // The user may have signed out, or another sheet may have opened, since the conflict closed.
+        guard account?.uid == welcome.uid, presentedSheet == nil else {
+            self.welcome = nil
+            return
+        }
+        self.welcome?.isDeferred = false
+        presentSheet(.authentication(.signIn), in: sourceWindow)
     }
 
     private static func message(for error: Error) -> String {

@@ -118,9 +118,8 @@ struct CommitSheetView: View {
                 .font(.body.scaled(by: textScale))
                 .keyboardShortcut(.cancelAction)
                 .disabled(isCommitting)
-                if isCommitting { ProgressView().controlSize(.small) }
 
-                Button(commitMessage.isEmpty ? "Commit Without Message" : "Commit") {
+                Button(isCommitting ? "Committing..." : (commitMessage.isEmpty ? "Commit Without Message" : "Commit")) {
                     guard !isCommitting else { return }
                     let requestedMessage = commitMessage
                     let requestedAllChanges = !hasStagedChanges && commitAllChanges

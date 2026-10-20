@@ -181,7 +181,7 @@ struct ContentView: View {
             Group {
                 switch sheet {
                 case .authentication(let mode):
-                    AuthenticationSheet(controller: accountController, mode: mode)
+                    AuthenticationSheet(controller: accountController, mode: mode, presentedByController: true)
                 case .settingsConflict:
                     SettingsSyncConflictSheet(controller: accountController)
                 case .deviceLimit:

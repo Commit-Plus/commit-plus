@@ -32,13 +32,47 @@ struct AuthenticationSheet: View {
     @State private var isEmailValid = false
     @FocusState private var emailFocused: Bool
     @FocusState private var passwordFocused: Bool
+    @State private var localHostID = UUID()
+    private let presentedByController: Bool
 
-    init(controller: AccountSessionController, mode: AuthenticationMode) {
+    init(
+        controller: AccountSessionController,
+        mode: AuthenticationMode,
+        presentedByController: Bool = false
+    ) {
         self.controller = controller
+        self.presentedByController = presentedByController
         _mode = State(initialValue: mode)
     }
 
+    private var welcomeHost: AccountWelcomeHost {
+        presentedByController ? .controllerSheet : .localSheet(localHostID)
+    }
+
     var body: some View {
+        Group {
+            if let welcome = controller.welcome, welcome.host == welcomeHost {
+                AccountWelcomeSheet(
+                    controller: controller,
+                    state: welcome.state,
+                    onDismiss: { dismiss() }
+                )
+            } else {
+                authenticationForm
+            }
+        }
+        .onChange(of: controller.account?.uid) { _, accountUID in
+            // Sheets other than the one hosting the welcome close once the user is signed in.
+            if accountUID != nil, controller.welcome?.host != welcomeHost {
+                dismiss()
+            }
+        }
+        .onDisappear {
+            controller.authenticationSheetDidDisappear(host: welcomeHost)
+        }
+    }
+
+    private var authenticationForm: some View {
         ScrollView {
             VStack(spacing: 20) {
                 Text(title)
@@ -246,11 +280,6 @@ struct AuthenticationSheet: View {
         .onChange(of: controller.pendingLinkEmail) {
             populatePendingLinkEmail()
         }
-        .onChange(of: controller.account?.uid) { _, accountUID in
-            if accountUID != nil {
-                dismiss()
-            }
-        }
         .onChange(of: controller.deviceAccessState) { _, state in
             switch state {
             case .limitReached, .failed:
@@ -322,18 +351,18 @@ struct AuthenticationSheet: View {
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             if controller.pendingLinkEmail != nil {
-                await controller.completePendingLink(password: password)
+                await controller.completePendingLink(password: password, welcomeHost: welcomeHost)
             } else if mode == .signIn {
-                await controller.signIn(email: trimmedEmail, password: password)
+                await controller.signIn(email: trimmedEmail, password: password, welcomeHost: welcomeHost)
             } else {
-                await controller.createAccount(email: trimmedEmail, password: password)
+                await controller.createAccount(email: trimmedEmail, password: password, welcomeHost: welcomeHost)
             }
         }
     }
 
     private func signInWithGoogle() {
         Task {
-            await controller.signInWithGoogle()
+            await controller.signInWithGoogle(welcomeHost: welcomeHost)
         }
     }
 

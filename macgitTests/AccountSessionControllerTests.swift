@@ -47,6 +47,205 @@ final class AccountSessionControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.state, .authenticated(account))
         XCTAssertNil(controller.errorMessage)
+        XCTAssertEqual(controller.welcomeState, .neutral)
+    }
+
+    func testLiveEntitlementUpdatesWelcomeForFreeAndProAccounts() async {
+        let account = Self.account
+        let entitlements = WelcomeFakeEntitlementProvider()
+        let controller = AccountSessionController(
+            auth: FakeAccountAuth(signInResult: account),
+            bootstrapStatus: .configured,
+            entitlementProvider: entitlements
+        )
+
+        await controller.signIn(email: "a@example.com", password: "secret12")
+        XCTAssertEqual(controller.welcomeState, .neutral)
+
+        entitlements.send(.free)
+        XCTAssertEqual(controller.welcomeState, .free)
+
+        entitlements.send(AccountEntitlement(
+            plan: .pro,
+            access: .active,
+            billingStatus: .active
+        ))
+        XCTAssertEqual(controller.welcomeState, .pro)
+    }
+
+    func testCachedFreeEntitlementDoesNotLabelWelcomeUntilLiveResolution() async {
+        let account = Self.account
+        let entitlements = WelcomeFakeEntitlementProvider()
+        let cache = WelcomeFakeEntitlementCache(values: [
+            account.uid: CachedAccountEntitlement(entitlement: .free, updatedAt: .now)
+        ])
+        let controller = AccountSessionController(
+            auth: FakeAccountAuth(signInResult: account),
+            bootstrapStatus: .configured,
+            entitlementProvider: entitlements,
+            entitlementCache: cache
+        )
+
+        await controller.signIn(email: "a@example.com", password: "secret12")
+
+        XCTAssertEqual(controller.entitlement, .free)
+        XCTAssertEqual(controller.welcomeState, .neutral)
+    }
+
+    func testDismissedWelcomeDoesNotReturnAfterDelayedEntitlement() async {
+        let account = Self.account
+        let entitlements = WelcomeFakeEntitlementProvider()
+        let controller = AccountSessionController(
+            auth: FakeAccountAuth(signInResult: account),
+            bootstrapStatus: .configured,
+            entitlementProvider: entitlements
+        )
+
+        await controller.signIn(email: "a@example.com", password: "secret12")
+        controller.dismissWelcome()
+        entitlements.send(.free)
+
+        XCTAssertNil(controller.welcomeState)
+    }
+
+    func testControllerPresentedAuthenticationStaysOpenForWelcomeThenCloses() async {
+        let controller = AccountSessionController(
+            auth: FakeAccountAuth(signInResult: Self.account),
+            bootstrapStatus: .configured
+        )
+        controller.presentAuthentication(.signIn)
+
+        await controller.signIn(email: "a@example.com", password: "secret12")
+
+        XCTAssertEqual(controller.presentedSheet, .authentication(.signIn))
+        XCTAssertEqual(controller.welcomeState, .neutral)
+
+        controller.dismissWelcome()
+
+        XCTAssertNil(controller.presentedSheet)
+        XCTAssertNil(controller.welcomeState)
+    }
+
+    func testCreateAccountKeepsControllerSheetModeForWelcome() async {
+        let controller = AccountSessionController(
+            auth: FakeAccountAuth(signInResult: Self.account),
+            bootstrapStatus: .configured
+        )
+        controller.presentAuthentication(.createAccount)
+
+        await controller.createAccount(email: "a@example.com", password: "secret12")
+
+        XCTAssertEqual(controller.presentedSheet, .authentication(.createAccount))
+        XCTAssertEqual(controller.welcome?.host, .controllerSheet)
+    }
+
+    func testLocalSheetWelcomeBelongsToItsHostAndEndsWhenItDisappears() async {
+        let host = AccountWelcomeHost.localSheet(UUID())
+        let controller = AccountSessionController(
+            auth: FakeAccountAuth(signInResult: Self.account),
+            bootstrapStatus: .configured
+        )
+
+        await controller.signIn(email: "a@example.com", password: "secret12", welcomeHost: host)
+
+        XCTAssertEqual(controller.welcome?.host, host)
+        XCTAssertNil(controller.presentedSheet)
+
+        controller.authenticationSheetDidDisappear(host: .localSheet(UUID()))
+        XCTAssertNotNil(controller.welcome)
+
+        controller.authenticationSheetDidDisappear(host: host)
+        XCTAssertNil(controller.welcome)
+    }
+
+    func testPresentingAuthenticationDiscardsUndisplayedWelcome() async {
+        let controller = AccountSessionController(
+            auth: FakeAccountAuth(signInResult: Self.account),
+            bootstrapStatus: .configured
+        )
+        await controller.signIn(email: "a@example.com", password: "secret12")
+
+        controller.presentAuthentication(.signIn)
+
+        XCTAssertNil(controller.welcome)
+        XCTAssertEqual(controller.presentedSheet, .authentication(.signIn))
+    }
+
+    func testReauthenticatingSignedInAccountDoesNotShowWelcome() async {
+        let controller = AccountSessionController(
+            auth: FakeAccountAuth(current: Self.account, signInResult: Self.account),
+            bootstrapStatus: .configured
+        )
+        controller.presentReauthentication()
+
+        await controller.signIn(email: "a@example.com", password: "secret12")
+
+        XCTAssertNil(controller.welcome)
+        XCTAssertNil(controller.presentedSheet)
+    }
+
+    func testDeviceRecoveryFromLocalSheetClosesDeviceLimitAndWelcomesInHost() async {
+        let host = AccountWelcomeHost.localSheet(UUID())
+        let metadata = Self.metadata
+        let access = FakeDeviceAccessProvider(claimResult: .limitReached(limit: 1))
+        let controller = AccountSessionController(
+            auth: FakeAccountAuth(signInResult: Self.account),
+            bootstrapStatus: .configured,
+            deviceIdentity: FakeDeviceIdentity(metadata: metadata),
+            deviceAccessProvider: access,
+            deviceSessionCache: FakeDeviceSessionCache()
+        )
+
+        await controller.signIn(email: "a@example.com", password: "secret12", welcomeHost: host)
+        XCTAssertEqual(controller.presentedSheet, .deviceLimit)
+        XCTAssertNil(controller.welcome)
+
+        access.claimResult = .active(limit: 1, device: Self.device(metadata: metadata))
+        await controller.retryDeviceActivation()
+
+        XCTAssertEqual(controller.account, Self.account)
+        XCTAssertNil(controller.presentedSheet)
+        XCTAssertEqual(controller.welcome?.host, host)
+    }
+
+    func testDeviceRecoveryFromControllerSheetReplacesDeviceLimitWithWelcome() async {
+        let metadata = Self.metadata
+        let access = FakeDeviceAccessProvider(claimResult: .limitReached(limit: 1))
+        let controller = AccountSessionController(
+            auth: FakeAccountAuth(signInResult: Self.account),
+            bootstrapStatus: .configured,
+            deviceIdentity: FakeDeviceIdentity(metadata: metadata),
+            deviceAccessProvider: access,
+            deviceSessionCache: FakeDeviceSessionCache()
+        )
+        controller.presentAuthentication(.signIn)
+
+        await controller.signIn(email: "a@example.com", password: "secret12")
+        access.claimResult = .active(limit: 1, device: Self.device(metadata: metadata))
+        await controller.retryDeviceActivation()
+
+        XCTAssertEqual(controller.presentedSheet, .authentication(.signIn))
+        XCTAssertEqual(controller.welcome?.host, .controllerSheet)
+    }
+
+    func testCancelledDeviceRecoveryDropsPendingWelcome() async {
+        let metadata = Self.metadata
+        let access = FakeDeviceAccessProvider(claimResult: .limitReached(limit: 1))
+        let controller = AccountSessionController(
+            auth: FakeAccountAuth(signInResult: Self.account),
+            bootstrapStatus: .configured,
+            deviceIdentity: FakeDeviceIdentity(metadata: metadata),
+            deviceAccessProvider: access,
+            deviceSessionCache: FakeDeviceSessionCache()
+        )
+
+        await controller.signIn(email: "a@example.com", password: "secret12")
+        controller.cancelDeviceActivation()
+        access.claimResult = .active(limit: 1, device: Self.device(metadata: metadata))
+        await controller.retryDeviceActivation()
+
+        XCTAssertNil(controller.account)
+        XCTAssertNil(controller.welcome)
     }
 
     func testSignInFailureReturnsToGuestAndPublishesMessage() async {
@@ -59,6 +258,7 @@ final class AccountSessionControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.state, .guest)
         XCTAssertEqual(controller.errorMessage, "The email or password is incorrect.")
+        XCTAssertNil(controller.welcomeState)
     }
 
     func testSignOutReturnsToGuest() {
@@ -75,6 +275,7 @@ final class AccountSessionControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.state, .guest)
         XCTAssertEqual(auth.signOutCallCount, 1)
+        XCTAssertNil(controller.welcomeState)
     }
 
     func testPresentConnectionsRequestsConnectionsSettings() {
@@ -217,6 +418,20 @@ final class AccountSessionControllerTests: XCTestCase {
         XCTAssertNil(controller.errorMessage)
     }
 
+    func testOpenPricingFailureLeavesRetryableError() async {
+        let controller = AccountSessionController(
+            auth: FakeAccountAuth(current: Self.account),
+            bootstrapStatus: .configured,
+            webAccountSessionProvider: FakeWebAccountSessionProvider(urls: [:])
+        )
+
+        await controller.openPricingOnWeb()
+
+        XCTAssertEqual(controller.errorMessage, "Commit+ Cloud returned an invalid web sign-in response.")
+        XCTAssertFalse(controller.isOpeningAccountOnWeb)
+        XCTAssertNil(controller.openingWebDestination)
+    }
+
     func testDeviceClaimPublishesAccountOnlyAfterFirestoreActivation() async {
         let account = Self.account
         let metadata = Self.metadata
@@ -239,6 +454,7 @@ final class AccountSessionControllerTests: XCTestCase {
         XCTAssertEqual(access.claimedMetadata, [metadata])
         XCTAssertEqual(access.claimedUIDs, [account.uid])
         XCTAssertEqual(controller.deviceAccessState, .active(limit: 1, device: device, verification: .live))
+        XCTAssertEqual(controller.welcomeState, .neutral)
     }
 
     func testDeviceLimitDoesNotExposeAuthenticatedAccount() async {
@@ -260,6 +476,7 @@ final class AccountSessionControllerTests: XCTestCase {
         XCTAssertEqual(controller.state, .guest)
         XCTAssertEqual(controller.presentedSheet, .deviceLimit)
         XCTAssertEqual(controller.deviceAccessState, .limitReached(limit: 1))
+        XCTAssertNil(controller.welcomeState)
     }
 
     func testDeviceLimitCanOpenAuthenticatedWebManagement() async throws {
@@ -317,6 +534,7 @@ final class AccountSessionControllerTests: XCTestCase {
         }
         XCTAssertNil(controller.errorMessage)
         XCTAssertNil(controller.presentedSheet)
+        XCTAssertNil(controller.welcomeState)
     }
 
     func testRemoteRevocationStopsCloudSessionAndPreservesGuestUse() async {
@@ -465,8 +683,8 @@ private struct FakeDeviceIdentity: DeviceIdentityProviding {
 
 @MainActor
 private final class FakeDeviceAccessProvider: DeviceAccessProviding {
-    let claimResult: DeviceActivationResult?
-    let claimError: Error?
+    var claimResult: DeviceActivationResult?
+    var claimError: Error?
     private(set) var claimedMetadata: [AccountDeviceMetadata] = []
     private(set) var claimedUIDs: [String] = []
     private(set) var releasedDeviceIDs: [String] = []
@@ -510,6 +728,45 @@ private final class FakeDeviceAccessProvider: DeviceAccessProviding {
 
 private final class TestDeviceObservationToken: ObservationToken {
     func cancel() {}
+}
+
+@MainActor
+private final class WelcomeFakeEntitlementProvider: EntitlementProviding {
+    private var onChange: ((AccountEntitlement) -> Void)?
+
+    func load(uid: String) async throws -> AccountEntitlement { .free }
+
+    func observe(
+        uid: String,
+        onChange: @escaping (AccountEntitlement) -> Void,
+        onError: @escaping (String) -> Void
+    ) -> ObservationToken {
+        self.onChange = onChange
+        return TestDeviceObservationToken()
+    }
+
+    func send(_ entitlement: AccountEntitlement) {
+        onChange?(entitlement)
+    }
+}
+
+@MainActor
+private final class WelcomeFakeEntitlementCache: EntitlementCaching {
+    private var values: [String: CachedAccountEntitlement]
+
+    init(values: [String: CachedAccountEntitlement]) {
+        self.values = values
+    }
+
+    func cachedEntitlement(for uid: String) -> CachedAccountEntitlement? { values[uid] }
+
+    func save(_ cachedEntitlement: CachedAccountEntitlement, for uid: String) {
+        values[uid] = cachedEntitlement
+    }
+
+    func removeEntitlement(for uid: String) {
+        values.removeValue(forKey: uid)
+    }
 }
 
 @MainActor

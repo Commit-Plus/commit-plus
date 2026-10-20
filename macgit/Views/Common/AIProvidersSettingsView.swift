@@ -74,11 +74,6 @@ struct AIProvidersSettingsView: View {
         .replacingSheet(item: $authenticationMode) { mode in
             AuthenticationSheet(controller: accountController, mode: mode)
         }
-        .onChange(of: accountController.account?.uid) { _, accountUID in
-            if accountUID != nil {
-                authenticationMode = nil
-            }
-        }
         .task(id: controller.availabilityRevision) {
             await controller.refreshAvailability()
         }
