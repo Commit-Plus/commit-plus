@@ -49,9 +49,45 @@ struct GeneratedCommitMessage: Equatable, Sendable {
     let subject: String
     let body: String?
 
+    var normalized: CommitMessageDraft {
+        CommitMessageDraft(subject: subject, body: body ?? "")
+    }
+
     var text: String {
-        guard let body, !body.isEmpty else { return subject }
-        return "\(subject)\n\n\(body)"
+        normalized.message
+    }
+}
+
+struct CommitMessageDraft: Equatable, Sendable {
+    var subject: String
+    var body: String
+
+    init(subject: String = "", body: String = "") {
+        self.subject = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.body = body.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    init(message: String) {
+        let normalizedMessage = message
+            .replacing("\r\n", with: "\n")
+            .replacing("\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = normalizedMessage.split(
+            separator: "\n",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        )
+        self.init(
+            subject: parts.first.map(String.init) ?? "",
+            body: parts.count > 1 ? String(parts[1]) : ""
+        )
+    }
+
+    var message: String {
+        let normalized = CommitMessageDraft(subject: subject, body: body)
+        guard !normalized.subject.isEmpty else { return normalized.body }
+        guard !normalized.body.isEmpty else { return normalized.subject }
+        return "\(normalized.subject)\n\n\(normalized.body)"
     }
 }
 

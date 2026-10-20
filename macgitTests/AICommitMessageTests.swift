@@ -103,6 +103,30 @@ final class AICommitMessageTests: XCTestCase {
         )
     }
 
+    func testCommitMessageDraftSplitsAndTrimsTitleAndDescription() {
+        let draft = CommitMessageDraft(
+            message: "  feat: Add commit fields  \r\n\r\n  Explain the change.  \r\n"
+        )
+
+        XCTAssertEqual(draft.subject, "feat: Add commit fields")
+        XCTAssertEqual(draft.body, "Explain the change.")
+        XCTAssertEqual(draft.message, "feat: Add commit fields\n\nExplain the change.")
+    }
+
+    func testGeneratedCommitMessageTrimsEachFieldBeforeComposing() {
+        let generated = GeneratedCommitMessage(
+            subject: "  fix: Fill the title field  \n",
+            body: "\n  Fill the description field.  \n"
+        )
+
+        XCTAssertEqual(generated.normalized.subject, "fix: Fill the title field")
+        XCTAssertEqual(generated.normalized.body, "Fill the description field.")
+        XCTAssertEqual(
+            generated.text,
+            "fix: Fill the title field\n\nFill the description field."
+        )
+    }
+
     @MainActor
     func testLiveRegistryProvidesCredentialBackedCloudProviders() async {
         let credentialStore = InMemoryAIProviderCredentialStore()

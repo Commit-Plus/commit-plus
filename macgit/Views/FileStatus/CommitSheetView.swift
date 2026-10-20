@@ -28,6 +28,8 @@ struct CommitSheetView: View {
     @AppStorage("commit.allChanges") private var commitAllChanges = false
     @ObservedObject var aiProviderController: AIProviderController
     @Binding var message: String
+    @State private var subject: String
+    @State private var descriptionText: String
     @State private var errorMessage: String?
     @State private var showingError = false
     @State private var isAIGenerationRequested = false
@@ -38,6 +40,23 @@ struct CommitSheetView: View {
     @State private var isCommitting = false
     @State private var commitErrorMessage: String?
 
+    init(
+        aiProviderController: AIProviderController,
+        message: Binding<String>,
+        repositoryURL: URL,
+        hasStagedChanges: Bool,
+        onCommit: @escaping @MainActor (String, Bool) async throws -> Bool
+    ) {
+        self.aiProviderController = aiProviderController
+        _message = message
+        let draft = CommitMessageDraft(message: message.wrappedValue)
+        _subject = State(initialValue: draft.subject)
+        _descriptionText = State(initialValue: draft.body)
+        self.repositoryURL = repositoryURL
+        self.hasStagedChanges = hasStagedChanges
+        self.onCommit = onCommit
+    }
+
     var body: some View {
         VStack(spacing: 20) {
             Text("Commit Changes")
@@ -45,32 +64,33 @@ struct CommitSheetView: View {
                 .fontWeight(.semibold)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Commit Message")
-                    .font(.headline.scaled(by: textScale))
-                Text("Leave this empty to create a commit without a message.")
+                HStack {
+                    Text("Commit Message")
+                        .font(.headline.scaled(by: textScale))
+                    Spacer()
+                    generateCommitMessageButton
+                }
+                .frame(width: 440)
+                Text("Add a short title and an optional description. Leave both empty to commit without a message.")
                     .font(.caption.scaled(by: textScale))
                     .foregroundStyle(.secondary)
-                ZStack(alignment: .topTrailing) {
-                    TextField(
-                        "Enter a commit message…",
-                        text: $message,
-                        axis: .vertical
-                    )
-                        .font(.body.scaled(by: textScale))
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 400)
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("Title", text: $subject)
+                        .accessibilityLabel("Commit title")
+
+                    TextField("Description (optional)", text: $descriptionText, axis: .vertical)
                         .lineLimit(3...6)
-                        .disabled(aiProviderController.isGenerating || isCommitting)
+                        .accessibilityLabel("Commit description")
                         .onKeyPress(.return, phases: .down) { keyPress in
                             guard keyPress.modifiers == .shift else { return .ignored }
                             insertNewlineInMessage()
                             return .handled
                         }
-
-                    generateCommitMessageButton
-                        .padding(8)
-                        .zIndex(1)
                 }
+                .font(.body.scaled(by: textScale))
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 440)
+                .disabled(aiProviderController.isGenerating || isCommitting)
                 if !hasStagedChanges {
                     HStack(spacing: 8) {
                         Label("No files staged", systemImage: "exclamationmark.triangle")
@@ -81,13 +101,13 @@ struct CommitSheetView: View {
                             .toggleStyle(.checkbox)
                             .font(.system(size: 12).scaled(by: textScale))
                     }
-                    .frame(width: 400, alignment: .leading)
+                    .frame(width: 440, alignment: .leading)
                 }
             }
 
             if let commitErrorMessage {
                 Label(commitErrorMessage, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.red).textSelection(.enabled).frame(width: 400, alignment: .leading)
+                    .foregroundStyle(.red).textSelection(.enabled).frame(width: 440, alignment: .leading)
             }
 
             HStack(spacing: 12) {
@@ -100,9 +120,9 @@ struct CommitSheetView: View {
                 .disabled(isCommitting)
                 if isCommitting { ProgressView().controlSize(.small) }
 
-                Button(message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Commit Without Message" : "Commit") {
+                Button(commitMessage.isEmpty ? "Commit Without Message" : "Commit") {
                     guard !isCommitting else { return }
-                    let requestedMessage = message
+                    let requestedMessage = commitMessage
                     let requestedAllChanges = !hasStagedChanges && commitAllChanges
                     isCommitting = true
                     commitErrorMessage = nil
@@ -118,8 +138,11 @@ struct CommitSheetView: View {
                 .disabled(isCommitting || (!hasStagedChanges && !commitAllChanges))
             }
         }
-        .padding(30)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 24)
         .frame(minWidth: 480)
+        .onChange(of: subject) { _, _ in updateMessageBinding() }
+        .onChange(of: descriptionText) { _, _ in updateMessageBinding() }
         .interactiveDismissDisabled(isCommitting)
         .onDisappear { cancelCommitMessageGeneration() }
         .task {
@@ -183,6 +206,14 @@ struct CommitSheetView: View {
             : "Generate an editable message from changed files."
     }
 
+    private var commitMessage: String {
+        CommitMessageDraft(subject: subject, body: descriptionText).message
+    }
+
+    private func updateMessageBinding() {
+        message = commitMessage
+    }
+
     private func insertNewlineInMessage() {
         // A field editor treats insertNewline as ending editing and selects the text again.
         NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
@@ -207,7 +238,9 @@ struct CommitSheetView: View {
                 recentCommitSubjects: await recentCommits.map(\.message)
             )
             try Task.checkCancellation()
-            message = generated.text
+            let draft = generated.normalized
+            subject = draft.subject
+            descriptionText = draft.body
         } catch {
             guard !Task.isCancelled, !(error is CancellationError) else { return }
             errorMessage = error.localizedDescription
