@@ -31,6 +31,21 @@ extension GitStatusService {
         return parseWorktreePorcelain(output).first(where: { $0.branch == branch })?.path
     }
 
+    func worktreeBranches(in repositoryURL: URL) async -> Set<String> {
+        let output = (try? await runGit(arguments: ["worktree", "list", "--porcelain"], in: repositoryURL)) ?? ""
+        return Set(parseWorktreePorcelain(output).compactMap(\.branch))
+    }
+
+    /// The branch checked out in the worktree, or its HEAD commit when detached.
+    func worktreeHistoryReference(for worktreePath: URL, in repositoryURL: URL) async -> String? {
+        let output = (try? await runGit(arguments: ["worktree", "list", "--porcelain"], in: repositoryURL)) ?? ""
+        let path = normalizedWorktreePath(worktreePath)
+        guard let entry = parseWorktreePorcelain(output).first(where: { normalizedWorktreePath($0.path) == path }) else {
+            return nil
+        }
+        return entry.branch ?? (entry.head.isEmpty ? nil : entry.head)
+    }
+
     func worktrees(in repositoryURL: URL) async -> [WorktreeEntry] {
         let output = (try? await runGit(arguments: ["worktree", "list", "--porcelain"], in: repositoryURL)) ?? ""
         let parsed = parseWorktreePorcelain(output)

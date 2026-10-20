@@ -88,6 +88,8 @@ extension SidebarView {
         guard activeWorktreeLoadID == loadID else { return }
         await MainActor.run {
             if worktreeEntries != entries { worktreeEntries = entries }
+            let branches = Set(entries.compactMap(\.branch))
+            if worktreeBranches != branches { worktreeBranches = branches }
             hasLoadedWorktrees = true
         }
     }
@@ -108,6 +110,7 @@ extension SidebarView {
         }
 
         selection = .worktree(entry.path)
+        appState.historyBranchFilter = .all
     }
 
     func openWorktree(_ entry: WorktreeEntry) {

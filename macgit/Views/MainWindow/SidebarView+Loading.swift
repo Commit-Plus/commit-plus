@@ -57,6 +57,7 @@ extension SidebarView {
         activeStashLoadID = nil
 
         worktreeEntries = []
+        worktreeBranches = []
         hasLoadedWorktrees = false
         isLoadingWorktrees = false
 
@@ -183,9 +184,10 @@ extension SidebarView {
         activeBranchSyncLoadID = loadID
         isLoadingBranches = !hasLoadedBranches
 
-        let (locals, current) = await (
+        let (locals, current, checkedOutInWorktrees) = await (
             GitStatusService.shared.cachedLocalBranches(in: repositoryURL),
-            GitStatusService.shared.currentBranch(in: repositoryURL) ?? ""
+            GitStatusService.shared.currentBranch(in: repositoryURL) ?? "",
+            GitStatusService.shared.worktreeBranches(in: repositoryURL)
         )
         guard activeBranchSyncLoadID == loadID else { return }
         let filteredLocals = locals.filter { $0 != "HEAD" && !$0.contains("HEAD detached") }
@@ -202,6 +204,7 @@ extension SidebarView {
             guard activeBranchSyncLoadID == loadID else { return }
             if branchNodes != tree { branchNodes = tree }
             if currentBranch != current { currentBranch = current }
+            if worktreeBranches != checkedOutInWorktrees { worktreeBranches = checkedOutInWorktrees }
             if !headHash.isEmpty { headHash = "" }
             let existingBranches = Set(filteredLocals)
             let retainedStatuses = branchSyncStatus.filter { existingBranches.contains($0.key) }

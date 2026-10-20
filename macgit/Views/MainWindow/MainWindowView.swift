@@ -806,6 +806,9 @@ struct MainWindowView: View {
                 selectedBranchName = name
             } else if case .remoteBranch(let name) = newItem {
                 selectedBranchName = name
+            } else if case .worktree(let worktreeURL) = newItem {
+                selectedBranchName = nil
+                revealWorktreeInHistory(worktreeURL)
             } else {
                 selectedBranchName = nil
             }
@@ -1605,6 +1608,16 @@ struct MainWindowView: View {
 
     private var isFileStatusActive: Bool { selectedItem == .item(.fileStatus) }
     private var isReflogActive: Bool { selectedItem == .item(.reflog) }
+    private func revealWorktreeInHistory(_ worktreeURL: URL) {
+        Task {
+            let reference = await GitStatusService.shared.worktreeHistoryReference(for: worktreeURL, in: repositoryURL)
+            await MainActor.run {
+                guard selectedItem == .worktree(worktreeURL) else { return }
+                selectedBranchName = reference
+            }
+        }
+    }
+
     private var isHistoryActive: Bool {
         guard referenceDiffBase == nil else { return false }
         return switch selectedItem {

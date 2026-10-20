@@ -160,6 +160,7 @@ struct SidebarView: View {
     @State private var subtreeToEdit: GitSubtreeEntry?
     @State var subtreeToUnlink: GitSubtreeEntry?
     @State var worktreeEntries: [WorktreeEntry] = []
+    @State var worktreeBranches: Set<String> = []
     @State var hasLoadedWorktrees = false
     @State var isLoadingWorktrees = false
     @State var activeWorktreeLoadID: UUID?
