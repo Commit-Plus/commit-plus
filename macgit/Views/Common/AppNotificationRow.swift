@@ -8,7 +8,7 @@ struct AppNotificationRow: View {
     var body: some View {
         Button(action: onOpen) {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "arrow.triangle.branch")
+                Image(systemName: iconName)
                     .font(.title3)
                     .foregroundStyle(Color.accentColor)
                     .frame(width: 32, height: 32)
@@ -27,11 +27,10 @@ struct AppNotificationRow: View {
                                 .accessibilityLabel("Unread")
                         }
                     }
-                    Text(notification.branchNames.count == 1
-                         ? "1 fully merged branch can be deleted"
-                         : "\(notification.branchNames.count) fully merged branches can be deleted")
+                    Text(message)
                         .foregroundStyle(.primary)
-                    Label("Delete fully merged branches", systemImage: "trash")
+                        .lineLimit(2)
+                    Label(actionTitle, systemImage: actionIcon)
                         .foregroundStyle(Color.accentColor)
                 }
             }
@@ -40,6 +39,49 @@ struct AppNotificationRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Review and delete fully merged branches")
+        .help(helpText)
+    }
+
+    private var iconName: String {
+        switch notification.kind {
+        case .fullyMergedBranches: "arrow.triangle.branch"
+        case .pullRequestCreated: "arrow.triangle.pull"
+        }
+    }
+
+    private var message: String {
+        switch notification.kind {
+        case .fullyMergedBranches:
+            notification.branchNames.count == 1
+                ? "1 fully merged branch can be deleted"
+                : "\(notification.branchNames.count) fully merged branches can be deleted"
+        case .pullRequestCreated:
+            if let pullRequest = notification.pullRequest {
+                "Pull request #\(pullRequest.number) created: \(pullRequest.title)"
+            } else {
+                "Pull request created"
+            }
+        }
+    }
+
+    private var actionTitle: String {
+        switch notification.kind {
+        case .fullyMergedBranches: "Delete fully merged branches"
+        case .pullRequestCreated: "Open pull request"
+        }
+    }
+
+    private var actionIcon: String {
+        switch notification.kind {
+        case .fullyMergedBranches: "trash"
+        case .pullRequestCreated: "arrow.up.forward.app"
+        }
+    }
+
+    private var helpText: String {
+        switch notification.kind {
+        case .fullyMergedBranches: "Review and delete fully merged branches"
+        case .pullRequestCreated: "Open pull request details"
+        }
     }
 }

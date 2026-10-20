@@ -232,6 +232,8 @@ final class PullRequestController: ObservableObject {
         }
     }
 
+    var listRemoteName: String? { activeRemoteName }
+
     var visibleItems: [PullRequestSummary] {
         items.filter { item in
             stateFilter.includes(item.state)

@@ -27,6 +27,9 @@ struct PullRequestListView: View {
     var onReconnectAccount: () -> Void = {}
     var onRequestCreatePullRequest: () -> Void = {}
     var authorizeAction: () async -> Bool = { true }
+    var pendingPullRequestNotification: AppNotification? = nil
+    var onConsumePendingPullRequest: (String) -> Void = { _ in }
+    @State private var hasCompletedInitialLoad = false
     @State private var pendingCommentPullRequest: PullRequestSummary?
     @State private var selectedPullRequestID: Int?
     @State private var detailWindowController = PullRequestDetailWindowController()
@@ -120,9 +123,17 @@ struct PullRequestListView: View {
             }
         }
         .task(id: repositoryURL) {
+            hasCompletedInitialLoad = false
             guard await authorizeAction() else { return }
             closeDetail()
             await controller.loadPullRequests(repositoryURL: repositoryURL)
+            guard !Task.isCancelled else { return }
+            hasCompletedInitialLoad = true
+            await openPendingPullRequestIfNeeded()
+        }
+        .onChange(of: pendingPullRequestNotification?.id) { _, _ in
+            guard hasCompletedInitialLoad else { return }
+            Task { await openPendingPullRequestIfNeeded() }
         }
         .onChange(of: controller.stateFilter) { _, _ in
             closeDetail()
@@ -162,25 +173,7 @@ struct PullRequestListView: View {
                 .onTapGesture {
                     Task {
                         guard await authorizeAction() else { return }
-                        if selectedPullRequestID == item.id,
-                           detailWindowController.activateIfPresented() { return }
-                        detailWindowController.close()
-                        controller.clearSelectedDetail()
-                        selectedPullRequestID = item.id
-                        detailWindowController.show(
-                            title: "Pull Request #\(item.number) — \(repositoryURL.lastPathComponent)",
-                            content: PullRequestDetailWindowContent(
-                                controller: controller,
-                                selectedPullRequestID: item.id,
-                                authorizeAction: authorizeAction,
-                                onClose: closeDetail
-                            )
-                            .environmentObject(appState)
-                            .environment(\.appTextScale, textScale)
-                            .sheetPresentationScope(),
-                            onClose: closeDetail
-                        )
-                        await controller.loadPullRequestDetail(item)
+                        await showDetail(for: item)
                     }
                 }
                 .listRowSeparator(.visible)
@@ -190,6 +183,41 @@ struct PullRequestListView: View {
             paginationFooter
         }
         .frame(minWidth: 280, idealWidth: 360, maxWidth: .infinity)
+    }
+
+    private func showDetail(for item: PullRequestSummary) async {
+        if selectedPullRequestID == item.id,
+           detailWindowController.activateIfPresented() { return }
+        detailWindowController.close()
+        controller.clearSelectedDetail()
+        selectedPullRequestID = item.id
+        detailWindowController.show(
+            title: "Pull Request #\(item.number) — \(repositoryURL.lastPathComponent)",
+            content: PullRequestDetailWindowContent(
+                controller: controller,
+                selectedPullRequestID: item.id,
+                authorizeAction: authorizeAction,
+                onClose: closeDetail
+            )
+            .environmentObject(appState)
+            .environment(\.appTextScale, textScale)
+            .sheetPresentationScope(),
+            onClose: closeDetail
+        )
+        await controller.loadPullRequestDetail(item)
+    }
+
+    /// Opens the detail window for a "pull request created" app notification the user activated.
+    private func openPendingPullRequestIfNeeded() async {
+        guard let notification = pendingPullRequestNotification else { return }
+        onConsumePendingPullRequest(notification.id)
+        guard let pullRequest = notification.pullRequest,
+              await authorizeAction(), !Task.isCancelled else { return }
+        if let remoteName = notification.remoteName, remoteName != controller.listRemoteName {
+            await controller.loadPullRequests(repositoryURL: repositoryURL, remoteName: remoteName)
+            guard !Task.isCancelled else { return }
+        }
+        await showDetail(for: controller.items.first { $0.id == pullRequest.id } ?? pullRequest)
     }
 
     private func closeDetail() {

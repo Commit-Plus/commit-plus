@@ -114,6 +114,7 @@ struct MainWindowView: View {
     @EnvironmentObject var repositoryVisibilityController: RepositoryVisibilityController
     @EnvironmentObject var gitFlowConfigurationSyncController: GitFlowConfigurationSyncController
     @EnvironmentObject var customActionStore: CustomActionStore
+    @EnvironmentObject var appNotificationController: AppNotificationController
     @Environment(\.openWindow) private var openWindow
     let repoSettingsStore = RepoSettingsStore.shared
     let gitFlowConfigurationStore = GitFlowConfigurationStore()
@@ -831,6 +832,10 @@ struct MainWindowView: View {
             windowContext.window?.makeKeyAndOrderFront(nil)
             selectedItem = .item(.pullRequests)
         }
+        .onChange(of: appNotificationController.pendingPullRequest?.id, initial: true) { _, _ in
+            guard pendingPullRequestNotification != nil else { return }
+            selectedItem = .item(.pullRequests)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .gitFlowMenuAction)) { notification in
             guard windowContext.owns(notification),
                   let action = notification.userInfo?["action"] as? GitFlowMenuAction else { return }
@@ -1473,7 +1478,9 @@ struct MainWindowView: View {
                         onRequestCreatePullRequest: {
                             prepareCreatePullRequest()
                         },
-                        authorizeAction: { await authorizePullRequestAccess() }
+                        authorizeAction: { await authorizePullRequestAccess() },
+                        pendingPullRequestNotification: pendingPullRequestNotification,
+                        onConsumePendingPullRequest: appNotificationController.consumePendingPullRequest(id:)
                     )
                 case .denied(let denial):
                     FeatureAccessUnavailableView(

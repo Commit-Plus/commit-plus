@@ -44,7 +44,8 @@ struct GitHubNotificationBell: View {
         if !RepositoryWindowContext.focusRepository(at: repositoryURL) {
             openWindow(id: "main", value: RepositoryWindowRequest.repository(
                 repositoryURL,
-                shouldFitVisibleScreen: true
+                shouldFitVisibleScreen: true,
+                showsPullRequests: notification.kind == .pullRequestCreated ? true : nil
             ))
         }
     }

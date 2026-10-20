@@ -112,4 +112,40 @@ final class AppNotificationControllerTests: XCTestCase {
         )
         XCTAssertTrue(reopened.notifications.isEmpty)
     }
+
+    func testPullRequestCreatedPersistsAndActivatesPendingPullRequest() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        let controller = AppNotificationController(dataStore: fixture.store)
+        let repository = URL(fileURLWithPath: "/tmp/example", isDirectory: true)
+        let pullRequest = PullRequestSummary(
+            number: 42,
+            title: "Add feature",
+            state: .open,
+            author: PullRequestAuthor(username: "octocat"),
+            source: PullRequestBranchRef(label: "octocat:feature", ref: "feature", sha: nil),
+            target: PullRequestBranchRef(label: "octocat:main", ref: "main", sha: nil),
+            webURL: try XCTUnwrap(URL(string: "https://github.com/octocat/example/pull/42")),
+            updatedAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+
+        await controller.recordPullRequestCreated(pullRequest, repositoryURL: repository, remoteName: "upstream")
+
+        let notification = try XCTUnwrap(controller.notifications.first)
+        XCTAssertEqual(notification.kind, .pullRequestCreated)
+        XCTAssertEqual(notification.pullRequest, pullRequest)
+        XCTAssertEqual(notification.remoteName, "upstream")
+        XCTAssertEqual(controller.unreadCount, 1)
+
+        controller.activate(notification)
+        XCTAssertEqual(controller.pendingPullRequest?.id, notification.id)
+        XCTAssertNil(controller.pendingBranchCleanup)
+        controller.consumePendingPullRequest(id: notification.id)
+        XCTAssertNil(controller.pendingPullRequest)
+
+        let reopenedStore = try await fixture.reopen()
+        let reopened = AppNotificationController(dataStore: reopenedStore)
+        await reopened.load()
+        XCTAssertEqual(reopened.notifications.first?.pullRequest, pullRequest)
+    }
 }
