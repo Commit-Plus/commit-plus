@@ -257,6 +257,9 @@ struct macgitApp: App {
                 .environmentObject(customActionStore)
                 .environmentObject(gitFlowConfigurationSyncController)
                 .preferredColorScheme(appState.appearance.colorScheme)
+                .onChange(of: appState.appearance, initial: true) { _, appearance in
+                    NSApp.appearance = appearance.nsAppearance
+                }
                 .font(appState.textSize.font)
                 .environment(\.appTextScale, appState.textSize.scale)
                 .task {
@@ -318,7 +321,8 @@ struct macgitApp: App {
                     if !RepositoryWindowContext.focusRepository(at: repositoryURL) {
                         openWindow(id: "main", value: RepositoryWindowRequest.repository(
                             repositoryURL,
-                            shouldFitVisibleScreen: true
+                            shouldFitVisibleScreen: true,
+                            showsPullRequests: notification.kind == .pullRequestCreated ? true : nil
                         ))
                     }
                 },
@@ -567,6 +571,9 @@ struct macgitApp: App {
             )
             .environmentObject(featureAccessController)
             .preferredColorScheme(appState.appearance.colorScheme)
+            .onChange(of: appState.appearance, initial: true) { _, appearance in
+                NSApp.appearance = appearance.nsAppearance
+            }
             .font(appState.textSize.font)
             .environment(\.appTextScale, appState.textSize.scale)
         }

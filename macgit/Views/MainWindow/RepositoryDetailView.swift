@@ -11,7 +11,7 @@ struct RepositoryDetailView: View {
     // Welcome owns these models across repository selections; standalone
     // previews keep their own model for the lifetime of this view.
     @State private var model: RepositoryDetailModel
-    @State private var tab: RepositoryDetailTab = .summary
+    @State private var tab: RepositoryDetailTab = .readme
     @State private var refresh = 0
 
     init(repositoryURL: URL, onClose: (() -> Void)?, onOpen: @escaping (URL) -> Void,
@@ -35,9 +35,12 @@ struct RepositoryDetailView: View {
                     Color.clear.frame(height: 1).id("repository-detail-content-start")
                     Section {
                         switch tab {
-                        case .summary:
+                        case .readme:
                             RepositoryReadmeSection(repositoryURL: repositoryURL, content: model.readme, file: model.readmeURL, isLoading: model.isLoading,
                                                     onOpenFile: { fileOpener.prepare($0, appState: appState) })
+                        case .summary:
+                            RepositorySummarySection(summary: model.summary, isLoading: model.error == nil)
+                                .padding(20)
                         case .statistics:
                             RepositoryStatisticsView(repositoryURL: repositoryURL, isActive: isActive)
                                 .padding(20)
@@ -46,6 +49,7 @@ struct RepositoryDetailView: View {
                         VStack(spacing: 0) {
                             HStack {
                                 Picker("Repository details", selection: $tab) {
+                                    Text("README").tag(RepositoryDetailTab.readme)
                                     Text("Summary").tag(RepositoryDetailTab.summary)
                                     Text("Statistics").tag(RepositoryDetailTab.statistics)
                                 }.pickerStyle(.segmented).labelsHidden().fixedSize()

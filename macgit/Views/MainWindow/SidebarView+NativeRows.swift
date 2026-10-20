@@ -105,7 +105,7 @@ extension SidebarView {
                     configuration: gitFlowConfiguration
                 )
                 var row = SidebarNativeRow(id: .init(section: .branches, kind: "ref", key: item.fullPath),
-                    appearance: .init(title: item.name, icon: current ? "circle.fill" : worktreeBranches.contains(item.fullPath) ? "folder" : "", badge: badges.joined(separator: "  "), gitFlowRole: role, indent: item.indent, emphasized: current),
+                    appearance: .init(title: item.name, icon: current ? "circle.fill" : "", badge: badges.joined(separator: "  "), gitFlowRole: role, indent: item.indent, emphasized: current),
                     selection: .branch(item.fullPath), select: { branchSectionActions.select(.branch(item.fullPath)) },
                     activate: { if !current { branchSectionActions.checkout(item.fullPath) } },
                     menu: { nativeBranchMenu(item.fullPath) },

@@ -22,13 +22,13 @@ final class HistoryRefBadgeView: NSView {
         label.setContentCompressionResistancePriority(.required, for: .horizontal)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func configure(text: String, graphColorIndex: Int?, textScale: CGFloat) {
-        style = RefLabelStyle(text: text, graphColorIndex: graphColorIndex)
+    func configure(text: String, graphColorIndex: Int?, worktreeBranches: Set<String>, textScale: CGFloat) {
+        style = RefLabelStyle(text: text, graphColorIndex: graphColorIndex, worktreeBranches: worktreeBranches)
         label.stringValue = style.displayText
         label.font = .systemFont(ofSize: 11 * textScale, weight: .semibold)
-        icon.image = NSImage(systemSymbolName: style.symbolName, accessibilityDescription: style.isTag ? "Tag" : "Branch")?
+        icon.image = NSImage(systemSymbolName: style.symbolName, accessibilityDescription: style.isTag ? "Tag" : style.isWorktreeBranch ? "Worktree Branch" : "Branch")?
             .withSymbolConfiguration(.init(pointSize: 10, weight: .semibold))
-        toolTip = text
+        toolTip = style.isWorktreeBranch ? "\(text) (checked out in a worktree)" : text
         setAccessibilityLabel(text)
         invalidateIntrinsicContentSize()
         updateColors()

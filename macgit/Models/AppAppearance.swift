@@ -40,6 +40,16 @@ enum AppAppearance: String, CaseIterable, Codable, Identifiable, Sendable {
         }
     }
 
+    /// Applied app-wide so AppKit-hosted windows (pull request, comparison,
+    /// settings panels) follow the setting like the SwiftUI scenes do.
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+    }
+
     var colorScheme: ColorScheme? {
         switch self {
         case .system: nil

@@ -114,6 +114,7 @@ struct MainWindowView: View {
     @EnvironmentObject var repositoryVisibilityController: RepositoryVisibilityController
     @EnvironmentObject var gitFlowConfigurationSyncController: GitFlowConfigurationSyncController
     @EnvironmentObject var customActionStore: CustomActionStore
+    @EnvironmentObject var appNotificationController: AppNotificationController
     @Environment(\.openWindow) private var openWindow
     let repoSettingsStore = RepoSettingsStore.shared
     let gitFlowConfigurationStore = GitFlowConfigurationStore()
@@ -647,13 +648,7 @@ struct MainWindowView: View {
                             )
                         }
                     }
-                    startBackgroundSyncIfAppActive(defersInitialWork: true)
                 }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-                appActivationSyncTask?.cancel()
-                appActivationSyncTask = nil
-                syncState.stopBackgroundSync()
             }
             .onReceive(NotificationCenter.default.publisher(for: .showSearchModal)) { notification in
                 guard windowContext.owns(notification) else { return }
@@ -796,7 +791,7 @@ struct MainWindowView: View {
             }
         }
         .onChange(of: appState.autoFetchEnabled) { _, globalAutoFetchEnabled in
-            startBackgroundSyncIfAppActive(globalAutoFetchEnabled: globalAutoFetchEnabled)
+            startBackgroundSyncIfLoaded(globalAutoFetchEnabled: globalAutoFetchEnabled)
         }
         .onChange(of: selectedItem) { _, newItem in
             if newItem != .item(.gitLFS) { lfsTrackingPath = nil }
@@ -835,6 +830,10 @@ struct MainWindowView: View {
                 return
             }
             windowContext.window?.makeKeyAndOrderFront(nil)
+            selectedItem = .item(.pullRequests)
+        }
+        .onChange(of: appNotificationController.pendingPullRequest?.id, initial: true) { _, _ in
+            guard pendingPullRequestNotification != nil else { return }
             selectedItem = .item(.pullRequests)
         }
         .onReceive(NotificationCenter.default.publisher(for: .gitFlowMenuAction)) { notification in
@@ -1479,7 +1478,9 @@ struct MainWindowView: View {
                         onRequestCreatePullRequest: {
                             prepareCreatePullRequest()
                         },
-                        authorizeAction: { await authorizePullRequestAccess() }
+                        authorizeAction: { await authorizePullRequestAccess() },
+                        pendingPullRequestNotification: pendingPullRequestNotification,
+                        onConsumePendingPullRequest: appNotificationController.consumePendingPullRequest(id:)
                     )
                 case .denied(let denial):
                     FeatureAccessUnavailableView(
@@ -1916,16 +1917,19 @@ struct MainWindowView: View {
         async let loadedGitFlowConfiguration = gitFlowConfigurationStore.loadResult(in: repositoryURL)
         async let loadedGitFlowCheckpoint = GitFlowRecoveryStore().loadResult(in: repositoryURL)
         async let loadedGitCommonDirectory = try? GitStatusService.shared.gitCommonDirectory(in: repositoryURL)
-        let (remotes, currentBranch, localBranches, configurationResult, checkpointResult, gitCommonDirectory) = await (
+        async let loadedMainWorktreePath = GitStatusService.shared.mainWorktreePath(in: repositoryURL)
+        let (remotes, currentBranch, localBranches, configurationResult, checkpointResult, gitCommonDirectory, mainWorktreePath) = await (
             loadedRemotes,
             loadedCurrentBranch,
             loadedLocalBranches,
             loadedGitFlowConfiguration,
             loadedGitFlowCheckpoint,
-            loadedGitCommonDirectory
+            loadedGitCommonDirectory,
+            loadedMainWorktreePath
         )
         let loadedSettings = await repoSettingsStore.settings(
             for: repositoryURL.path,
+            mainWorktreePath: mainWorktreePath?.path,
             currentBranch: currentBranch,
             remotes: remotes
         )
@@ -1986,7 +1990,7 @@ struct MainWindowView: View {
         await MainActor.run {
             didPerformInitialLoad = true
         }
-        startBackgroundSyncIfAppActive(settings: loadedSettings)
+        startBackgroundSyncIfLoaded(settings: loadedSettings)
 
         await MainActor.run {
             if initialShowsHistory == nil,
@@ -2002,14 +2006,15 @@ struct MainWindowView: View {
         "\(didPerformInitialLoad)|\(accountController.account?.uid ?? "signed-out")"
     }
 
-    /// The only entry point for starting background polling. Polling pauses while the app is
-    /// inactive and waits for the initial load so it never runs with placeholder settings.
-    func startBackgroundSyncIfAppActive(
+    /// The only entry point for starting background polling. Polling keeps running while the app
+    /// is inactive (e.g. visible on a second display) and waits for the initial load so it never
+    /// runs with placeholder settings.
+    func startBackgroundSyncIfLoaded(
         settings: RepoSettings? = nil,
         globalAutoFetchEnabled: Bool? = nil,
         defersInitialWork: Bool = false
     ) {
-        guard didPerformInitialLoad, NSApp.isActive else {
+        guard didPerformInitialLoad else {
             syncState.stopBackgroundSync()
             return
         }
@@ -2500,7 +2505,7 @@ struct MainWindowView: View {
         if let preferredRemote {
             remote = preferredRemote
         } else {
-            remote = await GitStatusService.shared.remotes(in: repositoryURL).first
+            remote = RepoSettings.preferredRemote(in: await GitStatusService.shared.remotes(in: repositoryURL))
         }
         guard let remote else {
             await MainActor.run {

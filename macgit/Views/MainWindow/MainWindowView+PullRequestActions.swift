@@ -80,6 +80,14 @@ extension MainWindowView {
         presentCreatePullRequestWindow(sourceBranch: nil)
     }
 
+    /// The in-app "pull request created" notification the user activated for this repository.
+    var pendingPullRequestNotification: AppNotification? {
+        guard let notification = appNotificationController.pendingPullRequest,
+              notification.repositoryURL.resolvingSymlinksInPath().standardizedFileURL
+                == repositoryURL.resolvingSymlinksInPath().standardizedFileURL else { return nil }
+        return notification
+    }
+
     func submitCreatePullRequest(_ draft: PullRequestDraft) async {
         guard await authorizePullRequestAccess(presentNotice: false) else {
             let message = "Pull request access is unavailable for this repository."
@@ -87,6 +95,7 @@ extension MainWindowView {
             PullRequestUserNotification.creationFailed(message: message, repositoryURL: repositoryURL)
             return
         }
+        let remoteName = pullRequestController.createDraftSeed?.remoteName
         do {
             _ = try await prepareRemoteBranchForPullRequest(branch: draft.sourceBranch)
             if let result = await pullRequestController.createPullRequest(draft) {
@@ -102,6 +111,11 @@ extension MainWindowView {
                         warnings: result.warnings
                     )
                 }
+                await appNotificationController.recordPullRequestCreated(
+                    result.summary,
+                    repositoryURL: repositoryURL,
+                    remoteName: remoteName
+                )
             } else {
                 let message = pullRequestController.detailErrorMessage ?? "Could not create pull request."
                 PullRequestUserNotification.creationFailed(message: message, repositoryURL: repositoryURL)

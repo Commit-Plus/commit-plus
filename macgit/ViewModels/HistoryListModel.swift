@@ -34,6 +34,8 @@ final class HistoryListModel {
             invalidateLoad()
             publishedKey = nil
             rebaseAvailability = HistoryRebaseAvailability()
+            worktreeBranches = []
+            worktreeBranchesToken += 1
         }
     }
     var branchFilter: HistoryBranchFilter { didSet { if branchFilter != oldValue { invalidateLoad() } } }
@@ -54,6 +56,8 @@ final class HistoryListModel {
     private(set) var shouldDebounceDetailSelection = false
     private(set) var headHash: String?
     private(set) var rebaseAvailability = HistoryRebaseAvailability()
+    /// Local branches checked out in other worktrees; their ref badges use a folder icon.
+    private(set) var worktreeBranches: Set<String> = []
     private(set) var phase: Phase = .idle
     private(set) var scrollRequest: HistoryScrollRequest?
     private(set) var dragActiveHashes: Set<String> = []
@@ -63,6 +67,8 @@ final class HistoryListModel {
     @ObservationIgnored private var graphState: CommitGraphGenerationState?
     @ObservationIgnored private var graphRootHash: String?
     @ObservationIgnored private var generation = UUID()
+    /// Bumped per worktree-branch fetch so an older result never overwrites a newer one.
+    @ObservationIgnored private var worktreeBranchesToken = 0
     @ObservationIgnored private var publishedKey: String?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var pageTask: Task<Void, Never>?
@@ -136,6 +142,22 @@ final class HistoryListModel {
         rebaseAvailability = availability
     }
 
+    func refreshWorktreeBranches() async {
+        let token = beginWorktreeBranchesFetch()
+        let branches = await GitStatusService.shared.worktreeBranches(in: repositoryURL)
+        applyWorktreeBranches(branches, token: token)
+    }
+
+    private func beginWorktreeBranchesFetch() -> Int {
+        worktreeBranchesToken += 1
+        return worktreeBranchesToken
+    }
+
+    private func applyWorktreeBranches(_ branches: Set<String>, token: Int) {
+        guard token == worktreeBranchesToken, worktreeBranches != branches else { return }
+        worktreeBranches = branches
+    }
+
     private func reload(preservingSelection: Bool) async {
         guard !Task.isCancelled else { return }
         invalidateLoad()
@@ -159,10 +181,13 @@ final class HistoryListModel {
             else { commits = await self.historyPage(request, limit: limit, skip: 0) }
             guard self.isCurrent(request) else { return }
             let head = await self.resolveHead(commits, request: request)
-            let rebaseAvailability = (try? await GitStatusService.shared.historyRebaseAvailability(in: request.repositoryURL)) ?? HistoryRebaseAvailability()
-            let root = await HistoryLoadPolicy.highlightRootHash(
+            let worktreeToken = self.beginWorktreeBranchesFetch()
+            async let loadedRebaseAvailability = (try? GitStatusService.shared.historyRebaseAvailability(in: request.repositoryURL)) ?? HistoryRebaseAvailability()
+            async let loadedWorktreeBranches = GitStatusService.shared.worktreeBranches(in: request.repositoryURL)
+            async let loadedRoot = HistoryLoadPolicy.highlightRootHash(
                 for: request.filter, commits: commits, repositoryURL: request.repositoryURL
             )
+            let (rebaseAvailability, worktreeBranches, root) = await (loadedRebaseAvailability, loadedWorktreeBranches, loadedRoot)
             guard self.isCurrent(request) else { return }
             let graph = await CommitGraphGenerator.generateIncrementalAsync(
                 commits: commits, highlighting: HistoryLoadPolicy.highlighting(for: request.filter),
@@ -171,6 +196,7 @@ final class HistoryListModel {
             guard self.isCurrent(request) else { return }
             let previousCommit = self.selectedCommit
             self.rebaseAvailability = rebaseAvailability
+            self.applyWorktreeBranches(worktreeBranches, token: worktreeToken)
             self.publish(commits: commits, graphResult: graph,
                          hasMore: snapshot?.hasMore ?? (commits.count == limit),
                          change: .reload(preserveViewport: preservingSelection), head: head, root: root)

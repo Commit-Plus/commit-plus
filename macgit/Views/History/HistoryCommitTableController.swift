@@ -11,6 +11,7 @@ final class HistoryCommitTableController: NSObject, NSTableViewDataSource, NSTab
     private(set) var repositoryURL: URL?
     private var customActionStore: CustomActionStore?
     private(set) var textScale: CGFloat = 1
+    private var worktreeBranches: Set<String> = []
     private(set) var rows = HistoryRows(commits: [], graphModel: nil, hasMore: false, version: -1,
                                       change: .reload(preserveViewport: false), indexByHash: [:])
     private var appliedVersion = -1
@@ -95,7 +96,7 @@ final class HistoryCommitTableController: NSObject, NSTableViewDataSource, NSTab
 
     func apply(listModel: HistoryListModel, actions: HistoryCommitActionController,
                customActionStore: CustomActionStore, repositoryURL: URL, textScale: CGFloat,
-               rows: HistoryRows, selection: HistoryCommitSelection,
+               worktreeBranches: Set<String>, rows: HistoryRows, selection: HistoryCommitSelection,
                scrollRequest: HistoryScrollRequest?, dragActive: Set<String>) {
         self.listModel = listModel
         self.actions = actions
@@ -148,6 +149,16 @@ final class HistoryCommitTableController: NSObject, NSTableViewDataSource, NSTab
             isApplyingModelSelection = false
             restoreViewport(anchor)
             appliedTextScale = textScale
+        }
+        if self.worktreeBranches != worktreeBranches {
+            self.worktreeBranches = worktreeBranches
+            let messageColumn = tableView.column(withIdentifier: NSUserInterfaceItemIdentifier("message"))
+            // Include rows prepared outside the visible rect so scrolling never reveals stale badges.
+            var liveRows = IndexSet()
+            tableView.enumerateAvailableRowViews { _, row in liveRows.insert(row) }
+            if messageColumn >= 0, !liveRows.isEmpty {
+                tableView.reloadData(forRowIndexes: liveRows, columnIndexes: IndexSet(integer: messageColumn))
+            }
         }
         if appliedDragActive != dragActive {
             let affected = appliedDragActive.union(dragActive)
@@ -221,7 +232,8 @@ final class HistoryCommitTableController: NSObject, NSTableViewDataSource, NSTab
         case "message":
             let cell = tableView.makeView(withIdentifier: id, owner: self) as? HistoryMessageCellView ?? HistoryMessageCellView()
             cell.identifier = id
-            cell.configure(commit: commit, colorIndex: rows.graphModel?.commitMetadata[commit.hash]?.colorIndex, textScale: textScale)
+            cell.configure(commit: commit, colorIndex: rows.graphModel?.commitMetadata[commit.hash]?.colorIndex,
+                           worktreeBranches: worktreeBranches, textScale: textScale)
             return cell
         default:
             let cell = tableView.makeView(withIdentifier: id, owner: self) as? HistoryTextCellView ?? HistoryTextCellView()

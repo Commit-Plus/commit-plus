@@ -85,9 +85,14 @@ struct RepoSettings: Codable, Equatable {
         showMergedBranchHints = try container.decodeIfPresent(Bool.self, forKey: .showMergedBranchHints) ?? true
     }
 
+    /// `git remote` lists names alphabetically; prefer the conventional primary remote.
+    static func preferredRemote(in remotes: [String]) -> String? {
+        remotes.contains("origin") ? "origin" : remotes.first
+    }
+
     static func defaults(currentBranch: String?, remotes: [String]) -> RepoSettings {
         RepoSettings(
-            defaultRemoteName: remotes.first,
+            defaultRemoteName: preferredRemote(in: remotes),
             defaultPullBranch: currentBranch ?? ""
         )
     }

@@ -6,6 +6,7 @@ import Foundation
 final class AppNotificationController: ObservableObject {
     @Published private(set) var notifications: [AppNotification] = []
     @Published private(set) var pendingBranchCleanup: AppNotification?
+    @Published private(set) var pendingPullRequest: AppNotification?
 
     private let dataStore: LocalDataStore
     private let calendar: Calendar
@@ -76,8 +77,42 @@ final class AppNotificationController: ObservableObject {
         }
     }
 
+    func recordPullRequestCreated(
+        _ pullRequest: PullRequestSummary,
+        repositoryURL: URL,
+        remoteName: String?,
+        now: Date = .now
+    ) async {
+        await load()
+        let repositoryPath = repositoryURL.resolvingSymlinksInPath().standardizedFileURL.path
+        let notification = AppNotification(
+            id: "pullRequestCreated|\(pullRequest.webURL.absoluteString)",
+            kind: .pullRequestCreated,
+            repositoryPath: repositoryPath,
+            branchNames: [pullRequest.source.ref],
+            createdAt: now,
+            readAt: nil,
+            pullRequest: pullRequest,
+            remoteName: remoteName
+        )
+        do {
+            try await dataStore.transaction { transaction in
+                try transaction.set(notification, in: Self.notificationCollection, id: notification.id)
+            }
+            notifications.removeAll { $0.id == notification.id }
+            notifications.insert(notification, at: 0)
+        } catch {
+            // The system notification already reported the result; the in-app entry is supplemental.
+        }
+    }
+
     func activate(_ notification: AppNotification) {
-        pendingBranchCleanup = notification
+        switch notification.kind {
+        case .fullyMergedBranches:
+            pendingBranchCleanup = notification
+        case .pullRequestCreated:
+            pendingPullRequest = notification
+        }
         guard notification.readAt == nil else { return }
         Task { await markRead(notification) }
     }
@@ -85,6 +120,11 @@ final class AppNotificationController: ObservableObject {
     func consumePendingBranchCleanup(id: String) {
         guard pendingBranchCleanup?.id == id else { return }
         pendingBranchCleanup = nil
+    }
+
+    func consumePendingPullRequest(id: String) {
+        guard pendingPullRequest?.id == id else { return }
+        pendingPullRequest = nil
     }
 
     func deleteAll() async {
@@ -99,6 +139,9 @@ final class AppNotificationController: ObservableObject {
             notifications.removeAll { ids.contains($0.id) }
             if let pendingBranchCleanup, ids.contains(pendingBranchCleanup.id) {
                 self.pendingBranchCleanup = nil
+            }
+            if let pendingPullRequest, ids.contains(pendingPullRequest.id) {
+                self.pendingPullRequest = nil
             }
         } catch {
             // Keep the notifications visible when persistence fails so deletion can be retried.
@@ -118,6 +161,9 @@ final class AppNotificationController: ObservableObject {
             notifications[currentIndex] = updated
             if pendingBranchCleanup?.id == updated.id {
                 pendingBranchCleanup = updated
+            }
+            if pendingPullRequest?.id == updated.id {
+                pendingPullRequest = updated
             }
         } catch {
             // Keep the item unread when persistence fails so the action can be retried.

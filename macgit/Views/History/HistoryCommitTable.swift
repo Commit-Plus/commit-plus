@@ -17,7 +17,8 @@ struct HistoryCommitTable: NSViewRepresentable {
         let scrollRequest = listModel.scrollRequest
         let dragActive = listModel.dragActiveHashes
         context.coordinator.apply(listModel: listModel, actions: actions, customActionStore: customActionStore,
-                                  repositoryURL: repositoryURL, textScale: textScale, rows: rows,
+                                  repositoryURL: repositoryURL, textScale: textScale,
+                                  worktreeBranches: listModel.worktreeBranches, rows: rows,
                                   selection: selection, scrollRequest: scrollRequest, dragActive: dragActive)
     }
     static func dismantleNSView(_ view: NSScrollView, coordinator: HistoryCommitTableController) {
