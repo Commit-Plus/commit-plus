@@ -167,7 +167,14 @@ struct HistoryScreen: View {
         historySelection
         .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange)) { notification in
             guard notification.userInfo?["repositoryURL"] as? URL == repositoryURL else { return }
-            requestRefreshIfCommitSetChanged()
+            requestRefreshIfCommitSetChanged(includingWorktrees: true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh)) { notification in
+            guard notification.userInfo?["repositoryURL"] as? URL == repositoryURL else { return }
+            // Worktrees can be added or removed outside the app without changing history.
+            // A pending reload fetches them anyway, and activation catches up when hidden.
+            guard isActive, !isWorkSuspended, !needsRefresh else { return }
+            Task { await listModel.refreshWorktreeBranches() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryRemoteRefsDidRefresh)) { notification in
             guard notification.userInfo?["repositoryURL"] as? URL == repositoryURL else { return }
@@ -191,7 +198,7 @@ struct HistoryScreen: View {
             if active && !isWorkSuspended {
                 detailModel.resume()
                 selectionSink.update(listModel.selectedHashesInDisplayOrder)
-                if needsRefresh { requestRefresh() }
+                if needsRefresh { requestRefresh() } else { Task { await listModel.refreshWorktreeBranches() } }
             } else {
                 detailModel.suspend()
                 listModel.cancelSearchDebounce()
@@ -243,13 +250,14 @@ struct HistoryScreen: View {
         }
     }
 
-    private func requestRefreshIfCommitSetChanged() {
+    private func requestRefreshIfCommitSetChanged(includingWorktrees: Bool = false) {
         Task {
             let fingerprint = await GitStatusService.shared.historyCommitSetFingerprint(in: repositoryURL)
             guard !Task.isCancelled else { return }
             guard historyCommitSetFingerprint != fingerprint else {
                 if isActive && !isWorkSuspended {
                     await listModel.refreshRebaseAvailability()
+                    if includingWorktrees { await listModel.refreshWorktreeBranches() }
                 } else {
                     needsRefresh = true
                 }

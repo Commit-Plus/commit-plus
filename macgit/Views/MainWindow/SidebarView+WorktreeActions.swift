@@ -88,8 +88,6 @@ extension SidebarView {
         guard activeWorktreeLoadID == loadID else { return }
         await MainActor.run {
             if worktreeEntries != entries { worktreeEntries = entries }
-            let branches = Set(entries.compactMap(\.branch))
-            if worktreeBranches != branches { worktreeBranches = branches }
             hasLoadedWorktrees = true
         }
     }
@@ -343,7 +341,6 @@ extension SidebarView {
                 label: worktreeLabelDraft,
                 in: repositoryURL
             )
-            await loadWorktrees(force: true)
             await MainActor.run {
                 showingCreateWorktreeSheet = false
                 worktreeCreationErrorMessage = nil
@@ -459,7 +456,6 @@ extension SidebarView {
                 force: force,
                 repositoryURL: repositoryURL
             )
-            await loadWorktrees(force: true)
             await MainActor.run {
                 worktreeToCheckout = nil
                 worktreeCheckoutErrorMessage = nil
@@ -478,7 +474,6 @@ extension SidebarView {
     func deleteMissingWorktree(_ entry: WorktreeEntry) async {
         do {
             try await GitStatusService.shared.removeWorktree(at: entry.path, force: true, in: repositoryURL)
-            await loadWorktrees(force: true)
             await MainActor.run {
                 missingWorktreeEntry = nil
                 showingMissingWorktreeAlert = false
@@ -499,7 +494,6 @@ extension SidebarView {
     func removeWorktree(_ entry: WorktreeEntry, force: Bool) async {
         do {
             try await GitStatusService.shared.removeWorktree(at: entry.path, force: force, in: repositoryURL)
-            await loadWorktrees(force: true)
             await MainActor.run {
                 pendingWorktreeRemoval = nil
                 showingWorktreeRemovalConfirmation = false

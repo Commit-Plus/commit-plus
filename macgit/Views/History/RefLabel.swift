@@ -61,11 +61,12 @@ struct RefLabel: View {
 struct RefLabelStyle {
     let displayText: String
     let isTag: Bool
+    let isWorktreeBranch: Bool
     let symbolName: String
     let foreground: NSColor
     let background: NSColor
 
-    init(text: String, graphColorIndex: Int?) {
+    init(text: String, graphColorIndex: Int?, worktreeBranches: Set<String> = []) {
         isTag = text.hasPrefix("tag: ")
         if text.hasPrefix("HEAD -> ") {
             displayText = String(text.dropFirst(8))
@@ -74,7 +75,8 @@ struct RefLabelStyle {
         } else {
             displayText = text
         }
-        symbolName = isTag ? "tag" : "arrow.triangle.branch"
+        isWorktreeBranch = !isTag && worktreeBranches.contains(displayText)
+        symbolName = isTag ? "tag" : isWorktreeBranch ? "folder" : "arrow.triangle.branch"
         if isTag {
             foreground = .systemPurple
             background = foreground.withAlphaComponent(0.15)

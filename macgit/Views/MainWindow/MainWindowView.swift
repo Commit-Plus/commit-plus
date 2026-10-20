@@ -1916,16 +1916,19 @@ struct MainWindowView: View {
         async let loadedGitFlowConfiguration = gitFlowConfigurationStore.loadResult(in: repositoryURL)
         async let loadedGitFlowCheckpoint = GitFlowRecoveryStore().loadResult(in: repositoryURL)
         async let loadedGitCommonDirectory = try? GitStatusService.shared.gitCommonDirectory(in: repositoryURL)
-        let (remotes, currentBranch, localBranches, configurationResult, checkpointResult, gitCommonDirectory) = await (
+        async let loadedMainWorktreePath = GitStatusService.shared.mainWorktreePath(in: repositoryURL)
+        let (remotes, currentBranch, localBranches, configurationResult, checkpointResult, gitCommonDirectory, mainWorktreePath) = await (
             loadedRemotes,
             loadedCurrentBranch,
             loadedLocalBranches,
             loadedGitFlowConfiguration,
             loadedGitFlowCheckpoint,
-            loadedGitCommonDirectory
+            loadedGitCommonDirectory,
+            loadedMainWorktreePath
         )
         let loadedSettings = await repoSettingsStore.settings(
             for: repositoryURL.path,
+            mainWorktreePath: mainWorktreePath?.path,
             currentBranch: currentBranch,
             remotes: remotes
         )
@@ -2500,7 +2503,7 @@ struct MainWindowView: View {
         if let preferredRemote {
             remote = preferredRemote
         } else {
-            remote = await GitStatusService.shared.remotes(in: repositoryURL).first
+            remote = RepoSettings.preferredRemote(in: await GitStatusService.shared.remotes(in: repositoryURL))
         }
         guard let remote else {
             await MainActor.run {

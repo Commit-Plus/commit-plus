@@ -66,6 +66,49 @@ final class RepoSettingsStoreTests: XCTestCase {
         XCTAssertTrue(loadedB.confirmDestructiveStashActions)
     }
 
+    func testDefaultsPreferOriginOverAlphabeticallyFirstRemote() {
+        XCTAssertEqual(RepoSettings.defaults(currentBranch: nil, remotes: ["backup", "origin"]).defaultRemoteName, "origin")
+        XCTAssertEqual(RepoSettings.defaults(currentBranch: nil, remotes: ["backup", "upstream"]).defaultRemoteName, "backup")
+    }
+
+    func testLinkedWorktreeInheritsMainWorktreeDefaultRemote() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
+
+        let store = RepoSettingsStore(dataStore: fixture.store)
+        let mainPath = "/tmp/main-\(UUID().uuidString)"
+        let worktreePath = "/tmp/worktree-\(UUID().uuidString)"
+        var mainSettings = RepoSettings.defaults(currentBranch: "main", remotes: ["lab", "origin"])
+        mainSettings.defaultRemoteName = "lab"
+        mainSettings.pullStrategy = .rebase
+        try await store.update(for: mainPath, settings: mainSettings)
+
+        let inherited = await store.settings(for: worktreePath, mainWorktreePath: mainPath,
+                                             currentBranch: "feature", remotes: ["lab", "origin"])
+        XCTAssertEqual(inherited.defaultRemoteName, "lab")
+        XCTAssertEqual(inherited.defaultPullBranch, "feature")
+        XCTAssertEqual(inherited.pullStrategy, .merge)
+
+        // Settings saved without a remote (e.g. by commit-rule sync) still resolve one.
+        var remoteless = RepoSettings.defaults(currentBranch: nil, remotes: [])
+        remoteless.skipProtectedBranchCommitWarnings = true
+        try await store.update(for: worktreePath, settings: remoteless)
+        let resolved = await store.settings(for: worktreePath, mainWorktreePath: mainPath,
+                                            currentBranch: "feature", remotes: ["lab", "origin"])
+        XCTAssertEqual(resolved.defaultRemoteName, "lab")
+        XCTAssertTrue(resolved.skipProtectedBranchCommitWarnings)
+        let standalone = await store.settings(for: worktreePath, currentBranch: "feature", remotes: ["lab", "origin"])
+        XCTAssertEqual(standalone.defaultRemoteName, "origin")
+
+        var ownSettings = inherited
+        ownSettings.defaultRemoteName = "origin"
+        try await store.update(for: worktreePath, settings: ownSettings)
+        let saved = await store.settings(for: worktreePath, mainWorktreePath: mainPath,
+                                         currentBranch: "feature", remotes: ["lab", "origin"])
+        XCTAssertEqual(saved.defaultRemoteName, "origin")
+    }
+
     func testRepoSettingsDecodesLegacyPullFetchValuesAsOverrides() throws {
         let data = """
         {

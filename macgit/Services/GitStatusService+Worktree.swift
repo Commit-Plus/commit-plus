@@ -31,9 +31,20 @@ extension GitStatusService {
         return parseWorktreePorcelain(output).first(where: { $0.branch == branch })?.path
     }
 
+    /// Branches checked out in worktrees other than `repositoryURL` itself.
     func worktreeBranches(in repositoryURL: URL) async -> Set<String> {
         let output = (try? await runGit(arguments: ["worktree", "list", "--porcelain"], in: repositoryURL)) ?? ""
-        return Set(parseWorktreePorcelain(output).compactMap(\.branch))
+        // git prints real paths, so resolve symlinks before comparing with the opened URL.
+        let currentPath = normalizedWorktreePath(repositoryURL.resolvingSymlinksInPath())
+        return Set(parseWorktreePorcelain(output)
+            .filter { normalizedWorktreePath($0.path.resolvingSymlinksInPath()) != currentPath }
+            .compactMap(\.branch))
+    }
+
+    /// The main worktree is always the first entry, including for bare repositories and submodules.
+    func mainWorktreePath(in repositoryURL: URL) async -> URL? {
+        let output = (try? await runGit(arguments: ["worktree", "list", "--porcelain"], in: repositoryURL)) ?? ""
+        return parseWorktreePorcelain(output).first?.path
     }
 
     /// The branch checked out in the worktree, or its HEAD commit when detached.

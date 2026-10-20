@@ -29,9 +29,21 @@ final class RepoSettingsStore {
 
     init(dataStore: LocalDataStore? = nil) { self.dataStore = dataStore ?? .shared }
 
-    func settings(for repositoryPath: String, currentBranch: String?, remotes: [String]) async -> RepoSettings {
-        (try? await dataStore.readValue(RepoSettings.self, in: "repoSettings", id: repositoryPath))
-            ?? RepoSettings.defaults(currentBranch: currentBranch, remotes: remotes)
+    /// When no usable default remote is saved (settings can be created by flows that do not know
+    /// the remotes), a linked worktree inherits the main worktree's default remote.
+    func settings(for repositoryPath: String, mainWorktreePath: String? = nil,
+                  currentBranch: String?, remotes: [String]) async -> RepoSettings {
+        var settings = (try? await dataStore.readValue(RepoSettings.self, in: "repoSettings", id: repositoryPath))
+            ?? RepoSettings.defaults(currentBranch: currentBranch, remotes: [])
+        guard !remotes.isEmpty, !(settings.defaultRemoteName.map(remotes.contains) ?? false) else { return settings }
+        if let mainWorktreePath, mainWorktreePath != repositoryPath,
+           let mainSettings = try? await dataStore.readValue(RepoSettings.self, in: "repoSettings", id: mainWorktreePath),
+           let remote = mainSettings.defaultRemoteName, remotes.contains(remote) {
+            settings.defaultRemoteName = remote
+        } else {
+            settings.defaultRemoteName = RepoSettings.preferredRemote(in: remotes)
+        }
+        return settings
     }
 
     func update(for repositoryPath: String, settings: RepoSettings, pendingCommitRuleUID: String? = nil) async throws {

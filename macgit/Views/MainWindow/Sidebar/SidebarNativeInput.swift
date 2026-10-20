@@ -19,7 +19,6 @@ struct SidebarNativeInput: Equatable {
     let gitFlow: GitFlowConfiguration
     let gitFlowCommands: GitFlowCommandState
     let worktrees: [WorktreeEntry]
-    var worktreeBranches: Set<String> = []
     let stashes: [StashEntry]
     let submodules: [GitSubmoduleEntry]
     let subtrees: [GitSubtreeEntry]
@@ -53,7 +52,7 @@ extension SidebarView {
             syncingBranches: Set(activeSyncBranchName.map { [$0] } ?? []),
             remotes: remoteNames, remoteBranches: branchesByRemote, upstream: upstreamByBranch,
             gitFlow: gitFlowConfiguration, gitFlowCommands: gitFlowCommandState,
-            worktrees: worktreeEntries, worktreeBranches: worktreeBranches, stashes: stashEntries, submodules: submoduleEntries, subtrees: subtreeEntries,
+            worktrees: worktreeEntries, stashes: stashEntries, submodules: submoduleEntries, subtrees: subtreeEntries,
             gitFlowRoleDisplayMode: gitFlowRoleDisplayMode,
             dataRepositoryURL: sidebarDataRepositoryURL,
             mergeAssessments: branchMergeDetectionController.assessments,

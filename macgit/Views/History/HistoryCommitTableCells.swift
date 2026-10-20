@@ -64,10 +64,13 @@ final class HistoryMessageCellView: NSTableCellView {
         textField = message
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func configure(commit: Commit, colorIndex: Int?, textScale: CGFloat) {
+    func configure(commit: Commit, colorIndex: Int?, worktreeBranches: Set<String>, textScale: CGFloat) {
         for (index, badge) in badges.enumerated() {
             badge.isHidden = index >= commit.refs.count
-            if !badge.isHidden { badge.configure(text: commit.refs[index], graphColorIndex: colorIndex, textScale: textScale) }
+            if !badge.isHidden {
+                badge.configure(text: commit.refs[index], graphColorIndex: colorIndex,
+                                worktreeBranches: worktreeBranches, textScale: textScale)
+            }
         }
         overflow.isHidden = commit.refs.count <= 3
         overflow.stringValue = "+\(max(0, commit.refs.count - 3))"

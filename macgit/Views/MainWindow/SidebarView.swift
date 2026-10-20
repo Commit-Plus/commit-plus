@@ -160,7 +160,6 @@ struct SidebarView: View {
     @State private var subtreeToEdit: GitSubtreeEntry?
     @State var subtreeToUnlink: GitSubtreeEntry?
     @State var worktreeEntries: [WorktreeEntry] = []
-    @State var worktreeBranches: Set<String> = []
     @State var hasLoadedWorktrees = false
     @State var isLoadingWorktrees = false
     @State var activeWorktreeLoadID: UUID?
@@ -766,6 +765,10 @@ struct SidebarView: View {
                 // even when the subsequent automatic fetch cannot reach a remote.
                 await GitStatusService.shared.invalidateBranchListCache(in: repositoryURL)
                 await loadBranches(force: true)
+                // Worktrees can be added or removed outside the app.
+                if sectionStates.worktreesExpanded {
+                    await loadWorktrees(force: true)
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryRemoteRefsDidRefresh)) { notification in
