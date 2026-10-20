@@ -18,16 +18,92 @@
 
 import SwiftUI
 
-enum PullRequestAIDraftField: Equatable, Sendable {
-    case title
-    case description
+struct PullRequestAIDraftContent: Equatable, Sendable {
+    let title: String
+    let description: String
+}
+
+extension PullRequestAIDraftContent {
+    private static let sectionHeadings: Set<String> = [
+        "summary", "description", "changes", "overview", "details", "motivation"
+    ]
+
+    /// Splits a model response into a title and description, tolerating code fences,
+    /// "Title:"/"Description:" labels, a leading preamble line, and Markdown headings.
+    init(generatedResponse: String) {
+        var lines = generatedResponse
+            .replacing("\r\n", with: "\n")
+            .replacing("\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: "\n")
+
+        // A preamble such as "Here is the pull request:" followed by more text.
+        if let first = lines.first?.trimmingCharacters(in: .whitespaces),
+           first.hasSuffix(":"),
+           Self.removingLabel("title", from: first) == nil,
+           lines.count > 1 {
+            lines.removeFirst()
+            Self.dropLeadingBlankLines(&lines)
+        }
+
+        if lines.first?.hasPrefix("```") == true {
+            lines.removeFirst()
+            if lines.last?.trimmingCharacters(in: .whitespaces).hasPrefix("```") == true {
+                lines.removeLast()
+            }
+        }
+        Self.dropLeadingBlankLines(&lines)
+
+        guard let firstLine = lines.first else {
+            self.init(title: "", description: "")
+            return
+        }
+
+        var candidate = firstLine.trimmingCharacters(in: .whitespaces)
+        candidate = Self.removingLabel("title", from: candidate) ?? candidate
+        candidate = candidate.replacingOccurrences(of: "^#{1,6}\\s+", with: "", options: .regularExpression)
+        candidate = candidate.trimmingCharacters(in: CharacterSet(charactersIn: "*_`\"'“”‘’ "))
+
+        let normalizedCandidate = candidate.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+        if Self.sectionHeadings.contains(normalizedCandidate) {
+            // The response opened with a description section; there is no usable title.
+            self.init(title: "", description: Self.description(from: lines))
+            return
+        }
+
+        lines.removeFirst()
+        self.init(title: candidate, description: Self.description(from: lines))
+    }
+
+    private static func description(from lines: [String]) -> String {
+        var lines = lines
+        dropLeadingBlankLines(&lines)
+        if let first = lines.first, let remainder = removingLabel("description", from: first) {
+            lines[0] = remainder
+        }
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Returns the text after a `Label:` prefix (optionally bold), or nil when the line has no such label.
+    private static func removingLabel(_ label: String, from line: String) -> String? {
+        let stripped = line.trimmingCharacters(in: .whitespaces)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "*_"))
+        guard stripped.lowercased().hasPrefix(label + ":") else { return nil }
+        return String(stripped.dropFirst(label.count + 1))
+            .trimmingCharacters(in: CharacterSet(charactersIn: "*_ "))
+    }
+
+    private static func dropLeadingBlankLines(_ lines: inout [String]) {
+        while let first = lines.first, first.trimmingCharacters(in: .whitespaces).isEmpty {
+            lines.removeFirst()
+        }
+    }
 }
 
 typealias PullRequestAIGenerationAction = @MainActor (
-    PullRequestAIDraftField,
     String,
     String
-) async throws -> String
+) async throws -> PullRequestAIDraftContent
 
 struct CreatePullRequestView: View {
     let seed: PullRequestDraftSeed
@@ -56,7 +132,8 @@ struct CreatePullRequestView: View {
     @State private var selectedAssigneeIDs: Set<String> = []
     @State private var validationMessage: String?
     @State private var showingDiscardConfirmation = false
-    @State private var generatingField: PullRequestAIDraftField?
+    @State private var isGeneratingDraft = false
+    @State private var showingReplaceDraftConfirmation = false
     @State private var generationErrorMessage: String?
 
     init(
@@ -142,6 +219,19 @@ struct CreatePullRequestView: View {
         } message: {
             Text("Your title, description, and selections will be lost.")
         }
+        .confirmationDialog(
+            "Replace Title and Description?",
+            isPresented: $showingReplaceDraftConfirmation
+        ) {
+            Button("Replace") {
+                Task { @MainActor in
+                    await generateDraft()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The generated text will replace the title and description you have written.")
+        }
     }
 
     private var header: some View {
@@ -202,12 +292,10 @@ struct CreatePullRequestView: View {
                     Text("Title")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    ZStack(alignment: .trailing) {
+                    HStack(spacing: 8) {
                         TextField("Pull request title", text: $title)
                             .textFieldStyle(.roundedBorder)
-                            .padding(.trailing, 38)
-                        generateButton(for: .title)
-                            .padding(.trailing, 6)
+                        generateButton
                     }
                 }
 
@@ -215,19 +303,13 @@ struct CreatePullRequestView: View {
                     Text("Description")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    ZStack(alignment: .topTrailing) {
-                        PullRequestDescriptionEditor(text: $bodyText)
-                            .frame(height: descriptionHeight)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
-                            }
-                        generateButton(for: .description)
-                            .padding(.top, 8)
-                            .padding(.trailing, 18)
-                            .zIndex(1)
-                    }
+                    PullRequestDescriptionEditor(text: $bodyText)
+                        .frame(height: descriptionHeight)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+                        }
                 }
 
                 if let generationErrorMessage {
@@ -280,32 +362,37 @@ struct CreatePullRequestView: View {
             && changedFileCount.map { $0 > 0 } == true
             && !isLoadingChanges
             && !isSubmitting
-            && generatingField == nil
+            && !isGeneratingDraft
     }
 
-    private func generateButton(for field: PullRequestAIDraftField) -> some View {
+    private var generateButton: some View {
         Button {
-            Task { @MainActor in
-                await generateText(for: field)
+            if hasEditedTitleOrDescription {
+                showingReplaceDraftConfirmation = true
+            } else {
+                Task { @MainActor in
+                    await generateDraft()
+                }
             }
         } label: {
             ZStack {
-                Label(generateLabel(for: field), systemImage: "sparkles")
+                Label("Generate pull request title and description", systemImage: "sparkles")
                     .labelStyle(.iconOnly)
-                    .opacity(generatingField == field ? 0 : 1)
-                if generatingField == field {
+                    .opacity(isGeneratingDraft ? 0 : 1)
+                if isGeneratingDraft {
                     ProgressView()
                         .controlSize(.small)
+                        .accessibilityHidden(true)
                 }
             }
             .frame(width: 14, height: 14)
         }
         .buttonStyle(GlassButtonStyle(tint: .accentColor, fontSize: 11))
         .disabled(!canGenerateText)
-        .help(generateHelp(for: field))
-        .accessibilityLabel(generatingField == field
-            ? "Generating \(generateLabel(for: field).lowercased())"
-            : generateLabel(for: field))
+        .help(generateHelp)
+        .accessibilityLabel(isGeneratingDraft
+            ? "Generating pull request title and description"
+            : "Generate pull request title and description")
         .onContinuousHover { phase in
             switch phase {
             case .active: NSCursor.pointingHand.set()
@@ -314,38 +401,38 @@ struct CreatePullRequestView: View {
         }
     }
 
-    private func generateLabel(for field: PullRequestAIDraftField) -> String {
-        switch field {
-        case .title: "Generate pull request title"
-        case .description: "Generate pull request description"
-        }
-    }
-
-    private func generateHelp(for field: PullRequestAIDraftField) -> String {
+    private var generateHelp: String {
         guard targetBranch != nil, sourceBranch != targetBranch else {
             return "Select different source and target branches first."
         }
         guard changedFileCount.map({ $0 > 0 }) == true else {
             return "Pull request changes must be available before generating text."
         }
-        return "Generate editable text from the pull request changes."
+        return "Generate an editable title and description from the pull request changes."
+    }
+
+    private var hasEditedTitleOrDescription: Bool {
+        let editedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (!editedTitle.isEmpty && title != seed.suggestedTitle)
+            || !bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     @MainActor
-    private func generateText(for field: PullRequestAIDraftField) async {
+    private func generateDraft() async {
         guard let targetBranch, canGenerateText else { return }
+        let requestedSourceBranch = sourceBranch
         generationErrorMessage = nil
-        generatingField = field
-        defer { generatingField = nil }
+        isGeneratingDraft = true
+        defer { isGeneratingDraft = false }
         do {
-            let generated = try await onGenerateText(field, sourceBranch, targetBranch)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !generated.isEmpty else { throw RepositoryAIError.emptyResponse }
-            switch field {
-            case .title:
-                title = generated.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? generated
-            case .description:
-                bodyText = generated
+            let generated = try await onGenerateText(requestedSourceBranch, targetBranch)
+            // Drop results for a branch comparison the user has since changed.
+            guard sourceBranch == requestedSourceBranch, self.targetBranch == targetBranch else { return }
+            if !generated.title.isEmpty {
+                title = generated.title
+            }
+            if !generated.description.isEmpty {
+                bodyText = generated.description
             }
         } catch {
             generationErrorMessage = error.localizedDescription

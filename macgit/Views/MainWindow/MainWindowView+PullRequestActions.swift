@@ -141,8 +141,8 @@ extension MainWindowView {
                 repositoryURL: repositoryURL,
                 loadDraft: { try await loadPullRequestDraft(sourceBranch: sourceBranch) },
                 authorizeAction: { await authorizePullRequestAccess(presentNotice: false) },
-                onGenerateText: { field, sourceBranch, targetBranch in
-                    try await generatePullRequestText(field: field, sourceBranch: sourceBranch, targetBranch: targetBranch)
+                onGenerateText: { sourceBranch, targetBranch in
+                    try await generatePullRequestText(sourceBranch: sourceBranch, targetBranch: targetBranch)
                 },
                 onCancel: {
                     pullRequestController.dismissCreatePullRequest()
@@ -180,10 +180,9 @@ extension MainWindowView {
 
     @MainActor
     func generatePullRequestText(
-        field: PullRequestAIDraftField,
         sourceBranch: String,
         targetBranch: String
-    ) async throws -> String {
+    ) async throws -> PullRequestAIDraftContent {
         let remoteName = pullRequestController.createDraftSeed?.remoteName
         let draftRepositoryURL = repositoryURL
         let budget = aiProviderController.selectedDescriptor.inputCharacterBudget
@@ -194,13 +193,16 @@ extension MainWindowView {
             in: draftRepositoryURL,
             characterBudget: budget
         )
-        let question: String
-        switch field {
-        case .title:
-            question = "Write one concise, human-readable pull request title that accurately summarizes these changes. Return only the title: no Markdown, quotes, label, or explanation."
-        case .description:
-            question = "Write a concise, reviewer-friendly pull request description for these changes. Use Markdown headings and bullets when useful. Include only details supported by the supplied changes; do not invent testing or behavior. Return only the description."
-        }
+        let question = """
+            Write one concise, human-readable pull request title and a concise, reviewer-friendly description that accurately summarize these changes.
+
+            Return exactly this format:
+            <title on the first line, without Markdown, quotes, or a label>
+
+            <description starting after the blank line; use Markdown headings and bullets when useful>
+
+            Include only details supported by the supplied changes. Do not invent testing or behavior.
+            """
         let answer = try await aiProviderController.answerRepositoryAnalysisQuestion(
             repositoryURL: draftRepositoryURL,
             branchName: sourceBranch,
@@ -215,7 +217,9 @@ extension MainWindowView {
                 )
             }
         )
-        return answer.text
+        let draft = PullRequestAIDraftContent(generatedResponse: answer.text)
+        guard !draft.title.isEmpty || !draft.description.isEmpty else { throw RepositoryAIError.emptyResponse }
+        return draft
     }
 
     func prepareRemoteBranchForPullRequest(branch: String) async throws -> String {

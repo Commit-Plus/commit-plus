@@ -80,8 +80,9 @@ struct FileStatusView: View {
 
     @State private var isCommitBarExpanded = false
     @State private var isCommitting = false
-    @State private var commitMessage = ""
-    @FocusState private var isCommitMessageFocused: Bool
+    @State private var commitSubject = ""
+    @State private var commitDescription = ""
+    @FocusState private var isCommitSubjectFocused: Bool
     @State private var showingCommitConfirmation = false
     @State private var emptyCommitAction: EmptyCommitAction?
     @State private var allowEmptyMessage = false
@@ -100,6 +101,15 @@ struct FileStatusView: View {
 
     private var hasChanges: Bool {
         !gitStatus.staged.isEmpty || !changedFiles.isEmpty
+    }
+
+    private var commitMessage: String {
+        CommitMessageDraft(subject: commitSubject, body: commitDescription).message
+    }
+
+    private var isCommitTitleMissing: Bool {
+        commitSubject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !commitDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var isCommitMessageEmpty: Bool {
@@ -983,11 +993,11 @@ struct FileStatusView: View {
             if isExpanded {
                 Task { @MainActor in
                     await Task.yield()
-                    isCommitMessageFocused = true
+                    isCommitSubjectFocused = true
                 }
             } else {
                 cancelCommitMessageGeneration()
-                isCommitMessageFocused = false
+                isCommitSubjectFocused = false
             }
         }
     }
@@ -1003,10 +1013,10 @@ struct FileStatusView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
 
-                TextField("Commit message", text: $commitMessage)
-                    .textFieldStyle(.plain)
+                Text(commitMessage.isEmpty ? "Commit message" : commitMessage)
                     .font(.system(size: 13))
-                    .disabled(true)
+                    .foregroundStyle(commitMessage.isEmpty ? .secondary : .primary)
+                    .lineLimit(1)
 
                 Spacer()
             }
@@ -1089,30 +1099,34 @@ struct FileStatusView: View {
 
             // Message editor
             ZStack(alignment: .topTrailing) {
-                TextField(
-                    "",
-                    text: $commitMessage,
-                    axis: .vertical
-                )
-                    .focused($isCommitMessageFocused)
-                    .font(.system(size: 13))
-                    .lineSpacing(2)
-                    .textFieldStyle(.plain)
-                    .lineLimit(5)
-                    .frame(maxWidth: .infinity, minHeight: 48, maxHeight: 100, alignment: .topLeading)
-                    .padding(6)
-                    .padding(.trailing, 30)
-                    .disabled(aiProviderController.isGenerating)
-                    .accessibilityLabel("Commit message")
-                    .onKeyPress(.return, phases: .down) { keyPress in
-                        if keyPress.modifiers == .shift {
-                            insertNewlineInCommitMessage()
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("Commit title", text: $commitSubject)
+                        .focused($isCommitSubjectFocused)
+                        .accessibilityLabel("Commit title")
+                        .onSubmit(requestCommit)
+                        .onChange(of: commitSubject) { _, newValue in
+                            splitMultilineCommitSubject(newValue)
+                        }
+
+                    TextField("Description (optional)", text: $commitDescription, axis: .vertical)
+                        .lineLimit(1...3)
+                        .accessibilityLabel("Commit description")
+                        .onKeyPress(.return, phases: .down) { keyPress in
+                            if keyPress.modifiers == .shift {
+                                insertNewlineInCommitMessage()
+                                return .handled
+                            }
+                            guard keyPress.modifiers.isEmpty else { return .ignored }
+                            requestCommit()
                             return .handled
                         }
-                        guard keyPress.modifiers.isEmpty else { return .ignored }
-                        requestCommit()
-                        return .handled
-                    }
+                }
+                .font(.system(size: 13))
+                .textFieldStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(8)
+                .padding(.trailing, 30)
+                .disabled(aiProviderController.isGenerating)
 
                 Button {
                     isAIGenerationRequested = true
@@ -1183,7 +1197,9 @@ struct FileStatusView: View {
                     }
                 }
                     .buttonStyle(GlassProminentButtonStyle(tint: .accentColor, fontSize: 12))
-                    .onContinuousHover { updateCommitBarCursor($0) }
+                    .disabled(isCommitTitleMissing)
+                    .help(isCommitTitleMissing ? "Add a commit title before committing." : "")
+                    .onContinuousHover { updateCommitBarCursor($0, isEnabled: !isCommitTitleMissing) }
             }
         }
         .onDisappear { cancelCommitMessageGeneration() }
@@ -1332,8 +1348,10 @@ struct FileStatusView: View {
                 recentCommitSubjects: recentCommits.map(\.message)
             )
             try Task.checkCancellation()
-            commitMessage = generated.text
-            isCommitMessageFocused = true
+            let draft = CommitMessageDraft(message: generated.text)
+            commitSubject = draft.subject
+            commitDescription = draft.body
+            isCommitSubjectFocused = true
         } catch {
             guard !Task.isCancelled, !(error is CancellationError) else { return }
             errorMessage = error.localizedDescription
@@ -1346,8 +1364,23 @@ struct FileStatusView: View {
         NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
     }
 
+    /// Moves pasted multi-line text out of the single-line title into the description.
+    private func splitMultilineCommitSubject(_ subject: String) {
+        guard subject.contains(where: \.isNewline) else { return }
+        let draft = CommitMessageDraft(message: subject)
+        commitSubject = draft.subject
+        if !draft.body.isEmpty {
+            commitDescription = CommitMessageDraft(subject: draft.body, body: commitDescription).message
+        }
+    }
+
     private func requestCommit() {
         guard !isCommitting, !showingCommitConfirmation else { return }
+        // A description alone would silently become the subject; ask for a title instead.
+        if isCommitTitleMissing {
+            isCommitSubjectFocused = true
+            return
+        }
         if needsCommitConfirmation {
             emptyCommitAction = nil
             allowEmptyMessage = false
@@ -1419,7 +1452,8 @@ struct FileStatusView: View {
                 try await onRequestPushAfterCommit("origin", branch)
             }
             await MainActor.run {
-                commitMessage = ""
+                commitSubject = ""
+                commitDescription = ""
                 amendLastCommit = false
                 bypassHooks = false
                 signOffCommit = false

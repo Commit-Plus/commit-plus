@@ -113,6 +113,45 @@ final class AICommitMessageTests: XCTestCase {
         XCTAssertEqual(draft.message, "feat: Add commit fields\n\nExplain the change.")
     }
 
+    func testPullRequestDraftSplitsTitleAndDescription() {
+        let draft = PullRequestAIDraftContent(
+            generatedResponse: "Fix login redirect\r\n\r\n## Summary\n- Keeps the return URL."
+        )
+
+        XCTAssertEqual(draft.title, "Fix login redirect")
+        XCTAssertEqual(draft.description, "## Summary\n- Keeps the return URL.")
+    }
+
+    func testPullRequestDraftIgnoresFencesLabelsAndPreamble() {
+        let draft = PullRequestAIDraftContent(
+            generatedResponse: """
+                Here is the pull request:
+                ```
+                **Title:** "Fix login redirect"
+
+                Description: Keeps the return URL.
+                ```
+                """
+        )
+
+        XCTAssertEqual(draft.title, "Fix login redirect")
+        XCTAssertEqual(draft.description, "Keeps the return URL.")
+    }
+
+    func testPullRequestDraftStripsHeadingMarkersFromTitle() {
+        let draft = PullRequestAIDraftContent(generatedResponse: "# Fix login redirect\n\nDetails.")
+
+        XCTAssertEqual(draft.title, "Fix login redirect")
+        XCTAssertEqual(draft.description, "Details.")
+    }
+
+    func testPullRequestDraftWithoutTitleKeepsSectionAsDescription() {
+        let draft = PullRequestAIDraftContent(generatedResponse: "## Summary\n\n- Adds X")
+
+        XCTAssertEqual(draft.title, "")
+        XCTAssertEqual(draft.description, "## Summary\n\n- Adds X")
+    }
+
     func testGeneratedCommitMessageTrimsEachFieldBeforeComposing() {
         let generated = GeneratedCommitMessage(
             subject: "  fix: Fill the title field  \n",
