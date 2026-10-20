@@ -54,6 +54,20 @@ enum CommitPlusWebConfiguration {
         try baseURL(bundle: bundle).appending(path: "contact")
     }
 
+    nonisolated static func socialURL() throws -> URL {
+        guard let url = URL(string: "https://x.com/commitplus") else {
+            throw WebAccountSessionError.invalidBaseURL
+        }
+        return url
+    }
+
+    nonisolated static func issueTrackerURL() throws -> URL {
+        guard let url = URL(string: "https://github.com/Commit-Plus/commit-plus/issues") else {
+            throw WebAccountSessionError.invalidBaseURL
+        }
+        return url
+    }
+
     nonisolated static func reportIssueURL() throws -> URL {
         guard let url = URL(string: "https://github.com/Commit-Plus/commit-plus/issues/new") else {
             throw WebAccountSessionError.invalidBaseURL

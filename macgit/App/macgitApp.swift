@@ -364,6 +364,12 @@ struct macgitApp: App {
         .commands {
             RepositoryFileCommands()
 
+            CommandGroup(replacing: .appInfo) {
+                Button("About Commit+") {
+                    openWindow(id: "about")
+                }
+            }
+
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates...") {
                     appUpdateController.checkForUpdates()
@@ -520,6 +526,26 @@ struct macgitApp: App {
             HeaderButtonsCommands(appState: appState)
 
             CommandGroup(replacing: .help) {
+                Button("Follow @commitplus on X") {
+                    openWebPage {
+                        try CommitPlusWebConfiguration.socialURL()
+                    }
+                }
+
+                Button("Visit Issue Tracker") {
+                    openWebPage {
+                        try CommitPlusWebConfiguration.issueTrackerURL()
+                    }
+                }
+
+                Button("Visit Commit+ Website") {
+                    openWebPage {
+                        try CommitPlusWebConfiguration.baseURL()
+                    }
+                }
+
+                Divider()
+
                 Button("Commit+ Documentation") {
                     openWebPage {
                         try CommitPlusWebConfiguration.documentationURL()
@@ -580,6 +606,13 @@ struct macgitApp: App {
         .defaultSize(width: 920, height: 640)
         .defaultLaunchBehavior(.suppressed)
         .windowResizability(.contentMinSize)
+
+        Window("About Commit+", id: "about") {
+            AboutCommitPlusView()
+        }
+        .defaultLaunchBehavior(.suppressed)
+        .windowResizability(.contentSize)
+        .windowStyle(.hiddenTitleBar)
     }
 
 }

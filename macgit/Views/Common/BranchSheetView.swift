@@ -191,6 +191,7 @@ struct BranchSheetView: View {
                     Text(selectedTab == .create ? "New Branch" : "Delete Branches")
                         .font(.title2)
                         .fontWeight(.semibold)
+                        .frame(width: 160, alignment: .leading)
                     Spacer()
                     Picker("", selection: $selectedTab) {
                         ForEach(BranchTab.allCases, id: \.self) { tab in
@@ -207,12 +208,8 @@ struct BranchSheetView: View {
 
                 // Content
                 if selectedTab == .create {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            createBranchContent
-                        }
+                    createBranchContent
                         .padding(24)
-                    }
                 } else {
                     deleteBranchesContent
                         .padding(24)
@@ -266,8 +263,8 @@ struct BranchSheetView: View {
                 }
                 .padding([.horizontal, .bottom], 24)
             }
-            .frame(minWidth: 640, idealWidth: 700, maxWidth: 780)
-            .frame(minHeight: 440, idealHeight: 520, maxHeight: 680)
+            .frame(width: 640)
+            .fixedSize(horizontal: false, vertical: true)
 
             // Custom confirmation overlay
             if showingDeleteConfirmation {
@@ -570,6 +567,7 @@ struct BranchSheetView: View {
                     .padding(.leading, 12)
                     .padding(.top, 5)
             }
+            .frame(height: 320)
         }
     }
 
