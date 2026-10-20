@@ -124,7 +124,13 @@ struct PullRequestListView: View {
         }
         .task(id: repositoryURL) {
             hasCompletedInitialLoad = false
-            guard await authorizeAction() else { return }
+            guard await authorizeAction() else {
+                // Drop the activated notification so later windows do not reselect Pull Requests.
+                if let notification = pendingPullRequestNotification {
+                    onConsumePendingPullRequest(notification.id)
+                }
+                return
+            }
             closeDetail()
             await controller.loadPullRequests(repositoryURL: repositoryURL)
             guard !Task.isCancelled else { return }
