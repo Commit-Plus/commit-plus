@@ -257,6 +257,9 @@ struct macgitApp: App {
                 .environmentObject(customActionStore)
                 .environmentObject(gitFlowConfigurationSyncController)
                 .preferredColorScheme(appState.appearance.colorScheme)
+                .onChange(of: appState.appearance, initial: true) { _, appearance in
+                    NSApp.appearance = appearance.nsAppearance
+                }
                 .font(appState.textSize.font)
                 .environment(\.appTextScale, appState.textSize.scale)
                 .task {
