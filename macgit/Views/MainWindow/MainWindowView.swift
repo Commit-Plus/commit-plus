@@ -732,7 +732,7 @@ struct MainWindowView: View {
                 .transition(.opacity)
             }
 
-            if let activeOperation = operationProgress.activeOperation {
+            if let activeOperation = operationProgress.activeOperation, activeOperation.showsOverlay {
                 RepositoryOperationOverlayView(
                     operation: activeOperation,
                     onCancel: { operationProgress.cancelActiveOperation() }
@@ -1591,6 +1591,7 @@ struct MainWindowView: View {
                 undoManager: undoManager,
                 syncState: syncState,
                 runOperation: runRepositoryOperation,
+                runInlineOperation: { operationProgress.run(message: $0, showsOverlay: false, operation: $1) },
                 requestCheckout: checkoutRequest,
                 requestExplain: explainCommitWithRepositoryAI,
                 requestBrowseRevision: { revisionBrowserWindow.show(revision: $0.hash, in: repositoryURL, credentialResolver: providerCredentialResolver) },

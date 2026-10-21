@@ -30,6 +30,8 @@ final class HistoryCommitActionController {
         let undoManager: GitUndoManager?
         let syncState: SyncState?
         let runOperation: RepositoryOperationRunner
+        /// Registers a window operation without the overlay, for sheets that show progress inline.
+        let runInlineOperation: RepositoryOperationRunner
         let requestCheckout: (String, Bool) -> Void
         let requestExplain: (Commit) -> Void
         let requestBrowseRevision: (Commit) -> Void
@@ -84,7 +86,7 @@ final class HistoryCommitActionController {
         guard !isRebasing else { return }
         let dependencies = dependencies
         isRebasing = true
-        Task {
+        dependencies.runInlineOperation("Rebasing interactively...") {
             defer { self.isRebasing = false }
             do {
                 try await GitStatusService.shared.executeHistoryRebase(plan, in: dependencies.repositoryURL)

@@ -54,6 +54,25 @@ final class RepositoryOperationProgressTests: XCTestCase {
         XCTAssertNil(progress.activeOperation)
     }
 
+    func testInlineRunTracksActiveOperationWithoutOverlayOrCancel() async {
+        let progress = RepositoryOperationProgress()
+        let operationRan = expectation(description: "operation ran")
+
+        progress.run(message: "Rebasing interactively...", showsOverlay: false) {
+            operationRan.fulfill()
+        }
+
+        XCTAssertEqual(progress.activeOperation?.showsOverlay, false)
+        XCTAssertEqual(progress.activeOperation?.canCancel, false)
+        progress.cancelActiveOperation()
+        XCTAssertEqual(progress.activeOperation?.isCancelling, false)
+
+        await fulfillment(of: [operationRan], timeout: 1)
+        await Task.yield()
+
+        XCTAssertNil(progress.activeOperation)
+    }
+
     func testCancelMarksOperationAndCancelsTask() async {
         let progress = RepositoryOperationProgress()
         let taskCancelled = expectation(description: "task cancelled")
