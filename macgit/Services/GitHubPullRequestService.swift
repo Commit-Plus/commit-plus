@@ -137,6 +137,46 @@ struct GitHubPullRequestService: PullRequestProviding {
         }
     }
 
+    func openPullRequest(
+        repository: GitRepositoryIdentity,
+        token: GitProviderToken,
+        sourceBranch: String
+    ) async throws -> PullRequestSummary? {
+        guard repository.provider == .github else {
+            throw PullRequestProviderError.unsupportedProvider
+        }
+
+        var components = URLComponents(
+            url: apiURL(for: repository)
+                .appendingPathComponent("repos")
+                .appendingPathComponent(repository.owner)
+                .appendingPathComponent(repository.name)
+                .appendingPathComponent("pulls"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [
+            URLQueryItem(name: "state", value: PullRequestListFilter.open.apiState),
+            URLQueryItem(name: "head", value: "\(repository.owner):\(sourceBranch)"),
+            URLQueryItem(name: "per_page", value: "1"),
+        ]
+        guard let url = components?.url else {
+            throw PullRequestProviderError.repositoryUnavailable
+        }
+
+        let (data, response) = try await httpClient.data(for: makeRequest(url: url, token: token))
+        try validate(response: response, data: data)
+        do {
+            guard let response = try decoder.decode([GitHubPullRequestResponse].self, from: data).first else {
+                return nil
+            }
+            return await enrichedSummary(response.summary, repository: repository, token: token)
+        } catch let error as PullRequestProviderError {
+            throw error
+        } catch {
+            throw PullRequestProviderError.providerMessage("GitHub returned an invalid pull request response.")
+        }
+    }
+
     func pullRequestDetail(
         repository: GitRepositoryIdentity,
         token: GitProviderToken,

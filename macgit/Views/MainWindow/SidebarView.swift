@@ -62,6 +62,8 @@ struct SidebarView: View {
     let onRequestUpdateCurrentBranch: (CurrentBranchIntegrationStatus) -> Void
     let onRequestRenameBranch: (String) -> Void
     let onRequestCreatePullRequest: (String) -> Void
+    let resolveOpenPullRequest: @MainActor (String, String) async -> PullRequestSummary?
+    let onRequestViewPullRequest: (PullRequestSummary) -> Void
     let onRequestCreateBranchFromBranch: (String) -> Void
     let onRequestCreateTagFromBranch: (String) -> Void
     let onRequestTagDetails: (String) -> Void
@@ -243,6 +245,8 @@ struct SidebarView: View {
         onRequestUpdateCurrentBranch: @escaping (CurrentBranchIntegrationStatus) -> Void = { _ in },
         onRequestRenameBranch: @escaping (String) -> Void = { _ in },
         onRequestCreatePullRequest: @escaping (String) -> Void = { _ in },
+        resolveOpenPullRequest: @escaping @MainActor (String, String) async -> PullRequestSummary? = { _, _ in nil },
+        onRequestViewPullRequest: @escaping (PullRequestSummary) -> Void = { _ in },
         onRequestCreateBranchFromBranch: @escaping (String) -> Void = { _ in },
         onRequestCreateTagFromBranch: @escaping (String) -> Void = { _ in },
         onRequestTagDetails: @escaping (String) -> Void = { _ in },
@@ -323,6 +327,8 @@ struct SidebarView: View {
         self.onRequestUpdateCurrentBranch = onRequestUpdateCurrentBranch
         self.onRequestRenameBranch = onRequestRenameBranch
         self.onRequestCreatePullRequest = onRequestCreatePullRequest
+        self.resolveOpenPullRequest = resolveOpenPullRequest
+        self.onRequestViewPullRequest = onRequestViewPullRequest
         self.onRequestCreateBranchFromBranch = onRequestCreateBranchFromBranch
         self.onRequestCreateTagFromBranch = onRequestCreateTagFromBranch
         self.onRequestTagDetails = onRequestTagDetails

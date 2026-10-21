@@ -45,6 +45,24 @@ private struct PullRequestChangesCacheKey: Hashable {
 
 }
 
+private struct BranchPullRequestCacheKey: Hashable {
+    let repository: GitRepositoryIdentityKey
+    let accountID: String
+    let sourceBranch: String
+}
+
+private struct BranchPullRequestCacheEntry {
+    let pullRequest: PullRequestSummary?
+    let expiresAt: Date
+}
+
+private struct PullRequestServiceContext {
+    let remoteURLString: String
+    let repository: GitRepositoryIdentity
+    let credential: (account: GitProviderAccount, token: GitProviderToken)
+    let service: any PullRequestProviding
+}
+
 private struct GitRepositoryIdentityKey: Hashable {
     let provider: GitProviderKind
     let host: String
@@ -112,6 +130,7 @@ final class PullRequestController: ObservableObject {
     private var activeToken: GitProviderToken?
     private let pullRequestPageSize = 30
     private let listCacheTTL: TimeInterval = 60
+    private let branchPullRequestCacheTTL: TimeInterval = 60
     private let detailCacheTTL: TimeInterval = 300
     private let changesCacheTTL: TimeInterval = 300
     private let commentRefreshAttempts = 3
@@ -124,6 +143,7 @@ final class PullRequestController: ObservableObject {
     private var changesLoadID = UUID()
     private var createDraftChangesLoadID = UUID()
     private var createDraftParticipantsLoadID = UUID()
+    private var branchPullRequestCache: [BranchPullRequestCacheKey: BranchPullRequestCacheEntry] = [:]
 
     init(
         providerAccountController: GitProviderAccountController,
@@ -224,6 +244,7 @@ final class PullRequestController: ObservableObject {
             previousAccounts = accounts
             for id in removed { scheduleCacheRemoval(accountID: id) }
             if selectedChanged {
+                branchPullRequestCache.removeAll()
                 releaseVisibleData()
                 activeToken = nil
                 activeRepository = nil
@@ -528,6 +549,90 @@ final class PullRequestController: ObservableObject {
     func loadNextPage(repositoryURL: URL) async {
         guard hasNextPage else { return }
         await loadPullRequests(repositoryURL: repositoryURL, page: currentPage + 1)
+    }
+
+    func openPullRequest(
+        sourceBranch: String,
+        repositoryURL: URL,
+        remoteName: String
+    ) async throws -> PullRequestSummary? {
+        let context = try await pullRequestServiceContext(
+            repositoryURL: repositoryURL,
+            remoteName: remoteName
+        )
+        let cacheKey = BranchPullRequestCacheKey(
+            repository: GitRepositoryIdentityKey(context.repository),
+            accountID: context.credential.account.id,
+            sourceBranch: sourceBranch
+        )
+        if let cached = branchPullRequestCache[cacheKey], cached.expiresAt > .now {
+            return cached.pullRequest
+        }
+
+        let pullRequest = try await context.service.openPullRequest(
+            repository: context.repository,
+            token: context.credential.token,
+            sourceBranch: sourceBranch
+        )
+        branchPullRequestCache[cacheKey] = BranchPullRequestCacheEntry(
+            pullRequest: pullRequest,
+            expiresAt: .now.addingTimeInterval(branchPullRequestCacheTTL)
+        )
+        return pullRequest
+    }
+
+    func activatePullRequestContext(repositoryURL: URL, remoteName: String) async throws {
+        let context = try await pullRequestServiceContext(
+            repositoryURL: repositoryURL,
+            remoteName: remoteName
+        )
+        if selectedProviderAccountID != context.credential.account.id
+            || activeRepository.map({ GitRepositoryIdentityKey($0) }) != GitRepositoryIdentityKey(context.repository) {
+            clearSelectedDetail()
+        }
+        activeRepositoryURL = repositoryURL
+        activeRemoteName = remoteName
+        activeRemoteURLString = context.remoteURLString
+        activeRepository = context.repository
+        activeToken = context.credential.token
+        selectedProviderAccountID = context.credential.account.id
+    }
+
+    private func pullRequestServiceContext(
+        repositoryURL: URL,
+        remoteName: String
+    ) async throws -> PullRequestServiceContext {
+        guard let remoteURLString = await remoteURLProvider(repositoryURL, remoteName) else {
+            throw PullRequestProviderError.repositoryUnavailable
+        }
+        guard let remoteIdentity = GitRemoteIdentityResolver.identity(
+            from: remoteURLString,
+            knownGitLabHosts: connectedGitLabHosts,
+            knownHosts: providerAccountController.accounts.map {
+                GitProviderHost(kind: $0.provider, baseURL: $0.hostURL)
+            }
+        ) else {
+            throw PullRequestProviderError.unsupportedProvider
+        }
+
+        let repository = GitRepositoryIdentity(
+            provider: remoteIdentity.provider,
+            hostURL: remoteIdentity.hostURL,
+            owner: remoteIdentity.ownerPath,
+            name: remoteIdentity.repositoryName
+        )
+        guard let credential = apiCredential(for: matchingAccounts(for: repository)) else {
+            throw PullRequestProviderError.reauthorizationRequired
+        }
+        guard let service = services[repository.provider] else {
+            throw PullRequestProviderError.unsupportedProvider
+        }
+        return PullRequestServiceContext(
+            remoteURLString: remoteURLString,
+            repository: repository,
+            credential: credential,
+            service: service
+        )
     }
 
     func openInBrowser(_ summary: PullRequestSummary) {
@@ -1032,6 +1137,7 @@ final class PullRequestController: ObservableObject {
     private func invalidateListCache() {
         listLoadID = UUID()
         isLoading = false
+        branchPullRequestCache.removeAll()
         scheduleCacheRemoval(kind: "list")
     }
 
@@ -1057,6 +1163,7 @@ final class PullRequestController: ObservableObject {
     }
 
     func clearSessionCaches() {
+        branchPullRequestCache.removeAll()
         releaseVisibleData()
         scheduleCacheRemoval()
     }

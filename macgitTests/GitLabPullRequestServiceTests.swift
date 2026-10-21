@@ -76,6 +76,45 @@ final class GitLabPullRequestServiceTests: XCTestCase {
         XCTAssertFalse(page.hasPreviousPage)
     }
 
+    func testOpenPullRequestFiltersBySourceBranch() async throws {
+        let client = StubGitLabPullRequestHTTPClient(responses: [
+            .json(statusCode: 200, body: """
+            [
+              {
+                "iid": 7,
+                "title": "Add GitLab merge requests",
+                "state": "opened",
+                "draft": false,
+                "web_url": "https://gitlab.com/group/subgroup/project/-/merge_requests/7",
+                "created_at": "2026-07-01T09:10:11Z",
+                "updated_at": "2026-07-06T10:11:12Z",
+                "merged_at": null,
+                "source_branch": "feature/gitlab-mrs",
+                "target_branch": "main",
+                "sha": "abc123",
+                "author": { "username": "tanuki", "avatar_url": null }
+              }
+            ]
+            """)
+        ])
+        let service = GitLabPullRequestService(httpClient: client)
+
+        let pullRequest = try await service.openPullRequest(
+            repository: makeRepository(),
+            token: makeToken(),
+            sourceBranch: "feature/gitlab-mrs"
+        )
+
+        let request = try XCTUnwrap(client.requests.first)
+        let queryItems = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems)
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name, $0.value ?? "") }), [
+            "state": "opened",
+            "source_branch": "feature/gitlab-mrs",
+            "per_page": "1",
+        ])
+        XCTAssertEqual(pullRequest?.number, 7)
+    }
+
     func testCreateMergeRequestPostsExpectedBody() async throws {
         let client = StubGitLabPullRequestHTTPClient(responses: [
             .json(statusCode: 201, body: """

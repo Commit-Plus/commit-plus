@@ -100,6 +100,46 @@ final class GitHubPullRequestServiceTests: XCTestCase {
         )
     }
 
+    func testOpenPullRequestFiltersBySourceBranch() async throws {
+        let client = StubPullRequestHTTPClient(responses: [
+            .json(statusCode: 200, body: """
+            [
+              {
+                "number": 12,
+                "title": "Add provider-backed pull request read",
+                "state": "open",
+                "draft": false,
+                "html_url": "https://github.com/octocat/Hello-World/pull/12",
+                "created_at": "2026-07-01T09:10:11Z",
+                "updated_at": "2026-07-06T10:11:12Z",
+                "merged_at": null,
+                "user": { "login": "octocat", "avatar_url": null },
+                "head": { "label": "octocat:feature/pr-read", "ref": "feature/pr-read", "sha": "abc123" },
+                "base": { "label": "octocat:main", "ref": "main", "sha": "def456" }
+              }
+            ]
+            """),
+            .json(statusCode: 200, body: #"{"state":"success","total_count":2}"#),
+            .json(statusCode: 200, body: #"{"mergeable":true}"#),
+        ])
+        let service = GitHubPullRequestService(httpClient: client)
+
+        let pullRequest = try await service.openPullRequest(
+            repository: makeRepository(),
+            token: makeToken(),
+            sourceBranch: "feature/pr-read"
+        )
+
+        let request = try XCTUnwrap(client.requests.first)
+        let queryItems = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems)
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name, $0.value ?? "") }), [
+            "state": "open",
+            "head": "octocat:feature/pr-read",
+            "per_page": "1",
+        ])
+        XCTAssertEqual(pullRequest?.number, 12)
+    }
+
     func testClosedMergedGitHubPRDecodesAsMergedState() async throws {
         let client = StubPullRequestHTTPClient(responses: [
             .json(statusCode: 200, body: """

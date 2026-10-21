@@ -19,7 +19,6 @@
 import SwiftUI
 
 struct PullRequestListView: View {
-    @EnvironmentObject private var appState: AppState
     @Environment(\.appTextScale) private var textScale
     @ObservedObject var controller: PullRequestController
     let repositoryURL: URL
@@ -29,10 +28,11 @@ struct PullRequestListView: View {
     var authorizeAction: () async -> Bool = { true }
     var pendingPullRequestNotification: AppNotification? = nil
     var onConsumePendingPullRequest: (String) -> Void = { _ in }
+    var selectedPullRequestID: Int? = nil
+    var onRequestShowDetail: (PullRequestSummary) async -> Void = { _ in }
+    var onRequestCloseDetail: () -> Void = {}
     @State private var hasCompletedInitialLoad = false
     @State private var pendingCommentPullRequest: PullRequestSummary?
-    @State private var selectedPullRequestID: Int?
-    @State private var detailWindowController = PullRequestDetailWindowController()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -112,11 +112,11 @@ struct PullRequestListView: View {
             Text(controller.detailErrorMessage ?? "Could not load pull request details.")
         }
         .onDisappear {
-            closeDetail()
+            onRequestCloseDetail()
             controller.releaseVisibleData()
         }
         .onReceive(NotificationCenter.default.publisher(for: .advancedClearSessionCaches)) { _ in
-            closeDetail()
+            onRequestCloseDetail()
             Task {
                 guard await authorizeAction() else { return }
                 await controller.loadPullRequests(repositoryURL: repositoryURL, forceRefresh: true)
@@ -131,7 +131,7 @@ struct PullRequestListView: View {
                 }
                 return
             }
-            closeDetail()
+            onRequestCloseDetail()
             await controller.loadPullRequests(repositoryURL: repositoryURL)
             guard !Task.isCancelled else { return }
             hasCompletedInitialLoad = true
@@ -142,7 +142,7 @@ struct PullRequestListView: View {
             Task { await openPendingPullRequestIfNeeded() }
         }
         .onChange(of: controller.stateFilter) { _, _ in
-            closeDetail()
+            onRequestCloseDetail()
             Task {
                 guard await authorizeAction() else { return }
                 await controller.loadPullRequests(repositoryURL: repositoryURL)
@@ -192,25 +192,7 @@ struct PullRequestListView: View {
     }
 
     private func showDetail(for item: PullRequestSummary) async {
-        if selectedPullRequestID == item.id,
-           detailWindowController.activateIfPresented() { return }
-        detailWindowController.close()
-        controller.clearSelectedDetail()
-        selectedPullRequestID = item.id
-        detailWindowController.show(
-            title: "Pull Request #\(item.number) — \(repositoryURL.lastPathComponent)",
-            content: PullRequestDetailWindowContent(
-                controller: controller,
-                selectedPullRequestID: item.id,
-                authorizeAction: authorizeAction,
-                onClose: closeDetail
-            )
-            .environmentObject(appState)
-            .environment(\.appTextScale, textScale)
-            .sheetPresentationScope(),
-            onClose: closeDetail
-        )
-        await controller.loadPullRequestDetail(item)
+        await onRequestShowDetail(item)
     }
 
     /// Opens the detail window for a "pull request created" app notification the user activated.
@@ -224,12 +206,6 @@ struct PullRequestListView: View {
             guard !Task.isCancelled else { return }
         }
         await showDetail(for: controller.items.first { $0.id == pullRequest.id } ?? pullRequest)
-    }
-
-    private func closeDetail() {
-        detailWindowController.close()
-        selectedPullRequestID = nil
-        controller.clearSelectedDetail()
     }
 
     private var detailErrorPresented: Binding<Bool> {
@@ -327,101 +303,6 @@ struct PullRequestListView: View {
         case .closed:
             "No closed pull requests"
         }
-    }
-}
-
-private struct PullRequestDetailWindowContent: View {
-    @Environment(\.appTextScale) private var textScale
-    @ObservedObject var controller: PullRequestController
-    let selectedPullRequestID: Int
-    let authorizeAction: () async -> Bool
-    let onClose: () -> Void
-
-    var body: some View {
-        detailPanel
-            .alert("Pull Request", isPresented: detailErrorPresented) {
-                Button("OK", role: .cancel) {
-                    controller.detailErrorMessage = nil
-                    if controller.selectedDetail == nil { onClose() }
-                }
-            } message: {
-                Text(controller.detailErrorMessage ?? "Could not load pull request details.")
-            }
-    }
-
-    @ViewBuilder
-    private var detailPanel: some View {
-        if controller.isLoadingDetail,
-           controller.selectedDetail?.id != selectedPullRequestID {
-            ProgressView("Loading pull request…")
-                .font(.body.scaled(by: textScale))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let detail = controller.selectedDetail,
-                  detail.id == selectedPullRequestID {
-            PullRequestDetailPane(
-                detail: detail,
-                onOpenPullRequest: {
-                    Task {
-                        guard await authorizeAction() else { return }
-                        controller.openInBrowser(detail.summary)
-                    }
-                },
-                isRefreshingDetail: controller.isLoadingDetail,
-                onRefreshDetail: {
-                    Task {
-                        guard await authorizeAction() else { return }
-                        await controller.loadPullRequestDetail(detail.summary, forceRefresh: true)
-                    }
-                },
-                isSubmittingComment: controller.isPerformingAction,
-                onSubmitComment: { body in
-                    Task {
-                        guard await authorizeAction() else { return }
-                        await controller.comment(on: detail.summary, body: body)
-                    }
-                },
-                changes: controller.selectedChanges,
-                isLoadingChanges: controller.isLoadingChanges,
-                changesErrorMessage: controller.changesErrorMessage,
-                onLoadChanges: {
-                    Task {
-                        guard await authorizeAction() else { return }
-                        await controller.loadPullRequestChanges(detail.summary)
-                    }
-                },
-                onRefreshChanges: {
-                    Task {
-                        guard await authorizeAction() else { return }
-                        await controller.loadPullRequestChanges(detail.summary, forceRefresh: true)
-                    }
-                },
-                isMerging: controller.isPerformingAction,
-                onMerge: {
-                    Task {
-                        guard await authorizeAction() else { return }
-                        await controller.merge(detail.summary)
-                    }
-                }
-            )
-        } else if controller.detailErrorMessage != nil {
-            ContentUnavailableView(
-                "Could not load pull request",
-                systemImage: "exclamationmark.triangle",
-                description: Text("Close this window and select the pull request to try again.")
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            ProgressView("Loading pull request…")
-                .font(.body.scaled(by: textScale))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    private var detailErrorPresented: Binding<Bool> {
-        Binding(
-            get: { controller.detailErrorMessage != nil },
-            set: { if !$0 { controller.detailErrorMessage = nil } }
-        )
     }
 }
 
@@ -576,7 +457,7 @@ private struct PullRequestRow: View {
     }
 }
 
-private struct PullRequestDetailPane: View {
+struct PullRequestDetailPane: View {
     @Environment(\.appTextScale) private var textScale
     let detail: PullRequestDetail
     let onOpenPullRequest: () -> Void

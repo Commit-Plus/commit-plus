@@ -90,7 +90,22 @@ extension SidebarView {
         menu.separator()
         menu.copy("Copy Branch Name to Clipboard", value: branch)
         menu.separator()
-        menu.item("Create Pull Request...", enabled: BranchUpstreamActionPolicy.shouldEnableCreatePullRequest(for: upstream)) { actions.createPullRequest(branch) }
+        if let upstream,
+           BranchUpstreamActionPolicy.shouldEnableCreatePullRequest(for: upstream) {
+            let parts = upstream.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+            if parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty {
+                addPullRequestItem(
+                    to: menu,
+                    remote: parts[0],
+                    sourceBranch: parts[1],
+                    create: { actions.createPullRequest(branch) }
+                )
+            } else {
+                menu.item("Create Pull Request...", enabled: false) { actions.createPullRequest(branch) }
+            }
+        } else {
+            menu.item("Create Pull Request...", enabled: false) { actions.createPullRequest(branch) }
+        }
         return menu
     }
 
@@ -126,7 +141,16 @@ extension SidebarView {
         menu.separator()
         menu.item("Delete...", enabled: !symbolic) { actions.confirmDelete(.init(remote: remote, branch: branch)) }
         menu.separator()
-        menu.item("Create Pull Request...", enabled: !symbolic) { actions.createPullRequest(remote, branch) }
+        if symbolic {
+            menu.item("Create Pull Request...", enabled: false) { actions.createPullRequest(remote, branch) }
+        } else {
+            addPullRequestItem(
+                to: menu,
+                remote: remote,
+                sourceBranch: branch,
+                create: { actions.createPullRequest(remote, branch) }
+            )
+        }
         return menu
     }
 
@@ -201,5 +225,23 @@ extension SidebarView {
             menu.item("Disable Git Flow", enabled: !state.operationInProgress) { performGitFlowAction(.disable) }
         } else { menu.item("Set Up Git Flow…", enabled: state.canConfigure) { performGitFlowAction(.configure) } }
         return menu
+    }
+
+    private func addPullRequestItem(
+        to menu: SidebarNativeMenu,
+        remote: String,
+        sourceBranch: String,
+        create: @escaping () -> Void
+    ) {
+        let item = menu.item("Checking Pull Request…", enabled: false) {}
+        Task { @MainActor in
+            if let pullRequest = await resolveOpenPullRequest(remote, sourceBranch) {
+                menu.updateItem(item, title: "View Pull Request") {
+                    onRequestViewPullRequest(pullRequest)
+                }
+            } else {
+                menu.updateItem(item, title: "Create Pull Request...", create)
+            }
+        }
     }
 }

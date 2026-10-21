@@ -693,7 +693,8 @@ final class SidebarNativeMenu: NSMenu, NSMenuDelegate {
         delegate = self
     }
     required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func item(_ title: String, enabled: Bool = true, checked: Bool = false, _ perform: @escaping () -> Void) {
+    @discardableResult
+    func item(_ title: String, enabled: Bool = true, checked: Bool = false, _ perform: @escaping () -> Void) -> NSMenuItem {
         let validation = validation
         let target = Action {
             guard validation.canPerform() else { return }
@@ -711,6 +712,21 @@ final class SidebarNativeMenu: NSMenu, NSMenuDelegate {
         item.isEnabled = enabled
         item.state = checked ? .on : .off
         addItem(item)
+        return item
+    }
+    func updateItem(_ item: NSMenuItem, title: String, enabled: Bool = true, _ perform: @escaping () -> Void) {
+        let validation = validation
+        let target = Action {
+            guard validation.canPerform() else { return }
+            perform()
+        }
+        let displayedTitle = constrainedTitle(title)
+        item.title = displayedTitle
+        item.toolTip = displayedTitle == title ? nil : title
+        item.target = target
+        item.representedObject = target
+        item.action = #selector(Action.invoke)
+        item.isEnabled = enabled
     }
     func separator() { addItem(.separator()) }
     func installGuard(_ validate: @escaping () -> Bool) {

@@ -32,6 +32,12 @@ protocol PullRequestProviding {
         perPage: Int
     ) async throws -> PullRequestListPage
 
+    func openPullRequest(
+        repository: GitRepositoryIdentity,
+        token: GitProviderToken,
+        sourceBranch: String
+    ) async throws -> PullRequestSummary?
+
     func pullRequestDetail(
         repository: GitRepositoryIdentity,
         token: GitProviderToken,
@@ -71,6 +77,28 @@ extension PullRequestProviding {
         _ = repository
         _ = token
         return []
+    }
+
+    func openPullRequest(
+        repository: GitRepositoryIdentity,
+        token: GitProviderToken,
+        sourceBranch: String
+    ) async throws -> PullRequestSummary? {
+        var page = 1
+        while true {
+            let result = try await listPullRequests(
+                repository: repository,
+                token: token,
+                filter: .open,
+                page: page,
+                perPage: 100
+            )
+            if let pullRequest = result.items.first(where: { $0.source.ref == sourceBranch }) {
+                return pullRequest
+            }
+            guard result.hasNextPage else { return nil }
+            page += 1
+        }
     }
 }
 

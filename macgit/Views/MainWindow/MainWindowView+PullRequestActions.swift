@@ -80,6 +80,48 @@ extension MainWindowView {
         presentCreatePullRequestWindow(sourceBranch: nil)
     }
 
+    func resolveOpenPullRequest(
+        remote: String,
+        sourceBranch: String
+    ) async -> PullRequestSummary? {
+        guard await authorizePullRequestAccess(presentNotice: false) else { return nil }
+        return try? await pullRequestController.openPullRequest(
+            sourceBranch: sourceBranch,
+            repositoryURL: repositoryURL,
+            remoteName: remote
+        )
+    }
+
+    func showPullRequestDetail(_ pullRequest: PullRequestSummary) async {
+        guard await authorizePullRequestAccess() else { return }
+        if selectedPullRequestID == pullRequest.id,
+           pullRequestDetailWindow.activateIfPresented() { return }
+
+        pullRequestDetailWindow.close()
+        pullRequestController.clearSelectedDetail()
+        selectedPullRequestID = pullRequest.id
+        pullRequestDetailWindow.show(
+            title: "Pull Request #\(pullRequest.number) — \(repositoryURL.lastPathComponent)",
+            content: PullRequestDetailWindowContent(
+                controller: pullRequestController,
+                selectedPullRequestID: pullRequest.id,
+                authorizeAction: { await authorizePullRequestAccess() },
+                onClose: closePullRequestDetail
+            )
+            .environmentObject(appState)
+            .environment(\.appTextScale, appState.textSize.scale)
+            .sheetPresentationScope(),
+            onClose: closePullRequestDetail
+        )
+        await pullRequestController.loadPullRequestDetail(pullRequest)
+    }
+
+    func closePullRequestDetail() {
+        pullRequestDetailWindow.close()
+        selectedPullRequestID = nil
+        pullRequestController.clearSelectedDetail()
+    }
+
     /// The in-app "pull request created" notification the user activated for this repository.
     var pendingPullRequestNotification: AppNotification? {
         guard let notification = appNotificationController.pendingPullRequest,

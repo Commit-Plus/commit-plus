@@ -109,6 +109,33 @@ struct GitLabPullRequestService: PullRequestProviding {
         }
     }
 
+    func openPullRequest(
+        repository: GitRepositoryIdentity,
+        token: GitProviderToken,
+        sourceBranch: String
+    ) async throws -> PullRequestSummary? {
+        guard repository.provider == .gitlab else {
+            throw PullRequestProviderError.unsupportedProvider
+        }
+        let url = try projectURL(
+            repository: repository,
+            pathComponents: ["merge_requests"],
+            queryItems: [
+                URLQueryItem(name: "state", value: PullRequestListFilter.open.gitLabState),
+                URLQueryItem(name: "source_branch", value: sourceBranch),
+                URLQueryItem(name: "per_page", value: "1"),
+            ]
+        )
+
+        let (data, response) = try await httpClient.data(for: makeRequest(url: url, token: token))
+        try validate(response: response, data: data)
+        do {
+            return try decoder.decode([GitLabMergeRequestResponse].self, from: data).first?.summary
+        } catch {
+            throw PullRequestProviderError.providerMessage("GitLab returned an invalid merge request response.")
+        }
+    }
+
     func pullRequestDetail(
         repository: GitRepositoryIdentity,
         token: GitProviderToken,

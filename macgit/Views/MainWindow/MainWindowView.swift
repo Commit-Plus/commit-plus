@@ -185,6 +185,8 @@ struct MainWindowView: View {
     @State var showingSearchModal = false
     @State private var repositorySettingsWindow = RepositorySettingsWindowController()
     @State var createPullRequestWindow = CreatePullRequestWindowController()
+    @State var pullRequestDetailWindow = PullRequestDetailWindowController()
+    @State var selectedPullRequestID: Int?
     @State var showingRepositorySettings = false
     @State var initiallySelectGitFlowSettings = false
     @State var pendingSearchFileOpenRequest: SearchFileOpenRequest?
@@ -1120,6 +1122,12 @@ struct MainWindowView: View {
             onRequestCreatePullRequest: { branch in
                 prepareCreatePullRequest(branch: branch)
             },
+            resolveOpenPullRequest: { remote, branch in
+                await resolveOpenPullRequest(remote: remote, sourceBranch: branch)
+            },
+            onRequestViewPullRequest: { pullRequest in
+                Task { await showPullRequestDetail(pullRequest) }
+            },
             onRequestCreateBranchFromBranch: { branch in
                 presentBranchSheet(startPoint: .branch(branch))
             },
@@ -1480,7 +1488,10 @@ struct MainWindowView: View {
                         },
                         authorizeAction: { await authorizePullRequestAccess() },
                         pendingPullRequestNotification: pendingPullRequestNotification,
-                        onConsumePendingPullRequest: appNotificationController.consumePendingPullRequest(id:)
+                        onConsumePendingPullRequest: appNotificationController.consumePendingPullRequest(id:),
+                        selectedPullRequestID: selectedPullRequestID,
+                        onRequestShowDetail: showPullRequestDetail,
+                        onRequestCloseDetail: closePullRequestDetail
                     )
                 case .denied(let denial):
                     FeatureAccessUnavailableView(
