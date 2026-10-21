@@ -45,16 +45,22 @@ struct GitHubNotificationPopover: View {
                         changelogSection
                         if !appNotificationController.notifications.isEmpty {
                             Divider().padding(.horizontal, 18)
-                            ForEach(appNotificationController.notifications) { notification in
-                                AppNotificationRow(
-                                    notification: notification,
-                                    onOpen: {
-                                        dismiss()
-                                        onAppNotification(notification)
-                                    }
-                                )
-                                Divider().padding(.leading, 56).padding(.trailing, 18)
+                            VStack(alignment: .leading, spacing: 0) {
+                                ForEach(appNotificationController.notifications) { notification in
+                                    AppNotificationRow(
+                                        notification: notification,
+                                        onOpen: {
+                                            dismiss()
+                                            onAppNotification(notification)
+                                        },
+                                        onDelete: {
+                                            Task { await appNotificationController.delete(notification) }
+                                        }
+                                    )
+                                    Divider().padding(.leading, 50).padding(.trailing, 12)
+                                }
                             }
+                            .padding(.horizontal, 6).padding(.vertical, 4)
                         }
                     }
                 }

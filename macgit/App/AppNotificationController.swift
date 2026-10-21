@@ -127,8 +127,15 @@ final class AppNotificationController: ObservableObject {
         pendingPullRequest = nil
     }
 
+    func delete(_ notification: AppNotification) async {
+        await delete(ids: [notification.id])
+    }
+
     func deleteAll() async {
-        let ids = notifications.map(\.id)
+        await delete(ids: notifications.map(\.id))
+    }
+
+    private func delete(ids: [String]) async {
         guard !ids.isEmpty else { return }
         do {
             try await dataStore.transaction { transaction in

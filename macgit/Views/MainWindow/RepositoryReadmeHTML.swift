@@ -35,9 +35,10 @@ enum RepositoryReadmeHTML {
         <meta http-equiv="Content-Security-Policy" content="\(contentSecurityPolicy)">
         <style nonce="\(styleNonce)">
         :root { color-scheme: light dark; font: \(14 * textScale)px -apple-system, BlinkMacSystemFont, sans-serif; }
-        body { margin: 0; padding: \(compact ? "0" : "8px 20px 32px"); color: light-dark(#24292f, #e6edf3); overflow-wrap: anywhere; line-height: 1.65; }
+        html { overflow-y: hidden; }
+        body { display: flow-root; margin: 0; padding: \(compact ? "0" : "8px 20px 32px"); color: light-dark(#24292f, #e6edf3); overflow-wrap: anywhere; line-height: 1.65; }
         h1,h2,h3,h4 { line-height: 1.3; margin: 1.4em 0 .6em; } h1 { font-size: 2em; } h2 { font-size: 1.5em; border-bottom: 1px solid light-dark(#d8dee4,#30363d); padding-bottom: .35em; }
-        body > :first-child { margin-top: 0; } a { color: light-dark(#0969da,#58a6ff); text-decoration: none; } a:hover { text-decoration: underline; }
+        body > :first-child { margin-top: 0; } body > :last-child { margin-bottom: 0; } a { color: light-dark(#0969da,#58a6ff); text-decoration: none; } a:hover { text-decoration: underline; }
         img { max-width: 100%; object-fit: contain; } pre { padding: 16px; overflow-x: auto; border-radius: 8px; background: light-dark(#f6f8fa,#161b22); }
         code { font: .9em ui-monospace, SFMono-Regular, monospace; background: light-dark(#eff1f3,#262c36); border-radius: 4px; padding: .15em .3em; } pre code { background: none; padding: 0; }
         blockquote { margin-left: 0; padding-left: 16px; border-left: 3px solid light-dark(#d0d7de,#30363d); color: light-dark(#57606a,#8b949e); }
