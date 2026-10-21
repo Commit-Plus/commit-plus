@@ -99,6 +99,7 @@ struct FileStatusView: View {
     @State private var potentialConflictPresentation: PotentialConflictFilePresentation?
     @State private var recentCommits: [(hash: String, message: String)] = []
     @State private var ignoreTargetFile: StatusFile? = nil
+    @State private var pendingDiscardFiles: [StatusFile] = []
     @State private var conflictResolverWindowController = NSWindowController(window: nil)
     @State private var needsRefresh = true
 
@@ -404,6 +405,21 @@ struct FileStatusView: View {
         }, message: {
             Text(errorMessage ?? "An unknown error occurred")
         })
+        .alert(
+            discardConfirmationTitle,
+            isPresented: Binding(
+                get: { !pendingDiscardFiles.isEmpty },
+                set: { if !$0 { pendingDiscardFiles = [] } }
+            ),
+            presenting: pendingDiscardFiles
+        ) { files in
+            Button("Discard", role: .destructive) {
+                Task { await discard(files: files) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Your local changes will be lost.")
+        }
         .replacingSheet(isPresented: $showingCommitConfirmation) {
             commitConfirmation
         }
@@ -765,7 +781,7 @@ struct FileStatusView: View {
                 Task { await stage(files: selection.files(for: .stage, fallback: file)) }
             }
             Button(selection.title(for: .discard)) {
-                Task { await discard(files: selection.files(for: .discard, fallback: file)) }
+                requestDiscard(files: selection.files(for: .discard, fallback: file))
             }
             Button(selection.title(for: .remove)) {
                 Task { await remove(files: selection.files(for: .remove, fallback: file)) }
@@ -778,7 +794,7 @@ struct FileStatusView: View {
 
         Divider()
         if !isStaged {
-            Button("Reset") { Task { await discard(file: file) } }
+            Button("Reset") { requestDiscard(files: [file]) }
                 .disabled(selection.isSingleFileActionDisabled)
             if !recentCommits.isEmpty {
                 Menu("Reset to Commit...") {
@@ -894,9 +910,7 @@ struct FileStatusView: View {
                 }
             }
             Button(selection.title(for: .discard)) {
-                Task {
-                    await discard(files: selection.files(for: .discard, fallback: file))
-                }
+                requestDiscard(files: selection.files(for: .discard, fallback: file))
             }
             Button(selection.title(for: .remove)) {
                 Task {
@@ -919,7 +933,7 @@ struct FileStatusView: View {
         Divider()
 
         if !isStaged {
-            Button("Reset") { Task { await discard(file: file) } }
+            Button("Reset") { requestDiscard(files: [file]) }
                 .disabled(selection.isSingleFileActionDisabled)
 
             if !recentCommits.isEmpty {
@@ -1995,8 +2009,16 @@ struct FileStatusView: View {
         onOpenFileInEditor(file.path, file.status == .untracked ? nil : .workingTreeChange)
     }
 
-    private func discard(file: StatusFile) async {
-        await discard(files: [file])
+    private func requestDiscard(files: [StatusFile]) {
+        guard !files.isEmpty else { return }
+        pendingDiscardFiles = files
+    }
+
+    private var discardConfirmationTitle: String {
+        if pendingDiscardFiles.count == 1, let file = pendingDiscardFiles.first {
+            return "Discard changes to \"\((file.path as NSString).lastPathComponent)\"?"
+        }
+        return "Discard changes to \(pendingDiscardFiles.count) files?"
     }
 
     private func remove(files: [StatusFile]) async {
