@@ -90,8 +90,7 @@ extension SidebarView {
         menu.separator()
         menu.copy("Copy Branch Name to Clipboard", value: branch)
         menu.separator()
-        if let upstream,
-           BranchUpstreamActionPolicy.shouldEnableCreatePullRequest(for: upstream) {
+        if let upstream {
             let parts = upstream.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
             if parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty {
                 addPullRequestItem(
@@ -101,10 +100,16 @@ extension SidebarView {
                     create: { actions.createPullRequest(branch) }
                 )
             } else {
-                menu.item("Create Pull Request...", enabled: false) { actions.createPullRequest(branch) }
+                menu.item(
+                    "Create Pull Request...",
+                    enabled: BranchUpstreamActionPolicy.shouldEnableCreatePullRequest(for: upstream)
+                ) { actions.createPullRequest(branch) }
             }
         } else {
-            menu.item("Create Pull Request...", enabled: false) { actions.createPullRequest(branch) }
+            menu.item(
+                "Create Pull Request...",
+                enabled: BranchUpstreamActionPolicy.shouldEnableCreatePullRequest(for: nil)
+            ) { actions.createPullRequest(branch) }
         }
         return menu
     }
