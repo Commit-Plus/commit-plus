@@ -90,6 +90,27 @@ final class SettingsSyncControllerTests: XCTestCase {
         XCTAssertEqual(harness.controller.presentedSheet, .settingsConflict)
     }
 
+    func testFreeAccountKeepsStoredPreferenceForLaterProSignIn() async {
+        let harness = makeHarness(cloud: nil, enabled: true, entitlement: .free)
+
+        await harness.controller.synchronizeSettingsNow()
+
+        XCTAssertFalse(harness.controller.settingsSyncEnabled)
+        XCTAssertTrue(harness.appState.syncEnabled, "A Free account must not overwrite the device preference")
+    }
+
+    func testUnresolvedEntitlementDoesNotReportRequiresPro() {
+        let harness = makeHarness(cloud: nil, enabled: true, entitlement: nil)
+
+        XCTAssertNil(harness.controller.cloudSyncUID)
+        XCTAssertFalse(harness.controller.canEnableSettingsSync)
+        XCTAssertEqual(harness.controller.settingsSyncDisplayText, "Checking...")
+
+        harness.entitlements.send(.activePro)
+
+        XCTAssertEqual(harness.controller.cloudSyncUID, account.uid)
+    }
+
     func testFirstProResolutionKeepsSyncOffWhenUserTurnedItOff() async {
         let harness = makeHarness(cloud: nil, enabled: false)
 
@@ -160,7 +181,7 @@ final class SettingsSyncControllerTests: XCTestCase {
     private func makeHarness(
         cloud: AppSettingsSnapshot?,
         enabled: Bool,
-        entitlement: AccountEntitlement = .activePro
+        entitlement: AccountEntitlement? = .activePro
     ) -> ControllerHarness {
         let suiteName = "SettingsSyncControllerTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -176,7 +197,7 @@ final class SettingsSyncControllerTests: XCTestCase {
             appState: appState,
             settingsStore: store
         )
-        entitlements.send(entitlement)
+        if let entitlement { entitlements.send(entitlement) }
         addTeardownBlock {
             defaults.removePersistentDomain(forName: suiteName)
         }

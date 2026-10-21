@@ -85,8 +85,10 @@ struct macgitApp: App {
         let providerCloudStore: GitProviderAccountCloudStore? = cloudFeaturesEnabled
             ? FirestoreGitProviderAccountStore()
             : nil
-        let providerStore = LocalFirstGitProviderAccountStore(cloudStore: providerCloudStore)
-        providerStore.isCloudSyncAllowed = { accountController.cloudSyncUID == $0 }
+        let providerStore = LocalFirstGitProviderAccountStore(
+            cloudStore: providerCloudStore,
+            isCloudSyncAllowed: accountController.isCloudSyncAllowed
+        )
         let providerTokenVault = KeychainGitProviderTokenVault()
         let providerAccountController = GitProviderAccountController(
             store: providerStore,
@@ -146,22 +148,23 @@ struct macgitApp: App {
         let repositoryBookmarkController = RepositoryBookmarkController(
             cloudStore: cloudFeaturesEnabled
                 ? FirestoreRepositoryBookmarkStore()
-                : nil
+                : nil,
+            isCloudSyncAllowed: accountController.isCloudSyncAllowed
         )
-        repositoryBookmarkController.isCloudSyncAllowed = { accountController.cloudSyncUID == $0 }
         _repositoryBookmarkController = StateObject(wrappedValue: repositoryBookmarkController)
         let customActionStore = CustomActionStore(
             cloudStore: cloudFeaturesEnabled ? FirestoreCustomActionStore() : nil
         )
         customActionStore.observeSession(accountController: accountController)
         _customActionStore = StateObject(wrappedValue: customActionStore)
-        let gitFlowConfigurationSyncController = GitFlowConfigurationSyncController(
-            cloudStore: cloudFeaturesEnabled
-                ? FirestoreGitFlowConfigurationStore()
-                : nil
+        _gitFlowConfigurationSyncController = StateObject(
+            wrappedValue: GitFlowConfigurationSyncController(
+                cloudStore: cloudFeaturesEnabled
+                    ? FirestoreGitFlowConfigurationStore()
+                    : nil,
+                isCloudSyncAllowed: accountController.isCloudSyncAllowed
+            )
         )
-        gitFlowConfigurationSyncController.isCloudSyncAllowed = { accountController.cloudSyncUID == $0 }
-        _gitFlowConfigurationSyncController = StateObject(wrappedValue: gitFlowConfigurationSyncController)
         _cloudLifecycleController = StateObject(
             wrappedValue: AppCloudLifecycleController(
                 startFeaturePolicy: featureAccessController.start,
@@ -272,6 +275,18 @@ struct macgitApp: App {
                 .task {
                     applicationDelegate.installRepositoryWindowOpener { [openWindow] request in
                         openWindow(id: "main", value: request)
+                    }
+                    applicationDelegate.installAppCloudSync { [
+                        accountController,
+                        customActionStore,
+                        repositoryBookmarkController,
+                        providerAccountController
+                    ] in
+                        async let settings: Void = accountController.flushPendingSettingsSync()
+                        async let customActions: Void = customActionStore.syncNow()
+                        async let bookmarks: Void = repositoryBookmarkController.retryPendingChanges()
+                        async let providerAccounts: Void = providerAccountController.uploadPendingChanges()
+                        _ = await (settings, customActions, bookmarks, providerAccounts)
                     }
                     appUpdateController.start()
                     await appNotificationController.load()

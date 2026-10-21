@@ -21,6 +21,7 @@
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
 import SwiftUI
+import FirebaseCore
 
 struct WindowWidthKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
@@ -125,6 +126,7 @@ struct MainWindowView: View {
     @State var selectedItem: SidebarSelection? = .item(.fileStatus)
     @State private var windowWidth: CGFloat = 0
     @State private var appActivationSyncTask: Task<Void, Never>?
+    @State private var cloudSyncRegistrationID = UUID()
     private static let appActivationSyncDebounce: Duration = .milliseconds(1500)
     @State var showingCommitSheet = false
     @State var showingPullSheet = false
@@ -872,6 +874,10 @@ struct MainWindowView: View {
                 await syncState?.waitForAutomaticFetchToFinish()
             }
             OpenRepositoryRegistry.shared.register(repositoryURL)
+            RepositoryWindowCloudSyncRegistry.shared.register(
+                cloudSyncRegistrationID,
+                upload: makePendingRepositoryChangesUpload()
+            )
         }
         .onDisappear {
             appActivationSyncTask?.cancel()
@@ -890,6 +896,13 @@ struct MainWindowView: View {
             )
             repositoryAIChatController.windowWillClose()
             OpenRepositoryRegistry.shared.unregister(repositoryURL)
+            if !OpenRepositoryRegistry.shared.isOpen(repositoryURL) {
+                let repositoryPath = repositoryURL.standardizedFileURL.path
+                Task { await RepositoryActionAuditStore.shared.clear(repositoryPath: repositoryPath) }
+            }
+            RepositoryWindowCloudSyncRegistry.shared.unregister(cloudSyncRegistrationID)
+            let uploadPendingRepositoryChanges = makePendingRepositoryChangesUpload()
+            Task { await uploadPendingRepositoryChanges() }
             syncState.stopBackgroundSync()
             operationProgress.cancelAllBackground()
         }
@@ -2068,6 +2081,29 @@ struct MainWindowView: View {
         }
         if let warningMessage = outcome.warningMessage {
             syncState.showError(warningMessage)
+        }
+    }
+
+    /// Repository-scoped cloud data syncs when its window closes, and for every open window
+    /// before quitting (`RepositoryWindowCloudSyncRegistry`). App-wide data syncs from
+    /// `MacgitApplicationDelegate`. It only uploads edits already marked pending, so it does
+    /// not need the initial load.
+    private func makePendingRepositoryChangesUpload() -> () async -> Void {
+        let repositoryURL = repositoryURL
+        return { [accountController, commitRuleSyncController, gitFlowConfigurationSyncController] in
+            let uid = accountController.cloudSyncUID
+            guard uid != nil, FirebaseApp.app() != nil else { return }
+            async let commitRule: Void = commitRuleSyncController.uploadPendingChange(
+                repositoryURL: repositoryURL,
+                uid: uid,
+                cloud: FirestoreRepositoryCommitRuleStore(),
+                isCloudSyncAllowed: accountController.isCloudSyncAllowed
+            )
+            async let gitFlow: Void = gitFlowConfigurationSyncController.uploadPendingChange(
+                repositoryURL: repositoryURL,
+                uid: uid
+            )
+            _ = await (commitRule, gitFlow)
         }
     }
 

@@ -349,6 +349,13 @@ actor RepositoryActionAuditStore {
         )
     }
 
+    /// Ends one repository's session when its last window closes. Never opens the database, so
+    /// clearing before anything was recorded does not create the session file.
+    func clear(repositoryPath: String) {
+        guard let connection else { return }
+        try? execute(connection, "DELETE FROM audit_entries WHERE repository_path = ?", [.text(repositoryPath)])
+    }
+
     func summaries(repositoryPath: String, limit: Int = maximumRecordsPerRepository) -> [RepositoryActionAuditSummary] {
         var result: [RepositoryActionAuditSummary] = []
         do {

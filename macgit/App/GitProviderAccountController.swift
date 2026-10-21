@@ -109,6 +109,10 @@ final class GitProviderAccountController: ObservableObject {
         }
     }
 
+    func uploadPendingChanges() async {
+        await store.uploadPendingChanges()
+    }
+
     func connectGitHub() async {
         guard authorizeNewAccountCreation() else { return }
         await startGitHubDeviceAuthorization()

@@ -323,7 +323,7 @@ extension MainWindowView {
             providerAccountPreferences: providerAccountPreferenceStore.preferences,
             onSave: { newSettings in
                 let commitRuleChanged = repoSettings.skipProtectedBranchCommitWarnings != newSettings.skipProtectedBranchCommitWarnings
-                let uid = commitRuleChanged ? accountController.cloudSyncUID : nil
+                let uid = commitRuleChanged ? accountController.account?.uid : nil
                 Task {
                     do {
                         try await repoSettingsStore.update(for: repositoryURL.path, settings: newSettings, pendingCommitRuleUID: uid)
@@ -347,7 +347,7 @@ extension MainWindowView {
                     let syncWarning = try await gitFlowConfigurationSyncController.save(
                         configuration,
                         repositoryURL: repositoryURL,
-                        uid: accountController.cloudSyncUID
+                        uid: accountController.account?.uid
                     )
                     await MainActor.run {
                         gitFlowConfiguration = configuration

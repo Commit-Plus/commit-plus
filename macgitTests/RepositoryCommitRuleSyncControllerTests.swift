@@ -16,7 +16,7 @@ final class RepositoryCommitRuleSyncControllerTests: XCTestCase {
         let controller = RepositoryCommitRuleSyncController(localStore: local, resolver: CommitRuleTestIdentity())
         let cloud = CommitRuleTestCloud(value: true)
         var applied: Bool?
-        let warning = await controller.reconcile(repositoryURL: url, uid: "user-a", cloud: cloud) { applied = $0 }
+        let warning = await controller.reconcile(repositoryURL: url, uid: "user-a", cloud: cloud, isCloudSyncAllowed: { _ in true }) { applied = $0 }
         XCTAssertNil(warning)
         XCTAssertEqual(applied, true)
         let loaded = await local.settings(for: url.path, currentBranch: nil, remotes: [])
@@ -35,19 +35,42 @@ final class RepositoryCommitRuleSyncControllerTests: XCTestCase {
         try await first.markChanged(false, uid: "user-a", repositoryURL: url)
         let cloud = CommitRuleTestCloud(value: true)
         cloud.failSave = true
-        let failure = await first.reconcile(repositoryURL: url, uid: "user-a", cloud: cloud) { _ in XCTFail("Must not overwrite local edit") }
+        let failure = await first.reconcile(repositoryURL: url, uid: "user-a", cloud: cloud, isCloudSyncAllowed: { _ in true }) { _ in XCTFail("Must not overwrite local edit") }
         XCTAssertNotNil(failure)
         cloud.failSave = false
         let second = RepositoryCommitRuleSyncController(localStore: local, resolver: CommitRuleTestIdentity())
-        let warning = await second.reconcile(repositoryURL: url, uid: "user-a", cloud: cloud) { _ in XCTFail("Must upload pending edit") }
+        let warning = await second.reconcile(repositoryURL: url, uid: "user-a", cloud: cloud, isCloudSyncAllowed: { _ in true }) { _ in XCTFail("Must upload pending edit") }
         XCTAssertNil(warning)
         XCTAssertEqual(cloud.value, false)
+    }
+
+    func testUploadPendingChangeSavesWithoutLoadingCloud() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
+        let local = RepoSettingsStore(dataStore: fixture.store)
+        let url = URL(fileURLWithPath: "/tmp/repo")
+        let controller = RepositoryCommitRuleSyncController(localStore: local, resolver: CommitRuleTestIdentity())
+        let cloud = CommitRuleTestCloud(value: true)
+
+        await controller.uploadPendingChange(repositoryURL: url, uid: "user-a", cloud: cloud, isCloudSyncAllowed: { _ in true })
+        XCTAssertEqual(cloud.saves, [])
+
+        try await controller.markChanged(false, uid: "user-a", repositoryURL: url)
+        await controller.uploadPendingChange(repositoryURL: url, uid: "user-a", cloud: cloud, isCloudSyncAllowed: { _ in false })
+        XCTAssertEqual(cloud.saves, [])
+
+        await controller.uploadPendingChange(repositoryURL: url, uid: "user-a", cloud: cloud, isCloudSyncAllowed: { _ in true })
+        XCTAssertEqual(cloud.saves, [false])
+        XCTAssertEqual(cloud.loads, 0)
+        let pending = try await fixture.store.readValues(Bool.self, in: "commitRulePending")
+        XCTAssertTrue(pending.isEmpty)
     }
 
     func testSignedOutDoesNotAccessCloud() async {
         let cloud = CommitRuleTestCloud(value: true)
         let controller = RepositoryCommitRuleSyncController(resolver: CommitRuleTestIdentity())
-        _ = await controller.reconcile(repositoryURL: URL(fileURLWithPath: "/tmp/repo"), uid: nil, cloud: cloud) { _ in XCTFail() }
+        _ = await controller.reconcile(repositoryURL: URL(fileURLWithPath: "/tmp/repo"), uid: nil, cloud: cloud, isCloudSyncAllowed: { _ in true }) { _ in XCTFail() }
         XCTAssertEqual(cloud.loads, 0)
         XCTAssertTrue(cloud.saves.isEmpty)
     }
@@ -66,7 +89,7 @@ final class RepositoryCommitRuleSyncControllerTests: XCTestCase {
             try await local.update(for: url.path, settings: settings, pendingCommitRuleUID: "user-a")
         }
         let controller = RepositoryCommitRuleSyncController(localStore: local, resolver: CommitRuleTestIdentity())
-        let warning = await controller.reconcile(repositoryURL: url, uid: "user-a", cloud: cloud) { _ in
+        let warning = await controller.reconcile(repositoryURL: url, uid: "user-a", cloud: cloud, isCloudSyncAllowed: { _ in true }) { _ in
             XCTFail("An old cloud value must not replace a local edit")
         }
         XCTAssertNil(warning)

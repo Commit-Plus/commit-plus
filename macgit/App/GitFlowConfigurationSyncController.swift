@@ -29,6 +29,8 @@ struct GitFlowConfigurationSyncOutcome {
     )
 }
 
+private struct CloudSyncDisabled: Error {}
+
 @MainActor
 final class GitFlowConfigurationSyncController: ObservableObject {
     private let cloudStore: GitFlowConfigurationCloudStore?
@@ -36,20 +38,22 @@ final class GitFlowConfigurationSyncController: ObservableObject {
     private let identityResolver: any RepositoryRemoteIdentityResolving
     private let dataStore: LocalDataStore
     private var operations: [URL: (UUID, Task<Void, Never>)] = [:]
-    /// Rechecked before cloud data is written locally so turning off Commit+ Cloud sync
-    /// also discards downloads that were already in flight.
-    var isCloudSyncAllowed: (String) -> Bool = { _ in true }
+    /// Rechecked before cloud data is written locally and before uploads so turning off
+    /// Commit+ Cloud sync also discards work that was already in flight.
+    private let isCloudSyncAllowed: (String) -> Bool
 
     init(
         cloudStore: GitFlowConfigurationCloudStore?,
         localStore: GitFlowConfigurationStore = GitFlowConfigurationStore(),
         identityResolver: any RepositoryRemoteIdentityResolving = RepositoryRemoteIdentityResolver(),
-        dataStore: LocalDataStore? = nil
+        dataStore: LocalDataStore? = nil,
+        isCloudSyncAllowed: @escaping (String) -> Bool
     ) {
         self.cloudStore = cloudStore
         self.localStore = localStore
         self.identityResolver = identityResolver
         self.dataStore = dataStore ?? .shared
+        self.isCloudSyncAllowed = isCloudSyncAllowed
     }
 
     // File-backed configuration and its SQLite outbox cannot share a transaction.
@@ -78,9 +82,25 @@ final class GitFlowConfigurationSyncController: ObservableObject {
         }
     }
 
+    /// `uid` is the signed-in account even while sync is off: the edit is marked pending for it
+    /// and uploaded by the next reconcile once sync is on, so the cloud copy cannot overwrite it.
     func save(_ configuration: GitFlowConfiguration, repositoryURL: URL, uid: String?) async throws -> String? {
         try await serialized(in: repositoryURL) {
             try await self.saveNow(configuration, repositoryURL: repositoryURL, uid: uid)
+        }
+    }
+
+    /// Uploads an edit left pending by a failed save, without downloading the cloud copy.
+    /// Runs when the repository's window closes.
+    func uploadPendingChange(repositoryURL: URL, uid: String?) async {
+        guard let uid, let cloudStore, isCloudSyncAllowed(uid) else { return }
+        _ = try? await serialized(in: repositoryURL) {
+            guard let identity = await self.identityResolver.identity(in: repositoryURL) else { return }
+            let uploadID = self.pendingUploadID(uid: uid, repositoryID: identity.documentID)
+            guard let pendingVersion = try await self.pendingVersion(uploadID),
+                  case .value(let configuration) = await self.localStore.loadResult(in: repositoryURL) else { return }
+            try await self.upload(configuration, identity: identity, uid: uid, cloudStore: cloudStore)
+            try await self.clearPendingUpload(uploadID, version: pendingVersion)
         }
     }
 
@@ -167,6 +187,9 @@ final class GitFlowConfigurationSyncController: ObservableObject {
                 )
             }
             return .unchanged
+        } catch is CloudSyncDisabled {
+            // Sync was turned off mid-reconcile; pending markers stay for the next session.
+            return .unchanged
         } catch {
             return GitFlowConfigurationSyncOutcome(
                 configuration: nil,
@@ -188,6 +211,7 @@ final class GitFlowConfigurationSyncController: ObservableObject {
         }
         let uploadID = pendingUploadID(uid: uid, repositoryID: identity.documentID)
         let pendingVersion = try await markPendingUpload(uploadID)
+        guard isCloudSyncAllowed(uid) else { return nil }
 
         do {
             try await upload(
@@ -197,6 +221,8 @@ final class GitFlowConfigurationSyncController: ObservableObject {
                 cloudStore: cloudStore
             )
             try await clearPendingUpload(uploadID, version: pendingVersion)
+            return nil
+        } catch is CloudSyncDisabled {
             return nil
         } catch {
             return "Git Flow was saved locally, but its configuration could not sync: \(error.localizedDescription)"
@@ -209,6 +235,7 @@ final class GitFlowConfigurationSyncController: ObservableObject {
         uid: String,
         cloudStore: GitFlowConfigurationCloudStore
     ) async throws {
+        guard isCloudSyncAllowed(uid) else { throw CloudSyncDisabled() }
         try await cloudStore.save(
             GitFlowCloudConfiguration(
                 configuration: configuration,

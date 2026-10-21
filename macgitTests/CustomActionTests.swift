@@ -127,6 +127,35 @@ final class CustomActionTests: XCTestCase {
         XCTAssertEqual(cloud.events, ["upsert", "load"])
     }
 
+    func testSyncRequestedDuringSyncWaitsAndUploadsChangesMadeMeanwhile() async {
+        let suite = "CustomActionTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let cloud = RecordingCustomActionCloudStore()
+        let store = CustomActionStore(userDefaults: defaults, cloudStore: cloud)
+        await store.updateCloudSession(uid: "A", enabled: true)
+        var release: CheckedContinuation<Void, Never>?
+        cloud.loadGate = { await withCheckedContinuation { release = $0 } }
+        cloud.events = []
+
+        let first = Task { await store.syncNow() }
+        while release == nil { await Task.yield() }
+        cloud.loadGate = nil
+        store.upsert(CustomActionDefinition(name: "Meanwhile", executablePath: "/usr/bin/env"))
+        var secondFinished = false
+        let second = Task {
+            await store.syncNow()
+            secondFinished = true
+        }
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertFalse(secondFinished)
+
+        release?.resume()
+        await second.value
+        await first.value
+        XCTAssertEqual(cloud.events, ["load", "upsert", "load"])
+    }
+
     func testDuplicateDoesNotTrustUnreviewedAction() {
         let suite = "CustomActionTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
@@ -281,11 +310,13 @@ final class CustomActionTests: XCTestCase {
 private final class RecordingCustomActionCloudStore: CustomActionCloudStore {
     var events: [String] = []
     var onLoad: (() -> Void)?
+    var loadGate: (() async -> Void)?
     private var actions: [CustomActionDefinition] = []
 
     func load(uid: String) async throws -> [CustomActionDefinition] {
         events.append("load")
         onLoad?()
+        await loadGate?()
         return actions
     }
 

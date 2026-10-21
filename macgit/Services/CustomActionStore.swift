@@ -28,7 +28,8 @@ final class CustomActionStore: ObservableObject {
     private var sessionGeneration = 0
     private var mutationVersions: [String: Int] = [:]
     private var periodicSyncTask: Task<Void, Never>?
-    private var isSyncing = false
+    private var activeSync: Task<Void, Never>?
+    private var syncRequestedDuringSync = false
     private var sessionObservation: AnyCancellable?
     private var trustedFingerprints: [String: String]
     private var executableOverrides: [String: String]
@@ -101,15 +102,32 @@ final class CustomActionStore: ObservableObject {
         }
     }
 
+    /// A call made while a sync runs waits for it, and that sync runs once more so changes
+    /// made meanwhile are uploaded before the call returns.
     func syncNow() async {
-        guard syncEnabled, !isSyncing, let uid = activeUID, let cloudStore else { return }
+        if let activeSync {
+            syncRequestedDuringSync = true
+            await activeSync.value
+            return
+        }
+        let sync = Task { @MainActor [weak self] in
+            guard let self else { return }
+            repeat {
+                syncRequestedDuringSync = false
+                await performSync()
+            } while syncRequestedDuringSync
+            // Cleared in the same main-actor turn as the last check, so no request is missed.
+            activeSync = nil
+        }
+        activeSync = sync
+        await sync.value
+    }
+
+    private func performSync() async {
+        guard syncEnabled, let uid = activeUID, let cloudStore else { return }
         let generation = sessionGeneration
-        isSyncing = true
         defer {
-            isSyncing = false
-            if generation != sessionGeneration {
-                Task { @MainActor [weak self] in await self?.syncNow() }
-            }
+            if generation != sessionGeneration { syncRequestedDuringSync = true }
         }
         do {
             for idString in Array(pendingDeletions) {

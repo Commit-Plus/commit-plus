@@ -24,7 +24,7 @@ final class LocalGitProviderAccountStoreTests: XCTestCase {
     func testSignedOutStoreUsesLocalAccounts() async throws {
         let localAccount = makeAccount(id: "local", ownerID: "local-owner", providerUserID: "1")
         let localStore = FakeLocalProviderAccountStore(accounts: [localAccount])
-        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: nil)
+        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: nil, isCloudSyncAllowed: { _ in true })
 
         try await store.updateCloudAccount(uid: nil)
         let accounts = try await store.accounts()
@@ -37,7 +37,7 @@ final class LocalGitProviderAccountStoreTests: XCTestCase {
         let cloudAccount = makeAccount(id: "cloud", ownerID: "firebase-user", providerUserID: "2")
         let localStore = FakeLocalProviderAccountStore(accounts: [localAccount])
         let cloudStore = FakeCloudProviderAccountStore(accounts: [cloudAccount])
-        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: cloudStore)
+        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: cloudStore, isCloudSyncAllowed: { _ in true })
 
         try await store.updateCloudAccount(uid: "firebase-user")
         let accounts = try await store.accounts()
@@ -52,8 +52,11 @@ final class LocalGitProviderAccountStoreTests: XCTestCase {
         let cloudAccount = makeAccount(id: "cloud", ownerID: "firebase-user", providerUserID: "2")
         let localStore = FakeLocalProviderAccountStore(accounts: [localAccount])
         let cloudStore = FakeCloudProviderAccountStore(accounts: [cloudAccount])
-        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: cloudStore)
-        store.isCloudSyncAllowed = { _ in false }
+        let store = LocalFirstGitProviderAccountStore(
+            localStore: localStore,
+            cloudStore: cloudStore,
+            isCloudSyncAllowed: { _ in false }
+        )
 
         try await store.updateCloudAccount(uid: "firebase-user")
         let accounts = try await store.accounts()
@@ -69,7 +72,7 @@ final class LocalGitProviderAccountStoreTests: XCTestCase {
         cloudAccount.username = "cloud-name"
         let localStore = FakeLocalProviderAccountStore(accounts: [localAccount])
         let cloudStore = FakeCloudProviderAccountStore(accounts: [cloudAccount])
-        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: cloudStore)
+        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: cloudStore, isCloudSyncAllowed: { _ in true })
 
         try await store.updateCloudAccount(uid: "firebase-user")
         let accounts = try await store.accounts()
@@ -83,7 +86,7 @@ final class LocalGitProviderAccountStoreTests: XCTestCase {
         let localAccount = makeAccount(id: "local", ownerID: "local-owner", providerUserID: "1")
         let localStore = FakeLocalProviderAccountStore(accounts: [localAccount])
         let cloudStore = FakeCloudProviderAccountStore(accounts: [], loadError: TestCloudError.failed)
-        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: cloudStore)
+        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: cloudStore, isCloudSyncAllowed: { _ in true })
 
         try await store.updateCloudAccount(uid: "firebase-user")
         let accounts = try await store.accounts()
@@ -94,7 +97,7 @@ final class LocalGitProviderAccountStoreTests: XCTestCase {
     func testCloudSaveFailureDoesNotRollbackLocalSave() async throws {
         let localStore = FakeLocalProviderAccountStore(accounts: [])
         let cloudStore = FakeCloudProviderAccountStore(accounts: [], saveError: TestCloudError.failed)
-        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: cloudStore)
+        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: cloudStore, isCloudSyncAllowed: { _ in true })
         try await store.updateCloudAccount(uid: "firebase-user")
         let account = makeAccount(id: "local", ownerID: "local-owner", providerUserID: "1")
 
@@ -111,7 +114,7 @@ final class LocalGitProviderAccountStoreTests: XCTestCase {
             accounts: [account],
             deleteError: TestCloudError.failed
         )
-        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: cloudStore)
+        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: cloudStore, isCloudSyncAllowed: { _ in true })
         try await store.updateCloudAccount(uid: "firebase-user")
 
         try await store.delete(accountID: account.id)
@@ -122,11 +125,30 @@ final class LocalGitProviderAccountStoreTests: XCTestCase {
         XCTAssertEqual(try localStore.pendingDeletions(), [account])
     }
 
+    func testUploadPendingChangesRetriesTombstonesAndUnsyncedAccounts() async throws {
+        let deleted = makeAccount(id: "deleted", ownerID: "local-owner", providerUserID: "1")
+        let unsynced = makeAccount(id: "unsynced", ownerID: "local-owner", providerUserID: "2")
+        let localStore = FakeLocalProviderAccountStore(accounts: [deleted])
+        let cloudStore = FakeCloudProviderAccountStore(accounts: [deleted])
+        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: cloudStore, isCloudSyncAllowed: { _ in true })
+        try await store.updateCloudAccount(uid: "firebase-user")
+        // Local writes whose cloud mirror failed.
+        _ = try localStore.delete(accountID: deleted.id)
+        try localStore.save(unsynced)
+
+        await store.uploadPendingChanges()
+
+        XCTAssertEqual(cloudStore.deletedAccountIDs, ["deleted"])
+        XCTAssertEqual(cloudStore.savedAccounts.last?.id, "unsynced")
+        XCTAssertTrue(try localStore.pendingDeletions().isEmpty)
+        XCTAssertEqual(localStore.syncedIdentityKeys(uid: "firebase-user").count, 1)
+    }
+
     func testRemoteDeletionRemovesPreviouslySyncedLocalMetadata() async throws {
         let account = makeAccount(id: "local", ownerID: "local-owner", providerUserID: "1")
         let localStore = FakeLocalProviderAccountStore(accounts: [account])
         let cloudStore = FakeCloudProviderAccountStore(accounts: [account])
-        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: cloudStore)
+        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: cloudStore, isCloudSyncAllowed: { _ in true })
         try await store.updateCloudAccount(uid: "firebase-user")
         cloudStore.accountsToLoad = []
 
@@ -139,7 +161,7 @@ final class LocalGitProviderAccountStoreTests: XCTestCase {
     func testSyncBookkeepingFailureDoesNotReportDurableAccountSaveAsFailed() async throws {
         let local = FakeLocalProviderAccountStore(accounts: [])
         let cloud = FakeCloudProviderAccountStore(accounts: [])
-        let store = LocalFirstGitProviderAccountStore(localStore: local, cloudStore: cloud)
+        let store = LocalFirstGitProviderAccountStore(localStore: local, cloudStore: cloud, isCloudSyncAllowed: { _ in true })
         try await store.updateCloudAccount(uid: "firebase-user")
         local.syncedKeysError = TestCloudError.failed
         let account = makeAccount(id: "local", ownerID: "local-owner", providerUserID: "1")

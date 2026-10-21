@@ -36,6 +36,15 @@ final class MacgitApplicationDelegate: NSObject, NSApplicationDelegate, UNUserNo
     }
 
     private var activityTelemetry: AppActivityTelemetryController?
+    private var syncAppCloudData: (() async -> Void)?
+    private var awaitingTerminationReply = false
+    private static let terminationSyncTimeout: Duration = .seconds(3)
+
+    /// App-wide cloud data syncs when the last window closes (the app stays in the Dock) and
+    /// before quitting. Repository-scoped data syncs when its own window closes.
+    func installAppCloudSync(_ sync: @escaping () async -> Void) {
+        syncAppCloudData = sync
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
@@ -84,6 +93,37 @@ final class MacgitApplicationDelegate: NSObject, NSApplicationDelegate, UNUserNo
 
     func applicationDidBecomeActive(_ notification: Notification) {
         activityTelemetry?.recordActivity(isActive: true)
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        if let syncAppCloudData { Task { await syncAppCloudData() } }
+        return false
+    }
+
+    /// Quitting syncs app-wide data and every repository window that is still open, since
+    /// those windows run `onDisappear` only after `applicationWillTerminate`, too late for
+    /// async work. It waits at most `terminationSyncTimeout`.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !awaitingTerminationReply else { return .terminateNow }
+        awaitingTerminationReply = true
+        let syncAppCloudData = syncAppCloudData
+        Task {
+            async let appData: Void? = syncAppCloudData?()
+            async let repositoryData: Void = RepositoryWindowCloudSyncRegistry.shared.uploadAll()
+            _ = await (appData, repositoryData)
+            replyToTermination(sender)
+        }
+        Task {
+            try? await Task.sleep(for: Self.terminationSyncTimeout)
+            replyToTermination(sender)
+        }
+        return .terminateLater
+    }
+
+    private func replyToTermination(_ sender: NSApplication) {
+        guard awaitingTerminationReply else { return }
+        awaitingTerminationReply = false
+        sender.reply(toApplicationShouldTerminate: true)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

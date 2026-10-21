@@ -35,8 +35,6 @@ Release work is driven by the project skill `/release` (`.claude/skills/release/
 
 ## Architecture
 
-**Windows and app state.** `macgit/App/macgitApp.swift` declares a Welcome window, a `WindowGroup(id: "main", for: RepositoryWindowRequest.self)` (one window per repository/request), and Settings. `AppState` is the shared `ObservableObject`; feature-specific coordination lives in the many `*Controller.swift` files in `App/` rather than in views.
-
 **Command routing.** Menu and toolbar commands do not call views directly. They go through `FocusedValues` (`ToolbarAction`, `RepositoryWindowCommandState`, etc.) and `NotificationCenter` notifications posted with the key window as `object` (`WindowScopedNotification.post`). Receivers must filter on their own window so commands hit only the target repository. `MainWindowView` is the coordinator for repository actions and is split into `MainWindowView+<Feature>.swift` extensions.
 
 **Git execution.** All git work goes through `actor GitStatusService` (`GitStatusService.shared`), which spawns `Process()` and is split by feature into `GitStatusService+<Feature>.swift`. Use its `runGit`/`runGitBounded`/`runGitRaw` helpers rather than new process code; `GitCommandRunning` is the protocol seam for tests. The git binary itself is resolved by `GitRuntimeManager` (system git or a managed download), and Git LFS has its own runtime (`GitLFSRuntime`).
@@ -48,8 +46,6 @@ Release work is driven by the project skill `/release` (`.claude/skills/release/
 **Repository AI.** The chat agent (`RepositoryAIAgentHarness`) can only act through typed tools: read-only git commands (`RepositoryAIGitCommandPolicy`/`Executor`), local mutations (`RepositoryAIMutationPolicy`/`Executor`), and remote operations (`RepositoryAIRemoteOperationPolicy`/`Executor`). Each has a policy that gates what is allowed and requires user confirmation and revalidation for mutations. Commit-message generation is separate, with one provider per backend (`*CommitMessageProvider.swift`) registered in `AIProviderRegistry`; API keys are in `AIProviderCredentialStore` (Keychain).
 
 **Accounts, plans, and cloud sync.** Firebase Auth/Firestore are client-only here. Feature gating goes through `FeatureAccessResolver` with `FeaturePolicyStore`/`FeaturePolicyCache` (local fallback) and entitlements (`FirestoreEntitlementStore`, `EntitlementCache`). Synced settings are encoded by `CloudSettingsDocument` (see AGENTS.md before adding fields). Other synced data (bookmarks, custom actions, Git Flow config, commit rules) follows a `*CloudStore` + `Firestore*Store` pair; local persistence uses SQLite (`LocalSQLiteDatabase`, `LocalDataStore`).
-
-**Git providers.** GitHub and GitLab (including self-hosted, see `docs/self-hosted-git-providers.md`) have parallel services for auth, pull requests, and repository visibility; tokens are kept in `GitProviderTokenVault` and injected into git via `GitCredentialInjector`.
 
 ## Tests
 

@@ -517,7 +517,7 @@ extension MainWindowView {
                 let syncWarning = try await gitFlowConfigurationSyncController.save(
                     configuration,
                     repositoryURL: repositoryURL,
-                    uid: accountController.cloudSyncUID
+                    uid: accountController.account?.uid
                 )
                 if let syncWarning {
                     await MainActor.run {

@@ -197,6 +197,14 @@ final class SettingsSyncService: ObservableObject {
         }
     }
 
+    /// Saves a local edit whose upload has not been acknowledged yet. Runs before quitting,
+    /// which would otherwise drop an upload that is still in flight.
+    func flushPendingLocalChange() async {
+        guard let uid = activeUID, isSessionActive, let snapshot = pendingLocalSnapshot else { return }
+        pendingDebounce?.cancel()
+        await saveLocalSnapshot(snapshot, uid: uid, generation: generation)
+    }
+
     private func saveLocalSnapshot(
         _ snapshot: AppSettingsSnapshot,
         uid: String,

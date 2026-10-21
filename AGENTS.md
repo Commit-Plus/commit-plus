@@ -20,17 +20,6 @@ See `README.md` for features and `CONTRIBUTING.md` for setup and coding conventi
 - When implementing an OpenSpec change, keep `tasks.md` in sync with the actual work and archive the change only after it is implemented and validated.
 - Run `openspec update` after upgrading the CLI to refresh generated skills and commands; do not hand-edit them.
 
-## Project Layout
-
-- `macgit/App/`: app lifecycle, shared state, feature controllers, and menu/toolbar wiring.
-- `macgit/Views/`: SwiftUI screens and reusable UI, grouped by feature; `MainWindow` coordinates repository actions.
-- `macgit/Services/`: Git execution, undo, AI providers/tools, account integrations, and persistence.
-- `macgit/Models/` and `macgit/ViewModels/`: data types and presentation state.
-- `macgit/Resources/`: assets and bundled resources.
-- `macgitTests/`: XCTest coverage, including integration tests using temporary Git repositories.
-- `command-line/`: the `commit` CLI that opens repositories in Commit+.
-- `scripts/`: CLI build/tests and release tooling; `.github/workflows/`: CI and release automation.
-
 ## Firebase Ownership
 
 - Firebase backend logic has moved to the sibling `../landing-page` repository. Make changes to Firestore rules, Cloud Functions, backend tests, and feature-policy provisioning scripts there, following that repository's `AGENTS.md`.

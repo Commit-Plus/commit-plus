@@ -128,16 +128,22 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
     private let cloudStore: GitProviderAccountCloudStore?
     private var cloudUID: String?
     private var cloudAccountIDsByLocalAccountID: [String: String] = [:]
-    /// Rechecked before cloud data is written locally so turning off Commit+ Cloud sync
-    /// also discards downloads that were already in flight.
-    var isCloudSyncAllowed: (String) -> Bool = { _ in true }
+    /// Rechecked before every cloud read result is applied and before every cloud write, so
+    /// turning off Commit+ Cloud sync also stops a reconciliation that is already running.
+    private let isCloudSyncAllowed: (String) -> Bool
 
     init(
         localStore: GitProviderAccountLocalStore? = nil,
-        cloudStore: GitProviderAccountCloudStore?
+        cloudStore: GitProviderAccountCloudStore?,
+        isCloudSyncAllowed: @escaping (String) -> Bool
     ) {
         self.localStore = localStore ?? SQLiteGitProviderAccountLocalStore()
         self.cloudStore = cloudStore
+        self.isCloudSyncAllowed = isCloudSyncAllowed
+    }
+
+    private func isSyncing(uid: String) -> Bool {
+        cloudUID == uid && isCloudSyncAllowed(uid)
     }
 
     func accounts() async throws -> [GitProviderAccount] {
@@ -156,11 +162,12 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
         } catch {
             return
         }
-        guard cloudUID == uid, isCloudSyncAllowed(uid) else { return }
+        guard isSyncing(uid: uid) else { return }
 
         let pendingDeletions = try await localStore.pendingDeletions()
         let pendingIdentities = Set(pendingDeletions.map(GitProviderAccountLocalIdentity.init))
         for deletedAccount in pendingDeletions {
+            guard isSyncing(uid: uid) else { return }
             let identity = GitProviderAccountLocalIdentity(deletedAccount)
             if let cloudAccount = cloudAccounts.first(where: { GitProviderAccountLocalIdentity($0) == identity }) {
                 do {
@@ -181,6 +188,7 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
             GitProviderAccountLocalIdentity($0).storageKey
         })
         let previouslySyncedIdentityKeys = await localStore.syncedIdentityKeys(uid: uid)
+        guard isSyncing(uid: uid) else { return }
         for localAccount in initialLocalAccounts {
             let identityKey = GitProviderAccountLocalIdentity(localAccount).storageKey
             if previouslySyncedIdentityKeys.contains(identityKey),
@@ -192,6 +200,7 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
 
         var mergedAccounts = try localStore.accounts()
         for cloudAccount in visibleCloudAccounts {
+            guard isSyncing(uid: uid) else { return }
             let identity = GitProviderAccountLocalIdentity(cloudAccount)
             if let localAccount = mergedAccounts.first(where: {
                 GitProviderAccountLocalIdentity($0) == identity
@@ -206,16 +215,18 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
 
         var syncedIdentityKeys = visibleCloudIdentityKeys
         for account in mergedAccounts {
+            guard isSyncing(uid: uid) else { return }
             if await mirrorToCloud(account, uid: uid) {
                 syncedIdentityKeys.insert(GitProviderAccountLocalIdentity(account).storageKey)
             }
         }
+        guard isSyncing(uid: uid) else { return }
         try await localStore.setSyncedIdentityKeys(syncedIdentityKeys, uid: uid)
     }
 
     func save(_ account: GitProviderAccount) async throws {
         try await localStore.save(account)
-        guard let cloudUID else { return }
+        guard let cloudUID, isCloudSyncAllowed(cloudUID) else { return }
         if await mirrorToCloud(account, uid: cloudUID) {
             var syncedKeys = await localStore.syncedIdentityKeys(uid: cloudUID)
             syncedKeys.insert(GitProviderAccountLocalIdentity(account).storageKey)
@@ -227,7 +238,7 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
 
     func delete(accountID: String) async throws {
         guard let deletedAccount = try await localStore.delete(accountID: accountID) else { return }
-        guard let cloudUID, let cloudStore else { return }
+        guard let cloudUID, let cloudStore, isCloudSyncAllowed(cloudUID) else { return }
 
         let cloudAccountID = cloudAccountIDsByLocalAccountID.removeValue(forKey: accountID) ?? accountID
         do {
@@ -244,8 +255,41 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
         }
     }
 
+    /// Retries tombstoned deletions and accounts that never reached the cloud. It downloads
+    /// the cloud list only to match tombstones, and never merges cloud accounts into local ones.
+    func uploadPendingChanges() async {
+        guard let uid = cloudUID, let cloudStore, isCloudSyncAllowed(uid) else { return }
+        var syncedKeys = await localStore.syncedIdentityKeys(uid: uid)
+        if let pendingDeletions = try? await localStore.pendingDeletions(), !pendingDeletions.isEmpty,
+           let cloudAccounts = try? await cloudStore.accounts(forMacgitUID: uid) {
+            for deletedAccount in pendingDeletions {
+                guard isSyncing(uid: uid) else { return }
+                let identity = GitProviderAccountLocalIdentity(deletedAccount)
+                do {
+                    for cloudAccount in cloudAccounts where GitProviderAccountLocalIdentity(cloudAccount) == identity {
+                        try await cloudStore.delete(accountID: cloudAccount.id, macgitUID: uid)
+                    }
+                    try await localStore.clearPendingDeletion(deletedAccount)
+                    syncedKeys.remove(identity.storageKey)
+                } catch {
+                    // Keep the tombstone so a stale cloud snapshot cannot restore the local deletion.
+                }
+            }
+        }
+        for account in (try? localStore.accounts()) ?? [] {
+            let identityKey = GitProviderAccountLocalIdentity(account).storageKey
+            guard !syncedKeys.contains(identityKey) else { continue }
+            guard isSyncing(uid: uid) else { return }
+            if await mirrorToCloud(account, uid: uid) {
+                syncedKeys.insert(identityKey)
+            }
+        }
+        guard isSyncing(uid: uid) else { return }
+        try? await localStore.setSyncedIdentityKeys(syncedKeys, uid: uid)
+    }
+
     private func mirrorToCloud(_ account: GitProviderAccount, uid: String) async -> Bool {
-        guard let cloudStore else { return false }
+        guard let cloudStore, isCloudSyncAllowed(uid) else { return false }
 
         var cloudAccount = account
         cloudAccount.macgitUID = uid
