@@ -1760,10 +1760,17 @@ struct MainWindowView: View {
 
         ToolbarSpacer(.flexible)
 
-        if windowWidth >= Self.pinnedToolbarShortcutsMinimumWindowWidth,
-           !appState.pinnedRepositoryToolbarShortcuts.isEmpty {
-            ToolbarItem(placement: .automatic) {
-                HStack(spacing: 2) {
+        ToolbarItem(placement: .automatic) {
+            HStack(spacing: 2) {
+                toolbarButton(
+                    icon: "arrow.uturn.backward",
+                    label: "Undo",
+                    showText: appState.showToolbarButtonText,
+                    disabled: isRepositoryUndoDisabled,
+                    action: performRepositoryUndo
+                )
+
+                if windowWidth >= Self.pinnedToolbarShortcutsMinimumWindowWidth {
                     ForEach(appState.pinnedRepositoryToolbarShortcuts) { shortcut in
                         toolbarButton(
                             icon: shortcut.systemImage,
@@ -1774,44 +1781,46 @@ struct MainWindowView: View {
                         )
                     }
                 }
-                .controlSize(.large)
-                // .padding(.horizontal, -6)
-            }
 
-            ToolbarSpacer(.fixed)
-        }
-
-        ToolbarItem(placement: .automatic) {
-            Button("Toolbar shortcuts", systemImage: "square.grid.2x2") {
-                showingToolbarShortcutPopover.toggle()
-            }
-            .controlSize(.large)
-            .labelStyle(.iconOnly)
-            .padding(.leading, 6)
-            .padding(.vertical, 1)
-            .help("Toolbar Shortcuts")
-            .popover(isPresented: $showingToolbarShortcutPopover) {
-                RepositoryToolbarShortcutPopover(
-                    pinnedShortcuts: appState.pinnedRepositoryToolbarShortcuts,
-                    isActionDisabled: isRepositoryToolbarShortcutDisabled,
-                    onPerformAction: performRepositoryToolbarShortcut,
-                    onSetPinned: { shortcut, isPinned in
-                        appState.setRepositoryToolbarShortcut(shortcut, isPinned: isPinned)
-                    }
+                toolbarButton(
+                    icon: "arrow.up.forward.app",
+                    label: "Open in",
+                    showText: appState.showToolbarButtonText,
+                    action: { showingToolbarShortcutPopover.toggle() }
                 )
-            }
-        }
+                .popover(isPresented: $showingToolbarShortcutPopover) {
+                    RepositoryToolbarShortcutPopover(
+                        pinnedShortcuts: appState.pinnedRepositoryToolbarShortcuts,
+                        isActionDisabled: isRepositoryToolbarShortcutDisabled,
+                        onPerformAction: performRepositoryToolbarShortcut,
+                        onSetPinned: { shortcut, isPinned in
+                            appState.setRepositoryToolbarShortcut(shortcut, isPinned: isPinned)
+                        }
+                    )
+                }
 
-        ToolbarItem(placement: .automatic) {
-            Button("Repository AI Chat", systemImage: "sidebar.right") {
-                showingRepositoryAIChatPanel.toggle()
+                toolbarButton(
+                    icon: "gear",
+                    label: "Settings",
+                    showText: appState.showToolbarButtonText,
+                    disabled: operationProgress.activeOperation != nil,
+                    action: presentRepositorySettings
+                )
+
+                toolbarButton(
+                    icon: "sparkles",
+                    label: "AI",
+                    showText: appState.showToolbarButtonText,
+                    action: toggleRepositoryAIChatPanel
+                )
+                .help(showingRepositoryAIChatPanel ? "Hide Repository AI Chat" : "Show Repository AI Chat")
             }
             .controlSize(.large)
-            .labelStyle(.iconOnly)
-            .padding(.trailing, 6)
-            .padding(.vertical, 1)
-            .help(showingRepositoryAIChatPanel ? "Hide Repository AI Chat" : "Show Repository AI Chat")
         }
+    }
+
+    private func toggleRepositoryAIChatPanel() {
+        showingRepositoryAIChatPanel.toggle()
     }
 
     private func requestRepositoryChatAccess() {
@@ -1877,16 +1886,29 @@ struct MainWindowView: View {
         }
 
         return switch shortcut {
-        case .undo:
-            GitUndoToolbarPolicy.isUndoDisabled(
-                isSyncing: syncState.isAnySyncing,
-                canUndo: undoManager.canUndo
-            )
         case .remote:
             remoteURLString.isEmpty
-        case .finder, .editor, .terminal, .settings:
+        case .finder, .editor, .terminal:
             false
         }
+    }
+
+    private var isRepositoryUndoDisabled: Bool {
+        operationProgress.activeOperation != nil || GitUndoToolbarPolicy.isUndoDisabled(
+            isSyncing: syncState.isAnySyncing,
+            canUndo: undoManager.canUndo
+        )
+    }
+
+    private func performRepositoryUndo() {
+        guard !isRepositoryUndoDisabled else { return }
+        handleGitUndoMenuAction(.undo)
+    }
+
+    private func presentRepositorySettings() {
+        guard operationProgress.activeOperation == nil else { return }
+        initiallySelectGitFlowSettings = false
+        presentRepositorySettingsWindow()
     }
 
     func presentRepositorySettingsWindow() {
@@ -1905,8 +1927,6 @@ struct MainWindowView: View {
         showingToolbarShortcutPopover = false
 
         switch shortcut {
-        case .undo:
-            handleGitUndoMenuAction(.undo)
         case .remote:
             openRemoteURL()
         case .finder:
@@ -1915,9 +1935,6 @@ struct MainWindowView: View {
             openRepositoryInExternalEditor()
         case .terminal:
             openTerminal()
-        case .settings:
-            initiallySelectGitFlowSettings = false
-            presentRepositorySettingsWindow()
         }
     }
 

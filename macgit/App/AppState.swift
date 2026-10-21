@@ -517,24 +517,20 @@ final class AppState: ObservableObject {
         }
 
         switch shortcut {
-        case .undo: showHeaderUndoButton = isPinned
         case .remote: showHeaderRemoteButton = isPinned
         case .finder: showHeaderFinderButton = isPinned
         case .editor: showHeaderEditorButton = isPinned
         case .terminal: showHeaderTerminalButton = isPinned
-        case .settings: showHeaderSettingsButton = isPinned
         }
         return true
     }
 
     func isRepositoryToolbarShortcutPinned(_ shortcut: RepositoryToolbarShortcut) -> Bool {
         switch shortcut {
-        case .undo: showHeaderUndoButton
         case .remote: showHeaderRemoteButton
         case .finder: showHeaderFinderButton
         case .editor: showHeaderEditorButton
         case .terminal: showHeaderTerminalButton
-        case .settings: showHeaderSettingsButton
         }
     }
 

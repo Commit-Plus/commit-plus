@@ -195,7 +195,7 @@ final class AppSettingsSnapshotTests: XCTestCase {
                 showHeaderRemoteButton: true,
                 showHeaderFinderButton: true,
                 showHeaderTerminalButton: true
-            )
+            ).normalizedRepositoryToolbarShortcuts()
         )
         XCTAssertEqual(state.appearance, .dark)
         XCTAssertFalse(state.showGitFlow)
@@ -333,8 +333,8 @@ final class AppSettingsSnapshotTests: XCTestCase {
         XCTAssertFalse(state.showHeaderUndoButton)
         XCTAssertTrue(state.showHeaderRemoteButton)
         XCTAssertTrue(state.showHeaderFinderButton)
-        XCTAssertTrue(state.showHeaderEditorButton)
-        XCTAssertTrue(state.showHeaderTerminalButton)
+        XCTAssertFalse(state.showHeaderEditorButton)
+        XCTAssertFalse(state.showHeaderTerminalButton)
         XCTAssertFalse(state.showHeaderSettingsButton)
 
         state.showHeaderBranchButton = false
@@ -364,24 +364,24 @@ final class AppSettingsSnapshotTests: XCTestCase {
         let state = AppState(userDefaults: defaults)
         XCTAssertEqual(
             state.pinnedRepositoryToolbarShortcuts,
-            [.remote, .finder, .editor, .terminal]
+            [.remote, .finder]
         )
-        XCTAssertFalse(state.setRepositoryToolbarShortcut(.undo, isPinned: true))
+        XCTAssertFalse(state.setRepositoryToolbarShortcut(.editor, isPinned: true))
 
-        XCTAssertTrue(state.setRepositoryToolbarShortcut(.terminal, isPinned: false))
-        XCTAssertTrue(state.setRepositoryToolbarShortcut(.undo, isPinned: true))
+        XCTAssertTrue(state.setRepositoryToolbarShortcut(.finder, isPinned: false))
+        XCTAssertTrue(state.setRepositoryToolbarShortcut(.editor, isPinned: true))
         XCTAssertEqual(
             state.pinnedRepositoryToolbarShortcuts,
-            [.undo, .remote, .finder, .editor]
+            [.remote, .editor]
         )
-        XCTAssertTrue(state.snapshot.showHeaderUndoButton)
-        XCTAssertFalse(state.snapshot.showHeaderTerminalButton)
+        XCTAssertFalse(state.snapshot.showHeaderFinderButton)
+        XCTAssertTrue(state.snapshot.showHeaderEditorButton)
 
         let reloaded = AppState(userDefaults: defaults)
         XCTAssertEqual(reloaded.pinnedRepositoryToolbarShortcuts, state.pinnedRepositoryToolbarShortcuts)
     }
 
-    func testApplyingCloudSnapshotNormalizesRepositoryToolbarPinsToFour() {
+    func testApplyingCloudSnapshotNormalizesRepositoryToolbarPinsToTwo() {
         let suiteName = "AppSettingsSnapshotTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -403,9 +403,11 @@ final class AppSettingsSnapshotTests: XCTestCase {
 
         XCTAssertEqual(
             state.pinnedRepositoryToolbarShortcuts,
-            [.undo, .remote, .finder, .editor]
+            [.remote, .finder]
         )
-        XCTAssertEqual(state.snapshot.pinnedRepositoryToolbarShortcuts.count, 4)
+        XCTAssertEqual(state.snapshot.pinnedRepositoryToolbarShortcuts.count, 2)
+        XCTAssertTrue(state.snapshot.showHeaderUndoButton)
+        XCTAssertTrue(state.snapshot.showHeaderSettingsButton)
     }
 
     func testHistoryFilterDefaultsAndPersistence() {

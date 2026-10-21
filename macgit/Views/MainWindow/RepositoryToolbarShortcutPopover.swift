@@ -35,9 +35,9 @@ struct RepositoryToolbarShortcutPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Toolbar Shortcuts")
+                Text("Open in")
                     .font(.headline)
-                Text("Pin up to \(RepositoryToolbarShortcut.maximumPinnedCount) shortcuts to the toolbar.")
+                Text("Pin up to \(RepositoryToolbarShortcut.maximumPinnedCount) actions to the toolbar.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

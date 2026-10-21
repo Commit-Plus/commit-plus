@@ -19,36 +19,30 @@
 import Foundation
 
 enum RepositoryToolbarShortcut: String, CaseIterable, Identifiable, Sendable {
-    case undo
     case remote
     case finder
     case editor
     case terminal
-    case settings
 
-    static let maximumPinnedCount = 4
+    static let maximumPinnedCount = 2
 
     var id: Self { self }
 
     var title: String {
         switch self {
-        case .undo: "Undo"
         case .remote: "Remote"
         case .finder: "Finder"
         case .editor: "Editor"
         case .terminal: "Terminal"
-        case .settings: "Settings"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .undo: "arrow.uturn.backward"
         case .remote: "network"
         case .finder: "folder"
         case .editor: "chevron.left.forwardslash.chevron.right"
         case .terminal: "terminal"
-        case .settings: "gear"
         }
     }
 }
@@ -71,12 +65,10 @@ extension AppSettingsSnapshot {
 
     func isRepositoryToolbarShortcutPinned(_ shortcut: RepositoryToolbarShortcut) -> Bool {
         switch shortcut {
-        case .undo: showHeaderUndoButton
         case .remote: showHeaderRemoteButton
         case .finder: showHeaderFinderButton
         case .editor: showHeaderEditorButton
         case .terminal: showHeaderTerminalButton
-        case .settings: showHeaderSettingsButton
         }
     }
 
@@ -85,12 +77,10 @@ extension AppSettingsSnapshot {
         isPinned: Bool
     ) {
         switch shortcut {
-        case .undo: showHeaderUndoButton = isPinned
         case .remote: showHeaderRemoteButton = isPinned
         case .finder: showHeaderFinderButton = isPinned
         case .editor: showHeaderEditorButton = isPinned
         case .terminal: showHeaderTerminalButton = isPinned
-        case .settings: showHeaderSettingsButton = isPinned
         }
     }
 }
