@@ -900,9 +900,7 @@ struct MainWindowView: View {
                 let repositoryPath = repositoryURL.standardizedFileURL.path
                 Task { await RepositoryActionAuditStore.shared.clear(repositoryPath: repositoryPath) }
             }
-            RepositoryWindowCloudSyncRegistry.shared.unregister(cloudSyncRegistrationID)
-            let uploadPendingRepositoryChanges = makePendingRepositoryChangesUpload()
-            Task { await uploadPendingRepositoryChanges() }
+            RepositoryWindowCloudSyncRegistry.shared.uploadAndUnregister(cloudSyncRegistrationID)
             syncState.stopBackgroundSync()
             operationProgress.cancelAllBackground()
         }

@@ -52,13 +52,22 @@ final class CustomActionStore: ObservableObject {
     }
 
     func observeSession(accountController: AccountSessionController) {
-        let session = accountController.cloudSyncUIDPublisher.combineLatest($syncEnabled)
+        // The signed-in account selects the catalog; the cloud-sync UID only gates network sync,
+        // so turning sync off keeps the account's actions instead of switching to the guest catalog.
+        let accountUID = accountController.$state.map { state -> String? in
+            guard case .authenticated(let account) = state else { return nil }
+            return account.uid
+        }
+        let session = accountUID.combineLatest(accountController.cloudSyncUIDPublisher, $syncEnabled)
             .removeDuplicates { previous, current in
-                previous.0 == current.0 && previous.1 == current.1
+                previous.0 == current.0 && previous.1 == current.1 && previous.2 == current.2
             }
         sessionObservation = session.sink { [weak self] value in
             guard let self else { return }
-            let generation = self.beginCloudSession(uid: value.0, enabled: value.0 != nil && value.1)
+            let generation = self.beginCloudSession(
+                uid: value.0,
+                enabled: value.1 != nil && value.1 == value.0 && value.2
+            )
             Task { @MainActor [weak self] in
                 await self?.startCloudSession(generation: generation)
             }

@@ -823,7 +823,12 @@ struct SidebarView: View {
         }
         .onChange(of: appState.showSubmodules) { _, isVisible in
             // Reload only this section; Add Submodule turns it on after a change.
-            guard isVisible, sectionStates.submodulesExpanded else { return }
+            guard isVisible else { return }
+            guard sectionStates.submodulesExpanded else {
+                // Reload when the section is expanded later instead of showing stale entries.
+                hasLoadedSubmodules = false
+                return
+            }
             Task {
                 await loadSubmodules(force: true)
             }
