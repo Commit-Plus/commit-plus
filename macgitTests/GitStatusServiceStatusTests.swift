@@ -218,6 +218,31 @@ final class GitStatusServiceStatusTests: XCTestCase {
         XCTAssertEqual(after.untracked.map(\.path), ["relocated/tracked.txt"])
     }
 
+    func testStagingWorktreeEditOfStagedRenameKeepsIndexRename() async throws {
+        let repoURL = try makeTempRepo()
+        try moveTrackedFile(in: repoURL)
+        try runGit(["add", "-A"], in: repoURL)
+        try "base\nmore\n".write(
+            to: repoURL.appendingPathComponent("relocated/tracked.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let status = try await GitStatusService.shared.status(for: repoURL)
+        let edit = try XCTUnwrap(status.unstaged.first { $0.path == "relocated/tracked.txt" })
+        XCTAssertEqual(edit.originalPath, "tracked.txt")
+
+        // The old path is already gone from the index, so staging must not try to remove it again.
+        try await GitStatusService.shared.stage(file: edit, in: repoURL)
+        try await GitStatusService.shared.stageAll(files: [edit], in: repoURL)
+
+        let after = try await GitStatusService.shared.status(for: repoURL)
+        XCTAssertTrue(after.staged.contains {
+            $0.status == .renamed && $0.path == "relocated/tracked.txt" && $0.originalPath == "tracked.txt"
+        })
+        XCTAssertTrue(after.unstaged.isEmpty)
+    }
+
     func testSortedForListOrdersByFileNameThenPath() {
         let files = [
             StatusFile(path: "src/b.swift", status: .modified, originalPath: nil),

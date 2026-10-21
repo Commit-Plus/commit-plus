@@ -8,15 +8,6 @@ extension GitStatusService {
             return try await showFile(at: path, ref: ref, in: repositoryURL)
         case let .index(path):
             return try await indexFile(at: path, in: repositoryURL)
-        case let .indexWithFallback(path, originalPath):
-            // Paired worktree renames may have either path in the index.
-            do {
-                return try await indexFile(at: path, in: repositoryURL)
-            } catch {
-                try Task.checkCancellation()
-                guard path != originalPath else { throw error }
-                return try await indexFile(at: originalPath, in: repositoryURL)
-            }
         case let .disk(path):
             return try await Task.detached(priority: .userInitiated) {
                 let root = repositoryURL.standardizedFileURL.resolvingSymlinksInPath()
