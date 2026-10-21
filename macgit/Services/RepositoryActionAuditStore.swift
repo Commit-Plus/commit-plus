@@ -297,10 +297,23 @@ actor RepositoryActionAuditStore {
         if let connection { sqlite3_close(connection) }
     }
 
+    /// Guards `isTerminated` together with opening the database, so a record still pending at
+    /// termination cannot recreate the session file after it was removed.
+    private static let terminationLock = NSLock()
+    nonisolated(unsafe) private static var isTerminated = false
+
     /// Synchronous so `applicationWillTerminate` can call it before the process exits.
     nonisolated static func removeSessionFile(at url: URL = sessionDatabaseURL) {
         for path in [url.path, url.path + "-journal", url.path + "-wal", url.path + "-shm"] {
             try? FileManager.default.removeItem(atPath: path)
+        }
+    }
+
+    /// Removes the session file and stops later records from opening a new one.
+    nonisolated static func terminateSession(at url: URL = sessionDatabaseURL) {
+        terminationLock.withLock {
+            isTerminated = true
+            removeSessionFile(at: url)
         }
     }
 
@@ -397,6 +410,9 @@ actor RepositoryActionAuditStore {
 
     private func database() throws -> OpaquePointer {
         if let connection { return connection }
+        Self.terminationLock.lock()
+        defer { Self.terminationLock.unlock() }
+        guard !Self.isTerminated else { throw failure("The action audit session has ended.") }
         // A file left by a previous run (for example after a crash) belongs to another session.
         Self.removeSessionFile(at: url)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

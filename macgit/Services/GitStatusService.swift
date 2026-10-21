@@ -551,7 +551,7 @@ actor GitStatusService {
         let status: RepositoryActionAuditStatus
         let output: String
         if let error {
-            let cancelled = error is CancellationError || Task.isCancelled
+            let cancelled = error is CancellationError
             status = cancelled ? .cancelled : .failed
             output = cancelled ? "" : error.localizedDescription
         } else {
