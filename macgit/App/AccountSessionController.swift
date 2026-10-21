@@ -56,6 +56,8 @@ final class AccountSessionController: ObservableObject {
     private let deviceAccessProvider: DeviceAccessProviding?
     private let deviceSessionCache: AccountDeviceSessionCaching?
     private var entitlementObservation: ObservationToken?
+    /// The last confirmed (cached or live) Pro access for an account, used to detect Free → Pro upgrades.
+    private var resolvedProAccess: (uid: String, hasProAccess: Bool)?
     private var deviceObservation: ObservationToken?
     private var settingsEligibilityTask: Task<Void, Never>?
     private var pendingTemporaryAccount: AccountSnapshot?
@@ -86,10 +88,26 @@ final class AccountSessionController: ObservableObject {
         appState.syncEnabled
     }
 
-    /// The account UID to use for any Commit+ Cloud sync, or nil when signed out or when
-    /// "Sync app settings" is off. Every synced data type must gate on this value.
+    /// Commit+ Cloud sync is a Pro feature; Free accounts cannot turn it on.
+    var canEnableSettingsSync: Bool {
+        account != nil && entitlement.hasProAccess
+    }
+
+    /// The account UID to use for any Commit+ Cloud sync, or nil when signed out, without Pro
+    /// access, or when "Sync app settings" is off. Every synced data type must gate on this value.
     var cloudSyncUID: String? {
-        settingsSyncEnabled ? account?.uid : nil
+        settingsSyncEnabled && entitlement.hasProAccess ? account?.uid : nil
+    }
+
+    var cloudSyncUIDPublisher: AnyPublisher<String?, Never> {
+        $state.combineLatest(appState.$syncEnabled, $entitlement)
+            .map { state, enabled, entitlement in
+                guard enabled, entitlement.hasProAccess,
+                      case .authenticated(let account) = state else { return nil }
+                return account.uid
+            }
+            .removeDuplicates()
+            .eraseToAnyPublisher()
     }
 
     var pendingCloudSettings: AppSettingsSnapshot? {
@@ -115,6 +133,7 @@ final class AccountSessionController: ObservableObject {
 
     var settingsSyncDisplayText: String {
         guard account != nil else { return "Sign In Required" }
+        guard entitlement.hasProAccess else { return "Requires Pro" }
         guard settingsSyncEnabled else { return "Off" }
 
         switch settingsSyncStatus {
@@ -741,6 +760,7 @@ final class AccountSessionController: ObservableObject {
             entitlement = cachedEntitlement.entitlement
             entitlementLastUpdatedAt = cachedEntitlement.updatedAt
             isUsingCachedEntitlement = true
+            reconcileSettingsSync(with: cachedEntitlement.entitlement, uid: uid)
         }
         guard let entitlementProvider else { return }
         entitlementObservation = entitlementProvider.observe(
@@ -771,12 +791,28 @@ final class AccountSessionController: ObservableObject {
             CachedAccountEntitlement(entitlement: entitlement, updatedAt: updatedAt),
             for: uid
         )
+        reconcileSettingsSync(with: entitlement, uid: uid)
         scheduleSettingsSyncEligibilityUpdate()
+    }
+
+    /// Turns sync off as soon as a confirmed entitlement lacks Pro access, and turns it back on
+    /// after a confirmed Free → Pro upgrade for the same account. Differing cloud settings then
+    /// go through the usual initial-choice sheet.
+    private func reconcileSettingsSync(with entitlement: AccountEntitlement, uid: String) {
+        let previous = resolvedProAccess
+        resolvedProAccess = (uid, entitlement.hasProAccess)
+        guard entitlement.hasProAccess else {
+            appState.syncEnabled = false
+            return
+        }
+        guard previous?.uid == uid, previous?.hasProAccess == false else { return }
+        appState.syncEnabled = true
     }
 
     private func stopEntitlementObservation() {
         entitlementObservation?.cancel()
         entitlementObservation = nil
+        resolvedProAccess = nil
         entitlement = .free
         entitlementError = nil
         entitlementLastUpdatedAt = nil
@@ -785,7 +821,7 @@ final class AccountSessionController: ObservableObject {
     }
 
     func setSettingsSyncEnabled(_ enabled: Bool) {
-        guard account != nil else { return }
+        guard account != nil, !enabled || entitlement.hasProAccess else { return }
         appState.syncEnabled = enabled
     }
 
@@ -800,7 +836,7 @@ final class AccountSessionController: ObservableObject {
         }
         await settingsSyncService.updateEligibility(
             uid: account?.uid,
-            enabled: appState.syncEnabled
+            enabled: appState.syncEnabled && entitlement.hasProAccess
         )
     }
 
@@ -848,7 +884,7 @@ final class AccountSessionController: ObservableObject {
             return
         }
         let uid = account?.uid
-        let enabled = enabledOverride ?? appState.syncEnabled
+        let enabled = (enabledOverride ?? appState.syncEnabled) && entitlement.hasProAccess
         settingsEligibilityTask = Task {
             guard !Task.isCancelled else { return }
             await settingsSyncService.updateEligibility(

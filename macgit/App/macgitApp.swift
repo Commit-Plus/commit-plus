@@ -153,7 +153,7 @@ struct macgitApp: App {
         let customActionStore = CustomActionStore(
             cloudStore: cloudFeaturesEnabled ? FirestoreCustomActionStore() : nil
         )
-        customActionStore.observeSession(accountController: accountController, appState: appState)
+        customActionStore.observeSession(accountController: accountController)
         _customActionStore = StateObject(wrappedValue: customActionStore)
         let gitFlowConfigurationSyncController = GitFlowConfigurationSyncController(
             cloudStore: cloudFeaturesEnabled
@@ -276,11 +276,11 @@ struct macgitApp: App {
                     appUpdateController.start()
                     await appNotificationController.load()
                 }
-                .task(id: "\(accountController.account?.uid ?? "signed-out")|\(appState.syncEnabled)") {
+                .task(id: "\(accountController.account?.uid ?? "signed-out")|\(accountController.cloudSyncUID != nil)") {
                     cloudLifecycleController.start()
                     await cloudLifecycleController.updateAccount(
                         accountController.account,
-                        cloudSyncEnabled: appState.syncEnabled
+                        cloudSyncEnabled: accountController.cloudSyncUID != nil
                     )
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in

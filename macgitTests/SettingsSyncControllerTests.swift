@@ -33,7 +33,7 @@ final class SettingsSyncControllerTests: XCTestCase {
         showSubtrees: true
     )
 
-    func testFreeAccountConflictPresentsSingleInitialChoiceSheet() async {
+    func testProAccountConflictPresentsSingleInitialChoiceSheet() async {
         let harness = makeHarness(cloud: cloud, enabled: true)
 
         await harness.controller.synchronizeSettingsNow()
@@ -43,14 +43,59 @@ final class SettingsSyncControllerTests: XCTestCase {
         XCTAssertEqual(harness.controller.pendingCloudSettings, cloud)
     }
 
-    func testPastDueAccountKeepsSyncAvailable() async {
+    func testPastDueAccountTurnsSyncOff() async {
         let harness = makeHarness(cloud: nil, enabled: true)
         harness.entitlements.send(.pastDuePro)
 
         await harness.controller.synchronizeSettingsNow()
 
+        XCTAssertFalse(harness.controller.settingsSyncEnabled)
+        XCTAssertEqual(harness.controller.settingsSyncStatus, .off)
+    }
+
+    func testFreeAccountTurnsSyncOffAndCannotTurnItOn() async {
+        let harness = makeHarness(cloud: nil, enabled: true, entitlement: .free)
+
+        harness.controller.setSettingsSyncEnabled(true)
+        await harness.controller.synchronizeSettingsNow()
+
+        XCTAssertFalse(harness.controller.settingsSyncEnabled)
+        XCTAssertFalse(harness.controller.canEnableSettingsSync)
+        XCTAssertNil(harness.controller.cloudSyncUID)
+        XCTAssertEqual(harness.controller.settingsSyncStatus, .off)
+        XCTAssertEqual(harness.controller.settingsSyncDisplayText, "Requires Pro")
+    }
+
+    func testDowngradeToFreeTurnsSyncOffImmediately() async {
+        let harness = makeHarness(cloud: nil, enabled: true)
+        await harness.controller.synchronizeSettingsNow()
+        XCTAssertEqual(harness.controller.cloudSyncUID, account.uid)
+
+        harness.entitlements.send(.free)
+
+        XCTAssertFalse(harness.controller.settingsSyncEnabled)
+        XCTAssertNil(harness.controller.cloudSyncUID)
+    }
+
+    func testUpgradeFromFreeTurnsSyncOnAndOffersCloudSettingsChoice() async {
+        let harness = makeHarness(cloud: cloud, enabled: false, entitlement: .free)
+
+        harness.entitlements.send(.activePro)
+        for _ in 0..<20 where harness.controller.presentedSheet == nil {
+            await Task.yield()
+        }
+
         XCTAssertTrue(harness.controller.settingsSyncEnabled)
-        XCTAssertEqual(harness.controller.settingsSyncStatus, .syncing)
+        XCTAssertEqual(harness.controller.settingsSyncStatus, .needsInitialChoice(cloud))
+        XCTAssertEqual(harness.controller.presentedSheet, .settingsConflict)
+    }
+
+    func testFirstProResolutionKeepsSyncOffWhenUserTurnedItOff() async {
+        let harness = makeHarness(cloud: nil, enabled: false)
+
+        harness.entitlements.send(.activePro)
+
+        XCTAssertFalse(harness.controller.settingsSyncEnabled)
     }
 
     func testCancelInitialChoiceTurnsDeviceSyncOff() async {
@@ -112,7 +157,11 @@ final class SettingsSyncControllerTests: XCTestCase {
         XCTAssertEqual(harness.store.observationCount, 0)
     }
 
-    private func makeHarness(cloud: AppSettingsSnapshot?, enabled: Bool) -> ControllerHarness {
+    private func makeHarness(
+        cloud: AppSettingsSnapshot?,
+        enabled: Bool,
+        entitlement: AccountEntitlement = .activePro
+    ) -> ControllerHarness {
         let suiteName = "SettingsSyncControllerTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
@@ -127,6 +176,7 @@ final class SettingsSyncControllerTests: XCTestCase {
             appState: appState,
             settingsStore: store
         )
+        entitlements.send(entitlement)
         addTeardownBlock {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -148,6 +198,12 @@ private struct ControllerHarness {
 }
 
 private extension AccountEntitlement {
+    static let activePro = AccountEntitlement(
+        plan: .pro,
+        access: .active,
+        billingStatus: .active
+    )
+
     static let pastDuePro = AccountEntitlement(
         plan: .pro,
         access: .inactive,

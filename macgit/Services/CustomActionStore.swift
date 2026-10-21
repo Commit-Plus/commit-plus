@@ -50,18 +50,14 @@ final class CustomActionStore: ObservableObject {
         normalizeAndSave()
     }
 
-    func observeSession(accountController: AccountSessionController, appState: AppState) {
-        let accountUID = accountController.$state.map { state -> String? in
-            guard case .authenticated(let account) = state else { return nil }
-            return account.uid
-        }
-        let session = accountUID.combineLatest(appState.$syncEnabled, $syncEnabled)
+    func observeSession(accountController: AccountSessionController) {
+        let session = accountController.cloudSyncUIDPublisher.combineLatest($syncEnabled)
             .removeDuplicates { previous, current in
-                previous.0 == current.0 && previous.1 == current.1 && previous.2 == current.2
+                previous.0 == current.0 && previous.1 == current.1
             }
         sessionObservation = session.sink { [weak self] value in
             guard let self else { return }
-            let generation = self.beginCloudSession(uid: value.0, enabled: value.1 && value.2)
+            let generation = self.beginCloudSession(uid: value.0, enabled: value.0 != nil && value.1)
             Task { @MainActor [weak self] in
                 await self?.startCloudSession(generation: generation)
             }
