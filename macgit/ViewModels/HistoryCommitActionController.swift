@@ -41,6 +41,8 @@ final class HistoryCommitActionController {
     var revertCandidate: Commit?
     var errorMessage: String?
     var rebaseNotice: String?
+    /// True while the interactive rebase sheet's plan is executing; the sheet shows progress inline.
+    private(set) var isRebasing = false
     @ObservationIgnored var dependencies: Dependencies
     @ObservationIgnored private var requestToken = UUID()
 
@@ -65,7 +67,7 @@ final class HistoryCommitActionController {
         dismiss()
         let token = requestToken
         let dependencies = dependencies
-        dependencies.runOperation("Preparing interactive rebase...") {
+        Task {
             do {
                 let plan = try await GitStatusService.shared.prepareHistoryRebase(
                     commit: commit, action: action, in: dependencies.repositoryURL)
@@ -79,8 +81,11 @@ final class HistoryCommitActionController {
     }
 
     func interactiveRebase(_ plan: HistoryRebasePlan) {
+        guard !isRebasing else { return }
         let dependencies = dependencies
-        dependencies.runOperation("Rewriting commits...") {
+        isRebasing = true
+        Task {
+            defer { self.isRebasing = false }
             do {
                 try await GitStatusService.shared.executeHistoryRebase(plan, in: dependencies.repositoryURL)
                 self.dismiss()

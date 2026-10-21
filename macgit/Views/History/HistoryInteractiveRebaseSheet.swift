@@ -73,6 +73,7 @@ struct HistoryInteractiveRebaseSheet: View {
                 }
             }
             .frame(height: commitListHeight)
+            .disabled(controller.isRebasing)
             Divider()
             detailPanel
                 .frame(maxHeight: .infinity)
@@ -86,10 +87,18 @@ struct HistoryInteractiveRebaseSheet: View {
                     .help("Rewriting changes commit hashes. Published commits may require a force push. Remote status is based on the last fetch.")
                 Spacer()
                 Button("Cancel", role: .cancel, action: controller.dismiss).keyboardShortcut(.cancelAction)
-                Button("Rebase") { controller.interactiveRebase(plan) }
-                    .keyboardShortcut(.defaultAction).disabled(plan.validationMessage != nil)
+                    .disabled(controller.isRebasing)
+                Button { controller.interactiveRebase(plan) } label: {
+                    HStack(spacing: 6) {
+                        if controller.isRebasing { ProgressView().controlSize(.small) }
+                        Text(controller.isRebasing ? "Rebasing…" : "Rebase")
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(plan.validationMessage != nil || controller.isRebasing)
             }
         }
+        .interactiveDismissDisabled(controller.isRebasing)
         .padding(.horizontal, 16)
         .padding(.top, 14)
         .padding(.bottom, 10)
