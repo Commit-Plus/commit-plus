@@ -8,10 +8,20 @@ extension GitStatusService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let head = try await runGit(arguments: ["rev-parse", "HEAD"], in: repository)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let history = try await runGit(arguments: ["rev-list", "--first-parent", "--parents", head], in: repository)
-        let rows = history.split(separator: "\n").map { $0.split(separator: " ").map(String.init) }
+        let history = try await runGit(arguments: ["rev-list", "--parents", head], in: repository)
+        var parentsByHash: [String: [String]] = [:]
+        for line in history.split(separator: "\n") {
+            let fields = line.split(separator: " ").map(String.init)
+            if let hash = fields.first { parentsByHash[hash] = Array(fields.dropFirst()) }
+        }
+        var rows: [[String]] = []
+        var cursor: String? = head
+        while let hash = cursor, let parents = parentsByHash[hash] {
+            rows.append([hash] + parents)
+            cursor = parents.first
+        }
         var result = HistoryRebaseAvailability(branch: branch, head: head,
-            ancestors: Set(rows.compactMap(\.first)))
+            ancestors: Set(rows.compactMap(\.first)), reachable: Set(parentsByHash.keys))
         for row in rows {
             guard let hash = row.first, row.count <= 2 else { break }
             result.quickCommits.insert(hash)

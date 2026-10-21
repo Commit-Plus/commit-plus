@@ -217,6 +217,12 @@ struct InteractiveRebaseChecks {
             let availability = try await git.historyRebaseAvailability(in: repository)
             precondition(availability.actions(for: selected) == [.reword, .edit, .squash, .fixup, .drop])
             precondition(availability.actions(for: merge).isEmpty)
+            let topic = try await commit("topic", in: repository)
+            let head = try await commit("HEAD", in: repository)
+            precondition(availability.isOnCurrentBranch(topic) && !availability.ancestors.contains(topic.hash))
+            precondition(!availability.canInteractivelyRebase(to: topic))
+            precondition(availability.isOnCurrentBranch(selected) && availability.canInteractivelyRebase(to: selected))
+            precondition(availability.isOnCurrentBranch(head) && !availability.canInteractivelyRebase(to: head))
             var plan = try await git.prepareHistoryRebase(commit: selected, action: action, in: repository)
             if action == .squash || action == .fixup {
                 precondition(plan.entries[0].commit.isMerge)

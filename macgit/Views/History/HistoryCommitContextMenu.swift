@@ -56,25 +56,38 @@ struct HistoryCommitContextMenu: View {
 
             Divider()
 
-            if let singleCommit,
-               let branch = rebaseAvailability.branch,
-               singleCommit.hash != headHash,
-               HistoryCheckoutPolicy.branchRef(from: singleCommit.refs) != nil {
-                Button("Merge into '\(branch)'...", systemImage: "arrow.triangle.merge") {
-                    controller.requestMerge(singleCommit)
-                }
-            }
-
             if let singleCommit, let branch = rebaseAvailability.branch {
-                if !rebaseAvailability.ancestors.contains(singleCommit.hash) {
+                if rebaseAvailability.isOnCurrentBranch(singleCommit) {
+                    Menu("Interactive Rebase") {
+                        Button("Interactively Rebase '\(branch)' to Here...") {
+                            controller.requestInteractiveRebase(singleCommit)
+                        }
+                        .disabled(!rebaseAvailability.canInteractivelyRebase(to: singleCommit))
+
+                        let quickActions = rebaseAvailability.actions(for: singleCommit)
+                        if !quickActions.isEmpty {
+                            Section("Quick Actions") {
+                                ForEach(quickActions) { action in
+                                    Button("\(action.title)...") {
+                                        controller.requestInteractiveRebase(singleCommit, action: action)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    if HistoryCheckoutPolicy.branchRef(from: singleCommit.refs) != nil {
+                        Button("Merge into '\(branch)'...", systemImage: "arrow.triangle.merge") {
+                            controller.requestMerge(singleCommit)
+                        }
+                    }
                     Button("Rebase '\(branch)' to Here...", systemImage: "arrow.triangle.swap") {
                         controller.requestRebase(singleCommit)
                     }
+                    Button("Interactively Rebase '\(branch)' to Here...") {
+                        controller.requestInteractiveRebase(singleCommit)
+                    }
                 }
-                Button("Interactively Rebase '\(branch)' to Here...") {
-                    controller.requestInteractiveRebase(singleCommit)
-                }
-                .disabled(singleCommit.hash == rebaseAvailability.head)
             }
 
             Divider()

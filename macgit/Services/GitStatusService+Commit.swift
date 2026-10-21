@@ -186,16 +186,19 @@ extension GitStatusService {
         let output = (try? await runGit(
             arguments: [
                 "for-each-ref",
-                "--format=%(objectname)",
+                "--format=%(refname) %(objectname)",
                 "refs/heads",
                 "refs/remotes"
             ],
             in: repositoryURL
         )) ?? ""
+        // Include ref names and the checked-out branch so a ref moving onto an
+        // already-listed commit (fast-forward, checkout) still reloads badges and HEAD.
         let head = await tipHash(for: "HEAD", in: repositoryURL)
-        var objectIDs = Set(output.split(separator: "\n").map(String.init))
-        if let head { objectIDs.insert(head) }
-        return objectIDs.sorted().joined(separator: "\n")
+        let headBranch = await currentBranch(in: repositoryURL)
+        var lines = output.split(separator: "\n").map(String.init).sorted()
+        lines.append("HEAD \(headBranch ?? "") \(head ?? "")")
+        return lines.joined(separator: "\n")
     }
 
     func commitHistory(allBranches: Bool, in repositoryURL: URL) async -> [Commit] {
