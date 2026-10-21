@@ -51,6 +51,18 @@ nonisolated struct StatusFile: Identifiable, Equatable, Hashable, Sendable {
     let path: String
     let status: FileStatus
     let originalPath: String?
+    /// A worktree rename paired with an untracked destination, which exists only on disk.
+    var isUntrackedRenameDestination = false
+
+    /// Whether the diff is read from the file on disk rather than from git objects.
+    var isDiffedFromDisk: Bool {
+        status == .untracked || (status == .renamed && isUntrackedRenameDestination)
+    }
+
+    /// Whether the diff compares HEAD with the index rather than the index with the worktree.
+    var isDiffedFromIndex: Bool {
+        (status == .staged || status == .added || status == .renamed) && !isUntrackedRenameDestination
+    }
 
     // Status refreshes recreate these values. Keep identity stable so a large
     // untracked tree is diffed in place instead of being removed and rebuilt.

@@ -263,7 +263,8 @@ extension GitStatusService {
                 renamed.append(StatusFile(
                     path: matched.path,
                     status: .renamed,
-                    originalPath: candidate.path
+                    originalPath: candidate.path,
+                    isUntrackedRenameDestination: true
                 ))
                 return nil
             }

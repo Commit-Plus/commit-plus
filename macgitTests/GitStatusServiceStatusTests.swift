@@ -174,6 +174,10 @@ final class GitStatusServiceStatusTests: XCTestCase {
         let rename = try XCTUnwrap(status.unstaged.first { $0.status == .renamed })
         XCTAssertEqual(rename.path, "subdir/tracked.txt")
         XCTAssertEqual(rename.originalPath, "tracked.txt")
+        XCTAssertTrue(rename.isUntrackedRenameDestination)
+        // The destination is not in the index, so the diff must come from disk, not `--cached`.
+        let hunks = try await GitStatusService.shared.diff(for: rename, in: repoURL)
+        XCTAssertEqual(hunks.flatMap(\.lines).filter { $0.type == .added }.map(\.text).first, "base")
         XCTAssertFalse(status.unstaged.contains { $0.status == .deleted && $0.path == "tracked.txt" },
                        "Worktree deletion should be consumed by the rename pairing")
         XCTAssertFalse(status.untracked.contains { $0.path == "subdir/tracked.txt" },
@@ -254,6 +258,8 @@ final class GitStatusServiceStatusTests: XCTestCase {
         XCTAssertEqual(unstaged.map(\.path), ["new/notes.md"])
         XCTAssertEqual(unstaged.last?.status, .renamed)
         XCTAssertEqual(unstaged.last?.originalPath, "old/notes.md")
+        XCTAssertEqual(unstaged.last?.isUntrackedRenameDestination, false)
+        XCTAssertEqual(unstaged.last?.isDiffedFromIndex, true)
         XCTAssertTrue(untracked.isEmpty)
     }
 

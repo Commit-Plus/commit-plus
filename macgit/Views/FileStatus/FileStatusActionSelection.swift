@@ -22,12 +22,14 @@ struct FileStatusSelectionKey: Hashable {
     let originalPath: String?
     let status: FileStatus
     let isStaged: Bool
+    let isDiffedFromDisk: Bool
 
     init(file: StatusFile, isStaged: Bool) {
         self.path = file.path
         self.originalPath = file.originalPath
         self.status = file.status
         self.isStaged = isStaged
+        self.isDiffedFromDisk = file.isDiffedFromDisk
     }
 }
 
