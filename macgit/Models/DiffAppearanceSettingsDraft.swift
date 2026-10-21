@@ -2,7 +2,7 @@
 
 import AppKit
 
-struct DiffAppearanceSettingsDraft {
+struct DiffAppearanceSettingsDraft: Equatable {
     var fontName: String
     var fontSize: Double
     var addedBackgroundColor: NSColor

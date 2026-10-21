@@ -20,95 +20,40 @@ import SwiftUI
 
 struct GitProviderAccountRow: View {
     let account: GitProviderAccount
-    let edit: () -> Void
-    let delete: () -> Void
-    @State private var confirmsDelete = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(spacing: 10) {
             Image(providerAssetName)
                 .resizable()
                 .scaledToFit()
-                .frame(width: 28, height: 28)
+                .frame(width: 24, height: 24)
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(providerName)
-                        .font(.headline)
-                        .fontWeight(.semibold)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(account.username)
+                    .lineLimit(1)
+                Text(detailDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
 
-                    Spacer()
+            Spacer(minLength: 8)
 
-                    HStack(spacing: 8) {
-                        Button("Edit", systemImage: "pencil", action: edit)
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.borderless)
-                            .help("Edit account")
-
-                        Button("Delete", systemImage: "trash", role: .destructive) {
-                            confirmsDelete = true
-                        }
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(.red)
-                        .help("Delete account")
-                    }
-                }
-
-                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 14, verticalSpacing: 8) {
-                    GridRow {
-                        Text("Account")
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-                        Text(account.username)
-                    }
-
-                    GridRow {
-                        Text("Host")
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-                        Text(account.hostURL.host() ?? account.hostURL.absoluteString)
-                    }
-
-                    GridRow {
-                        Text("Protocol")
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-                        Text(protocolDescription)
-                    }
-
-                    if let statusDescription {
-                        GridRow {
-                            Text("Status")
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.secondary)
-                            Label(statusDescription, systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                        }
-                    }
-                }
-
+            if let statusDescription {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .help(statusDescription)
+                    .accessibilityLabel(statusDescription)
             }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-                    .shadow(color: .black.opacity(0.04), radius: 8, x: 0, y: 2)
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .alert("Delete Git Provider Account?", isPresented: $confirmsDelete) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive, action: delete)
-        } message: {
-            Text("This disconnects \(providerName) account \(account.username) from Commit+. Local repositories and Git data will not be changed.")
-        }
+        .padding(.vertical, 3)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var detailDescription: String {
+        let host = account.hostURL.host() ?? account.hostURL.absoluteString
+        return "\(providerName) · \(host) · \(protocolDescription)"
     }
 
     private var providerAssetName: String {

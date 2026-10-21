@@ -20,9 +20,17 @@ import AppKit
 import SwiftUI
 
 struct GitProviderAddAccountSheet: View {
+    enum Presentation {
+        case sheet
+        /// Embedded in the Connections settings pane to edit the selected account in place.
+        /// The pane hosts Save and the help link in its own button row.
+        case inline(saveAction: Binding<GitProviderAccountSaveAction?>)
+    }
+
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var controller: GitProviderAccountController
     private let editingAccount: GitProviderAccount?
+    private let presentation: Presentation
     private let accountCreationDecision: GitProviderAccountCreationDecision
 
     @State private var selectedHost: GitProviderAddAccountHost = .github
@@ -36,15 +44,19 @@ struct GitProviderAddAccountSheet: View {
     @State private var bitbucketUsername = ""
     @State private var bitbucketAPIToken = ""
     @State private var sshKeyPath = ""
+    @State private var savedProtocol: GitProviderAddAccountProtocol = .https
+    @State private var savedSSHKeyPath = ""
     @State private var connectionTask: Task<Void, Never>?
 
     init(
         controller: GitProviderAccountController,
         editingAccount: GitProviderAccount? = nil,
-        accountCreationDecision: GitProviderAccountCreationDecision = .allowed
+        accountCreationDecision: GitProviderAccountCreationDecision = .allowed,
+        presentation: Presentation = .sheet
     ) {
         self.controller = controller
         self.editingAccount = editingAccount
+        self.presentation = presentation
         self.accountCreationDecision = accountCreationDecision
         if let account = editingAccount {
             let publicHost = account.provider == .github ? GitProviderHost.githubDotCom : GitProviderHost.gitlabDotCom
@@ -54,6 +66,7 @@ struct GitProviderAddAccountSheet: View {
         _selectedHost = State(initialValue: editingAccount.map(GitProviderAddAccountPresentationPolicy.host(for:)) ?? .github)
         _selectedAuthType = State(initialValue: editingAccount?.provider == .bitbucket ? .personalAccessToken : .oauth)
         _selectedProtocol = State(initialValue: editingAccount?.transportProtocol == .ssh ? .ssh : .https)
+        _savedProtocol = State(initialValue: editingAccount?.transportProtocol == .ssh ? .ssh : .https)
         _connectedAccountID = State(initialValue: editingAccount?.id)
         _connectedUsername = State(initialValue: editingAccount?.username ?? "")
         _bitbucketUsername = State(initialValue: editingAccount?.provider == .bitbucket ? editingAccount?.username ?? "" : "")
@@ -61,9 +74,11 @@ struct GitProviderAddAccountSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(title)
-                .font(.title2)
-                .bold()
+            if isSheet {
+                Text(title)
+                    .font(.title2)
+                    .bold()
+            }
 
             Form {
                 Picker("Host", selection: $selectedHost) {
@@ -212,20 +227,30 @@ struct GitProviderAddAccountSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack {
-                Button("Need help logging into your account?", action: openGitProviderHelpPage)
-                    .buttonStyle(.link)
+            if isSheet {
+                HStack {
+                    Button("Need help logging into your account?", action: openGitProviderHelpPage)
+                        .buttonStyle(.link)
 
-                Spacer()
+                    Spacer()
 
-                Button("Cancel", action: cancel)
-                Button("Save", action: save)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!canSave)
+                    Button("Cancel", action: cancel)
+                    Button("Save", action: save)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(!canSave)
+                }
             }
         }
         .padding()
-        .frame(minWidth: 540, minHeight: 360)
+        .frame(minWidth: isSheet ? 540 : nil, minHeight: isSheet ? 360 : nil)
+        .onChange(of: canSave, initial: true) { _, canSave in
+            guard case .inline(let saveAction) = presentation else { return }
+            saveAction.wrappedValue = GitProviderAccountSaveAction(
+                canSave: canSave,
+                save: save,
+                openHelp: openGitProviderHelpPage
+            )
+        }
         .onAppear(perform: loadExistingSSHKey)
         .onDisappear(perform: cancelConnection)
     }
@@ -272,12 +297,23 @@ struct GitProviderAddAccountSheet: View {
     }
 
     private var canSave: Bool {
-        (editingAccount != nil || matchingAccount() != nil || accountCreationDecision.isAllowed)
+        guard isSheet || hasUnsavedChanges else { return false }
+        return (editingAccount != nil || matchingAccount() != nil || accountCreationDecision.isAllowed)
             && GitProviderAddAccountPresentationPolicy.canSave(
             connectedUsername: connectedUsername,
             protocol: selectedProtocol,
             sshKeyPath: sshKeyPath
         )
+    }
+
+    private var isSheet: Bool {
+        if case .sheet = presentation { return true }
+        return false
+    }
+
+    private var hasUnsavedChanges: Bool {
+        selectedProtocol != savedProtocol
+            || (selectedProtocol == .ssh && sshKeyPath != savedSSHKeyPath)
     }
 
     private var title: String {
@@ -372,7 +408,14 @@ struct GitProviderAddAccountSheet: View {
                 transportProtocol: transportProtocol,
                 sshKey: sshKey
             )
-            dismiss()
+            switch presentation {
+            case .sheet:
+                dismiss()
+            case .inline:
+                guard controller.errorMessage == nil else { return }
+                savedProtocol = selectedProtocol
+                savedSSHKeyPath = sshKeyPath
+            }
         }
     }
 
@@ -412,6 +455,7 @@ struct GitProviderAddAccountSheet: View {
             return
         }
         sshKeyPath = key.path
+        savedSSHKeyPath = key.path
     }
 
     private func chooseSSHKey() {
@@ -432,4 +476,11 @@ struct GitProviderAddAccountSheet: View {
         }
         return "~" + path.dropFirst(home.count)
     }
+}
+
+/// Save state the inline account editor publishes to the Connections pane's button row.
+struct GitProviderAccountSaveAction {
+    let canSave: Bool
+    let save: () -> Void
+    let openHelp: () -> Void
 }

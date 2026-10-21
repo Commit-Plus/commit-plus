@@ -64,22 +64,6 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         }
     }
 
-    var iconColor: Color {
-        switch self {
-        case .general: .blue
-        case .appearance: .orange
-        case .diff: .pink
-        case .git: .green
-        case .accounts: .indigo
-        case .connections: .blue
-        case .integrations: .teal
-        case .customActions: .mint
-        case .aiProviders: .purple
-        case .update: .cyan
-        case .advanced: .brown
-        }
-    }
-
     var detail: String {
         switch self {
         case .general:

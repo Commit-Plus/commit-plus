@@ -24,6 +24,7 @@ struct AIProvidersSettingsView: View {
     @Binding var drafts: [AIProviderConfigurationDraft]
     @State private var authenticationMode: AuthenticationMode?
     @State private var isOpeningRestrictedProviderAccess = false
+    @State private var saveErrorMessage: String?
 
     var body: some View {
         Form {
@@ -70,6 +71,31 @@ struct AIProvidersSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !drafts.isEmpty {
+                HStack {
+                    Spacer()
+                    Button("Revert", action: revert)
+                        .disabled(!hasUnsavedChanges)
+                    Button("Save", action: save)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(!hasUnsavedChanges)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+            }
+        }
+        .alert(
+            "Couldn’t Save AI Provider Settings",
+            isPresented: Binding(
+                get: { saveErrorMessage != nil },
+                set: { if !$0 { saveErrorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(saveErrorMessage ?? "")
+        }
         .navigationTitle("AI Providers")
         .replacingSheet(item: $authenticationMode) { mode in
             AuthenticationSheet(controller: accountController, mode: mode)
@@ -94,4 +120,30 @@ struct AIProvidersSettingsView: View {
         }
     }
 
+
+    private var hasUnsavedChanges: Bool {
+        let savedModels = Dictionary(
+            controller.configurationDrafts().map { ($0.id, $0.model) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return drafts.contains { draft in
+            !draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || draft.shouldRemoveAPIKey
+                || draft.model.trimmingCharacters(in: .whitespacesAndNewlines) != savedModels[draft.id]
+        }
+    }
+
+    private func save() {
+        do {
+            try controller.applyProviderChanges(drafts, restrictedProviderAccess: restrictedProviderAccess)
+            drafts = controller.configurationDrafts()
+            Task { await controller.refreshAvailability() }
+        } catch {
+            saveErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func revert() {
+        drafts = controller.configurationDrafts()
+    }
 }
