@@ -180,7 +180,7 @@ struct DiffView: View {
     @ViewBuilder
     private var imagePreview: some View {
         if let file, let repositoryURL {
-            ImageComparisonView(request: .working(file, staged: file.isDiffedFromIndex),
+            ImageComparisonView(request: .working(file, staged: file.status == .staged || file.status == .added || file.status == .renamed),
                                 repositoryURL: repositoryURL, mode: imageComparisonMode)
         } else if let ref = gitRef, let repositoryURL, let path = filePath {
             ImageComparisonView(request: .commit(path: path, oldPath: imageOldPath, status: imageFileStatus, ref: ref),
@@ -211,11 +211,11 @@ struct HunkView: View {
 
     private var isStaged: Bool {
         guard let file = file else { return false }
-        return file.isDiffedFromIndex
+        return file.status == .staged || file.status == .added || file.status == .renamed
     }
 
     private var isUntracked: Bool {
-        file?.isDiffedFromDisk == true
+        file?.status == .untracked
     }
 
     private var isConflict: Bool {

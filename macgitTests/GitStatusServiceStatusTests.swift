@@ -156,157 +156,56 @@ final class GitStatusServiceStatusTests: XCTestCase {
         XCTAssertTrue(status.unstaged.contains { $0.path == "clip.mp4" }, "Modified tracked .mp4 file should appear in status")
     }
 
-    func testStatusCollapsesFinderMoveIntoRenamedEntry() async throws {
+    func testStatusReportsFinderMoveAsDeletedAndUntracked() async throws {
         let repoURL = try makeTempRepo()
-        let oldURL = repoURL.appendingPathComponent("tracked.txt")
-        let newURL = repoURL.appendingPathComponent("subdir/tracked.txt")
-
-        try FileManager.default.createDirectory(
-            at: repoURL.appendingPathComponent("subdir"),
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.moveItem(at: oldURL, to: newURL)
+        try moveTrackedFile(in: repoURL)
 
         let status = try await GitStatusService.shared.status(for: repoURL)
 
-        XCTAssertTrue(status.unstaged.contains { $0.status == .renamed },
-                      "A file moved on disk should be reported as renamed")
-        let rename = try XCTUnwrap(status.unstaged.first { $0.status == .renamed })
-        XCTAssertEqual(rename.path, "subdir/tracked.txt")
-        XCTAssertEqual(rename.originalPath, "tracked.txt")
-        XCTAssertTrue(rename.isUntrackedRenameDestination)
-        // The destination is not in the index, so the diff must come from disk, not `--cached`.
-        let hunks = try await GitStatusService.shared.diff(for: rename, in: repoURL)
-        XCTAssertEqual(hunks.flatMap(\.lines).filter { $0.type == .added }.map(\.text).first, "base")
-        XCTAssertFalse(status.unstaged.contains { $0.status == .deleted && $0.path == "tracked.txt" },
-                       "Worktree deletion should be consumed by the rename pairing")
-        XCTAssertFalse(status.untracked.contains { $0.path == "subdir/tracked.txt" },
-                       "Untracked entry at the new path should be consumed by the rename pairing")
+        XCTAssertFalse(status.unstaged.contains { $0.status == .renamed },
+                       "A move that is not staged should not be paired into a rename")
+        XCTAssertTrue(status.unstaged.contains { $0.status == .deleted && $0.path == "tracked.txt" })
+        XCTAssertEqual(status.untracked.map(\.path), ["relocated/tracked.txt"])
     }
 
-    func testStatusReportsDeletedAndUntrackedSeparatelyWhenBasenamesDiffer() async throws {
-        let (staged, returnedUnstaged, returnedUntracked) = GitStatusService.pairWorktreeRenames(
-            staged: [],
-            unstaged: [
-                StatusFile(path: "old/photo.png", status: .deleted, originalPath: nil)
-            ],
-            untracked: [
-                StatusFile(path: "new/image.png", status: .untracked, originalPath: nil)
-            ]
-        )
-
-        XCTAssertTrue(staged.isEmpty)
-        XCTAssertEqual(returnedUnstaged.compactMap { $0.status == .deleted ? $0.path : nil },
-                       ["old/photo.png"],
-                       "Files with different basenames should not be paired")
-        XCTAssertEqual(returnedUntracked.map(\.path), ["new/image.png"])
-    }
-
-    func testStatusAfterStashApplyMoveSurfacesRenamedEntry() async throws {
+    func testStatusAfterStashApplyMoveReportsAddedAndDeleted() async throws {
         let repoURL = try makeTempRepo()
-        let oldURL = repoURL.appendingPathComponent("tracked.txt")
-        let newURL = repoURL.appendingPathComponent("relocated/tracked.txt")
-        try FileManager.default.createDirectory(
-            at: repoURL.appendingPathComponent("relocated"),
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.moveItem(at: oldURL, to: newURL)
+        try moveTrackedFile(in: repoURL)
         try runGit(["add", "-A"], in: repoURL)
         try runGit(["stash", "push", "-m", "move"], in: repoURL)
 
-        // After `git stash push` the working tree matches HEAD, so the
-        // relocated file is already gone. Applying the stash should put the
-        // rename back into the worktree as `A ` + ` D` (because Git loses
-        // the rename connection when re-applying onto a clean tree).
+        // Applying onto a clean tree loses the rename: the new file is staged as `A `
+        // and the old one is a worktree deletion ` D`.
         try runGit(["stash", "apply"], in: repoURL)
 
         let status = try await GitStatusService.shared.status(for: repoURL)
-        XCTAssertTrue(status.unstaged.contains { $0.status == .renamed },
-                      "A stash-apply of a file move should be reported as renamed in the unstaged section")
+        XCTAssertTrue(status.staged.contains { $0.status == .added && $0.path == "relocated/tracked.txt" })
+        XCTAssertTrue(status.unstaged.contains { $0.status == .deleted && $0.path == "tracked.txt" })
+        XCTAssertFalse(status.unstaged.contains { $0.status == .renamed })
     }
 
-    func testPairWorktreeRenamesGroupsDAndUntrackedWithSameBasename() {
-        let deleted = StatusFile(path: "old/notes.md", status: .deleted, originalPath: nil)
-        let untracked = StatusFile(path: "new/notes.md", status: .untracked, originalPath: nil)
-        let modifiedKept = StatusFile(path: "other.txt", status: .modified, originalPath: nil)
-        let untrackedKept = StatusFile(path: "scratch.txt", status: .untracked, originalPath: nil)
-
-        let (_, unstaged, remaining) = GitStatusService.pairWorktreeRenames(
-            staged: [],
-            unstaged: [deleted, modifiedKept],
-            untracked: [untracked, untrackedKept]
-        )
-
-        XCTAssertEqual(unstaged.map(\.path), ["other.txt", "new/notes.md"])
-        XCTAssertEqual(unstaged.last?.status, .renamed)
-        XCTAssertEqual(unstaged.last?.originalPath, "old/notes.md")
-        XCTAssertEqual(remaining.map(\.path), ["scratch.txt"])
-    }
-
-    func testPairWorktreeRenamesGroupsDAndStagedAddedWithSameBasename() {
-        let deleted = StatusFile(path: "old/notes.md", status: .deleted, originalPath: nil)
-        let stagedAdded = StatusFile(path: "new/notes.md", status: .added, originalPath: nil)
-        let stagedKept = StatusFile(path: "staged.txt", status: .staged, originalPath: nil)
-
-        let (staged, unstaged, untracked) = GitStatusService.pairWorktreeRenames(
-            staged: [stagedAdded, stagedKept],
-            unstaged: [deleted],
-            untracked: []
-        )
-
-        XCTAssertEqual(staged.map(\.path), ["staged.txt"])
-        XCTAssertEqual(unstaged.map(\.path), ["new/notes.md"])
-        XCTAssertEqual(unstaged.last?.status, .renamed)
-        XCTAssertEqual(unstaged.last?.originalPath, "old/notes.md")
-        XCTAssertEqual(unstaged.last?.isUntrackedRenameDestination, false)
-        XCTAssertEqual(unstaged.last?.isDiffedFromIndex, true)
-        XCTAssertTrue(untracked.isEmpty)
-    }
-
-    func testStageAllCollapsesFinderMoveIntoIndexRename() async throws {
+    func testStageAllOfFinderMoveRecordsIndexRename() async throws {
         let repoURL = try makeTempRepo()
-        let newURL = repoURL.appendingPathComponent("relocated/tracked.txt")
-        try FileManager.default.createDirectory(
-            at: repoURL.appendingPathComponent("relocated"),
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.moveItem(
-            at: repoURL.appendingPathComponent("tracked.txt"),
-            to: newURL
-        )
+        try moveTrackedFile(in: repoURL)
 
         let status = try await GitStatusService.shared.status(for: repoURL)
-        let rename = try XCTUnwrap(status.unstaged.first { $0.status == .renamed })
-
-        try await GitStatusService.shared.stageAll(files: [rename], in: repoURL)
+        try await GitStatusService.shared.stageAll(files: status.unstaged + status.untracked, in: repoURL)
 
         let after = try await GitStatusService.shared.status(for: repoURL)
         XCTAssertTrue(
-            after.staged.contains { $0.status == .renamed && $0.path == "relocated/tracked.txt" },
-            "After staging, the move should be recorded as an index rename"
+            after.staged.contains {
+                $0.status == .renamed && $0.path == "relocated/tracked.txt" && $0.originalPath == "tracked.txt"
+            },
+            "Staging both sides of the move should record an index rename"
         )
-        XCTAssertFalse(
-            after.staged.contains { $0.status == .added && $0.path == "relocated/tracked.txt" },
-            "The new path should not appear as a plain index addition"
-        )
-        XCTAssertTrue(after.unstaged.isEmpty, "No unstaged entries should remain after staging a rename")
+        XCTAssertTrue(after.unstaged.isEmpty)
+        XCTAssertTrue(after.untracked.isEmpty)
     }
 
-    func testUnstageAllOnStagedRenameReturnsWorktreeRenameRow() async throws {
+    func testUnstageAllOnStagedRenameReturnsDeletedAndUntracked() async throws {
         let repoURL = try makeTempRepo()
-        let newURL = repoURL.appendingPathComponent("relocated/tracked.txt")
-        try FileManager.default.createDirectory(
-            at: repoURL.appendingPathComponent("relocated"),
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.moveItem(
-            at: repoURL.appendingPathComponent("tracked.txt"),
-            to: newURL
-        )
-
-        let status = try await GitStatusService.shared.status(for: repoURL)
-        let rename = try XCTUnwrap(status.unstaged.first { $0.status == .renamed })
-        try await GitStatusService.shared.stageAll(files: [rename], in: repoURL)
+        try moveTrackedFile(in: repoURL)
+        try runGit(["add", "-A"], in: repoURL)
 
         let staged = try await GitStatusService.shared.status(for: repoURL)
         let stagedRename = try XCTUnwrap(staged.staged.first { $0.status == .renamed })
@@ -315,16 +214,33 @@ final class GitStatusServiceStatusTests: XCTestCase {
 
         let after = try await GitStatusService.shared.status(for: repoURL)
         XCTAssertTrue(after.staged.isEmpty, "Staging area should be empty after unstaging a rename")
-        XCTAssertTrue(
-            after.unstaged.contains {
-                $0.status == .renamed
-                && $0.path == "relocated/tracked.txt"
-                && $0.originalPath == "tracked.txt"
-            },
-            "Unstaging a rename should leave it as a worktree rename row in the unstaged section"
+        XCTAssertTrue(after.unstaged.contains { $0.status == .deleted && $0.path == "tracked.txt" })
+        XCTAssertEqual(after.untracked.map(\.path), ["relocated/tracked.txt"])
+    }
+
+    func testSortedForListOrdersByFileNameThenPath() {
+        let files = [
+            StatusFile(path: "src/b.swift", status: .modified, originalPath: nil),
+            StatusFile(path: "docs/CHANGELOG.md", status: .untracked, originalPath: nil),
+            StatusFile(path: "a.txt", status: .modified, originalPath: nil),
+            StatusFile(path: "CHANGELOG.md", status: .deleted, originalPath: nil)
+        ]
+
+        XCTAssertEqual(
+            StatusFile.sortedForList(files).map(\.path),
+            ["a.txt", "src/b.swift", "CHANGELOG.md", "docs/CHANGELOG.md"]
         )
-        XCTAssertTrue(after.untracked.isEmpty,
-                      "The new path should be consumed by the worktree rename pairing")
+    }
+
+    private func moveTrackedFile(in repoURL: URL) throws {
+        try FileManager.default.createDirectory(
+            at: repoURL.appendingPathComponent("relocated"),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.moveItem(
+            at: repoURL.appendingPathComponent("tracked.txt"),
+            to: repoURL.appendingPathComponent("relocated/tracked.txt")
+        )
     }
 
     func testStatusDrainsLargeUntrackedOutputWithoutDeadlocking() async throws {

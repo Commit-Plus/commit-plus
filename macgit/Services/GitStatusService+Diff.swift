@@ -66,8 +66,8 @@ extension GitStatusService {
     }
 
     func diff(for file: StatusFile, in repositoryURL: URL) async throws -> [DiffHunk] {
-        // Untracked file or untracked rename destination → read directly and show all lines as added (green)
-        if file.isDiffedFromDisk {
+        // Untracked file → read directly and show all lines as added (green)
+        if file.status == .untracked {
             let fileURL = repositoryURL.appendingPathComponent(file.path)
             guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
             let content = (try? String(contentsOf: fileURL, encoding: .utf8)) ?? ""
@@ -89,7 +89,7 @@ extension GitStatusService {
         }
 
         // Normal diff for modified/renamed/staged files
-        let isStaged = file.isDiffedFromIndex
+        let isStaged = file.status == .staged || file.status == .added || file.status == .renamed
         var arguments = ["diff", "--no-color", "-U3"]
         if isStaged {
             arguments.append("--cached")

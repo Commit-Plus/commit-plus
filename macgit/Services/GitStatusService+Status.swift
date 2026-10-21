@@ -148,14 +148,9 @@ extension GitStatusService {
             }
         }
 
-        let (finalStaged, finalUnstaged, finalUntracked) = Self.pairWorktreeRenames(
-            staged: staged,
-            unstaged: unstaged,
-            untracked: untracked
-        )
-
+        // A move that is not staged stays a deletion plus a new file, as git reports it.
         return GitStatusSnapshot(
-            status: GitStatus(staged: finalStaged, unstaged: finalUnstaged, untracked: finalUntracked),
+            status: GitStatus(staged: StatusFile.sortedForList(staged), unstaged: unstaged, untracked: untracked),
             objectIDs: objectIDs
         )
     }
@@ -219,72 +214,6 @@ extension GitStatusService {
             .appendingPathComponent(".git").path
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: marker, isDirectory: &isDirectory)
-    }
-
-    /// Coalesces worktree-level `D` entries with a same-basename partner in
-    /// either the untracked list or the index's `A`/`M` slots into a single
-    /// `.renamed` entry.
-    ///
-    /// `git status --porcelain` does not perform rename detection, so a file
-    /// that is moved on disk shows up as a deletion at the old path plus a
-    /// new entry at the new path. Where the new entry lives depends on how
-    /// the move got into the repo:
-    ///
-    /// - Finder move / `git stash apply` of a previously-staged move: the
-    ///   new file appears as `??` (untracked) and the old one as ` D`
-    ///   (worktree deletion).
-    /// - `git stash apply` of a move that was *never* staged, or a Finder
-    ///   move followed by `git add` of just the new file: the new file
-    ///   appears as `A ` (index added) and the old one as ` D`.
-    ///
-    /// Tower, Fork and Sourcetree collapse all of these into a single
-    /// renamed row; we do the same by matching the worktree deletion with
-    /// an untracked or index-added file of the same basename. The resulting
-    /// entry keeps the new path as `path` and the old path as
-    /// `originalPath`, matching the convention used by the index `R`
-    /// parser above.
-    static func pairWorktreeRenames(
-        staged: [StatusFile],
-        unstaged: [StatusFile],
-        untracked: [StatusFile]
-    ) -> (staged: [StatusFile], unstaged: [StatusFile], untracked: [StatusFile]) {
-        var remainingStaged = staged
-        var remainingUntracked = untracked
-        var renamed: [StatusFile] = []
-
-        let keptUnstaged: [StatusFile] = unstaged.compactMap { candidate in
-            guard candidate.status == .deleted else { return candidate }
-            let basename = candidate.displayName
-
-            if let untrackedIdx = remainingUntracked.firstIndex(where: {
-                $0.status == .untracked && $0.displayName == basename
-            }) {
-                let matched = remainingUntracked.remove(at: untrackedIdx)
-                renamed.append(StatusFile(
-                    path: matched.path,
-                    status: .renamed,
-                    originalPath: candidate.path,
-                    isUntrackedRenameDestination: true
-                ))
-                return nil
-            }
-
-            if let stagedIdx = remainingStaged.firstIndex(where: {
-                ($0.status == .added || $0.status == .staged) && $0.displayName == basename
-            }) {
-                let matched = remainingStaged.remove(at: stagedIdx)
-                renamed.append(StatusFile(
-                    path: matched.path,
-                    status: .renamed,
-                    originalPath: candidate.path
-                ))
-                return nil
-            }
-
-            return candidate
-        }
-
-        return (remainingStaged, keptUnstaged + renamed, remainingUntracked)
     }
 
     func hasConflicts(in repositoryURL: URL) async -> Bool {

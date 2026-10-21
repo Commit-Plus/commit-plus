@@ -1645,7 +1645,7 @@ struct FileStatusView: View {
             if gitStatus != loadedStatus {
                 gitStatus = loadedStatus
             }
-            let loadedChangedFiles = loadedStatus.unstaged + loadedStatus.untracked
+            let loadedChangedFiles = StatusFile.sortedForList(loadedStatus.unstaged + loadedStatus.untracked)
             if changedFiles != loadedChangedFiles { changedFiles = loadedChangedFiles }
             // The same paths/statuses can have different content after an edit.
             // Refresh counts even when the file-list snapshot is unchanged, and
@@ -1720,7 +1720,7 @@ struct FileStatusView: View {
     }
 
     private func applyBackgroundChangedFiles(from status: GitStatus) {
-        let loadedChangedFiles = status.unstaged + status.untracked
+        let loadedChangedFiles = StatusFile.sortedForList(status.unstaged + status.untracked)
         guard gitStatus != status || changedFiles != loadedChangedFiles else { return }
         statusLoadGeneration += 1
         let stagedChanged = gitStatus.staged != status.staged

@@ -51,18 +51,6 @@ nonisolated struct StatusFile: Identifiable, Equatable, Hashable, Sendable {
     let path: String
     let status: FileStatus
     let originalPath: String?
-    /// A worktree rename paired with an untracked destination, which exists only on disk.
-    var isUntrackedRenameDestination = false
-
-    /// Whether the diff is read from the file on disk rather than from git objects.
-    var isDiffedFromDisk: Bool {
-        status == .untracked || (status == .renamed && isUntrackedRenameDestination)
-    }
-
-    /// Whether the diff compares HEAD with the index rather than the index with the worktree.
-    var isDiffedFromIndex: Bool {
-        (status == .staged || status == .added || status == .renamed) && !isUntrackedRenameDestination
-    }
 
     // Status refreshes recreate these values. Keep identity stable so a large
     // untracked tree is diffed in place instead of being removed and rebuilt.
@@ -76,6 +64,18 @@ nonisolated struct StatusFile: Identifiable, Equatable, Hashable, Sendable {
 
     var displayName: String {
         URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    /// File-list order: by file name, then path, so a moved file's deletion and addition sit together.
+    /// Keys are computed once per file because the list can hold a large untracked tree.
+    static func sortedForList(_ files: [StatusFile]) -> [StatusFile] {
+        files
+            .map { file -> (name: String, path: String, file: StatusFile) in
+                let name = file.path.split(separator: "/").last.map(String.init) ?? file.path
+                return (name.lowercased(), file.path.lowercased(), file)
+            }
+            .sorted { ($0.name, $0.path) < ($1.name, $1.path) }
+            .map(\.file)
     }
 
     var directory: String {

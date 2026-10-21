@@ -18,9 +18,8 @@ struct FileStatusDiffFingerprint: Equatable {
     /// Returns nil when the diff cannot be validated cheaply and should not be cached.
     init?(key: FileStatusSelectionKey, objectIDs: [String: String], repositoryURL: URL) {
         let fileObjectIDs = objectIDs[key.path]
-        // Untracked files and untracked rename destinations are diffed from disk only;
-        // every other diff reads git objects.
-        guard fileObjectIDs != nil || key.isDiffedFromDisk else { return nil }
+        // Untracked files are diffed from disk only; every other diff reads git objects.
+        guard fileObjectIDs != nil || key.status == .untracked else { return nil }
         self.objectIDs = fileObjectIDs
 
         // Staged and deleted diffs come from HEAD/index alone; the rest also read the worktree file.
