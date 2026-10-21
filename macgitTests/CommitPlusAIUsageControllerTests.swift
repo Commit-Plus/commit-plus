@@ -111,6 +111,11 @@ final class CommitPlusAIUsageControllerTests: XCTestCase {
         await controller.refreshOnLaunch()
         loadCount = await counter.loadCount
         XCTAssertEqual(loadCount, 2)
+
+        controller.setSession(uid: "a")
+        await controller.refreshOnLaunch()
+        loadCount = await counter.loadCount
+        XCTAssertEqual(loadCount, 2)
     }
 
     func testRefreshOnLaunchSkipsSignedOut() async throws {

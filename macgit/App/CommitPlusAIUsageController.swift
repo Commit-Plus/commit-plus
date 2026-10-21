@@ -31,7 +31,7 @@ final class CommitPlusAIUsageController: ObservableObject {
     private(set) var uid: String?
     private var generation = UUID()
     private var pending: Task<CommitPlusAIAllowance, Error>?
-    private var launchRefreshedUID: String?
+    private var launchRefreshedUIDs: Set<String> = []
     private let cache: CommitPlusAIAllowanceCache
     private let now: () -> Date
     private let cacheDuration: TimeInterval
@@ -65,8 +65,7 @@ final class CommitPlusAIUsageController: ObservableObject {
     /// Fetches the allowance once per process for each signed-in account, even when a cached snapshot exists.
     /// Later updates come from the allowance returned with each completed request.
     func refreshOnLaunch() async {
-        guard let uid, launchRefreshedUID != uid else { return }
-        launchRefreshedUID = uid
+        guard let uid, launchRefreshedUIDs.insert(uid).inserted else { return }
         await refresh(force: true)
     }
     func refresh(force: Bool = false) async {
