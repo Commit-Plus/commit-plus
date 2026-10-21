@@ -18,11 +18,11 @@ struct ImageComparisonOverlay: View {
             ZStack {
                 Color(nsColor: .textBackgroundColor)
                 image(after, scale: scale)
-                    .frame(width: width * scale, height: height * scale, alignment: .topLeading)
+                    .frame(width: width * scale, height: height * scale)
                 ZStack {
                     Color(nsColor: .textBackgroundColor)
                     image(before, scale: scale)
-                        .frame(width: width * scale, height: height * scale, alignment: .topLeading)
+                        .frame(width: width * scale, height: height * scale)
                 }
                     .frame(width: size.width, height: size.height)
                     .mask(alignment: .leading) {

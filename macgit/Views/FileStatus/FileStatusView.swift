@@ -1165,38 +1165,6 @@ struct FileStatusView: View {
                 .onContinuousHover {
                     updateCommitBarCursor($0, isEnabled: !aiProviderController.isGenerating)
                 }
-            }
-
-            // Message editor
-            ZStack(alignment: .topTrailing) {
-                VStack(alignment: .leading, spacing: 8) {
-                    TextField("Commit title", text: $commitSubject)
-                        .focused($isCommitSubjectFocused)
-                        .accessibilityLabel("Commit title")
-                        .onSubmit(requestCommit)
-                        .onChange(of: commitSubject) { _, newValue in
-                            splitMultilineCommitSubject(newValue)
-                        }
-
-                    TextField("Description (optional)", text: $commitDescription, axis: .vertical)
-                        .lineLimit(1...3)
-                        .accessibilityLabel("Commit description")
-                        .onKeyPress(.return, phases: .down) { keyPress in
-                            if keyPress.modifiers == .shift {
-                                insertNewlineInCommitMessage()
-                                return .handled
-                            }
-                            guard keyPress.modifiers.isEmpty else { return .ignored }
-                            requestCommit()
-                            return .handled
-                        }
-                }
-                .font(.system(size: 13))
-                .textFieldStyle(.plain)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding(8)
-                .padding(.trailing, 30)
-                .disabled(aiProviderController.isGenerating)
 
                 Button {
                     isAIGenerationRequested = true
@@ -1223,15 +1191,55 @@ struct FileStatusView: View {
                 .onContinuousHover {
                     updateCommitBarCursor($0, isEnabled: canGenerateCommitMessage)
                 }
-                .padding(8)
             }
-            .frame(minHeight: 48, maxHeight: 100)
-            .background(.background)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(.separator.opacity(0.45), lineWidth: 0.5)
-            )
+
+            // Message editor
+            VStack(alignment: .leading, spacing: 6) {
+                TextField("Commit title", text: $commitSubject)
+                    .focused($isCommitSubjectFocused)
+                    .accessibilityLabel("Commit title")
+                    .onSubmit(requestCommit)
+                    .onChange(of: commitSubject) { _, newValue in
+                        splitMultilineCommitSubject(newValue)
+                    }
+                    .disabled(aiProviderController.isGenerating)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .commitMessageFieldChrome()
+
+                // Hidden text sizes the editor: 2 lines by default, growing to 4 before it scrolls.
+                Text(commitDescription + "\u{200B}")
+                    .lineLimit(2...4)
+                    .padding(.horizontal, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .hidden()
+                    .overlay {
+                        TextEditor(text: $commitDescription)
+                            .scrollContentBackground(.hidden)
+                            .accessibilityLabel("Commit description")
+                            .onKeyPress(.return, phases: .down) { keyPress in
+                                // Shift-Return falls through to the editor's own newline.
+                                guard keyPress.modifiers.isEmpty else { return .ignored }
+                                requestCommit()
+                                return .handled
+                            }
+                            .disabled(aiProviderController.isGenerating)
+                    }
+                    .overlay(alignment: .topLeading) {
+                        if commitDescription.isEmpty {
+                            Text("Description (optional)")
+                                .foregroundStyle(.placeholder)
+                                .padding(.leading, 5)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .padding(.horizontal, 3)
+                    .padding(.vertical, 8)
+                    .commitMessageFieldChrome()
+            }
+            .font(.system(size: 13))
+            .textFieldStyle(.plain)
 
             // Bottom row: toggles + buttons
             HStack(spacing: 12) {
@@ -1427,11 +1435,6 @@ struct FileStatusView: View {
             errorMessage = error.localizedDescription
             showingError = true
         }
-    }
-
-    private func insertNewlineInCommitMessage() {
-        // Insert into the multiline field without ending its field editor session.
-        NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
     }
 
     /// Moves pasted multi-line text out of the single-line title into the description.
@@ -2171,5 +2174,17 @@ struct FileStatusView: View {
         window.center()
         windowController.window = window
         windowController.showWindow(nil)
+    }
+}
+
+private extension View {
+    func commitMessageFieldChrome() -> some View {
+        frame(maxWidth: .infinity, alignment: .leading)
+            .background(.background)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(.separator.opacity(0.45), lineWidth: 0.5)
+            )
     }
 }
