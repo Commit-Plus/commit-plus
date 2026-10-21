@@ -98,4 +98,27 @@ final class RepositoryActionAuditTests: XCTestCase {
         XCTAssertEqual(RepositoryActionAudit.summary(output: "", status: .failed, command: "push origin"), "Failed")
         XCTAssertEqual(RepositoryActionAudit.summary(output: "", status: .cancelled, command: "push origin"), "Cancelled")
     }
+
+    func testClearRemovesOnlyThatRepository() async {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "RepositoryActionAuditTests-\(UUID().uuidString)/audit.sqlite")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = RepositoryActionAuditStore(url: url, postsNotifications: false)
+
+        await store.clear(repositoryPath: "/repo/a")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+
+        for path in ["/repo/a", "/repo/b"] {
+            await store.record(RepositoryActionAuditRecord(
+                repositoryPath: path, title: "Fetch", origin: .user, command: "fetch",
+                output: "", status: .succeeded, finishedAt: .now, duration: 0
+            ))
+        }
+        await store.clear(repositoryPath: "/repo/a")
+
+        let clearedCount = await store.summaries(repositoryPath: "/repo/a").count
+        let keptCount = await store.summaries(repositoryPath: "/repo/b").count
+        XCTAssertEqual(clearedCount, 0)
+        XCTAssertEqual(keptCount, 1)
+    }
 }

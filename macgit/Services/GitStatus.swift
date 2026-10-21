@@ -66,6 +66,18 @@ nonisolated struct StatusFile: Identifiable, Equatable, Hashable, Sendable {
         URL(fileURLWithPath: path).lastPathComponent
     }
 
+    /// File-list order: by file name, then path, so a moved file's deletion and addition sit together.
+    /// Keys are computed once per file because the list can hold a large untracked tree.
+    static func sortedForList(_ files: [StatusFile]) -> [StatusFile] {
+        files
+            .map { file -> (name: String, path: String, file: StatusFile) in
+                let name = file.path.split(separator: "/").last.map(String.init) ?? file.path
+                return (name.lowercased(), file.path.lowercased(), file)
+            }
+            .sorted { ($0.name, $0.path) < ($1.name, $1.path) }
+            .map(\.file)
+    }
+
     var directory: String {
         let url = URL(fileURLWithPath: path)
         return url.deletingLastPathComponent().path
@@ -121,4 +133,12 @@ nonisolated struct GitStatus: Equatable, Sendable {
     var isEmpty: Bool {
         staged.isEmpty && unstaged.isEmpty && untracked.isEmpty
     }
+}
+
+nonisolated struct GitStatusSnapshot: Sendable {
+    let status: GitStatus
+    /// Space-joined object IDs from porcelain v2, keyed by path: HEAD and index
+    /// blobs for tracked changes, the conflict stages for unmerged paths.
+    /// Untracked paths have no entry.
+    let objectIDs: [String: String]
 }

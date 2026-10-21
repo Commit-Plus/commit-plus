@@ -33,7 +33,7 @@ final class RepositoryBookmarkTests: XCTestCase {
             try transaction.set(old, in: "bookmarks", id: old.id)
             try transaction.set(repo.path, in: "bookmarkPaths", id: old.id)
         }
-        let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store)
+        let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store, isCloudSyncAllowed: { _ in true })
         try await controller.load()
         await controller.linkMatchingBookmarks(to: [repo])
         XCTAssertEqual(controller.bookmarksNeedingAttention(at: repo).map(\.id), [old.id])
@@ -71,7 +71,7 @@ final class RepositoryBookmarkTests: XCTestCase {
                 try transaction.set(bookmark, in: "bookmarks", id: bookmark.id)
             }
         }
-        let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store)
+        let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store, isCloudSyncAllowed: { _ in true })
         try await controller.load()
         let remotes = try await GitStatusService.shared.repositoryBookmarkRemotes(in: repo)
         let origin = try XCTUnwrap(remotes.first { $0.name == "origin" })
@@ -91,7 +91,7 @@ final class RepositoryBookmarkTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: repo) }
         let old = try makeBookmark("https://github.com/team/old-client.git")
         try await fixture.store.transaction { try $0.set(old, in: "bookmarks", id: old.id) }
-        let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store)
+        let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store, isCloudSyncAllowed: { _ in true })
         try await controller.load()
         let remotes = try await GitStatusService.shared.repositoryBookmarkRemotes(in: repo)
         let origin = try XCTUnwrap(remotes.first { $0.name == "origin" })
@@ -105,6 +105,42 @@ final class RepositoryBookmarkTests: XCTestCase {
     }
 
     @MainActor
+    func testActivatingAccountDownloadsCloudBookmarksWithoutWelcomeRefresh() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
+        let bookmark = try makeBookmark("https://github.com/team/cloud-only.git")
+        let cloud = BookmarkRepairTestCloud(bookmarks: [bookmark])
+        let controller = RepositoryBookmarkController(cloudStore: cloud, dataStore: fixture.store, isCloudSyncAllowed: { _ in true })
+
+        await controller.updateAccount(AccountSnapshot(uid: "user-a", email: nil, displayName: nil, providerIDs: []))
+
+        XCTAssertEqual(controller.bookmarks.map(\.id), [bookmark.id])
+    }
+
+    @MainActor
+    func testRefreshRequestedForNewAccountDuringRefreshIsNotDropped() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
+        let first = try makeBookmark("https://github.com/team/first.git")
+        let second = try makeBookmark("https://github.com/team/second.git")
+        let cloud = BookmarkRepairTestCloud(bookmarks: [])
+        cloud.bookmarksByUID = ["user-a": [first], "user-b": [second]]
+        let controller = RepositoryBookmarkController(cloudStore: cloud, dataStore: fixture.store, isCloudSyncAllowed: { _ in true })
+        let accountB = AccountSnapshot(uid: "user-b", email: nil, displayName: nil, providerIDs: [])
+        cloud.onFetch = { [weak controller] uid in
+            guard uid == "user-a" else { return }
+            await controller?.updateAccount(accountB)
+        }
+
+        await controller.updateAccount(AccountSnapshot(uid: "user-a", email: nil, displayName: nil, providerIDs: []))
+
+        XCTAssertEqual(cloud.fetchedUIDs, ["user-a", "user-b"])
+        XCTAssertEqual(controller.bookmarks.map(\.id), [second.id])
+    }
+
+    @MainActor
     func testFailedRepairSyncSurvivesLoginAndStaleCloudSnapshotThenRetries() async throws {
         let fixture = try LocalDataStoreTestFixture()
         defer { fixture.cleanup() }
@@ -114,8 +150,9 @@ final class RepositoryBookmarkTests: XCTestCase {
         let old = try makeBookmark("https://github.com/team/old-client.git")
         let cloud = BookmarkRepairTestCloud(bookmarks: [old])
         let account = AccountSnapshot(uid: "repair-user", email: nil, displayName: nil, providerIDs: [])
-        let controller = RepositoryBookmarkController(cloudStore: cloud, dataStore: fixture.store)
+        let controller = RepositoryBookmarkController(cloudStore: cloud, dataStore: fixture.store, isCloudSyncAllowed: { _ in true })
         await controller.updateAccount(account)
+        await controller.refreshFromCloud()
         let remotes = try await GitStatusService.shared.repositoryBookmarkRemotes(in: repo)
         let origin = try XCTUnwrap(remotes.first { $0.name == "origin" })
         cloud.failSaves = true
@@ -125,8 +162,9 @@ final class RepositoryBookmarkTests: XCTestCase {
         XCTAssertEqual(Array(cloud.stored.values), [old], "Do not delete the cloud bookmark before saving its replacement")
 
         let reopened = try await fixture.reopen()
-        let second = RepositoryBookmarkController(cloudStore: cloud, dataStore: reopened)
+        let second = RepositoryBookmarkController(cloudStore: cloud, dataStore: reopened, isCloudSyncAllowed: { _ in true })
         await second.updateAccount(account)
+        await second.refreshFromCloud()
         XCTAssertEqual(second.bookmarks.map(\.id), [updated.id])
         XCTAssertEqual(second.localURL(for: updated), repo)
         XCTAssertNil(second.bookmark(forID: old.id))
@@ -151,7 +189,7 @@ final class RepositoryBookmarkTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: repo) }
         let old = try makeBookmark("https://github.com/team/old-client.git")
         try await fixture.store.transaction { try $0.set(old, in: "bookmarks", id: old.id) }
-        let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store)
+        let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store, isCloudSyncAllowed: { _ in true })
         try await controller.load()
         let model = RepositoryBookmarkRepairModel(bookmark: old)
         await model.selectRepository(repo)
@@ -173,7 +211,7 @@ final class RepositoryBookmarkTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: repo) }
         let old = try makeBookmark("https://github.com/team/old-client.git")
         try await fixture.store.transaction { try $0.set(old, in: "bookmarks", id: old.id) }
-        let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store)
+        let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store, isCloudSyncAllowed: { _ in true })
         try await controller.load()
         let model = RepositoryBookmarkRepairModel(bookmark: old)
         await model.selectRepository(repo)
@@ -210,7 +248,7 @@ final class RepositoryBookmarkTests: XCTestCase {
         try await fixture.store.prepare()
         let repo = try makeMultiRemoteRepository()
         defer { try? FileManager.default.removeItem(at: repo) }
-        let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store)
+        let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store, isCloudSyncAllowed: { _ in true })
         let github = try makeBookmark("https://github.com/team/client.git")
         let gitlab = try makeBookmark("https://gitlab.com/team/client-mirror.git")
         let other = try makeBookmark("https://github.com/team/other-client.git")
@@ -242,7 +280,7 @@ final class RepositoryBookmarkTests: XCTestCase {
         try await fixture.store.prepare()
         let repo = try makeMultiRemoteRepository()
         defer { try? FileManager.default.removeItem(at: repo) }
-        let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store)
+        let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store, isCloudSyncAllowed: { _ in true })
         let gitlab = try makeBookmark("https://gitlab.com/team/client-mirror.git")
         try await controller.validateAndLink(gitlab, to: repo)
         XCTAssertEqual(controller.localURL(for: gitlab), repo)
@@ -356,7 +394,8 @@ final class RepositoryBookmarkTests: XCTestCase {
         try await fixture.store.prepare()
         let controller = RepositoryBookmarkController(
             cloudStore: nil,
-            dataStore: fixture.store
+            dataStore: fixture.store,
+            isCloudSyncAllowed: { _ in true }
         )
         let identity = try XCTUnwrap(
             RepositoryBookmarkIdentity.resolve(
@@ -377,12 +416,19 @@ final class RepositoryBookmarkTests: XCTestCase {
 private final class BookmarkRepairTestCloud: RepositoryBookmarkCloudStore {
     var stored: [String: RepositoryBookmark]
     var failSaves = false
+    var bookmarksByUID: [String: [RepositoryBookmark]] = [:]
+    var onFetch: ((String) async -> Void)?
+    private(set) var fetchedUIDs: [String] = []
 
     init(bookmarks: [RepositoryBookmark]) {
         stored = Dictionary(uniqueKeysWithValues: bookmarks.map { ($0.id, $0) })
     }
 
-    func bookmarks(uid: String) async throws -> [RepositoryBookmark] { Array(stored.values) }
+    func bookmarks(uid: String) async throws -> [RepositoryBookmark] {
+        fetchedUIDs.append(uid)
+        await onFetch?(uid)
+        return bookmarksByUID[uid] ?? Array(stored.values)
+    }
 
     func save(_ bookmark: RepositoryBookmark, uid: String) async throws {
         if failSaves { throw LocalDataError.notReady }
@@ -392,12 +438,4 @@ private final class BookmarkRepairTestCloud: RepositoryBookmarkCloudStore {
     func delete(bookmarkID: String, uid: String) async throws {
         stored[bookmarkID] = nil
     }
-
-    func observe(uid: String, onChange: @escaping (Result<[RepositoryBookmark], Error>) -> Void) -> ObservationToken {
-        BookmarkRepairTestObservation()
-    }
-}
-
-private final class BookmarkRepairTestObservation: ObservationToken {
-    func cancel() { }
 }

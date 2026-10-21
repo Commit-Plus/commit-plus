@@ -57,14 +57,21 @@ final class RepositoryBookmarkController: ObservableObject {
     @Published private var activeUID: String?
     private var loadID = UUID()
     private var accountUpdateID = UUID()
-    private var observation: ObservationToken?
+    private var isRefreshingFromCloud = false
+    private var needsCloudRefresh = false
+    /// Rechecked before cloud data is written locally so turning off Commit+ Cloud sync
+    /// also discards downloads that were already in flight.
+    private let isCloudSyncAllowed: (String) -> Bool
 
-    init(cloudStore: RepositoryBookmarkCloudStore?, dataStore: LocalDataStore? = nil) {
+    init(
+        cloudStore: RepositoryBookmarkCloudStore?,
+        dataStore: LocalDataStore? = nil,
+        isCloudSyncAllowed: @escaping (String) -> Bool
+    ) {
         self.cloudStore = cloudStore
         self.dataStore = dataStore ?? .shared
+        self.isCloudSyncAllowed = isCloudSyncAllowed
     }
-
-    deinit { observation?.cancel() }
 
     func load() async throws {
         let request = UUID()
@@ -102,25 +109,38 @@ final class RepositoryBookmarkController: ObservableObject {
             guard request == accountUpdateID else { return }
             let uid = account?.uid
             guard uid != activeUID else { return }
-            observation?.cancel()
-            observation = nil
             activeUID = uid
-            guard let uid, let cloudStore else { return }
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+        // Sync once when an account or sync becomes active, wherever the app opened.
+        await refreshFromCloud()
+    }
+
+    /// The account whose bookmarks sync with Commit+ Cloud, or nil while sync is off.
+    var cloudSyncUID: String? { activeUID }
+
+    /// Uploads pending changes and downloads cloud bookmarks on demand. There is no realtime
+    /// listener; this runs when sync becomes active, and the Welcome dashboard calls it when it
+    /// appears and from its Refresh button. A request made during a refresh runs once it ends,
+    /// so a refresh for a newly active account is never dropped.
+    func refreshFromCloud() async {
+        needsCloudRefresh = true
+        guard !isRefreshingFromCloud else { return }
+        isRefreshingFromCloud = true
+        defer { isRefreshingFromCloud = false }
+        while needsCloudRefresh {
+            needsCloudRefresh = false
+            guard let uid = activeUID, let cloudStore else { return }
             await flushPendingChanges(uid: uid, cloudStore: cloudStore)
-            guard activeUID == uid else { return }
-            let cloudBookmarks = try await cloudStore.bookmarks(uid: uid)
-            guard activeUID == uid else { return }
-            try await applyCloudBookmarks(cloudBookmarks, uid: uid)
-            guard activeUID == uid else { return }
-            observation = cloudStore.observe(uid: uid) { [weak self] result in
-                Task { @MainActor [weak self] in
-                    guard let self, self.activeUID == uid else { return }
-                    do {
-                        try await self.applyCloudBookmarks(result.get(), uid: uid)
-                    } catch { self.errorMessage = error.localizedDescription }
-                }
-            }
-        } catch { errorMessage = error.localizedDescription }
+            do {
+                guard activeUID == uid else { continue }
+                let cloudBookmarks = try await cloudStore.bookmarks(uid: uid)
+                guard activeUID == uid else { continue }
+                try await applyCloudBookmarks(cloudBookmarks, uid: uid)
+            } catch { errorMessage = error.localizedDescription }
+        }
     }
 
     func bookmark(forID id: String) -> RepositoryBookmark? { bookmarks.first { $0.id == id } }
@@ -315,7 +335,7 @@ final class RepositoryBookmarkController: ObservableObject {
     }
 
     private func upload(_ bookmark: RepositoryBookmark, uid: String, cloudStore: RepositoryBookmarkCloudStore) async {
-        guard activeUID == uid else { return }
+        guard activeUID == uid, isCloudSyncAllowed(uid) else { return }
         syncingBookmarkIDs.insert(bookmark.id)
         defer { syncingBookmarkIDs.remove(bookmark.id) }
         do {
@@ -326,7 +346,7 @@ final class RepositoryBookmarkController: ObservableObject {
     }
 
     private func deleteFromCloud(_ id: String, uid: String, cloudStore: RepositoryBookmarkCloudStore) async {
-        guard activeUID == uid else { return }
+        guard activeUID == uid, isCloudSyncAllowed(uid) else { return }
         syncingBookmarkIDs.insert(id)
         defer { syncingBookmarkIDs.remove(id) }
         do {
@@ -355,7 +375,7 @@ final class RepositoryBookmarkController: ObservableObject {
 
     private func applyCloudBookmarks(_ cloudBookmarks: [RepositoryBookmark], uid: String) async throws {
         try await dataStore.transaction(reading: ["bookmarks", "bookmarkPaths", "bookmarkUploads", "bookmarkDeletes"]) { transaction in
-            guard self.activeUID == uid else { return }
+            guard self.activeUID == uid, self.isCloudSyncAllowed(uid) else { return }
             let pendingUploads = try transaction.values(String.self, in: "bookmarkUploads")
             let pendingDeletes = try transaction.values(String.self, in: "bookmarkDeletes")
             var merged = Dictionary(cloudBookmarks.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })

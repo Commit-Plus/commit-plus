@@ -187,7 +187,7 @@ final class LocalDataMigrationTests: XCTestCase {
             try transaction.set("/tmp/repo", in: "bookmarkPaths", id: bookmark.id)
             try transaction.set("pending", in: "bookmarkUploads", id: bookmark.id)
         }
-        let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store)
+        let controller = RepositoryBookmarkController(cloudStore: nil, dataStore: fixture.store, isCloudSyncAllowed: { _ in true })
         try await controller.load()
         try execute("CREATE TRIGGER fail_bookmark BEFORE INSERT ON records WHEN NEW.collection = 'bookmarkDeletes' BEGIN SELECT RAISE(ABORT, 'test failure'); END", url: fixture.databaseURL)
         await controller.removeBookmark(bookmark)
@@ -214,15 +214,17 @@ final class LocalDataMigrationTests: XCTestCase {
             try transaction.set("/tmp/repo", in: "bookmarkPaths", id: bookmark.id)
         }
         let cloud = MigrationBookmarkCloud(bookmarks: [bookmark])
-        let controller = RepositoryBookmarkController(cloudStore: cloud, dataStore: fixture.store)
+        let controller = RepositoryBookmarkController(cloudStore: cloud, dataStore: fixture.store, isCloudSyncAllowed: { _ in true })
         let account = AccountSnapshot(uid: "user-a", email: nil, displayName: nil, providerIDs: [])
         await controller.updateAccount(account)
+        await controller.refreshFromCloud()
         await controller.removeBookmark(bookmark)
         XCTAssertTrue(controller.bookmarks.isEmpty)
         XCTAssertNotNil(controller.errorMessage)
         let reopened = try await fixture.reopen()
-        let second = RepositoryBookmarkController(cloudStore: cloud, dataStore: reopened)
+        let second = RepositoryBookmarkController(cloudStore: cloud, dataStore: reopened, isCloudSyncAllowed: { _ in true })
         await second.updateAccount(account)
+        await second.refreshFromCloud()
         XCTAssertTrue(second.bookmarks.isEmpty)
         XCTAssertNil(second.localURL(for: bookmark))
         let loadedValue29 = try await reopened.readValue(String.self, in: "bookmarkDeletes", id: bookmark.id)
@@ -253,11 +255,4 @@ private final class MigrationBookmarkCloud: RepositoryBookmarkCloudStore {
     func bookmarks(uid: String) async throws -> [RepositoryBookmark] { storedBookmarks }
     func save(_ bookmark: RepositoryBookmark, uid: String) async throws { }
     func delete(bookmarkID: String, uid: String) async throws { throw LocalDataError.notReady }
-    func observe(uid: String, onChange: @escaping (Result<[RepositoryBookmark], Error>) -> Void) -> ObservationToken {
-        MigrationObservationToken()
-    }
-}
-
-private final class MigrationObservationToken: ObservationToken {
-    func cancel() { }
 }

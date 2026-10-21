@@ -45,7 +45,7 @@ final class GitHubNotificationController: ObservableObject {
             .sink { [weak self] accounts in self?.acceptAccounts(accounts) }
         polling = Task { [weak self] in
             while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+                do { try await Task.sleep(for: .seconds(300)) } catch { return }
                 guard let self else { return }
                 self.refreshAllIfNeeded()
             }

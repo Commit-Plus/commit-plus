@@ -31,7 +31,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(),
@@ -56,7 +56,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(),
@@ -83,7 +83,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(),
@@ -112,7 +112,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(),
@@ -145,7 +145,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [oauthAccount.id: token]),
@@ -173,7 +173,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
@@ -207,7 +207,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
@@ -249,7 +249,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
@@ -287,7 +287,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
@@ -318,7 +318,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
@@ -371,7 +371,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
@@ -401,7 +401,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let repositoryURL = URL(fileURLWithPath: "/tmp/macgit-pr-pagination")
         let controller = PullRequestController(
             providerAccountController: accountController,
@@ -442,7 +442,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
@@ -469,7 +469,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
@@ -509,7 +509,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
@@ -561,7 +561,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: vault,
@@ -626,7 +626,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
@@ -681,7 +681,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let repositoryURL = URL(fileURLWithPath: "/tmp/macgit-pr-actions")
         let controller = PullRequestController(
             providerAccountController: accountController,
@@ -715,7 +715,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let repositoryURL = URL(fileURLWithPath: "/tmp/macgit-pr-context-menu")
         let controller = PullRequestController(
             providerAccountController: accountController,
@@ -748,7 +748,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let repositoryURL = URL(fileURLWithPath: "/tmp/macgit-pr-window")
         let controller = PullRequestController(
             providerAccountController: accountController,
@@ -782,7 +782,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let repositoryURL = URL(fileURLWithPath: "/tmp/macgit-pr-source-loader")
         let controller = PullRequestController(
             providerAccountController: accountController,
@@ -814,7 +814,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let repositoryURL = URL(fileURLWithPath: "/tmp/macgit-pr-target-loader")
         let controller = PullRequestController(
             providerAccountController: accountController,
@@ -844,7 +844,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let repositoryURL = URL(fileURLWithPath: "/tmp/macgit-pr-change-count")
         var receivedComparison: (source: String, target: String, remote: String?)?
         let controller = PullRequestController(
@@ -896,7 +896,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
@@ -928,7 +928,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         var providerWasCalled = false
         let controller = PullRequestController(
             providerAccountController: accountController,
@@ -960,7 +960,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
@@ -1006,7 +1006,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let repositoryURL = URL(fileURLWithPath: "/tmp/macgit-pr-create")
         let controller = PullRequestController(
             providerAccountController: accountController,
@@ -1056,7 +1056,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
@@ -1098,7 +1098,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
@@ -1125,7 +1125,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
 
         var fetchedReference: (remote: String, reference: String, localBranch: String)?
         var checkedOutBranch: String?
@@ -1179,7 +1179,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
@@ -1218,7 +1218,7 @@ final class PullRequestControllerTests: XCTestCase {
             email: "user@example.com",
             displayName: nil,
             providerIDs: []
-        ))
+        ), cloudSyncEnabled: true)
         let controller = PullRequestController(
             providerAccountController: accountController,
             tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),

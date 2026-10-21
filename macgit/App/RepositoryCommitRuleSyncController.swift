@@ -34,7 +34,10 @@ final class RepositoryCommitRuleSyncController: ObservableObject {
         }
     }
 
+    /// `isCloudSyncAllowed` is rechecked before a downloaded value is written locally and before
+    /// each upload, so turning off Commit+ Cloud sync also stops work that is already in flight.
     func reconcile(repositoryURL: URL, uid: String?, cloud: any RepositoryCommitRuleCloudStore,
+                   isCloudSyncAllowed: @escaping (String) -> Bool,
                    onApplied: (Bool) -> Void) async -> String? {
         setSession(uid: uid, repositoryURL: repositoryURL)
         guard let uid else { return nil }
@@ -53,7 +56,7 @@ final class RepositoryCommitRuleSyncController: ObservableObject {
             // Edits made while offline or while loading always win over an older download.
             if (try await pendingValue(pendingID)) == nil, let remote {
                 let applied = try await dataStore.transaction(reading: ["repoSettings", "commitRulePending"]) { transaction in
-                    guard session == self.sessionID,
+                    guard session == self.sessionID, isCloudSyncAllowed(uid),
                           try transaction.value(Bool.self, in: "commitRulePending", id: pendingID) == nil else { return false }
                     var settings = try transaction.value(RepoSettings.self, in: "repoSettings", id: repositoryURL.path)
                         ?? RepoSettings.defaults(currentBranch: nil, remotes: [])
@@ -70,7 +73,7 @@ final class RepositoryCommitRuleSyncController: ObservableObject {
                 guard session == sessionID else { return nil }
                 try await markChanged(initial, uid: uid, repositoryURL: repositoryURL)
             }
-            while session == sessionID, let value = (try await pendingValue(pendingID)) {
+            while session == sessionID, isCloudSyncAllowed(uid), let value = (try await pendingValue(pendingID)) {
                 guard session == sessionID else { return nil }
                 try await cloud.save(value, identity: identity, uid: uid)
                 guard session == sessionID else { return nil }
@@ -84,6 +87,25 @@ final class RepositoryCommitRuleSyncController: ObservableObject {
         } catch {
             guard session == sessionID else { return nil }
             return "Commit warning preferences are saved locally, but could not sync: \(error.localizedDescription)"
+        }
+    }
+
+    /// Uploads a value left pending by a failed sync, without downloading the cloud copy.
+    /// Runs when the repository's window closes.
+    func uploadPendingChange(repositoryURL: URL, uid: String?, cloud: any RepositoryCommitRuleCloudStore,
+                             isCloudSyncAllowed: (String) -> Bool) async {
+        guard let uid, isCloudSyncAllowed(uid) else { return }
+        let pendingID = key(uid: uid, path: repositoryURL.path)
+        guard let value = (try? await pendingValue(pendingID)) ?? nil,
+              let identity = await resolver.identity(in: repositoryURL) else { return }
+        do {
+            try await cloud.save(value, identity: identity, uid: uid)
+            try await dataStore.transaction(reading: ["repoSettings", "commitRulePending"]) { transaction in
+                guard try transaction.value(Bool.self, in: "commitRulePending", id: pendingID) == value else { return }
+                transaction.remove(in: "commitRulePending", id: pendingID)
+            }
+        } catch {
+            // The value stays pending for the next reconcile.
         }
     }
 

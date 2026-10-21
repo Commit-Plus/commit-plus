@@ -87,6 +87,9 @@ struct WelcomeView: View {
             async let attention: Void = model.refreshAttention(repositories: store.repositories)
             _ = await (activity, attention)
         }
+        .task(id: bookmarkController.cloudSyncUID) {
+            await bookmarkController.refreshFromCloud()
+        }
         .onChange(of: store.repositories.map { "\($0.url.path)|\($0.lastOpened.timeIntervalSince1970)" }) { _, _ in refresh() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.invalidate(repositories: store.repositories, activity: false)
@@ -146,6 +149,7 @@ struct WelcomeView: View {
     private func refreshImmediately() {
         model.invalidate(repositories: store.repositories)
         refresh()
+        Task { await bookmarkController.refreshFromCloud() }
     }
 
     private func refreshRepository(_ notification: Notification) {

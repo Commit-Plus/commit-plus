@@ -29,6 +29,13 @@ struct HistoryCommitContextMenu: View {
         )
     }
 
+    /// Menus size to their widest title, so long branch names are middle-truncated.
+    private static func menuBranchName(_ name: String, maxLength: Int = 32) -> String {
+        guard name.count > maxLength else { return name }
+        let head = (maxLength - 1) / 2
+        return String(name.prefix(head)) + "…" + String(name.suffix(maxLength - 1 - head))
+    }
+
     var body: some View {
         Group {
             Button("Show Repository at Revision", systemImage: "folder") {
@@ -56,7 +63,8 @@ struct HistoryCommitContextMenu: View {
 
             Divider()
 
-            if let singleCommit, let branch = rebaseAvailability.branch {
+            if let singleCommit, let branchName = rebaseAvailability.branch {
+                let branch = Self.menuBranchName(branchName)
                 if rebaseAvailability.isOnCurrentBranch(singleCommit) {
                     Menu("Interactive Rebase") {
                         Button("Interactively Rebase '\(branch)' to Here...") {

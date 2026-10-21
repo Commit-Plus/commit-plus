@@ -358,7 +358,7 @@ struct RepoPickerView: View {
         HStack {
             Text(bookmarkController.canSyncPendingChanges
                  ? "Bookmark changes are saved locally and waiting to sync."
-                 : "Bookmark changes are saved locally. Sign in to sync them.")
+                 : "Bookmark changes are saved locally. Sign in and turn on Sync app settings to sync them.")
                 .font(.caption.scaled(by: textScale))
                 .foregroundStyle(.secondary)
             Spacer()

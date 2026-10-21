@@ -181,6 +181,18 @@ final class SettingsSyncServiceTests: XCTestCase {
         XCTAssertEqual(harness.store.saves, [.init(uid: "u1", snapshot: cloud)])
     }
 
+    func testFlushSavesPendingLocalEditOnceBeforeItsScheduledUpload() async {
+        let harness = makeHarness(cloud: local)
+        await harness.service.updateEligibility(uid: "u1", enabled: true)
+
+        harness.service.localSettingsDidChange(cloud)
+        await harness.service.flushPendingLocalChange()
+        await harness.scheduler.fireAll()
+        await harness.service.flushPendingLocalChange()
+
+        XCTAssertEqual(harness.store.saves, [.init(uid: "u1", snapshot: cloud)])
+    }
+
     func testCloudChangesDoNotOverrideLocalWhenUploadFails() async {
         let harness = makeHarness(cloud: local)
         await harness.service.updateEligibility(uid: "u1", enabled: true)

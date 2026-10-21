@@ -50,7 +50,8 @@ struct HistoryScreen: View {
     var body: some View {
         let _ = actions.dependencies = HistoryCommitActionController.Dependencies(
             repositoryURL: repositoryURL, undoManager: dependencies.undoManager, syncState: dependencies.syncState,
-            runOperation: dependencies.runOperation, requestCheckout: dependencies.requestCheckout,
+            runOperation: dependencies.runOperation, runInlineOperation: dependencies.runInlineOperation,
+            requestCheckout: dependencies.requestCheckout,
             requestExplain: dependencies.requestExplain, requestBrowseRevision: dependencies.requestBrowseRevision,
             runCustomAction: dependencies.runCustomAction, headHash: { listModel.headHash })
         historyLifecycle

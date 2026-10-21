@@ -30,6 +30,8 @@ struct RepositoryOperationProgressItem: Identifiable, Equatable {
     var message: String
     var canCancel: Bool
     var isCancelling: Bool
+    /// False for operations whose presenting view shows its own progress instead of the window overlay.
+    var showsOverlay = true
 }
 
 struct RepositoryOperationProgressEvent {
@@ -117,8 +119,9 @@ final class RepositoryOperationProgress: ObservableObject {
     private var operationsByID: [UUID: RepositoryOperationProgressItem] = [:]
     private var cancelHandlers: [UUID: () -> Void] = [:]
 
-    func run(message: String, operation: @escaping () async -> Void) {
-        let id = begin(message: message, canCancel: true)
+    /// Inline operations still block other window actions, but skip the overlay and its cancel control.
+    func run(message: String, showsOverlay: Bool = true, operation: @escaping () async -> Void) {
+        let id = begin(message: message, canCancel: showsOverlay, showsOverlay: showsOverlay)
         let task = Task {
             await operation()
             await MainActor.run {
@@ -136,12 +139,13 @@ final class RepositoryOperationProgress: ObservableObject {
     }
 
     @discardableResult
-    func begin(id: UUID = UUID(), message: String, canCancel: Bool = true) -> UUID {
+    func begin(id: UUID = UUID(), message: String, canCancel: Bool = true, showsOverlay: Bool = true) -> UUID {
         let item = RepositoryOperationProgressItem(
             id: id,
             message: message,
             canCancel: canCancel,
-            isCancelling: false
+            isCancelling: false,
+            showsOverlay: showsOverlay
         )
         operationsByID[id] = item
         orderedOperationIDs.removeAll { $0 == id }

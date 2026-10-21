@@ -26,6 +26,12 @@ protocol GitProviderAccountStore {
     func updateCloudAccount(uid: String?) async throws
     func save(_ account: GitProviderAccount) async throws
     func delete(accountID: String) async throws
+    /// Retries cloud writes that failed earlier, without the full reconciliation.
+    func uploadPendingChanges() async
+}
+
+extension GitProviderAccountStore {
+    func uploadPendingChanges() async {}
 }
 
 @MainActor

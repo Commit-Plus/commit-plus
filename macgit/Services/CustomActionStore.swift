@@ -28,7 +28,8 @@ final class CustomActionStore: ObservableObject {
     private var sessionGeneration = 0
     private var mutationVersions: [String: Int] = [:]
     private var periodicSyncTask: Task<Void, Never>?
-    private var isSyncing = false
+    private var activeSync: Task<Void, Never>?
+    private var syncRequestedDuringSync = false
     private var sessionObservation: AnyCancellable?
     private var trustedFingerprints: [String: String]
     private var executableOverrides: [String: String]
@@ -50,18 +51,23 @@ final class CustomActionStore: ObservableObject {
         normalizeAndSave()
     }
 
-    func observeSession(accountController: AccountSessionController, appState: AppState) {
+    func observeSession(accountController: AccountSessionController) {
+        // The signed-in account selects the catalog; the cloud-sync UID only gates network sync,
+        // so turning sync off keeps the account's actions instead of switching to the guest catalog.
         let accountUID = accountController.$state.map { state -> String? in
             guard case .authenticated(let account) = state else { return nil }
             return account.uid
         }
-        let session = accountUID.combineLatest(appState.$syncEnabled, $syncEnabled)
+        let session = accountUID.combineLatest(accountController.cloudSyncUIDPublisher, $syncEnabled)
             .removeDuplicates { previous, current in
                 previous.0 == current.0 && previous.1 == current.1 && previous.2 == current.2
             }
         sessionObservation = session.sink { [weak self] value in
             guard let self else { return }
-            let generation = self.beginCloudSession(uid: value.0, enabled: value.1 && value.2)
+            let generation = self.beginCloudSession(
+                uid: value.0,
+                enabled: value.1 != nil && value.1 == value.0 && value.2
+            )
             Task { @MainActor [weak self] in
                 await self?.startCloudSession(generation: generation)
             }
@@ -105,15 +111,32 @@ final class CustomActionStore: ObservableObject {
         }
     }
 
+    /// A call made while a sync runs waits for it, and that sync runs once more so changes
+    /// made meanwhile are uploaded before the call returns.
     func syncNow() async {
-        guard syncEnabled, !isSyncing, let uid = activeUID, let cloudStore else { return }
+        if let activeSync {
+            syncRequestedDuringSync = true
+            await activeSync.value
+            return
+        }
+        let sync = Task { @MainActor [weak self] in
+            guard let self else { return }
+            repeat {
+                syncRequestedDuringSync = false
+                await performSync()
+            } while syncRequestedDuringSync
+            // Cleared in the same main-actor turn as the last check, so no request is missed.
+            activeSync = nil
+        }
+        activeSync = sync
+        await sync.value
+    }
+
+    private func performSync() async {
+        guard syncEnabled, let uid = activeUID, let cloudStore else { return }
         let generation = sessionGeneration
-        isSyncing = true
         defer {
-            isSyncing = false
-            if generation != sessionGeneration {
-                Task { @MainActor [weak self] in await self?.syncNow() }
-            }
+            if generation != sessionGeneration { syncRequestedDuringSync = true }
         }
         do {
             for idString in Array(pendingDeletions) {

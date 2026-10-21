@@ -5,6 +5,8 @@ import FirebaseCore
 extension MainWindowView {
     func commitRulePreferenceChanged() {
         let settings = repoSettings
+        // Mark the edit pending for the account even while sync is off, so it wins over the
+        // cloud value once sync is turned back on.
         let uid = accountController.account?.uid
         Task {
             do {
@@ -15,18 +17,19 @@ extension MainWindowView {
     }
 
     func reconcileCommitRulePreference() async {
-        let uid = accountController.account?.uid
+        let uid = accountController.cloudSyncUID
         commitRuleSyncController.setSession(uid: uid, repositoryURL: repositoryURL)
         guard didPerformInitialLoad, uid != nil, FirebaseApp.app() != nil else { return }
         let warning = await commitRuleSyncController.reconcile(
             repositoryURL: repositoryURL,
             uid: uid,
-            cloud: FirestoreRepositoryCommitRuleStore()
+            cloud: FirestoreRepositoryCommitRuleStore(),
+            isCloudSyncAllowed: accountController.isCloudSyncAllowed
         ) { value in
-            guard accountController.account?.uid == uid else { return }
+            guard accountController.cloudSyncUID == uid else { return }
             repoSettings.skipProtectedBranchCommitWarnings = value
         }
-        if let warning, accountController.account?.uid == uid {
+        if let warning, accountController.cloudSyncUID == uid {
             syncState.showInfo(warning)
         }
     }

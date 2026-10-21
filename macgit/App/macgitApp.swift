@@ -85,7 +85,10 @@ struct macgitApp: App {
         let providerCloudStore: GitProviderAccountCloudStore? = cloudFeaturesEnabled
             ? FirestoreGitProviderAccountStore()
             : nil
-        let providerStore = LocalFirstGitProviderAccountStore(cloudStore: providerCloudStore)
+        let providerStore = LocalFirstGitProviderAccountStore(
+            cloudStore: providerCloudStore,
+            isCloudSyncAllowed: accountController.isCloudSyncAllowed
+        )
         let providerTokenVault = KeychainGitProviderTokenVault()
         let providerAccountController = GitProviderAccountController(
             store: providerStore,
@@ -145,27 +148,34 @@ struct macgitApp: App {
         let repositoryBookmarkController = RepositoryBookmarkController(
             cloudStore: cloudFeaturesEnabled
                 ? FirestoreRepositoryBookmarkStore()
-                : nil
+                : nil,
+            isCloudSyncAllowed: accountController.isCloudSyncAllowed
         )
         _repositoryBookmarkController = StateObject(wrappedValue: repositoryBookmarkController)
         let customActionStore = CustomActionStore(
             cloudStore: cloudFeaturesEnabled ? FirestoreCustomActionStore() : nil
         )
-        customActionStore.observeSession(accountController: accountController, appState: appState)
+        customActionStore.observeSession(accountController: accountController)
         _customActionStore = StateObject(wrappedValue: customActionStore)
         _gitFlowConfigurationSyncController = StateObject(
             wrappedValue: GitFlowConfigurationSyncController(
                 cloudStore: cloudFeaturesEnabled
                     ? FirestoreGitFlowConfigurationStore()
-                    : nil
+                    : nil,
+                isCloudSyncAllowed: accountController.isCloudSyncAllowed
             )
         )
         _cloudLifecycleController = StateObject(
             wrappedValue: AppCloudLifecycleController(
                 startFeaturePolicy: featureAccessController.start,
-                synchronizeAccount: { account in
-                    async let providerAccounts: Void = providerAccountController.updateMacgitAccount(account)
-                    async let bookmarks: Void = repositoryBookmarkController.updateAccount(account)
+                synchronizeAccount: { account, cloudSyncEnabled in
+                    async let providerAccounts: Void = providerAccountController.updateMacgitAccount(
+                        account,
+                        cloudSyncEnabled: cloudSyncEnabled
+                    )
+                    async let bookmarks: Void = repositoryBookmarkController.updateAccount(
+                        cloudSyncEnabled ? account : nil
+                    )
                     _ = await (providerAccounts, bookmarks)
                 }
             )
@@ -266,12 +276,27 @@ struct macgitApp: App {
                     applicationDelegate.installRepositoryWindowOpener { [openWindow] request in
                         openWindow(id: "main", value: request)
                     }
+                    applicationDelegate.installAppCloudSync { [
+                        accountController,
+                        customActionStore,
+                        repositoryBookmarkController,
+                        providerAccountController
+                    ] in
+                        async let settings: Void = accountController.flushPendingSettingsSync()
+                        async let customActions: Void = customActionStore.syncNow()
+                        async let bookmarks: Void = repositoryBookmarkController.retryPendingChanges()
+                        async let providerAccounts: Void = providerAccountController.uploadPendingChanges()
+                        _ = await (settings, customActions, bookmarks, providerAccounts)
+                    }
                     appUpdateController.start()
                     await appNotificationController.load()
                 }
-                .task(id: accountController.account?.uid) {
+                .task(id: "\(accountController.account?.uid ?? "signed-out")|\(accountController.cloudSyncUID != nil)") {
                     cloudLifecycleController.start()
-                    await cloudLifecycleController.updateAccount(accountController.account)
+                    await cloudLifecycleController.updateAccount(
+                        accountController.account,
+                        cloudSyncEnabled: accountController.cloudSyncUID != nil
+                    )
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
                     Task { await customActionStore.syncNow() }

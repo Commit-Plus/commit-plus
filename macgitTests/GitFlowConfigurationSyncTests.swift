@@ -145,7 +145,8 @@ final class GitFlowConfigurationSyncTests: XCTestCase {
         let controller = GitFlowConfigurationSyncController(
             cloudStore: cloudStore,
             identityResolver: FakeRepositoryRemoteIdentityResolver(identity: identity),
-            dataStore: fixture.store
+            dataStore: fixture.store,
+            isCloudSyncAllowed: { _ in true }
         )
 
         let outcome = await controller.reconcile(
@@ -189,7 +190,8 @@ final class GitFlowConfigurationSyncTests: XCTestCase {
         let controller = GitFlowConfigurationSyncController(
             cloudStore: cloudStore,
             identityResolver: FakeRepositoryRemoteIdentityResolver(identity: identity),
-            dataStore: fixture.store
+            dataStore: fixture.store,
+            isCloudSyncAllowed: { _ in true }
         )
 
         let outcome = await controller.reconcile(
@@ -230,7 +232,8 @@ final class GitFlowConfigurationSyncTests: XCTestCase {
         let controller = GitFlowConfigurationSyncController(
             cloudStore: cloudStore,
             identityResolver: FakeRepositoryRemoteIdentityResolver(identity: identity),
-            dataStore: fixture.store
+            dataStore: fixture.store,
+            isCloudSyncAllowed: { _ in true }
         )
         let localConfiguration = GitFlowConfiguration(
             isEnabled: true,
@@ -259,6 +262,97 @@ final class GitFlowConfigurationSyncTests: XCTestCase {
         XCTAssertEqual(cloudStore.savedConfiguration?.developBranch, "next")
         let loadedValue1 = try await fixture.store.readValues(String.self, in: "gitFlowPending")
         XCTAssertTrue(loadedValue1.isEmpty)
+    }
+
+    func testUploadPendingChangeRetriesFailedSaveWithoutReadingCloud() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
+        let repositoryURL = try makeRepository()
+        defer { try? FileManager.default.removeItem(at: repositoryURL) }
+        let identity = try XCTUnwrap(
+            RepositoryBookmarkIdentity.resolve(
+                remoteURLString: "https://github.com/openai/codex.git"
+            )
+        )
+        let cloudStore = FakeGitFlowConfigurationCloudStore(configuration: nil)
+        cloudStore.shouldFailSave = true
+        let controller = GitFlowConfigurationSyncController(
+            cloudStore: cloudStore,
+            identityResolver: FakeRepositoryRemoteIdentityResolver(identity: identity),
+            dataStore: fixture.store,
+            isCloudSyncAllowed: { _ in true }
+        )
+
+        let warning = try await controller.save(
+            GitFlowConfiguration(isEnabled: true, mainBranch: "trunk", developBranch: "next"),
+            repositoryURL: repositoryURL,
+            uid: "user-a"
+        )
+        XCTAssertNotNil(warning)
+
+        cloudStore.shouldFailSave = false
+        await controller.uploadPendingChange(repositoryURL: repositoryURL, uid: "user-a")
+
+        XCTAssertEqual(cloudStore.configurationRequestCount, 0)
+        XCTAssertEqual(cloudStore.savedConfiguration?.mainBranch, "trunk")
+        let pending = try await fixture.store.readValues(String.self, in: "gitFlowPending")
+        XCTAssertTrue(pending.isEmpty)
+    }
+
+    func testSaveWhileSyncIsOffStaysPendingAndWinsOverCloudOnceSyncIsOn() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        try await fixture.store.prepare()
+        let repositoryURL = try makeRepository()
+        defer { try? FileManager.default.removeItem(at: repositoryURL) }
+        let identity = try XCTUnwrap(
+            RepositoryBookmarkIdentity.resolve(
+                remoteURLString: "https://github.com/openai/codex.git"
+            )
+        )
+        let cloudStore = FakeGitFlowConfigurationCloudStore(
+            configuration: GitFlowCloudConfiguration(
+                configuration: GitFlowConfiguration(
+                    isEnabled: true,
+                    mainBranch: "old-main",
+                    developBranch: "old-develop"
+                ),
+                canonicalKey: identity.canonicalKey
+            )
+        )
+        var syncAllowed = false
+        let controller = GitFlowConfigurationSyncController(
+            cloudStore: cloudStore,
+            identityResolver: FakeRepositoryRemoteIdentityResolver(identity: identity),
+            dataStore: fixture.store,
+            isCloudSyncAllowed: { _ in syncAllowed }
+        )
+        let localConfiguration = GitFlowConfiguration(
+            isEnabled: true,
+            mainBranch: "trunk",
+            developBranch: "next"
+        )
+
+        let warning = try await controller.save(
+            localConfiguration,
+            repositoryURL: repositoryURL,
+            uid: "user-a"
+        )
+        XCTAssertNil(warning)
+        XCTAssertNil(cloudStore.savedConfiguration, "Nothing is uploaded while sync is off")
+
+        syncAllowed = true
+        let outcome = await controller.reconcile(
+            repositoryURL: repositoryURL,
+            fallbackConfiguration: GitFlowConfiguration(),
+            uid: "user-a"
+        )
+
+        XCTAssertNil(outcome.configuration, "The older cloud configuration must not replace the local edit")
+        XCTAssertEqual(cloudStore.savedConfiguration?.mainBranch, "trunk")
+        let pending = try await fixture.store.readValues(String.self, in: "gitFlowPending")
+        XCTAssertTrue(pending.isEmpty)
     }
 
     private func makeRepository() throws -> URL {

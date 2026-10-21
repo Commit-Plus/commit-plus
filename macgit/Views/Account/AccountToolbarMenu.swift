@@ -79,6 +79,7 @@ struct AccountMenuContent: View {
                         set: controller.setSettingsSyncEnabled
                     )
                 )
+                .disabled(!controller.canEnableSettingsSync)
             case .upgrade:
                 if controller.account == nil {
                     Button("Upgrade to Pro...", action: presentSignIn)
