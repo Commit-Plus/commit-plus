@@ -122,3 +122,11 @@ nonisolated struct GitStatus: Equatable, Sendable {
         staged.isEmpty && unstaged.isEmpty && untracked.isEmpty
     }
 }
+
+nonisolated struct GitStatusSnapshot: Sendable {
+    let status: GitStatus
+    /// Space-joined object IDs from porcelain v2, keyed by path: HEAD and index
+    /// blobs for tracked changes, the conflict stages for unmerged paths.
+    /// Untracked paths have no entry.
+    let objectIDs: [String: String]
+}

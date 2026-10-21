@@ -70,6 +70,9 @@ struct FileStatusView: View {
     @State private var actionSelectionAnchorKey: FileStatusSelectionKey? = nil
     @State private var diffHunks: [DiffHunk] = []
     @State private var isLoadingDiff = false
+    @State private var showsDiffLoadingIndicator = false
+    @State private var diffCache = FileStatusDiffCache()
+    @State private var statusObjectIDs: [String: String] = [:]
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showingError = false
@@ -192,8 +195,33 @@ struct FileStatusView: View {
         guard selectedFileKey != selectionKey else { return }
         selectedFile = file
         selectedFileKey = selectionKey
-        diffHunks = []
-        isLoadingDiff = true
+        showCachedDiffOrBeginLoading(for: selectionKey)
+    }
+
+    private func diffFingerprint(for selectionKey: FileStatusSelectionKey) -> FileStatusDiffFingerprint? {
+        FileStatusDiffFingerprint(key: selectionKey, objectIDs: statusObjectIDs, repositoryURL: repositoryURL)
+    }
+
+    /// Shows the cached diff for a selection when its content is unchanged;
+    /// otherwise clears the previous file's diff until the new one loads.
+    private func showCachedDiffOrBeginLoading(for selectionKey: FileStatusSelectionKey?) {
+        showsDiffLoadingIndicator = false
+        guard let selectionKey else {
+            diffHunks = []
+            isLoadingDiff = false
+            return
+        }
+        if let cachedHunks = diffCache.hunks(
+            for: selectionKey,
+            in: repositoryURL,
+            matching: diffFingerprint(for: selectionKey)
+        ) {
+            diffHunks = cachedHunks
+            isLoadingDiff = false
+        } else {
+            diffHunks = []
+            isLoadingDiff = true
+        }
     }
 
     @ViewBuilder
@@ -337,8 +365,7 @@ struct FileStatusView: View {
             changedLineCounts = counts
         }
         .onChange(of: selectedFileKey) { _, newSelectionKey in
-            diffHunks = []
-            isLoadingDiff = newSelectionKey != nil
+            showCachedDiffOrBeginLoading(for: newSelectionKey)
         }
         .onChange(of: selectedActionFileKeys, initial: true) { _, _ in
             onCustomActionSelectionChanged(actionSelection.selectedFiles.map(\.path))
@@ -346,7 +373,31 @@ struct FileStatusView: View {
         .task(id: "\(String(describing: selectedFileKey))|\(diffRefreshID.uuidString)") {
             guard let selectionKey = selectedFileKey,
                   let file = selectedFile else { return }
-            await loadDiff(for: file, selectionKey: selectionKey)
+            let fingerprint = diffFingerprint(for: selectionKey)
+            if let cachedHunks = diffCache.hunks(for: selectionKey, in: repositoryURL, matching: fingerprint) {
+                // Nothing changed for this file since its diff was loaded; a shown
+                // diff came from this same cache entry, so leave it untouched.
+                if isLoadingDiff {
+                    diffHunks = cachedHunks
+                    isLoadingDiff = false
+                }
+                return
+            }
+            // Only show the spinner for slow diffs so fast selection changes don't flash it.
+            let indicatorTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled,
+                      isLoadingDiff,
+                      selectedFileKey == selectionKey else { return }
+                showsDiffLoadingIndicator = true
+            }
+            defer { indicatorTask.cancel() }
+            await loadDiff(for: file, selectionKey: selectionKey, fingerprint: fingerprint)
+        }
+        .onChange(of: isLoadingDiff) { _, isLoading in
+            if !isLoading {
+                showsDiffLoadingIndicator = false
+            }
         }
         .alert("Error", isPresented: $showingError, actions: {
             Button("OK", role: .cancel) {}
@@ -941,8 +992,13 @@ struct FileStatusView: View {
                     }
 
                     if isLoadingDiff {
-                        ProgressView("Loading diff…")
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        if showsDiffLoadingIndicator {
+                            ProgressView("Loading diff…")
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            Color.clear
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
                     } else if file.isImage {
                         imagePreview(file: file)
                     } else if file.isVideo {
@@ -1550,7 +1606,8 @@ struct FileStatusView: View {
             }
         }
         do {
-            let loadedStatus = try await GitStatusService.shared.status(for: repositoryURL)
+            let loadedSnapshot = try await GitStatusService.shared.statusSnapshot(for: repositoryURL)
+            let loadedStatus = loadedSnapshot.status
             let loadedCurrentBranch = await GitStatusService.shared.currentBranch(in: repositoryURL)
             let loadedIntegrationStatus: CurrentBranchIntegrationStatus?
             if let loadedCurrentBranch {
@@ -1584,6 +1641,9 @@ struct FileStatusView: View {
             currentBranch = loadedCurrentBranch
             currentBranchIntegrationStatus = loadedIntegrationStatus
             recentCommits = loadedRecentCommits
+            if statusObjectIDs != loadedSnapshot.objectIDs {
+                statusObjectIDs = loadedSnapshot.objectIDs
+            }
             diffRefreshID = UUID()
 
             restoreSelectedFileAfterStatusRefresh()
@@ -1700,9 +1760,16 @@ struct FileStatusView: View {
         }
     }
 
-    private func loadDiff(for file: StatusFile, selectionKey: FileStatusSelectionKey) async {
+    private func loadDiff(
+        for file: StatusFile,
+        selectionKey: FileStatusSelectionKey,
+        fingerprint: FileStatusDiffFingerprint?
+    ) async {
         do {
             let loadedDiffHunks = try await GitStatusService.shared.diff(for: file, in: repositoryURL)
+            // The fingerprint was taken before git ran, so a concurrent edit only
+            // makes the next lookup miss rather than serve stale content.
+            diffCache.store(loadedDiffHunks, for: selectionKey, in: repositoryURL, fingerprint: fingerprint)
             guard !Task.isCancelled else { return }
             guard selectedFileKey == selectionKey else { return }
             diffHunks = loadedDiffHunks

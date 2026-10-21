@@ -96,6 +96,30 @@ final class GitStatusServiceStatusTests: XCTestCase {
         XCTAssertEqual(renamed.originalPath, oldPath)
     }
 
+    func testStatusSnapshotObjectIDsChangeOnlyForStagedFile() async throws {
+        let repoURL = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repoURL) }
+        for name in ["a file.txt", "b.txt"] {
+            try "original".write(to: repoURL.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+        try runGit(["add", "--", "a file.txt", "b.txt"], in: repoURL)
+        try runGit(["commit", "-m", "Add fixtures"], in: repoURL)
+        for name in ["a file.txt", "b.txt"] {
+            try "changed".write(to: repoURL.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+        try "new".write(to: repoURL.appendingPathComponent("untracked.txt"), atomically: true, encoding: .utf8)
+
+        let before = try await GitStatusService.shared.statusSnapshot(for: repoURL)
+        XCTAssertEqual(Set(before.status.unstaged.map(\.path)), ["a file.txt", "b.txt"])
+        XCTAssertNotNil(before.objectIDs["a file.txt"])
+        XCTAssertNil(before.objectIDs["untracked.txt"])
+
+        try runGit(["add", "--", "a file.txt"], in: repoURL)
+        let after = try await GitStatusService.shared.statusSnapshot(for: repoURL)
+        XCTAssertNotEqual(after.objectIDs["a file.txt"], before.objectIDs["a file.txt"])
+        XCTAssertEqual(after.objectIDs["b.txt"], before.objectIDs["b.txt"])
+    }
+
     func testStatusHidesUntrackedEmbeddedGitRepository() async throws {
         let repoURL = try makeTempRepo()
         let nested = repoURL.appendingPathComponent("Package/cki-tool")
