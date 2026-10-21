@@ -202,7 +202,7 @@ class SyncState: ObservableObject {
     private static let backgroundRefreshInterval: Duration = .seconds(10)
     private static let backgroundPollingInterval: Duration = .seconds(5)
     private static let localRefreshCoalescingInterval: TimeInterval = 2
-    private static let autoFetchInterval: TimeInterval = 20
+    private static let autoFetchInterval: TimeInterval = 30
     private static let autoFetchMaximumBackoff: TimeInterval = 300
 
     init() {
