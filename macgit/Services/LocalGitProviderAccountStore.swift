@@ -128,6 +128,9 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
     private let cloudStore: GitProviderAccountCloudStore?
     private var cloudUID: String?
     private var cloudAccountIDsByLocalAccountID: [String: String] = [:]
+    /// Rechecked before cloud data is written locally so turning off Commit+ Cloud sync
+    /// also discards downloads that were already in flight.
+    var isCloudSyncAllowed: (String) -> Bool = { _ in true }
 
     init(
         localStore: GitProviderAccountLocalStore? = nil,
@@ -153,6 +156,7 @@ final class LocalFirstGitProviderAccountStore: GitProviderAccountStore {
         } catch {
             return
         }
+        guard cloudUID == uid, isCloudSyncAllowed(uid) else { return }
 
         let pendingDeletions = try await localStore.pendingDeletions()
         let pendingIdentities = Set(pendingDeletions.map(GitProviderAccountLocalIdentity.init))

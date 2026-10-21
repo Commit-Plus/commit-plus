@@ -82,7 +82,7 @@ struct AccountSettingsView: View {
 
                     SettingsToggleRow(
                         title: "Sync app settings",
-                        detail: "Keep app settings in sync across your Macs with Commit+ Cloud.",
+                        detail: "Keep your data in sync across your Macs with Commit+ Cloud.",
                         isOn: syncSettingsBinding
                     )
                     .disabled(!accountController.cloudFeaturesAvailable)

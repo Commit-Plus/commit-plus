@@ -5,7 +5,7 @@ import FirebaseCore
 extension MainWindowView {
     func commitRulePreferenceChanged() {
         let settings = repoSettings
-        let uid = accountController.account?.uid
+        let uid = accountController.cloudSyncUID
         Task {
             do {
                 try await repoSettingsStore.update(for: repositoryURL.path, settings: settings, pendingCommitRuleUID: uid)
@@ -15,7 +15,8 @@ extension MainWindowView {
     }
 
     func reconcileCommitRulePreference() async {
-        let uid = accountController.account?.uid
+        let uid = accountController.cloudSyncUID
+        commitRuleSyncController.isCloudSyncAllowed = { [accountController] in accountController.cloudSyncUID == $0 }
         commitRuleSyncController.setSession(uid: uid, repositoryURL: repositoryURL)
         guard didPerformInitialLoad, uid != nil, FirebaseApp.app() != nil else { return }
         let warning = await commitRuleSyncController.reconcile(
@@ -23,10 +24,10 @@ extension MainWindowView {
             uid: uid,
             cloud: FirestoreRepositoryCommitRuleStore()
         ) { value in
-            guard accountController.account?.uid == uid else { return }
+            guard accountController.cloudSyncUID == uid else { return }
             repoSettings.skipProtectedBranchCommitWarnings = value
         }
-        if let warning, accountController.account?.uid == uid {
+        if let warning, accountController.cloudSyncUID == uid {
             syncState.showInfo(warning)
         }
     }

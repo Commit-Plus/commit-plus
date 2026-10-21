@@ -83,7 +83,7 @@ final class GitProviderAccountController: ObservableObject {
         )
     }
 
-    func updateMacgitAccount(_ account: AccountSnapshot?) async {
+    func updateMacgitAccount(_ account: AccountSnapshot?, cloudSyncEnabled: Bool) async {
         let previousAccounts = accounts
         // Initial auth restoration (nil -> uid) should retain valid disk cache.
         if let previousUID = cacheOwnerUID, previousUID != account?.uid {
@@ -96,7 +96,7 @@ final class GitProviderAccountController: ObservableObject {
             pendingOAuthSession = nil
         }
         do {
-            try await store.updateCloudAccount(uid: account?.uid)
+            try await store.updateCloudAccount(uid: cloudSyncEnabled ? account?.uid : nil)
         } catch {
             errorMessage = error.localizedDescription
         }

@@ -72,7 +72,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
             tokenVault: vault
         )
 
-        await controller.updateMacgitAccount(nil)
+        await controller.updateMacgitAccount(nil, cloudSyncEnabled: true)
 
         XCTAssertEqual(store.cloudUIDUpdates, [nil])
         XCTAssertEqual(controller.accounts, [account])
@@ -91,9 +91,23 @@ final class GitProviderAccountControllerTests: XCTestCase {
         ])
         let controller = GitProviderAccountController(store: store, tokenVault: vault)
 
-        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
 
         XCTAssertEqual(store.cloudUIDUpdates, ["macgit-user-1"])
+        XCTAssertEqual(controller.accounts, [account])
+    }
+
+    func testSignedInStateWithCloudSyncOffKeepsProviderAccountsLocal() async {
+        let account = makeProviderAccount(macgitUID: "local-owner")
+        let vault = FakeGitProviderTokenVault(tokensByAccountID: [
+            account.id: GitProviderToken(accessToken: "token", refreshToken: nil, tokenType: "bearer")
+        ])
+        let store = FakeGitProviderAccountStore(localAccounts: [account])
+        let controller = GitProviderAccountController(store: store, tokenVault: vault)
+
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: false)
+
+        XCTAssertEqual(store.cloudUIDUpdates, [nil])
         XCTAssertEqual(controller.accounts, [account])
     }
 
@@ -105,7 +119,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
             tokenVault: FakeGitProviderTokenVault()
         )
 
-        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
 
         XCTAssertEqual(controller.accounts.first?.tokenStatus, .unavailableOnThisDevice)
     }
@@ -122,7 +136,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
             sshKeyStore: sshKeyStore
         )
 
-        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
 
         XCTAssertEqual(controller.accounts.first?.tokenStatus, .valid)
     }
@@ -136,7 +150,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
         ])
         let controller = GitProviderAccountController(store: store, tokenVault: vault)
 
-        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
 
         XCTAssertEqual(controller.accounts.first?.tokenStatus, .valid)
     }
@@ -154,7 +168,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
         ])
         let controller = GitProviderAccountController(store: store, tokenVault: vault)
 
-        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
 
         XCTAssertEqual(controller.accounts.first?.tokenStatus, .reauthorizationRequired)
     }
@@ -180,7 +194,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
             tokenVault: vault,
             gitLabAuthService: authService
         )
-        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
 
         let credential = try await controller.credentialResolver().credential(
             for: "https://gitlab.com/group/project.git"
@@ -201,7 +215,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
         let vault = FakeGitProviderTokenVault(events: events)
         let sshKeyStore = FakeGitProviderSSHKeyStore(events: events)
         let controller = GitProviderAccountController(store: store, tokenVault: vault, sshKeyStore: sshKeyStore)
-        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
         events.values.removeAll()
 
         await controller.disconnect(account)
@@ -223,7 +237,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
         ])
         let sshKeyStore = FakeGitProviderSSHKeyStore()
         let controller = GitProviderAccountController(store: store, tokenVault: vault, sshKeyStore: sshKeyStore)
-        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
 
         await controller.saveConnectionSettings(
             account: account,
@@ -251,7 +265,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
                 return true
             }
         )
-        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
 
         let connectionTask = Task {
             await controller.connectGitHub()
@@ -276,7 +290,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
             configuration: makeConfiguration(),
             openURL: { _ in true }
         )
-        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
 
         let connectionTask = Task {
             await controller.connectGitHub()
@@ -306,7 +320,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
             configuration: makeConfiguration(),
             openURL: { _ in true }
         )
-        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
         events.values.removeAll()
 
         await controller.connectGitHub()
@@ -331,7 +345,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
                 return true
             }
         )
-        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
 
         let connectionTask = Task {
             await controller.connectGitLabDotCom()
@@ -356,7 +370,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
                 return true
             }
         )
-        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
 
         await controller.connectGitLabDotCom()
 
@@ -376,7 +390,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
             gitLabAuthService: gitLabAuthService,
             openURL: { _ in true }
         )
-        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
         events.values.removeAll()
 
         await controller.connectGitLabDotCom()
@@ -390,7 +404,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
         let store = FakeGitProviderAccountStore(events: events)
         let vault = FakeGitProviderTokenVault(events: events)
         let controller = GitProviderAccountController(store: store, tokenVault: vault)
-        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
         events.values.removeAll()
 
         await controller.connectBitbucket(
@@ -438,7 +452,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
             sshKeyStore: sshKeyStore,
             sshAuthService: sshAuthService
         )
-        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"))
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
 
         await controller.connectSSH(
             host: .githubDotCom,
@@ -478,7 +492,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
             },
             multipleAccountAccess: { .denied(.requiresPro) }
         )
-        await controller.updateMacgitAccount(nil)
+        await controller.updateMacgitAccount(nil, cloudSyncEnabled: true)
 
         await controller.connectGitHub()
 
@@ -506,7 +520,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
             openURL: { _ in true },
             multipleAccountAccess: { .allowed }
         )
-        await controller.updateMacgitAccount(nil)
+        await controller.updateMacgitAccount(nil, cloudSyncEnabled: true)
 
         await controller.connectGitHub()
 
@@ -531,7 +545,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
             openURL: { _ in true },
             multipleAccountAccess: { accessDecisions.removeFirst() }
         )
-        await controller.updateMacgitAccount(nil)
+        await controller.updateMacgitAccount(nil, cloudSyncEnabled: true)
 
         await controller.connectGitHub()
 
@@ -554,7 +568,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
             openURL: { _ in true },
             multipleAccountAccess: { .denied(.requiresPro) }
         )
-        await controller.updateMacgitAccount(nil)
+        await controller.updateMacgitAccount(nil, cloudSyncEnabled: true)
 
         await controller.reconnect(existingAccount)
 
@@ -572,7 +586,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
             sshAuthService: sshAuthService,
             multipleAccountAccess: { .denied(.requiresPro) }
         )
-        await controller.updateMacgitAccount(nil)
+        await controller.updateMacgitAccount(nil, cloudSyncEnabled: true)
 
         await controller.connectSSH(
             host: .githubDotCom,

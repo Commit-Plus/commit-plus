@@ -58,6 +58,9 @@ final class RepositoryBookmarkController: ObservableObject {
     private var loadID = UUID()
     private var accountUpdateID = UUID()
     private var observation: ObservationToken?
+    /// Rechecked before cloud data is written locally so turning off Commit+ Cloud sync
+    /// also discards downloads that were already in flight.
+    var isCloudSyncAllowed: (String) -> Bool = { _ in true }
 
     init(cloudStore: RepositoryBookmarkCloudStore?, dataStore: LocalDataStore? = nil) {
         self.cloudStore = cloudStore
@@ -114,7 +117,7 @@ final class RepositoryBookmarkController: ObservableObject {
             guard activeUID == uid else { return }
             observation = cloudStore.observe(uid: uid) { [weak self] result in
                 Task { @MainActor [weak self] in
-                    guard let self, self.activeUID == uid else { return }
+                    guard let self, self.activeUID == uid, self.isCloudSyncAllowed(uid) else { return }
                     do {
                         try await self.applyCloudBookmarks(result.get(), uid: uid)
                     } catch { self.errorMessage = error.localizedDescription }
@@ -355,7 +358,7 @@ final class RepositoryBookmarkController: ObservableObject {
 
     private func applyCloudBookmarks(_ cloudBookmarks: [RepositoryBookmark], uid: String) async throws {
         try await dataStore.transaction(reading: ["bookmarks", "bookmarkPaths", "bookmarkUploads", "bookmarkDeletes"]) { transaction in
-            guard self.activeUID == uid else { return }
+            guard self.activeUID == uid, self.isCloudSyncAllowed(uid) else { return }
             let pendingUploads = try transaction.values(String.self, in: "bookmarkUploads")
             let pendingDeletes = try transaction.values(String.self, in: "bookmarkDeletes")
             var merged = Dictionary(cloudBookmarks.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })

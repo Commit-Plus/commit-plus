@@ -36,6 +36,9 @@ final class GitFlowConfigurationSyncController: ObservableObject {
     private let identityResolver: any RepositoryRemoteIdentityResolving
     private let dataStore: LocalDataStore
     private var operations: [URL: (UUID, Task<Void, Never>)] = [:]
+    /// Rechecked before cloud data is written locally so turning off Commit+ Cloud sync
+    /// also discards downloads that were already in flight.
+    var isCloudSyncAllowed: (String) -> Bool = { _ in true }
 
     init(
         cloudStore: GitFlowConfigurationCloudStore?,
@@ -145,6 +148,7 @@ final class GitFlowConfigurationSyncController: ObservableObject {
                 case .invalid:
                     return .unchanged
                 }
+                guard isCloudSyncAllowed(uid) else { return .unchanged }
                 let merged = cloudConfiguration.applying(to: localConfiguration)
                 try GitFlowPlanner().validate(merged)
                 try await localStore.save(merged, in: repositoryURL)

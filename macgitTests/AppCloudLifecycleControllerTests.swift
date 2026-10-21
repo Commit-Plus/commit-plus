@@ -8,7 +8,7 @@ final class AppCloudLifecycleControllerTests: XCTestCase {
         var starts = 0
         let controller = AppCloudLifecycleController(
             startFeaturePolicy: { starts += 1 },
-            synchronizeAccount: { _ in }
+            synchronizeAccount: { _, _ in }
         )
 
         controller.start()
@@ -21,15 +21,15 @@ final class AppCloudLifecycleControllerTests: XCTestCase {
         var synchronizedUIDs: [String] = []
         let controller = AppCloudLifecycleController(
             startFeaturePolicy: {},
-            synchronizeAccount: { account in
+            synchronizeAccount: { account, _ in
                 synchronizedUIDs.append(account?.uid ?? "guest")
             }
         )
         let account = account(uid: "user-one")
 
-        let first = Task { await controller.updateAccount(account) }
+        let first = Task { await controller.updateAccount(account, cloudSyncEnabled: true) }
         await Task.yield()
-        let second = Task { await controller.updateAccount(account) }
+        let second = Task { await controller.updateAccount(account, cloudSyncEnabled: true) }
         await first.value
         await second.value
 
@@ -42,7 +42,7 @@ final class AppCloudLifecycleControllerTests: XCTestCase {
         let firstStarted = expectation(description: "First session synchronization started")
         let controller = AppCloudLifecycleController(
             startFeaturePolicy: {},
-            synchronizeAccount: { account in
+            synchronizeAccount: { account, _ in
                 synchronizedUIDs.append(account?.uid ?? "guest")
                 if account?.uid == "user-one" {
                     firstStarted.fulfill()
@@ -51,11 +51,11 @@ final class AppCloudLifecycleControllerTests: XCTestCase {
             }
         )
 
-        let first = Task { await controller.updateAccount(account(uid: "user-one")) }
+        let first = Task { await controller.updateAccount(account(uid: "user-one"), cloudSyncEnabled: true) }
         await fulfillment(of: [firstStarted])
-        let second = Task { await controller.updateAccount(account(uid: "user-two")) }
+        let second = Task { await controller.updateAccount(account(uid: "user-two"), cloudSyncEnabled: true) }
         await Task.yield()
-        let guest = Task { await controller.updateAccount(nil) }
+        let guest = Task { await controller.updateAccount(nil, cloudSyncEnabled: true) }
         await Task.yield()
         releaseFirst?.resume()
         await first.value
@@ -63,6 +63,23 @@ final class AppCloudLifecycleControllerTests: XCTestCase {
         await guest.value
 
         XCTAssertEqual(synchronizedUIDs, ["user-one", "guest"])
+    }
+
+    func testCloudSyncToggleResynchronizesSameAccount() async {
+        var sessions: [String] = []
+        let controller = AppCloudLifecycleController(
+            startFeaturePolicy: {},
+            synchronizeAccount: { account, cloudSyncEnabled in
+                sessions.append("\(account?.uid ?? "guest")|\(cloudSyncEnabled)")
+            }
+        )
+        let account = account(uid: "user-one")
+
+        await controller.updateAccount(account, cloudSyncEnabled: true)
+        await controller.updateAccount(account, cloudSyncEnabled: false)
+        await controller.updateAccount(nil, cloudSyncEnabled: true)
+
+        XCTAssertEqual(sessions, ["user-one|true", "user-one|false", "guest|false"])
     }
 
     private func account(uid: String) -> AccountSnapshot {

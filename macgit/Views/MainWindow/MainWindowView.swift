@@ -2032,7 +2032,7 @@ struct MainWindowView: View {
     }
 
     private var gitFlowConfigurationSyncTaskID: String {
-        "\(didPerformInitialLoad)|\(accountController.account?.uid ?? "signed-out")"
+        "\(didPerformInitialLoad)|\(accountController.cloudSyncUID ?? "sync-off")"
     }
 
     /// The only entry point for starting background polling. Polling keeps running while the app
@@ -2060,7 +2060,7 @@ struct MainWindowView: View {
         let outcome = await gitFlowConfigurationSyncController.reconcile(
             repositoryURL: repositoryURL,
             fallbackConfiguration: gitFlowConfiguration,
-            uid: accountController.account?.uid
+            uid: accountController.cloudSyncUID
         )
         if let configuration = outcome.configuration {
             gitFlowConfiguration = configuration

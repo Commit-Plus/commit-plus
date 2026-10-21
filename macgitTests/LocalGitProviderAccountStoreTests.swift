@@ -47,6 +47,21 @@ final class LocalGitProviderAccountStoreTests: XCTestCase {
         XCTAssertTrue(cloudStore.savedAccounts.allSatisfy { $0.macgitUID == "firebase-user" })
     }
 
+    func testCloudAccountsAreNotAppliedAfterCloudSyncIsTurnedOff() async throws {
+        let localAccount = makeAccount(id: "local", ownerID: "local-owner", providerUserID: "1")
+        let cloudAccount = makeAccount(id: "cloud", ownerID: "firebase-user", providerUserID: "2")
+        let localStore = FakeLocalProviderAccountStore(accounts: [localAccount])
+        let cloudStore = FakeCloudProviderAccountStore(accounts: [cloudAccount])
+        let store = LocalFirstGitProviderAccountStore(localStore: localStore, cloudStore: cloudStore)
+        store.isCloudSyncAllowed = { _ in false }
+
+        try await store.updateCloudAccount(uid: "firebase-user")
+        let accounts = try await store.accounts()
+
+        XCTAssertEqual(accounts.map(\.providerUserID), ["1"])
+        XCTAssertTrue(cloudStore.savedAccounts.isEmpty)
+    }
+
     func testLocalAccountWinsWhenCloudHasSameProviderIdentity() async throws {
         var localAccount = makeAccount(id: "local", ownerID: "local-owner", providerUserID: "1")
         localAccount.username = "local-name"

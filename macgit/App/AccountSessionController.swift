@@ -86,6 +86,12 @@ final class AccountSessionController: ObservableObject {
         appState.syncEnabled
     }
 
+    /// The account UID to use for any Commit+ Cloud sync, or nil when signed out or when
+    /// "Sync app settings" is off. Every synced data type must gate on this value.
+    var cloudSyncUID: String? {
+        settingsSyncEnabled ? account?.uid : nil
+    }
+
     var pendingCloudSettings: AppSettingsSnapshot? {
         guard case .needsInitialChoice(let snapshot) = settingsSyncStatus else { return nil }
         return snapshot

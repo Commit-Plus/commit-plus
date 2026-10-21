@@ -19,6 +19,10 @@ final class RepositoryCommitRuleSyncController: ObservableObject {
         self.resolver = resolver
     }
 
+    /// Rechecked before a downloaded value is written locally so turning off Commit+ Cloud
+    /// sync also discards downloads that were already in flight.
+    var isCloudSyncAllowed: (String) -> Bool = { _ in true }
+
     func setSession(uid: String?, repositoryURL: URL) {
         guard activeUID != uid || activePath != repositoryURL.path else { return }
         activeUID = uid
@@ -53,7 +57,7 @@ final class RepositoryCommitRuleSyncController: ObservableObject {
             // Edits made while offline or while loading always win over an older download.
             if (try await pendingValue(pendingID)) == nil, let remote {
                 let applied = try await dataStore.transaction(reading: ["repoSettings", "commitRulePending"]) { transaction in
-                    guard session == self.sessionID,
+                    guard session == self.sessionID, self.isCloudSyncAllowed(uid),
                           try transaction.value(Bool.self, in: "commitRulePending", id: pendingID) == nil else { return false }
                     var settings = try transaction.value(RepoSettings.self, in: "repoSettings", id: repositoryURL.path)
                         ?? RepoSettings.defaults(currentBranch: nil, remotes: [])
