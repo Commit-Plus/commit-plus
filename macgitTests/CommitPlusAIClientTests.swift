@@ -67,28 +67,23 @@ final class CommitPlusAIClientTests: XCTestCase {
         do {
             _ = try await client.infer(operation: .repositoryResponse, messages: [.init(role: "user", content: "Hi")], structured: false)
             XCTFail("Expected in-progress error")
-        } catch { XCTAssertTrue(error.localizedDescription.contains("reserved")) }
+        } catch { guard case CommitPlusAIError.server(code: "request_in_progress") = error else { return XCTFail("Unexpected error: \(error)") } }
         XCTAssertEqual(recorder.requests.count, 1)
     }
 
-    func testAmbiguousResponseQueriesOriginalRequestWithoutSecondPOST() async throws {
-        let fixture = try allowanceObject()
+    func testTransportFailureMakesNoStatusRequestAndNoSecondPOST() async throws {
         let recorder = ManagedRequestRecorder()
         let (session, url) = ManagedURLProtocol.makeSession { request in
             _ = recorder.append(request)
-            if request.httpMethod == "POST" { return (200, Data("incomplete".utf8)) }
-            return (200, try JSONSerialization.data(withJSONObject: ["requestID": request.url!.lastPathComponent,
-                "state": "settled", "allowance": fixture]))
+            return (200, Data("incomplete".utf8))
         }
         defer { session.invalidateAndCancel(); ManagedURLProtocol.remove(url) }
         let client = CommitPlusAIClient(baseURL: url, tokens: ManagedClientTokens(), session: session)
         do {
             _ = try await client.infer(operation: .repositoryResponse, messages: [.init(role: "user", content: "Hi")], structured: false)
-            XCTFail("Expected explicit lost-output recovery")
-        } catch { guard case CommitPlusAIError.outputLost = error else { return XCTFail("Unexpected error: \(error)") } }
-        let requests = recorder.requests
-        XCTAssertEqual(requests.map(\.httpMethod), ["POST", "GET"])
-        XCTAssertEqual(try Self.body(requests[0])["requestID"] as? String, requests[1].url?.lastPathComponent)
+            XCTFail("Expected a plain failure")
+        } catch { guard case CommitPlusAIError.unavailable = error else { return XCTFail("Unexpected error: \(error)") } }
+        XCTAssertEqual(recorder.requests.map(\.httpMethod), ["POST"])
     }
 
     nonisolated fileprivate static func body(_ request: URLRequest) throws -> [String: Any] {

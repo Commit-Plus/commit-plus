@@ -44,6 +44,26 @@ final class PersistentSplitViewTests: XCTestCase {
         XCTAssertTrue(dividerRect.contains(NSPoint(x: 203, y: 50)))
     }
 
+    func testDragAreaMatchesCursorAreaAroundThinDivider() {
+        let controller = ResizableCursorSplitViewController()
+        controller.splitView = ResizableCursorSplitView()
+        controller.splitView.isVertical = false
+        let drawnRect = NSRect(x: 0, y: 300, width: 600, height: 1)
+
+        let effectiveRect = controller.splitView(
+            controller.splitView,
+            effectiveRect: drawnRect,
+            forDrawnRect: drawnRect,
+            ofDividerAt: 0
+        )
+
+        XCTAssertEqual(
+            effectiveRect,
+            ResizableCursorSplitView.dividerCursorRect(for: drawnRect, splitViewIsVertical: false)
+        )
+        XCTAssertTrue(effectiveRect.contains(NSPoint(x: 300, y: 296)))
+    }
+
     func testSplitViewConfigurationUsesNativeAutosaveNameForGlobalPersistence() {
         let splitView = ResizableCursorSplitView()
 

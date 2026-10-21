@@ -90,6 +90,45 @@ final class CommitPlusAIUsageControllerTests: XCTestCase {
         XCTAssertFalse(controller.availability.isAvailable)
     }
 
+    func testRefreshOnLaunchForcesOneFetchPerAccountDespiteCache() async throws {
+        let value = try allowance()
+        let counter = AllowanceLoadCounter(value: value)
+        let date = value.periodStart.addingTimeInterval(60)
+        let seeded = CommitPlusAIUsageController(defaults: defaults, now: { date })
+        seeded.setSession(uid: "a")
+        seeded.accept(value, uid: "a")
+
+        let controller = CommitPlusAIUsageController(defaults: defaults, now: { date })
+        controller.setSession(uid: "a")
+        controller.loader = { await counter.load() }
+        await controller.refreshOnLaunch()
+        await controller.refreshOnLaunch()
+        var loadCount = await counter.loadCount
+        XCTAssertEqual(loadCount, 1)
+        XCTAssertEqual(controller.state, .loaded(value))
+
+        controller.setSession(uid: "b")
+        await controller.refreshOnLaunch()
+        loadCount = await counter.loadCount
+        XCTAssertEqual(loadCount, 2)
+
+        controller.setSession(uid: "a")
+        await controller.refreshOnLaunch()
+        loadCount = await counter.loadCount
+        XCTAssertEqual(loadCount, 2)
+    }
+
+    func testRefreshOnLaunchSkipsSignedOut() async throws {
+        let counter = AllowanceLoadCounter(value: try allowance())
+        let controller = CommitPlusAIUsageController(defaults: defaults)
+        controller.setSession(uid: nil)
+        controller.loader = { await counter.load() }
+        await controller.refreshOnLaunch()
+        let loadCount = await counter.loadCount
+        XCTAssertEqual(loadCount, 0)
+        XCTAssertEqual(controller.state, .idle)
+    }
+
     func testRefreshUsesCachedAllowanceForTwoHours() async throws {
         let value = try allowance()
         let counter = AllowanceLoadCounter(value: value)

@@ -112,18 +112,9 @@ actor CommitPlusAIClient: CommitPlusAIRequestSending {
                 try await check(identity)
                 if error is CancellationError || Task.isCancelled { throw CancellationError() }
                 if case CommitPlusAIError.server = error { throw error }
-                // Query only. Never issue a second inference for an ambiguous transport outcome.
-                if let statusData = try? await get(path: "v1/requests/\(id)", identity: identity),
-                   let status = try? JSONDecoder().decode(RequestStatus.self, from: statusData),
-                   status.requestID.lowercased() == id,
-                   ["reserved", "invoking", "settled", "released", "reconciling"].contains(status.state) {
-                    try await check(identity)
-                    await onAllowance(status.allowance, identity)
-                    if status.state == "settled" { throw CommitPlusAIError.outputLost }
-                    if status.state == "released" { throw CommitPlusAIError.unavailable }
-                    throw CommitPlusAIError.server(code: "accounting_pending")
-                }
-                throw CommitPlusAIError.outcomeUnknown
+                // The backend bills only provider-reported usage, so an interrupted request is a plain
+                // failure. Never resend it automatically.
+                throw CommitPlusAIError.unavailable
             }
         }
         throw CommitPlusAIError.signedOut
@@ -154,5 +145,4 @@ actor CommitPlusAIClient: CommitPlusAIRequestSending {
     private struct ErrorBody: Decodable { let code: String }
     private struct ErrorEnvelope: Decodable { let error: ErrorBody }
     private struct TextDelta: Decodable { let text: String }
-    private struct RequestStatus: Decodable { let requestID: String; let state: String; let allowance: CommitPlusAIAllowance }
 }

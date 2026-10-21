@@ -278,6 +278,7 @@ struct macgitApp: App {
                 }
                 .onChange(of: accountController.account?.uid, initial: true) { _, uid in
                     aiProviderController.managedUsageController?.setSession(uid: uid)
+                    Task { await aiProviderController.managedUsageController?.refreshOnLaunch() }
                 }
                 .onChange(of: accountController.account?.uid) { _, _ in
                     aiProviderController.invalidateAvailability()
