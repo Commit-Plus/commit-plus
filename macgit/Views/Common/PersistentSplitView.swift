@@ -97,6 +97,32 @@ final class ResizableCursorSplitView: NSSplitView {
     }
 }
 
+/// NSSplitView only starts a drag when mouseDown lands in the divider's
+/// effective rect, which for a thin divider is a single point. Widen it to
+/// the same area that shows the resize cursor so every visible affordance
+/// actually drags.
+final class ResizableCursorSplitViewController: NSSplitViewController {
+    override func splitView(
+        _ splitView: NSSplitView,
+        effectiveRect proposedEffectiveRect: NSRect,
+        forDrawnRect drawnRect: NSRect,
+        ofDividerAt dividerIndex: Int
+    ) -> NSRect {
+        let effectiveRect = super.splitView(
+            splitView,
+            effectiveRect: proposedEffectiveRect,
+            forDrawnRect: drawnRect,
+            ofDividerAt: dividerIndex
+        )
+        return effectiveRect.union(
+            ResizableCursorSplitView.dividerCursorRect(
+                for: drawnRect,
+                splitViewIsVertical: splitView.isVertical
+            )
+        )
+    }
+}
+
 // MARK: - Split View Configuration
 
 func configurePersistentSplitView(
@@ -140,7 +166,7 @@ struct PersistentVSplit<Top: View, Bottom: View>: NSViewControllerRepresentable 
         coordinator.topController = topController
         coordinator.bottomController = bottomController
 
-        let splitController = NSSplitViewController()
+        let splitController = ResizableCursorSplitViewController()
         splitController.splitView = ResizableCursorSplitView()
         configurePersistentSplitView(
             splitController.splitView,
@@ -194,7 +220,7 @@ struct PersistentHSplit<Left: View, Right: View>: NSViewControllerRepresentable 
         coordinator.leftController = leftController
         coordinator.rightController = rightController
 
-        let splitController = NSSplitViewController()
+        let splitController = ResizableCursorSplitViewController()
         splitController.splitView = ResizableCursorSplitView()
         configurePersistentSplitView(
             splitController.splitView,

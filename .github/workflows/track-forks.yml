@@ -1,0 +1,61 @@
+name: Track Forks
+
+on:
+  fork:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: track-forks
+  cancel-in-progress: false
+
+jobs:
+  record-fork:
+    name: Record fork
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Append fork to log
+        env:
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          fork_name=$(jq -r '.forkee.full_name' "$EVENT_PATH")
+          fork_url=$(jq -r '.forkee.html_url' "$EVENT_PATH")
+          fork_owner=$(jq -r '.forkee.owner.login' "$EVENT_PATH")
+          fork_owner_url=$(jq -r '.forkee.owner.html_url' "$EVENT_PATH")
+          forked_at=$(jq -r '.forkee.created_at' "$EVENT_PATH")
+
+          if grep -Fq "[$fork_name]($fork_url)" FORKS.md; then
+            echo "Fork already recorded: $fork_name"
+            exit 0
+          fi
+
+          printf '| %s | [%s](%s) | [%s](%s) |\n' \
+            "$forked_at" \
+            "$fork_name" \
+            "$fork_url" \
+            "$fork_owner" \
+            "$fork_owner_url" >> FORKS.md
+
+          echo "Recorded fork: $fork_name"
+          echo "### Fork recorded" >> "$GITHUB_STEP_SUMMARY"
+          echo "- [$fork_name]($fork_url) at $forked_at" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit fork log
+        run: |
+          if git diff --quiet -- FORKS.md; then
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add FORKS.md
+          git commit -m "chore: record fork ${{ github.event.forkee.full_name }}"
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"
