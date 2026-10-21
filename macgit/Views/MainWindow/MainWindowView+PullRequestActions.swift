@@ -138,6 +138,9 @@ extension MainWindowView {
         }
         await pullRequestController.loadPullRequests(repositoryURL: repositoryURL, remoteName: remoteName)
         guard !Task.isCancelled else { return nil }
+        // A newer request for another remote superseded this load; its list is not ours to open from.
+        if let loadedRemoteName = pullRequestController.listRemoteName,
+           loadedRemoteName != remoteName { return nil }
         guard pullRequestController.hasLoadedList else {
             syncState.showError(pullRequestController.errorMessage ?? "Pull request details are unavailable.")
             return nil
