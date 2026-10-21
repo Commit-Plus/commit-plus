@@ -237,7 +237,7 @@ extension SidebarView {
         Task { @MainActor in
             if let pullRequest = await resolveOpenPullRequest(remote, sourceBranch) {
                 menu.updateItem(item, title: "View Pull Request") {
-                    onRequestViewPullRequest(pullRequest)
+                    onRequestViewPullRequest(remote, pullRequest)
                 }
             } else {
                 menu.updateItem(item, title: "Create Pull Request...", create)

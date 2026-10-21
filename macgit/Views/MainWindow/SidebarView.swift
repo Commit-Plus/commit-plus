@@ -63,7 +63,7 @@ struct SidebarView: View {
     let onRequestRenameBranch: (String) -> Void
     let onRequestCreatePullRequest: (String) -> Void
     let resolveOpenPullRequest: @MainActor (String, String) async -> PullRequestSummary?
-    let onRequestViewPullRequest: (PullRequestSummary) -> Void
+    let onRequestViewPullRequest: (String, PullRequestSummary) -> Void
     let onRequestCreateBranchFromBranch: (String) -> Void
     let onRequestCreateTagFromBranch: (String) -> Void
     let onRequestTagDetails: (String) -> Void
@@ -246,7 +246,7 @@ struct SidebarView: View {
         onRequestRenameBranch: @escaping (String) -> Void = { _ in },
         onRequestCreatePullRequest: @escaping (String) -> Void = { _ in },
         resolveOpenPullRequest: @escaping @MainActor (String, String) async -> PullRequestSummary? = { _, _ in nil },
-        onRequestViewPullRequest: @escaping (PullRequestSummary) -> Void = { _ in },
+        onRequestViewPullRequest: @escaping (String, PullRequestSummary) -> Void = { _, _ in },
         onRequestCreateBranchFromBranch: @escaping (String) -> Void = { _ in },
         onRequestCreateTagFromBranch: @escaping (String) -> Void = { _ in },
         onRequestTagDetails: @escaping (String) -> Void = { _ in },

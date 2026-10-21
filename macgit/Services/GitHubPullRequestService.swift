@@ -155,9 +155,11 @@ struct GitHubPullRequestService: PullRequestProviding {
             resolvingAgainstBaseURL: false
         )
         components?.queryItems = [
-            URLQueryItem(name: "state", value: PullRequestListFilter.open.apiState),
+            URLQueryItem(name: "state", value: PullRequestListFilter.all.apiState),
             URLQueryItem(name: "head", value: "\(repository.owner):\(sourceBranch)"),
             URLQueryItem(name: "per_page", value: "1"),
+            URLQueryItem(name: "sort", value: "updated"),
+            URLQueryItem(name: "direction", value: "desc"),
         ]
         guard let url = components?.url else {
             throw PullRequestProviderError.repositoryUnavailable

@@ -89,7 +89,7 @@ extension PullRequestProviding {
             let result = try await listPullRequests(
                 repository: repository,
                 token: token,
-                filter: .open,
+                filter: .all,
                 page: page,
                 perPage: 100
             )

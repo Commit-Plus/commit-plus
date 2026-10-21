@@ -76,19 +76,19 @@ final class GitLabPullRequestServiceTests: XCTestCase {
         XCTAssertFalse(page.hasPreviousPage)
     }
 
-    func testOpenPullRequestFiltersBySourceBranch() async throws {
+    func testPullRequestLookupIncludesMergedSourceBranch() async throws {
         let client = StubGitLabPullRequestHTTPClient(responses: [
             .json(statusCode: 200, body: """
             [
               {
                 "iid": 7,
                 "title": "Add GitLab merge requests",
-                "state": "opened",
+                "state": "merged",
                 "draft": false,
                 "web_url": "https://gitlab.com/group/subgroup/project/-/merge_requests/7",
                 "created_at": "2026-07-01T09:10:11Z",
                 "updated_at": "2026-07-06T10:11:12Z",
-                "merged_at": null,
+                "merged_at": "2026-07-06T10:11:12Z",
                 "source_branch": "feature/gitlab-mrs",
                 "target_branch": "main",
                 "sha": "abc123",
@@ -108,11 +108,14 @@ final class GitLabPullRequestServiceTests: XCTestCase {
         let request = try XCTUnwrap(client.requests.first)
         let queryItems = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems)
         XCTAssertEqual(Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name, $0.value ?? "") }), [
-            "state": "opened",
+            "state": "all",
             "source_branch": "feature/gitlab-mrs",
             "per_page": "1",
+            "order_by": "updated_at",
+            "sort": "desc",
         ])
         XCTAssertEqual(pullRequest?.number, 7)
+        XCTAssertEqual(pullRequest?.state, .merged)
     }
 
     func testCreateMergeRequestPostsExpectedBody() async throws {

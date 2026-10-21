@@ -121,9 +121,11 @@ struct GitLabPullRequestService: PullRequestProviding {
             repository: repository,
             pathComponents: ["merge_requests"],
             queryItems: [
-                URLQueryItem(name: "state", value: PullRequestListFilter.open.gitLabState),
+                URLQueryItem(name: "state", value: PullRequestListFilter.all.gitLabState),
                 URLQueryItem(name: "source_branch", value: sourceBranch),
                 URLQueryItem(name: "per_page", value: "1"),
+                URLQueryItem(name: "order_by", value: "updated_at"),
+                URLQueryItem(name: "sort", value: "desc"),
             ]
         )
 

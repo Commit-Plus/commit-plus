@@ -196,7 +196,7 @@ final class PullRequestControllerTests: XCTestCase {
     func testOpenPullRequestFindsSourceBranchAndCachesResult() async throws {
         let account = makeAccount()
         let token = makeToken()
-        let summary = makeSummary()
+        let summary = makeSummary(state: .merged)
         let service = FakePullRequestProvider(result: .success([summary]))
         let accountController = GitProviderAccountController(
             store: FakePullRequestAccountStore(accounts: [account]),
@@ -232,7 +232,7 @@ final class PullRequestControllerTests: XCTestCase {
         XCTAssertEqual(firstResult, summary)
         XCTAssertEqual(cachedResult, summary)
         XCTAssertEqual(service.listCallCount, 1)
-        XCTAssertEqual(service.receivedFilter, .open)
+        XCTAssertEqual(service.receivedFilter, .all)
         XCTAssertEqual(service.receivedPerPage, 100)
     }
 

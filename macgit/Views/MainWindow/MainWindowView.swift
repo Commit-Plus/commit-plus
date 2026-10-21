@@ -1125,8 +1125,8 @@ struct MainWindowView: View {
             resolveOpenPullRequest: { remote, branch in
                 await resolveOpenPullRequest(remote: remote, sourceBranch: branch)
             },
-            onRequestViewPullRequest: { pullRequest in
-                Task { await showPullRequestDetail(pullRequest) }
+            onRequestViewPullRequest: { remote, pullRequest in
+                Task { await showPullRequestDetail(pullRequest, remoteName: remote) }
             },
             onRequestCreateBranchFromBranch: { branch in
                 presentBranchSheet(startPoint: .branch(branch))
@@ -1490,7 +1490,7 @@ struct MainWindowView: View {
                         pendingPullRequestNotification: pendingPullRequestNotification,
                         onConsumePendingPullRequest: appNotificationController.consumePendingPullRequest(id:),
                         selectedPullRequestID: selectedPullRequestID,
-                        onRequestShowDetail: showPullRequestDetail,
+                        onRequestShowDetail: { await showPullRequestDetail($0) },
                         onRequestCloseDetail: closePullRequestDetail
                     )
                 case .denied(let denial):

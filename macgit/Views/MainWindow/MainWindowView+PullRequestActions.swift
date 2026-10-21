@@ -92,9 +92,24 @@ extension MainWindowView {
         )
     }
 
-    func showPullRequestDetail(_ pullRequest: PullRequestSummary) async {
+    func showPullRequestDetail(
+        _ pullRequest: PullRequestSummary,
+        remoteName: String? = nil
+    ) async {
         guard await authorizePullRequestAccess() else { return }
-        if selectedPullRequestID == pullRequest.id,
+        if let remoteName {
+            do {
+                try await pullRequestController.activatePullRequestContext(
+                    repositoryURL: repositoryURL,
+                    remoteName: remoteName
+                )
+            } catch {
+                syncState.showError(error.localizedDescription)
+                return
+            }
+        }
+        if remoteName == nil,
+           selectedPullRequestID == pullRequest.id,
            pullRequestDetailWindow.activateIfPresented() { return }
 
         pullRequestDetailWindow.close()
