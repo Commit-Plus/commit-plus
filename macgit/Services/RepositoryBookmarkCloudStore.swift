@@ -22,8 +22,4 @@ protocol RepositoryBookmarkCloudStore {
     func bookmarks(uid: String) async throws -> [RepositoryBookmark]
     func save(_ bookmark: RepositoryBookmark, uid: String) async throws
     func delete(bookmarkID: String, uid: String) async throws
-    func observe(
-        uid: String,
-        onChange: @escaping (Result<[RepositoryBookmark], Error>) -> Void
-    ) -> ObservationToken
 }

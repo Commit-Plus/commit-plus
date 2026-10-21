@@ -217,12 +217,14 @@ final class LocalDataMigrationTests: XCTestCase {
         let controller = RepositoryBookmarkController(cloudStore: cloud, dataStore: fixture.store)
         let account = AccountSnapshot(uid: "user-a", email: nil, displayName: nil, providerIDs: [])
         await controller.updateAccount(account)
+        await controller.refreshFromCloud()
         await controller.removeBookmark(bookmark)
         XCTAssertTrue(controller.bookmarks.isEmpty)
         XCTAssertNotNil(controller.errorMessage)
         let reopened = try await fixture.reopen()
         let second = RepositoryBookmarkController(cloudStore: cloud, dataStore: reopened)
         await second.updateAccount(account)
+        await second.refreshFromCloud()
         XCTAssertTrue(second.bookmarks.isEmpty)
         XCTAssertNil(second.localURL(for: bookmark))
         let loadedValue29 = try await reopened.readValue(String.self, in: "bookmarkDeletes", id: bookmark.id)
@@ -253,11 +255,4 @@ private final class MigrationBookmarkCloud: RepositoryBookmarkCloudStore {
     func bookmarks(uid: String) async throws -> [RepositoryBookmark] { storedBookmarks }
     func save(_ bookmark: RepositoryBookmark, uid: String) async throws { }
     func delete(bookmarkID: String, uid: String) async throws { throw LocalDataError.notReady }
-    func observe(uid: String, onChange: @escaping (Result<[RepositoryBookmark], Error>) -> Void) -> ObservationToken {
-        MigrationObservationToken()
-    }
-}
-
-private final class MigrationObservationToken: ObservationToken {
-    func cancel() { }
 }

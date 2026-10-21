@@ -57,7 +57,7 @@ final class RepositoryBookmarkController: ObservableObject {
     @Published private var activeUID: String?
     private var loadID = UUID()
     private var accountUpdateID = UUID()
-    private var observation: ObservationToken?
+    private var isRefreshingFromCloud = false
     /// Rechecked before cloud data is written locally so turning off Commit+ Cloud sync
     /// also discards downloads that were already in flight.
     var isCloudSyncAllowed: (String) -> Bool = { _ in true }
@@ -66,8 +66,6 @@ final class RepositoryBookmarkController: ObservableObject {
         self.cloudStore = cloudStore
         self.dataStore = dataStore ?? .shared
     }
-
-    deinit { observation?.cancel() }
 
     func load() async throws {
         let request = UUID()
@@ -103,26 +101,25 @@ final class RepositoryBookmarkController: ObservableObject {
             try await dataStore.prepare()
             try await load()
             guard request == accountUpdateID else { return }
-            let uid = account?.uid
-            guard uid != activeUID else { return }
-            observation?.cancel()
-            observation = nil
-            activeUID = uid
-            guard let uid, let cloudStore else { return }
-            await flushPendingChanges(uid: uid, cloudStore: cloudStore)
+            activeUID = account?.uid
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    /// The account whose bookmarks sync with Commit+ Cloud, or nil while sync is off.
+    var cloudSyncUID: String? { activeUID }
+
+    /// Uploads pending changes and downloads cloud bookmarks on demand. There is no realtime
+    /// listener; the Welcome dashboard calls this when it appears and from its Refresh button.
+    func refreshFromCloud() async {
+        guard !isRefreshingFromCloud, let uid = activeUID, let cloudStore else { return }
+        isRefreshingFromCloud = true
+        defer { isRefreshingFromCloud = false }
+        await flushPendingChanges(uid: uid, cloudStore: cloudStore)
+        do {
             guard activeUID == uid else { return }
             let cloudBookmarks = try await cloudStore.bookmarks(uid: uid)
             guard activeUID == uid else { return }
             try await applyCloudBookmarks(cloudBookmarks, uid: uid)
-            guard activeUID == uid else { return }
-            observation = cloudStore.observe(uid: uid) { [weak self] result in
-                Task { @MainActor [weak self] in
-                    guard let self, self.activeUID == uid, self.isCloudSyncAllowed(uid) else { return }
-                    do {
-                        try await self.applyCloudBookmarks(result.get(), uid: uid)
-                    } catch { self.errorMessage = error.localizedDescription }
-                }
-            }
         } catch { errorMessage = error.localizedDescription }
     }
 

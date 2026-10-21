@@ -104,49 +104,7 @@ final class FirestoreRepositoryBookmarkStore: RepositoryBookmarkCloudStore {
         try await collection(uid: uid).document(bookmarkID).delete()
     }
 
-    func observe(
-        uid: String,
-        onChange: @escaping (Result<[RepositoryBookmark], Error>) -> Void
-    ) -> ObservationToken {
-        let registration = collection(uid: uid).addSnapshotListener { snapshot, error in
-            if let error {
-                onChange(.failure(error))
-                return
-            }
-
-            do {
-                let bookmarks = try (snapshot?.documents ?? []).map {
-                    try RepositoryBookmarkDocument.decode(
-                        $0.data(with: .estimate),
-                        id: $0.documentID
-                    )
-                }
-                onChange(.success(bookmarks))
-            } catch {
-                onChange(.failure(error))
-            }
-        }
-        return RepositoryBookmarkFirestoreObservationToken(registration: registration)
-    }
-
     private func collection(uid: String) -> CollectionReference {
         firestore.collection("users").document(uid).collection("repositoryBookmarks")
-    }
-}
-
-private final class RepositoryBookmarkFirestoreObservationToken: ObservationToken {
-    private var registration: ListenerRegistration?
-
-    init(registration: ListenerRegistration) {
-        self.registration = registration
-    }
-
-    func cancel() {
-        registration?.remove()
-        registration = nil
-    }
-
-    deinit {
-        registration?.remove()
     }
 }

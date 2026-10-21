@@ -116,6 +116,7 @@ final class RepositoryBookmarkTests: XCTestCase {
         let account = AccountSnapshot(uid: "repair-user", email: nil, displayName: nil, providerIDs: [])
         let controller = RepositoryBookmarkController(cloudStore: cloud, dataStore: fixture.store)
         await controller.updateAccount(account)
+        await controller.refreshFromCloud()
         let remotes = try await GitStatusService.shared.repositoryBookmarkRemotes(in: repo)
         let origin = try XCTUnwrap(remotes.first { $0.name == "origin" })
         cloud.failSaves = true
@@ -127,6 +128,7 @@ final class RepositoryBookmarkTests: XCTestCase {
         let reopened = try await fixture.reopen()
         let second = RepositoryBookmarkController(cloudStore: cloud, dataStore: reopened)
         await second.updateAccount(account)
+        await second.refreshFromCloud()
         XCTAssertEqual(second.bookmarks.map(\.id), [updated.id])
         XCTAssertEqual(second.localURL(for: updated), repo)
         XCTAssertNil(second.bookmark(forID: old.id))
@@ -392,12 +394,4 @@ private final class BookmarkRepairTestCloud: RepositoryBookmarkCloudStore {
     func delete(bookmarkID: String, uid: String) async throws {
         stored[bookmarkID] = nil
     }
-
-    func observe(uid: String, onChange: @escaping (Result<[RepositoryBookmark], Error>) -> Void) -> ObservationToken {
-        BookmarkRepairTestObservation()
-    }
-}
-
-private final class BookmarkRepairTestObservation: ObservationToken {
-    func cancel() { }
 }
