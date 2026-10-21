@@ -157,7 +157,7 @@ struct GitHubPullRequestService: PullRequestProviding {
         components?.queryItems = [
             URLQueryItem(name: "state", value: PullRequestListFilter.all.apiState),
             URLQueryItem(name: "head", value: "\(repository.owner):\(sourceBranch)"),
-            URLQueryItem(name: "per_page", value: "1"),
+            URLQueryItem(name: "per_page", value: "20"),
             URLQueryItem(name: "sort", value: "updated"),
             URLQueryItem(name: "direction", value: "desc"),
         ]
@@ -168,10 +168,9 @@ struct GitHubPullRequestService: PullRequestProviding {
         let (data, response) = try await httpClient.data(for: makeRequest(url: url, token: token))
         try validate(response: response, data: data)
         do {
-            guard let response = try decoder.decode([GitHubPullRequestResponse].self, from: data).first else {
-                return nil
-            }
-            return await enrichedSummary(response.summary, repository: repository, token: token)
+            let summaries = try decoder.decode([GitHubPullRequestResponse].self, from: data).map(\.summary)
+            guard let summary = summaries.preferringOpenPullRequest else { return nil }
+            return await enrichedSummary(summary, repository: repository, token: token)
         } catch let error as PullRequestProviderError {
             throw error
         } catch {

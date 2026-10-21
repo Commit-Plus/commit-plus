@@ -581,23 +581,6 @@ final class PullRequestController: ObservableObject {
         return pullRequest
     }
 
-    func activatePullRequestContext(repositoryURL: URL, remoteName: String) async throws {
-        let context = try await pullRequestServiceContext(
-            repositoryURL: repositoryURL,
-            remoteName: remoteName
-        )
-        if selectedProviderAccountID != context.credential.account.id
-            || activeRepository.map({ GitRepositoryIdentityKey($0) }) != GitRepositoryIdentityKey(context.repository) {
-            clearSelectedDetail()
-        }
-        activeRepositoryURL = repositoryURL
-        activeRemoteName = remoteName
-        activeRemoteURLString = context.remoteURLString
-        activeRepository = context.repository
-        activeToken = context.credential.token
-        selectedProviderAccountID = context.credential.account.id
-    }
-
     private func pullRequestServiceContext(
         repositoryURL: URL,
         remoteName: String

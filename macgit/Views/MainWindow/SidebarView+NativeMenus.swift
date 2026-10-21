@@ -239,11 +239,15 @@ extension SidebarView {
         create: @escaping () -> Void
     ) {
         let item = menu.item("Checking Pull Request…", enabled: false) {}
+        // Revealed when the branch's latest PR is closed or merged, so a new one can still be created.
+        let createItem = menu.item("Create Pull Request...", create)
+        createItem.isHidden = true
         Task { @MainActor in
             if let pullRequest = await resolveOpenPullRequest(remote, sourceBranch) {
                 menu.updateItem(item, title: "View Pull Request") {
                     onRequestViewPullRequest(remote, pullRequest)
                 }
+                createItem.isHidden = PullRequestListFilter.open.includes(pullRequest.state)
             } else {
                 menu.updateItem(item, title: "Create Pull Request...", create)
             }

@@ -110,7 +110,7 @@ final class GitLabPullRequestServiceTests: XCTestCase {
         XCTAssertEqual(Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name, $0.value ?? "") }), [
             "state": "all",
             "source_branch": "feature/gitlab-mrs",
-            "per_page": "1",
+            "per_page": "20",
             "order_by": "updated_at",
             "sort": "desc",
         ])

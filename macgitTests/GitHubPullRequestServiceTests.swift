@@ -135,7 +135,7 @@ final class GitHubPullRequestServiceTests: XCTestCase {
         XCTAssertEqual(Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name, $0.value ?? "") }), [
             "state": "all",
             "head": "octocat:feature/pr-read",
-            "per_page": "1",
+            "per_page": "20",
             "sort": "updated",
             "direction": "desc",
         ])

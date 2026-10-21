@@ -97,18 +97,20 @@ extension MainWindowView {
         remoteName: String? = nil
     ) async {
         guard await authorizePullRequestAccess() else { return }
-        if let remoteName {
-            do {
-                try await pullRequestController.activatePullRequestContext(
-                    repositoryURL: repositoryURL,
-                    remoteName: remoteName
-                )
-            } catch {
-                syncState.showError(error.localizedDescription)
+        // Switch the list to the PR's remote so the list, the selection, and the detail window's
+        // actions all target the same repository.
+        var switchedRemote = false
+        if let remoteName,
+           remoteName != pullRequestController.listRemoteName || !pullRequestController.hasLoadedList {
+            await pullRequestController.loadPullRequests(repositoryURL: repositoryURL, remoteName: remoteName)
+            guard !Task.isCancelled else { return }
+            guard pullRequestController.hasLoadedList else {
+                syncState.showError(pullRequestController.errorMessage ?? "Pull request details are unavailable.")
                 return
             }
+            switchedRemote = true
         }
-        if remoteName == nil,
+        if !switchedRemote,
            selectedPullRequestID == pullRequest.id,
            pullRequestDetailWindow.activateIfPresented() { return }
 
