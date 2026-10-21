@@ -731,7 +731,7 @@ struct SidebarView: View {
                 handleDrop([payload], target: target, optionKeyPressed: option)
                 return true
             })
-        .task(id: "\(repositoryURL.path)|\(appState.showSubmodules)") {
+        .task(id: repositoryURL) {
             loadSectionStates()
             resetLazySectionData()
             await loadAllSections(force: false)
@@ -819,6 +819,13 @@ struct SidebarView: View {
                 Task { await refreshMergeStatus() }
             } else {
                 branchMergeDetectionController.invalidate()
+            }
+        }
+        .onChange(of: appState.showSubmodules) { _, isVisible in
+            // Reload only this section; Add Submodule turns it on after a change.
+            guard isVisible, sectionStates.submodulesExpanded else { return }
+            Task {
+                await loadSubmodules(force: true)
             }
         }
         .onChange(of: appState.showSubtrees) { _, isVisible in
