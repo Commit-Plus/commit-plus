@@ -52,7 +52,7 @@ private struct BranchPullRequestCacheKey: Hashable {
 }
 
 private struct BranchPullRequestCacheEntry {
-    let pullRequest: PullRequestSummary?
+    let pullRequest: PullRequestSummary
     let expiresAt: Date
 }
 
@@ -574,28 +574,15 @@ final class PullRequestController: ObservableObject {
             token: context.credential.token,
             sourceBranch: sourceBranch
         )
-        branchPullRequestCache[cacheKey] = BranchPullRequestCacheEntry(
-            pullRequest: pullRequest,
-            expiresAt: .now.addingTimeInterval(branchPullRequestCacheTTL)
-        )
-        return pullRequest
-    }
-
-    func activatePullRequestContext(repositoryURL: URL, remoteName: String) async throws {
-        let context = try await pullRequestServiceContext(
-            repositoryURL: repositoryURL,
-            remoteName: remoteName
-        )
-        if selectedProviderAccountID != context.credential.account.id
-            || activeRepository.map({ GitRepositoryIdentityKey($0) }) != GitRepositoryIdentityKey(context.repository) {
-            clearSelectedDetail()
+        // Cache only hits: a miss must be re-checked so a PR created elsewhere (web, CLI, another
+        // window) shows up on the next lookup instead of after the TTL.
+        if let pullRequest {
+            branchPullRequestCache[cacheKey] = BranchPullRequestCacheEntry(
+                pullRequest: pullRequest,
+                expiresAt: .now.addingTimeInterval(branchPullRequestCacheTTL)
+            )
         }
-        activeRepositoryURL = repositoryURL
-        activeRemoteName = remoteName
-        activeRemoteURLString = context.remoteURLString
-        activeRepository = context.repository
-        activeToken = context.credential.token
-        selectedProviderAccountID = context.credential.account.id
+        return pullRequest
     }
 
     private func pullRequestServiceContext(

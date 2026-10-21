@@ -92,9 +92,20 @@ extension MainWindowView {
         )
     }
 
-    func showPullRequestDetail(_ pullRequest: PullRequestSummary) async {
-        guard await authorizePullRequestAccess() else { return }
-        if selectedPullRequestID == pullRequest.id,
+    func showPullRequestDetail(
+        _ pullRequest: PullRequestSummary,
+        remoteName: String? = nil
+    ) async {
+        // Opening from the sidebar may need access checks and a list load for another remote
+        // before the window appears, so show progress instead of a silent delay.
+        let progressID = remoteName.map { _ in
+            operationProgress.begin(message: "Opening Pull Request #\(pullRequest.number)...", canCancel: false)
+        }
+        let switchedRemote = await preparePullRequestDetail(remoteName: remoteName)
+        if let progressID { operationProgress.end(progressID) }
+        guard let switchedRemote else { return }
+        if !switchedRemote,
+           selectedPullRequestID == pullRequest.id,
            pullRequestDetailWindow.activateIfPresented() { return }
 
         pullRequestDetailWindow.close()
@@ -114,6 +125,27 @@ extension MainWindowView {
             onClose: closePullRequestDetail
         )
         await pullRequestController.loadPullRequestDetail(pullRequest)
+    }
+
+    /// Authorizes access and, when opened for a specific remote, switches the list to it so the list,
+    /// the selection, and the detail window's actions all target the same repository.
+    /// Returns whether the remote was switched, or nil when the detail should not open.
+    private func preparePullRequestDetail(remoteName: String?) async -> Bool? {
+        guard await authorizePullRequestAccess() else { return nil }
+        guard let remoteName,
+              remoteName != pullRequestController.listRemoteName || !pullRequestController.hasLoadedList else {
+            return false
+        }
+        await pullRequestController.loadPullRequests(repositoryURL: repositoryURL, remoteName: remoteName)
+        guard !Task.isCancelled else { return nil }
+        // A newer request for another remote superseded this load; its list is not ours to open from.
+        if let loadedRemoteName = pullRequestController.listRemoteName,
+           loadedRemoteName != remoteName { return nil }
+        guard pullRequestController.hasLoadedList else {
+            syncState.showError(pullRequestController.errorMessage ?? "Pull request details are unavailable.")
+            return nil
+        }
+        return true
     }
 
     func closePullRequestDetail() {

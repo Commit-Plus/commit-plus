@@ -89,16 +89,24 @@ extension PullRequestProviding {
             let result = try await listPullRequests(
                 repository: repository,
                 token: token,
-                filter: .open,
+                filter: .all,
                 page: page,
                 perPage: 100
             )
-            if let pullRequest = result.items.first(where: { $0.source.ref == sourceBranch }) {
+            if let pullRequest = result.items.filter({ $0.source.ref == sourceBranch }).preferringOpenPullRequest {
                 return pullRequest
             }
             guard result.hasNextPage else { return nil }
             page += 1
         }
+    }
+}
+
+extension Array where Element == PullRequestSummary {
+    /// The first open or draft pull request, falling back to the first one (most recently updated
+    /// when the provider sorts by update time) so a branch's active PR wins over closed/merged ones.
+    var preferringOpenPullRequest: PullRequestSummary? {
+        first { PullRequestListFilter.open.includes($0.state) } ?? first
     }
 }
 

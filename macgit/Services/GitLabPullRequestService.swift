@@ -121,16 +121,20 @@ struct GitLabPullRequestService: PullRequestProviding {
             repository: repository,
             pathComponents: ["merge_requests"],
             queryItems: [
-                URLQueryItem(name: "state", value: PullRequestListFilter.open.gitLabState),
+                URLQueryItem(name: "state", value: PullRequestListFilter.all.gitLabState),
                 URLQueryItem(name: "source_branch", value: sourceBranch),
-                URLQueryItem(name: "per_page", value: "1"),
+                URLQueryItem(name: "per_page", value: "20"),
+                URLQueryItem(name: "order_by", value: "updated_at"),
+                URLQueryItem(name: "sort", value: "desc"),
             ]
         )
 
         let (data, response) = try await httpClient.data(for: makeRequest(url: url, token: token))
         try validate(response: response, data: data)
         do {
-            return try decoder.decode([GitLabMergeRequestResponse].self, from: data).first?.summary
+            return try decoder.decode([GitLabMergeRequestResponse].self, from: data)
+                .map(\.summary)
+                .preferringOpenPullRequest
         } catch {
             throw PullRequestProviderError.providerMessage("GitLab returned an invalid merge request response.")
         }

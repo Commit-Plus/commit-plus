@@ -196,7 +196,7 @@ final class PullRequestControllerTests: XCTestCase {
     func testOpenPullRequestFindsSourceBranchAndCachesResult() async throws {
         let account = makeAccount()
         let token = makeToken()
-        let summary = makeSummary()
+        let summary = makeSummary(state: .merged)
         let service = FakePullRequestProvider(result: .success([summary]))
         let accountController = GitProviderAccountController(
             store: FakePullRequestAccountStore(accounts: [account]),
@@ -232,8 +232,78 @@ final class PullRequestControllerTests: XCTestCase {
         XCTAssertEqual(firstResult, summary)
         XCTAssertEqual(cachedResult, summary)
         XCTAssertEqual(service.listCallCount, 1)
-        XCTAssertEqual(service.receivedFilter, .open)
+        XCTAssertEqual(service.receivedFilter, .all)
         XCTAssertEqual(service.receivedPerPage, 100)
+    }
+
+    func testOpenPullRequestDoesNotCacheMisses() async throws {
+        let account = makeAccount()
+        let token = makeToken()
+        let service = FakePullRequestProvider(result: .success([]))
+        let accountController = GitProviderAccountController(
+            store: FakePullRequestAccountStore(accounts: [account]),
+            tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token])
+        )
+        await accountController.updateMacgitAccount(AccountSnapshot(
+            uid: "macgit-user-1",
+            email: "user@example.com",
+            displayName: nil,
+            providerIDs: []
+        ))
+        let controller = PullRequestController(
+            providerAccountController: accountController,
+            tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
+            services: [.github: service],
+            remoteURLProvider: { _, remote in
+                remote == "origin" ? "https://github.com/octocat/Hello-World.git" : nil
+            }
+        )
+        let repositoryURL = URL(fileURLWithPath: "/tmp/Hello-World")
+
+        for _ in 0..<2 {
+            let result = try await controller.openPullRequest(
+                sourceBranch: "feature",
+                repositoryURL: repositoryURL,
+                remoteName: "origin"
+            )
+            XCTAssertNil(result)
+        }
+
+        XCTAssertEqual(service.listCallCount, 2)
+    }
+
+    func testOpenPullRequestPrefersOpenPullRequestOverClosedOnes() async throws {
+        let account = makeAccount()
+        let token = makeToken()
+        let merged = makeSummary(number: 8, state: .merged)
+        let open = makeSummary(number: 20, state: .open)
+        let service = FakePullRequestProvider(result: .success([merged, open]))
+        let accountController = GitProviderAccountController(
+            store: FakePullRequestAccountStore(accounts: [account]),
+            tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token])
+        )
+        await accountController.updateMacgitAccount(AccountSnapshot(
+            uid: "macgit-user-1",
+            email: "user@example.com",
+            displayName: nil,
+            providerIDs: []
+        ))
+        let controller = PullRequestController(
+            providerAccountController: accountController,
+            tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
+            services: [.github: service],
+            remoteURLProvider: { _, remote in
+                remote == "origin" ? "https://github.com/octocat/Hello-World.git" : nil
+            }
+        )
+
+        let result = try await controller.openPullRequest(
+            sourceBranch: "feature",
+            repositoryURL: URL(fileURLWithPath: "/tmp/Hello-World"),
+            remoteName: "origin"
+        )
+
+        XCTAssertEqual(result, open)
     }
 
     func testLoadPullRequestsPublishesPermissionError() async throws {

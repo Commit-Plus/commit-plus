@@ -90,8 +90,7 @@ extension SidebarView {
         menu.separator()
         menu.copy("Copy Branch Name to Clipboard", value: branch)
         menu.separator()
-        if let upstream,
-           BranchUpstreamActionPolicy.shouldEnableCreatePullRequest(for: upstream) {
+        if let upstream {
             let parts = upstream.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
             if parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty {
                 addPullRequestItem(
@@ -101,10 +100,16 @@ extension SidebarView {
                     create: { actions.createPullRequest(branch) }
                 )
             } else {
-                menu.item("Create Pull Request...", enabled: false) { actions.createPullRequest(branch) }
+                menu.item(
+                    "Create Pull Request...",
+                    enabled: BranchUpstreamActionPolicy.shouldEnableCreatePullRequest(for: upstream)
+                ) { actions.createPullRequest(branch) }
             }
         } else {
-            menu.item("Create Pull Request...", enabled: false) { actions.createPullRequest(branch) }
+            menu.item(
+                "Create Pull Request...",
+                enabled: BranchUpstreamActionPolicy.shouldEnableCreatePullRequest(for: nil)
+            ) { actions.createPullRequest(branch) }
         }
         return menu
     }
@@ -234,11 +239,15 @@ extension SidebarView {
         create: @escaping () -> Void
     ) {
         let item = menu.item("Checking Pull Request…", enabled: false) {}
+        // Revealed when the branch's latest PR is closed or merged, so a new one can still be created.
+        let createItem = menu.item("Create Pull Request...", create)
+        createItem.isHidden = true
         Task { @MainActor in
             if let pullRequest = await resolveOpenPullRequest(remote, sourceBranch) {
                 menu.updateItem(item, title: "View Pull Request") {
-                    onRequestViewPullRequest(pullRequest)
+                    onRequestViewPullRequest(remote, pullRequest)
                 }
+                createItem.isHidden = PullRequestListFilter.open.includes(pullRequest.state)
             } else {
                 menu.updateItem(item, title: "Create Pull Request...", create)
             }
