@@ -176,7 +176,10 @@ extension GitStatusService {
         let trimmedIdentifier = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedIdentifier.count >= 7 else { return nil }
 
-        _ = try? await runGit(arguments: ["fetch", "--all", "--quiet"], in: repositoryURL)
+        // The app looks up an unknown hash on its own, so the fetch is audited as System.
+        _ = try? await RepositoryActionAudit.$origin.withValue(.system) {
+            try await runGit(arguments: ["fetch", "--all", "--quiet"], in: repositoryURL)
+        }
         return await commitInfo(for: trimmedIdentifier, in: repositoryURL)
     }
 

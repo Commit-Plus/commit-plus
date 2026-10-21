@@ -83,7 +83,7 @@ actor GitCommandLogStore {
         }
     }
 
-    private static func sanitized(arguments: [String]) -> [String] {
+    static func sanitized(arguments: [String]) -> [String] {
         var result: [String] = []
         var redactNext = false
 
@@ -120,7 +120,7 @@ actor GitCommandLogStore {
         return components.string ?? "<redacted-url>"
     }
 
-    private static func shellQuoted(_ value: String) -> String {
+    static func shellQuoted(_ value: String) -> String {
         guard value.contains(where: \.isWhitespace) else { return value }
         return "\"\(value.replacingOccurrences(of: "\"", with: "\\\""))\""
     }

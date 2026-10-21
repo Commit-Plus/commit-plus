@@ -30,6 +30,8 @@ nonisolated struct GitBoundedOutput: Sendable {
 nonisolated private struct GitProcessResult: Sendable {
     let data: Data
     let isTruncated: Bool
+    /// Kept on success for the action audit; Git reports fetch and push results here.
+    let standardError: Data
 }
 
 /// Classifies a failed `Process.run()`: a missing working directory means the repository
@@ -207,7 +209,7 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
                 .joined(separator: "\n")
             resume(throwing: GitError.commandFailed(message))
         } else {
-            resume(returning: GitProcessResult(data: outData, isTruncated: isTruncated))
+            resume(returning: GitProcessResult(data: outData, isTruncated: isTruncated, standardError: errData))
         }
     }
 
@@ -456,6 +458,7 @@ actor GitStatusService {
                 duration: Date.now.timeIntervalSince(startedAt),
                 error: nil
             )
+            await recordAudit(arguments: arguments, directory: directory, startedAt: startedAt, result: .success(result))
             return GitBoundedOutput(
                 text: String(decoding: result.data, as: UTF8.self),
                 isTruncated: result.isTruncated
@@ -467,6 +470,7 @@ actor GitStatusService {
                 duration: Date.now.timeIntervalSince(startedAt),
                 error: error
             )
+            await recordAudit(arguments: arguments, directory: directory, startedAt: startedAt, result: .failure(error))
             throw error
         }
     }
@@ -502,6 +506,7 @@ actor GitStatusService {
                 duration: Date().timeIntervalSince(startedAt),
                 error: nil
             )
+            await recordAudit(arguments: arguments, directory: directory, startedAt: startedAt, result: .success(result))
             return result.data
         } catch {
             await GitCommandLogStore.shared.record(
@@ -510,8 +515,63 @@ actor GitStatusService {
                 duration: Date().timeIntervalSince(startedAt),
                 error: error
             )
+            await recordAudit(arguments: arguments, directory: directory, startedAt: startedAt, result: .failure(error))
             throw error
         }
+    }
+
+    /// Records a finished mutating command in the session action audit. Read-only queries
+    /// return before doing any work, and audit failures never affect the Git call.
+    private func recordAudit(
+        arguments: [String],
+        directory: URL,
+        startedAt: Date,
+        result: Result<GitProcessResult, Error>
+    ) async {
+        await Self.recordAudit(
+            arguments: arguments,
+            directory: directory,
+            startedAt: startedAt,
+            standardOutput: try? result.get().data,
+            standardError: try? result.get().standardError,
+            error: { if case .failure(let error) = result { error } else { nil } }()
+        )
+    }
+
+    static func recordAudit(
+        arguments: [String],
+        directory: URL,
+        startedAt: Date,
+        standardOutput: Data?,
+        standardError: Data?,
+        error: Error?,
+        store: RepositoryActionAuditStore = .shared
+    ) async {
+        guard RepositoryActionAudit.isAuditable(arguments: arguments) else { return }
+        let status: RepositoryActionAuditStatus
+        let output: String
+        if let error {
+            let cancelled = error is CancellationError || Task.isCancelled
+            status = cancelled ? .cancelled : .failed
+            output = cancelled ? "" : error.localizedDescription
+        } else {
+            status = .succeeded
+            output = [standardError, standardOutput]
+                .compactMap { $0.map { String(decoding: $0, as: UTF8.self) } }
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        }
+        await store.record(RepositoryActionAuditRecord(
+            repositoryPath: directory.standardizedFileURL.path,
+            title: RepositoryActionAudit.title(arguments: arguments),
+            origin: RepositoryActionAudit.origin,
+            command: RepositoryActionAudit.displayCommand(arguments: arguments),
+            output: RepositoryActionAudit.redactedOutput(output),
+            status: status,
+            finishedAt: .now,
+            duration: Date.now.timeIntervalSince(startedAt)
+        ))
     }
 
     func clearSessionCaches() async {

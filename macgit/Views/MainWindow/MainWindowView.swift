@@ -1744,6 +1744,7 @@ struct MainWindowView: View {
             HStack(spacing: 6) {
                 RepositoryActivityHeaderButton(
                     operationProgress: operationProgress,
+                    repositoryURL: repositoryURL,
                     repositoryName: repositoryURL.lastPathComponent,
                     providerIconName: repoIconName,
                     textScale: appState.textSize.scale,

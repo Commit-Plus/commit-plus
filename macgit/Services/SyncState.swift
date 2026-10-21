@@ -393,11 +393,13 @@ class SyncState: ObservableObject {
         defer { Task { @MainActor in isAutomaticFetching = false } }
 
         do {
-            try await GitStatusService.shared.fetch(
-                options: options,
-                in: repositoryURL,
-                credentialResolver: credentialResolver
-            )
+            try await RepositoryActionAudit.$origin.withValue(.system) {
+                try await GitStatusService.shared.fetch(
+                    options: options,
+                    in: repositoryURL,
+                    credentialResolver: credentialResolver
+                )
+            }
             await finishAutomaticFetch(succeeded: true)
             await MainActor.run { lastFetchSucceeded = true }
             return true

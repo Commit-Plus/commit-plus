@@ -2,9 +2,11 @@
 import SwiftUI
 
 /// Repository name in the window header. The provider icon doubles as the indicator for
-/// this window's background Git activity, and clicking opens the activity popover.
+/// this window's background Git activity, and clicking opens the activity popover with the
+/// session's Git action audit and the background lane.
 struct RepositoryActivityHeaderButton: View {
     @ObservedObject var operationProgress: RepositoryOperationProgress
+    let repositoryURL: URL
     let repositoryName: String
     let providerIconName: String
     let textScale: CGFloat
@@ -47,6 +49,7 @@ struct RepositoryActivityHeaderButton: View {
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             RepositoryBackgroundActivityPopover(
                 operationProgress: operationProgress,
+                repositoryURL: repositoryURL,
                 isAutomaticFetching: isAutomaticFetching
             ) { item in
                 isPresented = false
