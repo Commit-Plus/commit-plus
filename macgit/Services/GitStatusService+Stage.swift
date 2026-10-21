@@ -161,7 +161,27 @@ extension GitStatusService {
         task.standardOutput = stdout
         task.standardError = stderr
 
-        return try await withCheckedThrowingContinuation { continuation in
+        let startedAt = Date.now
+        do {
+            try await runPatchProcess(task, patch: patch, stdin: stdin, stderr: stderr, context: context, repositoryURL: repositoryURL)
+        } catch {
+            await Self.recordAudit(arguments: arguments, directory: repositoryURL, startedAt: startedAt,
+                                   standardOutput: nil, standardError: nil, error: error)
+            throw error
+        }
+        await Self.recordAudit(arguments: arguments, directory: repositoryURL, startedAt: startedAt,
+                               standardOutput: nil, standardError: nil, error: nil)
+    }
+
+    private func runPatchProcess(
+        _ task: Process,
+        patch: String,
+        stdin: Pipe,
+        stderr: Pipe,
+        context: (executable: String, environment: [String: String]),
+        repositoryURL: URL
+    ) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             task.terminationHandler = { process in
                 let errData = stderr.fileHandleForReading.readDataToEndOfFile()
                 let errorOutput = String(data: errData, encoding: .utf8) ?? ""

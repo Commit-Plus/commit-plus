@@ -1,21 +1,68 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import SwiftUI
 
+enum RepositoryActivityPopoverTab: Hashable {
+    case audit
+    case background
+}
+
+/// Audit of this session's Git actions for the repository, and the window's background lane.
 struct RepositoryBackgroundActivityPopover: View {
+    @ObservedObject var operationProgress: RepositoryOperationProgress
+    let repositoryURL: URL
+    let isAutomaticFetching: Bool
+    let onViewDetail: (RepositoryBackgroundActivityItem) -> Void
+    @State private var tab: RepositoryActivityPopoverTab
+
+    init(
+        operationProgress: RepositoryOperationProgress,
+        repositoryURL: URL,
+        isAutomaticFetching: Bool,
+        onViewDetail: @escaping (RepositoryBackgroundActivityItem) -> Void
+    ) {
+        self.operationProgress = operationProgress
+        self.repositoryURL = repositoryURL
+        self.isAutomaticFetching = isAutomaticFetching
+        self.onViewDetail = onViewDetail
+        let hasBackgroundActivity = isAutomaticFetching || !operationProgress.backgroundItems.isEmpty
+        _tab = State(initialValue: hasBackgroundActivity ? .background : .audit)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("Activity", selection: $tab) {
+                Text("Audit").tag(RepositoryActivityPopoverTab.audit)
+                Text("Background").tag(RepositoryActivityPopoverTab.background)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .padding(.vertical, 10)
+            Divider()
+            switch tab {
+            case .audit:
+                RepositoryActionAuditView(repositoryURL: repositoryURL)
+            case .background:
+                RepositoryBackgroundActivityList(
+                    operationProgress: operationProgress,
+                    isAutomaticFetching: isAutomaticFetching,
+                    onViewDetail: onViewDetail
+                )
+            }
+        }
+        // Report each tab's ideal size so the popover resizes to it; otherwise flexible
+        // content keeps the larger Audit size after switching to Background.
+        .fixedSize()
+    }
+}
+
+private struct RepositoryBackgroundActivityList: View {
     @ObservedObject var operationProgress: RepositoryOperationProgress
     let isAutomaticFetching: Bool
     let onViewDetail: (RepositoryBackgroundActivityItem) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(.secondary)
-                Text("Background Activity").font(.system(size: 15, weight: .semibold))
-                Spacer()
-            }
-            .frame(height: 24)
-            .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 12)
-            Divider()
             if isAutomaticFetching {
                 RepositoryAutomaticFetchRow()
                 if !operationProgress.backgroundItems.isEmpty {

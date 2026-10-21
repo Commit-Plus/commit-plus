@@ -88,6 +88,7 @@ final class MacgitApplicationDelegate: NSObject, NSApplicationDelegate, UNUserNo
 
     func applicationWillTerminate(_ notification: Notification) {
         activityTelemetry?.stop()
+        RepositoryActionAuditStore.terminateSession()
     }
 
     @IBAction func newWindowForTab(_ sender: Any?) {

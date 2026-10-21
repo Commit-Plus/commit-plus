@@ -202,7 +202,7 @@ class SyncState: ObservableObject {
     private static let backgroundRefreshInterval: Duration = .seconds(10)
     private static let backgroundPollingInterval: Duration = .seconds(5)
     private static let localRefreshCoalescingInterval: TimeInterval = 2
-    private static let autoFetchInterval: TimeInterval = 20
+    private static let autoFetchInterval: TimeInterval = 30
     private static let autoFetchMaximumBackoff: TimeInterval = 300
 
     init() {
@@ -393,11 +393,13 @@ class SyncState: ObservableObject {
         defer { Task { @MainActor in isAutomaticFetching = false } }
 
         do {
-            try await GitStatusService.shared.fetch(
-                options: options,
-                in: repositoryURL,
-                credentialResolver: credentialResolver
-            )
+            try await RepositoryActionAudit.$origin.withValue(.system) {
+                try await GitStatusService.shared.fetch(
+                    options: options,
+                    in: repositoryURL,
+                    credentialResolver: credentialResolver
+                )
+            }
             await finishAutomaticFetch(succeeded: true)
             await MainActor.run { lastFetchSucceeded = true }
             return true

@@ -60,13 +60,19 @@ extension GitStatusService {
             try? FileManager.default.removeItem(at: progressFile)
         }
         // Execute the selected binary directly; filters/hooks receive the same PATH.
+        let startedAt = Date.now
+        let auditArguments = ["lfs"] + arguments
         do {
             let output = try await runProcessRaw(executableURL: executable, arguments: arguments, in: repository,
                 environment: processEnvironment, outputByteLimit: 16_000_000)
+            await Self.recordAudit(arguments: auditArguments, directory: repository, startedAt: startedAt,
+                                   standardOutput: output, standardError: nil, error: nil)
             return String(decoding: output, as: UTF8.self)
         } catch {
-            if Task.isCancelled { throw CancellationError() }
-            throw GitError.commandFailed(GitLFSErrorMessage.describe(error))
+            let failure: Error = Task.isCancelled ? CancellationError() : GitError.commandFailed(GitLFSErrorMessage.describe(error))
+            await Self.recordAudit(arguments: auditArguments, directory: repository, startedAt: startedAt,
+                                   standardOutput: nil, standardError: nil, error: failure)
+            throw failure
         }
     }
 
