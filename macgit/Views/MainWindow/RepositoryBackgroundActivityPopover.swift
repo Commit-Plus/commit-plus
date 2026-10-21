@@ -50,6 +50,9 @@ struct RepositoryBackgroundActivityPopover: View {
                 )
             }
         }
+        // Report each tab's ideal size so the popover resizes to it; otherwise flexible
+        // content keeps the larger Audit size after switching to Background.
+        .fixedSize()
     }
 }
 
