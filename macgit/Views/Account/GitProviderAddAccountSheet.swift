@@ -32,6 +32,9 @@ struct GitProviderAddAccountSheet: View {
     private let editingAccount: GitProviderAccount?
     private let presentation: Presentation
     private let accountCreationDecision: GitProviderAccountCreationDecision
+    /// Whether the controller's shared progress, device code, and error belong to this editor.
+    /// False for the inline editor while the Add Account sheet runs its own connection.
+    private let showsControllerActivity: Bool
 
     @State private var selectedHost: GitProviderAddAccountHost = .github
     @State private var selectedAuthType: GitProviderAddAccountAuthType = .oauth
@@ -52,12 +55,14 @@ struct GitProviderAddAccountSheet: View {
         controller: GitProviderAccountController,
         editingAccount: GitProviderAccount? = nil,
         accountCreationDecision: GitProviderAccountCreationDecision = .allowed,
-        presentation: Presentation = .sheet
+        presentation: Presentation = .sheet,
+        showsControllerActivity: Bool = true
     ) {
         self.controller = controller
         self.editingAccount = editingAccount
         self.presentation = presentation
         self.accountCreationDecision = accountCreationDecision
+        self.showsControllerActivity = showsControllerActivity
         if let account = editingAccount {
             let publicHost = account.provider == .github ? GitProviderHost.githubDotCom : GitProviderHost.gitlabDotCom
             _isSelfHosted = State(initialValue: account.provider != .bitbucket && account.hostURL != publicHost.baseURL)
@@ -191,9 +196,9 @@ struct GitProviderAddAccountSheet: View {
                 }
             }
             .formStyle(.grouped)
-            .disabled(controller.isLoading)
+            .disabled(showsControllerActivity && controller.isLoading)
 
-            if let authorization = controller.pendingDeviceAuthorization {
+            if showsControllerActivity, let authorization = controller.pendingDeviceAuthorization {
                 GitProviderDeviceAuthorizationView(
                     authorization: authorization,
                     openVerification: controller.openPendingDeviceVerification,
@@ -202,7 +207,7 @@ struct GitProviderAddAccountSheet: View {
                 )
             }
 
-            if controller.isLoading {
+            if showsControllerActivity, controller.isLoading {
                 HStack {
                     Spacer()
                     ProgressView("Connecting account...")
@@ -211,7 +216,7 @@ struct GitProviderAddAccountSheet: View {
                 }
             }
 
-            if let errorMessage = controller.errorMessage {
+            if showsControllerActivity, let errorMessage = controller.errorMessage {
                 Text(errorMessage)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)

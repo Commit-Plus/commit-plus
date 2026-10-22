@@ -521,6 +521,108 @@ final class CloudAIProviderTests: XCTestCase {
         XCTAssertEqual(resultContent.compactMap { $0["tool_use_id"] as? String }, ["toolu_1", "toolu_2"])
     }
 
+    func testAnthropicAgentRetriesFirstTurnOnceWhenToolUseCannotBeForced() async throws {
+        let store = InMemoryAIProviderCredentialStore(keys: [.anthropic: "anthropic-secret"])
+        let modelStore = InMemoryAIProviderModelStore(models: [.anthropic: "claude-sonnet-5-5"])
+        let client = StubAIProviderHTTPClient(responseBodies: [
+            #"{"content":[{"type":"text","text":"Looks fine."}]}"#,
+            #"{"content":[{"type":"tool_use","id":"toolu_1","name":"execute_git","input":{"arguments":["status"]}}]}"#,
+        ])
+        let provider = AnthropicCommitMessageProvider(credentialStore: store, modelStore: modelStore, httpClient: client)
+
+        let turn = try await provider.generateRepositoryAgentTurn(request: RepositoryAIAgentRequest(
+            repositoryName: "macgit",
+            branchName: "main",
+            question: "Review changes",
+            conversation: [],
+            previousToolResults: [],
+            isFirstTurn: true
+        ))
+        let requestCount = await client.requestCount()
+        let receivedRequest = await client.receivedRequest()
+        let body = try requestJSONObject(try XCTUnwrap(receivedRequest))
+
+        XCTAssertEqual(requestCount, 2)
+        XCTAssertNil(body["tool_choice"])
+        XCTAssertEqual(turn.toolCalls.map(\.name), ["execute_git"])
+    }
+
+    func testAnthropicAgentKeepsThinkingSettingForTheWholeLoop() async throws {
+        let store = InMemoryAIProviderCredentialStore(keys: [.anthropic: "anthropic-secret"])
+        let modelStore = InMemoryAIProviderModelStore(models: [.anthropic: "claude-sonnet-4-5"])
+        let client = StubAIProviderHTTPClient(responseBody: """
+            {"id":"msg_1","content":[{"type":"tool_use","id":"toolu_1","name":"execute_git","input":{"arguments":["status"]}}]}
+            """)
+        let provider = AnthropicCommitMessageProvider(credentialStore: store, modelStore: modelStore, httpClient: client)
+        let firstTurn = try await provider.generateRepositoryAgentTurn(request: RepositoryAIAgentRequest(
+            repositoryName: "macgit",
+            branchName: "main",
+            question: "Review changes",
+            conversation: [],
+            previousToolResults: [],
+            isFirstTurn: true
+        ))
+        let results = firstTurn.toolCalls.map { call in
+            RepositoryAIAgentToolResult(
+                toolCall: call,
+                commandResult: RepositoryAIGitCommandResult(
+                    displayCommand: "git status",
+                    output: "clean",
+                    succeeded: true,
+                    isTruncated: false
+                )
+            )
+        }
+        modelStore.setThinkingEnabled(true)
+
+        _ = try await provider.generateRepositoryAgentTurn(request: RepositoryAIAgentRequest(
+            repositoryName: "macgit",
+            branchName: "main",
+            question: "Review changes",
+            conversation: [],
+            previousToolResults: results,
+            isFirstTurn: false
+        ))
+        let receivedRequest = await client.receivedRequest()
+        let body = try requestJSONObject(try XCTUnwrap(receivedRequest))
+
+        // The replayed tool use has no thinking block, so thinking must stay off.
+        XCTAssertNil(body["thinking"])
+    }
+
+    func testOpenRouterCapabilityStoreBacksOffAfterAFailedLoad() async {
+        let client = StubAIProviderHTTPClient(responseBody: "{}", statusCode: 503)
+        let capabilities = OpenRouterReasoningCapabilityStore(httpClient: client)
+
+        let first = await capabilities.capability(for: "z-ai/glm-5.3-flash")
+        let second = await capabilities.capability(for: "z-ai/glm-5.3-flash")
+        let requestCount = await client.requestCount()
+
+        XCTAssertNil(first)
+        XCTAssertNil(second)
+        XCTAssertEqual(requestCount, 1)
+    }
+
+    func testOpenRouterCapabilityStoreRefreshesForUnknownModelsAfterInterval() async {
+        let client = StubAIProviderHTTPClient(responseBodies: [
+            #"{"data":[]}"#,
+            #"{"data":[{"id":"new/model","reasoning":{"mandatory":false,"supported_efforts":["none","low"]}}]}"#,
+        ])
+        let clock = TestClock()
+        let capabilities = OpenRouterReasoningCapabilityStore(httpClient: client, now: { clock.now })
+
+        let before = await capabilities.capability(for: "new/model")
+        let cached = await capabilities.capability(for: "new/model")
+        clock.advance(by: OpenRouterReasoningCapabilityStore.unknownModelRefreshInterval)
+        let after = await capabilities.capability(for: "new/model")
+        let requestCount = await client.requestCount()
+
+        XCTAssertNil(before)
+        XCTAssertNil(cached)
+        XCTAssertEqual(after?.supportedEfforts, ["none", "low"])
+        XCTAssertEqual(requestCount, 2)
+    }
+
     func testGeminiRequestUsesHeaderKeyAndStructuredOutputSchema() async throws {
         let store = InMemoryAIProviderCredentialStore(keys: [.googleGemini: "gemini-secret"])
         let modelStore = InMemoryAIProviderModelStore(models: [.googleGemini: "gemini-custom"])
@@ -1068,6 +1170,17 @@ final class InMemoryAIProviderModelStore: AIProviderModelStore, @unchecked Senda
 extension OpenRouterReasoningCapabilityStore {
     /// Never loads capabilities, so tests send no extra request and no reasoning fields.
     static let offline = OpenRouterReasoningCapabilityStore(httpClient: OfflineAIProviderHTTPClient())
+}
+
+private final class TestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var date = Date(timeIntervalSince1970: 0)
+
+    var now: Date { lock.withLock { date } }
+
+    func advance(by interval: TimeInterval) {
+        lock.withLock { date += interval }
+    }
 }
 
 struct OfflineAIProviderHTTPClient: AIProviderHTTPClient {

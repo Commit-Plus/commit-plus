@@ -96,6 +96,11 @@ struct GitProviderAccountsSection: View {
             if let selectedAccountID, ids.contains(selectedAccountID) { return }
             selectedAccountID = ids.first
         }
+        // The sheet's connection error is about the account being added; once the sheet
+        // closes, do not leave it under the selected account's editor.
+        .onChange(of: showingAddAccountSheet) { _, isShowing in
+            if !isShowing { controller.errorMessage = nil }
+        }
         .replacingSheet(isPresented: $showingAddAccountSheet) {
             GitProviderAddAccountSheet(
                 controller: controller,
@@ -154,7 +159,8 @@ struct GitProviderAccountsSection: View {
                     controller: controller,
                     editingAccount: selectedAccount,
                     accountCreationDecision: .allowed,
-                    presentation: .inline(saveAction: $saveAction)
+                    presentation: .inline(saveAction: $saveAction),
+                    showsControllerActivity: !showingAddAccountSheet
                 )
                 // Reset the editor's draft whenever a different account is selected.
                 .id(selectedAccount.id)

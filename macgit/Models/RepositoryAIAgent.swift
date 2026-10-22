@@ -62,6 +62,9 @@ nonisolated struct RepositoryAIClaudeToolUseState: Codable, Equatable, Sendable 
     /// Thinking blocks that preceded the tool use. Claude requires them unchanged,
     /// signatures included, when a tool-use turn continues with thinking enabled.
     let thinkingBlocks: [RepositoryAIClaudeThinkingBlock]
+    /// The Thinking setting the agent loop started with. Later turns reuse it so that
+    /// toggling the setting mid-loop cannot drop or require thinking blocks.
+    let isThinkingEnabled: Bool?
 }
 
 nonisolated struct RepositoryAIAgentToolCall: Codable, Equatable, Sendable {

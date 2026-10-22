@@ -189,6 +189,9 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
                     "input_schema": declaration["parameters"] as? [String: Any] ?? [:],
                 ] as [String: Any]
             }
+        // Pin the setting to the one the loop started with; see `isThinkingEnabled`.
+        let isThinkingEnabled = request.previousToolResults.first?.toolCall.claudeToolUseState?.isThinkingEnabled
+            ?? modelStore.isThinkingEnabled
         var body: [String: Any] = [
             "model": model,
             "max_tokens": 1_200,
@@ -196,7 +199,7 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
             "messages": messages,
             "tools": tools,
         ]
-        let thinking = AIThinkingPolicy.claude(model: model, enabled: modelStore.isThinkingEnabled, maxTokens: 1_200)
+        let thinking = AIThinkingPolicy.claude(model: model, enabled: isThinkingEnabled, maxTokens: 1_200)
         thinking.apply(to: &body, maxTokensKey: "max_tokens")
         // Newer models and thinking requests reject forced tool use; the agent prompt already asks for a tool call.
         if request.isFirstTurn, thinking.allowsForcedToolChoice {
@@ -204,10 +207,18 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
         }
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await httpClient.data(for: urlRequest)
-        try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
-        guard let payload = try? JSONDecoder().decode(Response.self, from: data) else {
-            throw RepositoryAIError.invalidResponse("Claude did not return a usable Git tool response.")
+        var payload = try await agentResponse(for: urlRequest)
+        // Without a forced tool choice, Claude may answer the first turn from the prompt alone,
+        // which the harness rejects for lacking repository evidence. Ask once more for a tool call.
+        if request.isFirstTurn, !thinking.allowsForcedToolChoice,
+           !payload.content.contains(where: { $0.type == "tool_use" }) {
+            body["messages"] = [[
+                "role": "user",
+                "content": RepositoryAIPrompt.agentPrompt(for: request)
+                    + "\n\nCall one of the provided Git tools now. Do not answer before inspecting the repository.",
+            ]]
+            urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
+            payload = try await agentResponse(for: urlRequest)
         }
         let toolUseState = RepositoryAIClaudeToolUseState(
             messageID: payload.id ?? UUID().uuidString,
@@ -219,7 +230,8 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
                     signature: content.signature,
                     data: content.data
                 )
-            }
+            },
+            isThinkingEnabled: isThinkingEnabled
         )
         let toolCalls: [RepositoryAIAgentToolCall] = try payload.content.compactMap { content in
             guard content.type == "tool_use" else { return nil }
@@ -243,6 +255,15 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
             .compactMap(\.text)
             .joined(separator: "\n")
         return RepositoryAIAgentTurn(text: text, toolCalls: toolCalls)
+    }
+
+    private func agentResponse(for urlRequest: URLRequest) async throws -> Response {
+        let (data, response) = try await httpClient.data(for: urlRequest)
+        try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
+        guard let payload = try? JSONDecoder().decode(Response.self, from: data) else {
+            throw RepositoryAIError.invalidResponse("Claude did not return a usable Git tool response.")
+        }
+        return payload
     }
 
     func generateConflictResolution(

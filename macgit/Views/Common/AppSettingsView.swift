@@ -15,6 +15,7 @@
 //  You should have received a copy of the GNU Affero General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
+import Combine
 import SwiftUI
 
 struct AppSettingsView: View {
@@ -99,14 +100,29 @@ struct AppSettingsView: View {
         .onChange(of: selectedSection, initial: true) { _, section in
             switch section {
             case .diff:
-                diffAppearanceDraft = DiffAppearanceSettingsStore.shared.draft
-                diffSyntaxHighlightingDraft = AdvancedSettingsStore.shared.diffSyntaxHighlighting
+                reloadDiffDraftsFromStores()
             default:
                 break
             }
         }
+        // Cloud sync can change these stores while the pane is open. Wait until the change has
+        // finished applying (main-queue hop), then adopt it so the next edit does not revert it.
+        .onReceive(
+            DiffAppearanceSettingsStore.shared.objectWillChange
+                .merge(with: AdvancedSettingsStore.shared.objectWillChange)
+                .receive(on: DispatchQueue.main)
+        ) { _ in
+            reloadDiffDraftsFromStores()
+        }
         .onChange(of: diffAppearanceDraft) { _, _ in applyDiffSettings() }
         .onChange(of: diffSyntaxHighlightingDraft) { _, _ in applyDiffSettings() }
+    }
+
+    private func reloadDiffDraftsFromStores() {
+        let appearance = DiffAppearanceSettingsStore.shared.draft
+        let syntaxHighlighting = AdvancedSettingsStore.shared.diffSyntaxHighlighting
+        if diffAppearanceDraft != appearance { diffAppearanceDraft = appearance }
+        if diffSyntaxHighlightingDraft != syntaxHighlighting { diffSyntaxHighlightingDraft = syntaxHighlighting }
     }
 
     private func applyDiffSettings() {
