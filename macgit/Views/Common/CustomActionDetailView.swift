@@ -48,7 +48,10 @@ struct CustomActionDetailView: View {
         }
         .task(id: previewKey) {
             preview = nil
-            preview = await CustomActionScriptPreview.load(for: effectiveAction)
+            let loaded = await CustomActionScriptPreview.load(for: effectiveAction)
+            // The detached load ignores cancellation; drop results for a stale action.
+            guard !Task.isCancelled else { return }
+            preview = loaded
         }
     }
 

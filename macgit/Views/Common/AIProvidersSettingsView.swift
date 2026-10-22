@@ -99,7 +99,7 @@ struct AIProvidersSettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("AI")
-        .sheet(item: configuringDescriptor) { descriptor in
+        .replacingSheet(item: configuringDescriptor) { descriptor in
             AIProviderConfigurationSheet(
                 descriptor: descriptor,
                 controller: controller,

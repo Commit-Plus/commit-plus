@@ -230,15 +230,16 @@ struct DeepSeekCommitMessageProvider: CommitMessageAIProvider {
             .map { declaration in
                 ["type": "function", "function": declaration] as [String: Any]
             }
-        var body: [String: Any] = [
+        let body: [String: Any] = [
             "model": model,
             "messages": messages,
             "tools": tools,
             "tool_choice": request.isFirstTurn ? "required" : "auto",
             "max_tokens": 1_200,
+            // Thinking mode rejects `tool_choice: required` and needs `reasoning_content`
+            // replayed on every later tool turn, so agent turns always run without it.
             "thinking": ["type": "disabled"],
         ]
-        AIThinkingPolicy.deepSeek(enabled: modelStore.isThinkingEnabled, maxTokens: 1_200).apply(to: &body, maxTokensKey: "max_tokens")
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)

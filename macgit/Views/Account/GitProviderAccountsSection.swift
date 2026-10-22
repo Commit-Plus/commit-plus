@@ -130,9 +130,11 @@ struct GitProviderAccountsSection: View {
         .contextMenu(forSelectionType: GitProviderAccount.ID.self) { ids in
             if let account = account(for: ids) {
                 Button("Remove…", role: .destructive) { removingAccount = account }
+                    .disabled(controller.isLoading)
             }
         }
         .onDeleteCommand {
+            guard !controller.isLoading else { return }
             removingAccount = selectedAccount
         }
         .overlay {

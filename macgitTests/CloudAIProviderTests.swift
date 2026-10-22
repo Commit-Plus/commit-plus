@@ -465,6 +465,56 @@ final class CloudAIProviderTests: XCTestCase {
         XCTAssertEqual((body["thinking"] as? [String: Any])?["type"] as? String, "adaptive")
     }
 
+    func testAnthropicAgentReplaysThinkingBlocksWithTheirToolUses() async throws {
+        let store = InMemoryAIProviderCredentialStore(keys: [.anthropic: "anthropic-secret"])
+        let modelStore = InMemoryAIProviderModelStore(models: [.anthropic: "claude-haiku-5-5"], thinkingEnabled: true)
+        let client = StubAIProviderHTTPClient(responseBody: """
+            {"id":"msg_1","content":[{"type":"thinking","thinking":"Check the diff.","signature":"sig-1"},{"type":"redacted_thinking","data":"opaque"},{"type":"tool_use","id":"toolu_1","name":"execute_git","input":{"arguments":["status"]}},{"type":"tool_use","id":"toolu_2","name":"execute_git","input":{"arguments":["diff"]}}]}
+            """)
+        let provider = AnthropicCommitMessageProvider(credentialStore: store, modelStore: modelStore, httpClient: client)
+        let firstTurn = try await provider.generateRepositoryAgentTurn(request: RepositoryAIAgentRequest(
+            repositoryName: "macgit",
+            branchName: "main",
+            question: "Review changes",
+            conversation: [],
+            previousToolResults: [],
+            isFirstTurn: true
+        ))
+        let results = firstTurn.toolCalls.map { call in
+            RepositoryAIAgentToolResult(
+                toolCall: call,
+                commandResult: RepositoryAIGitCommandResult(
+                    displayCommand: "git \(call.arguments.joined(separator: " "))",
+                    output: "output \(call.id)",
+                    succeeded: true,
+                    isTruncated: false
+                )
+            )
+        }
+
+        _ = try await provider.generateRepositoryAgentTurn(request: RepositoryAIAgentRequest(
+            repositoryName: "macgit",
+            branchName: "main",
+            question: "Review changes",
+            conversation: [],
+            previousToolResults: results,
+            isFirstTurn: false
+        ))
+        let receivedRequest = await client.receivedRequest()
+        let body = try requestJSONObject(try XCTUnwrap(receivedRequest))
+        let messages = try XCTUnwrap(body["messages"] as? [[String: Any]])
+
+        XCTAssertEqual(messages.count, 3)
+        let assistantContent = try XCTUnwrap(messages[1]["content"] as? [[String: Any]])
+        XCTAssertEqual(assistantContent.map { $0["type"] as? String }, ["thinking", "redacted_thinking", "tool_use", "tool_use"])
+        XCTAssertEqual(assistantContent[0]["thinking"] as? String, "Check the diff.")
+        XCTAssertEqual(assistantContent[0]["signature"] as? String, "sig-1")
+        XCTAssertEqual(assistantContent[1]["data"] as? String, "opaque")
+        XCTAssertEqual(assistantContent.compactMap { $0["id"] as? String }, ["toolu_1", "toolu_2"])
+        let resultContent = try XCTUnwrap(messages[2]["content"] as? [[String: Any]])
+        XCTAssertEqual(resultContent.compactMap { $0["tool_use_id"] as? String }, ["toolu_1", "toolu_2"])
+    }
+
     func testGeminiRequestUsesHeaderKeyAndStructuredOutputSchema() async throws {
         let store = InMemoryAIProviderCredentialStore(keys: [.googleGemini: "gemini-secret"])
         let modelStore = InMemoryAIProviderModelStore(models: [.googleGemini: "gemini-custom"])
@@ -702,6 +752,30 @@ final class CloudAIProviderTests: XCTestCase {
 
         XCTAssertEqual(turn.toolCalls.first?.name, "execute_git")
         XCTAssertEqual(turn.toolCalls.first?.arguments, ["diff", "--cached"])
+    }
+
+    func testDeepSeekAgentKeepsThinkingDisabledWithForcedToolUse() async throws {
+        let store = InMemoryAIProviderCredentialStore(keys: [.deepSeek: "deepseek-secret"])
+        let modelStore = InMemoryAIProviderModelStore(models: [.deepSeek: "deepseek-custom"], thinkingEnabled: true)
+        let client = StubAIProviderHTTPClient(responseBody: """
+            {"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","function":{"name":"execute_git","arguments":"{\\"arguments\\":[\\"status\\"]}"}}]}}]}
+            """)
+        let provider = DeepSeekCommitMessageProvider(credentialStore: store, modelStore: modelStore, httpClient: client)
+
+        _ = try await provider.generateRepositoryAgentTurn(request: RepositoryAIAgentRequest(
+            repositoryName: "macgit",
+            branchName: "main",
+            question: "Review changes",
+            conversation: [],
+            previousToolResults: [],
+            isFirstTurn: true
+        ))
+        let receivedRequest = await client.receivedRequest()
+        let body = try requestJSONObject(try XCTUnwrap(receivedRequest))
+
+        XCTAssertEqual(body["tool_choice"] as? String, "required")
+        XCTAssertEqual((body["thinking"] as? [String: Any])?["type"] as? String, "disabled")
+        XCTAssertEqual(body["max_tokens"] as? Int, 1_200)
     }
 
     func testOpenRouterRequestUsesBearerKeyAndStructuredOutput() async throws {

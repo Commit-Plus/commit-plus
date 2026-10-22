@@ -148,23 +148,28 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
             "role": "user",
             "content": RepositoryAIPrompt.agentPrompt(for: request),
         ]]
-        for toolResult in request.previousToolResults {
+        for group in Self.toolResultGroups(request.previousToolResults) {
+            let thinkingBlocks = group.first?.toolCall.claudeToolUseState?.thinkingBlocks ?? []
             messages.append([
                 "role": "assistant",
-                "content": [[
-                    "type": "tool_use",
-                    "id": toolResult.toolCall.id,
-                    "name": toolResult.toolCall.name,
-                    "input": ["arguments": toolResult.toolCall.arguments],
-                ]],
+                "content": thinkingBlocks.map(Self.requestContent) + group.map { toolResult in
+                    [
+                        "type": "tool_use",
+                        "id": toolResult.toolCall.id,
+                        "name": toolResult.toolCall.name,
+                        "input": ["arguments": toolResult.toolCall.arguments],
+                    ] as [String: Any]
+                },
             ])
             messages.append([
                 "role": "user",
-                "content": [[
-                    "type": "tool_result",
-                    "tool_use_id": toolResult.toolCall.id,
-                    "content": toolResult.commandResult.output,
-                ]],
+                "content": group.map { toolResult in
+                    [
+                        "type": "tool_result",
+                        "tool_use_id": toolResult.toolCall.id,
+                        "content": toolResult.commandResult.output,
+                    ] as [String: Any]
+                },
             ])
         }
         let tools = RepositoryAIAgentToolSchema
@@ -201,6 +206,18 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
         guard let payload = try? JSONDecoder().decode(Response.self, from: data) else {
             throw RepositoryAIError.invalidResponse("Claude did not return a usable Git tool response.")
         }
+        let toolUseState = RepositoryAIClaudeToolUseState(
+            messageID: payload.id ?? UUID().uuidString,
+            thinkingBlocks: payload.content.compactMap { content in
+                guard content.type == "thinking" || content.type == "redacted_thinking" else { return nil }
+                return RepositoryAIClaudeThinkingBlock(
+                    type: content.type,
+                    thinking: content.thinking,
+                    signature: content.signature,
+                    data: content.data
+                )
+            }
+        )
         let toolCalls: [RepositoryAIAgentToolCall] = try payload.content.compactMap { content in
             guard content.type == "tool_use" else { return nil }
             guard let id = content.id,
@@ -211,7 +228,12 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
                   ) else {
                 throw RepositoryAIError.invalidResponse("Claude returned an invalid Git tool call.")
             }
-            return RepositoryAIAgentToolCall(id: id, name: name, arguments: arguments)
+            return RepositoryAIAgentToolCall(
+                id: id,
+                name: name,
+                arguments: arguments,
+                claudeToolUseState: toolUseState
+            )
         }
         let text = payload.content
             .filter { $0.type == "text" }
@@ -262,7 +284,33 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
         return try ConflictAIResolutionResponse.decode(from: text)
     }
 
+    /// Splits tool results into runs issued by the same Claude message, so each run is
+    /// replayed as one assistant message followed by one user message of results.
+    private static func toolResultGroups(
+        _ toolResults: [RepositoryAIAgentToolResult]
+    ) -> [[RepositoryAIAgentToolResult]] {
+        var groups: [[RepositoryAIAgentToolResult]] = []
+        for toolResult in toolResults {
+            if let messageID = toolResult.toolCall.claudeToolUseState?.messageID,
+               groups.last?.last?.toolCall.claudeToolUseState?.messageID == messageID {
+                groups[groups.count - 1].append(toolResult)
+            } else {
+                groups.append([toolResult])
+            }
+        }
+        return groups
+    }
+
+    private static func requestContent(for block: RepositoryAIClaudeThinkingBlock) -> [String: Any] {
+        var content: [String: Any] = ["type": block.type]
+        content["thinking"] = block.thinking
+        content["signature"] = block.signature
+        content["data"] = block.data
+        return content
+    }
+
     private struct Response: Decodable {
+        let id: String?
         let content: [Content]
     }
 
@@ -272,5 +320,8 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
         let id: String?
         let name: String?
         let input: RepositoryAIAgentToolArgumentsPayload?
+        let thinking: String?
+        let signature: String?
+        let data: String?
     }
 }
