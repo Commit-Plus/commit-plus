@@ -34,9 +34,15 @@ mkdir -p "$DMG_SOURCE_DIR"
 ditto "$APP_PATH" "$DMG_SOURCE_DIR/Commit+.app"
 ln -s /Applications "$DMG_SOURCE_DIR/Applications"
 
+# hdiutil's own estimate for -srcfolder can come out too small and fail with
+# "No space left on device", so size the image from the source plus headroom.
+SOURCE_SIZE_MB=$(du -sm "$DMG_SOURCE_DIR" | cut -f1)
+DMG_SIZE_MB=$(( SOURCE_SIZE_MB + SOURCE_SIZE_MB / 5 + 50 ))
+
 hdiutil create \
   -volname "Commit+" \
   -srcfolder "$DMG_SOURCE_DIR" \
+  -size "${DMG_SIZE_MB}m" \
   -format ULMO \
   -ov \
   "$DMG_PATH"
