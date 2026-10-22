@@ -27,7 +27,6 @@ struct AppSettingsView: View {
     @ObservedObject var appUpdateController: AppUpdateController
     @ObservedObject var customActionStore: CustomActionStore
     @Binding private var selectedSection: AppSettingsSection
-    @State private var aiProviderDrafts: [AIProviderConfigurationDraft]
     @State private var diffAppearanceDraft: DiffAppearanceSettingsDraft
     @State private var diffSyntaxHighlightingDraft: Bool
     @State private var windowReference = AppSettingsWindowReference()
@@ -50,7 +49,6 @@ struct AppSettingsView: View {
         self.appUpdateController = appUpdateController
         self.customActionStore = customActionStore
         _selectedSection = selectedSection
-        _aiProviderDrafts = State(initialValue: aiProviderController.configurationDrafts())
         _diffAppearanceDraft = State(initialValue: DiffAppearanceSettingsStore.shared.draft)
         _diffSyntaxHighlightingDraft = State(
             initialValue: AdvancedSettingsStore.shared.diffSyntaxHighlighting
@@ -67,7 +65,6 @@ struct AppSettingsView: View {
             appUpdateController: appUpdateController,
             customActionStore: customActionStore,
             restrictedAIProviderAccess: restrictedAIProviderAccess,
-            aiProviderDrafts: $aiProviderDrafts,
             diffAppearanceDraft: $diffAppearanceDraft,
             diffSyntaxHighlightingDraft: $diffSyntaxHighlightingDraft
         )
@@ -104,8 +101,6 @@ struct AppSettingsView: View {
             case .diff:
                 diffAppearanceDraft = DiffAppearanceSettingsStore.shared.draft
                 diffSyntaxHighlightingDraft = AdvancedSettingsStore.shared.diffSyntaxHighlighting
-            case .aiProviders:
-                aiProviderDrafts = aiProviderController.configurationDrafts()
             default:
                 break
             }

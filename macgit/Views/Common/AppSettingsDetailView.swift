@@ -26,7 +26,6 @@ struct AppSettingsDetailView: View {
     @ObservedObject var appUpdateController: AppUpdateController
     @ObservedObject var customActionStore: CustomActionStore
     let restrictedAIProviderAccess: FeatureAccessDecision
-    @Binding var aiProviderDrafts: [AIProviderConfigurationDraft]
     @Binding var diffAppearanceDraft: DiffAppearanceSettingsDraft
     @Binding var diffSyntaxHighlightingDraft: Bool
 
@@ -58,8 +57,7 @@ struct AppSettingsDetailView: View {
             AIProvidersSettingsView(
                 controller: aiProviderController,
                 accountController: accountController,
-                restrictedProviderAccess: restrictedAIProviderAccess,
-                drafts: $aiProviderDrafts
+                restrictedProviderAccess: restrictedAIProviderAccess
             )
         case .update:
             UpdateSettingsView(updateController: appUpdateController)

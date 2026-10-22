@@ -21,10 +21,11 @@ struct AIProvidersSettingsView: View {
     @ObservedObject var controller: AIProviderController
     @ObservedObject var accountController: AccountSessionController
     let restrictedProviderAccess: FeatureAccessDecision
-    @Binding var drafts: [AIProviderConfigurationDraft]
     @State private var authenticationMode: AuthenticationMode?
     @State private var isOpeningRestrictedProviderAccess = false
-    @State private var saveErrorMessage: String?
+    @State private var configuringProviderID: AIProviderID?
+    @State private var removingProviderID: AIProviderID?
+    @State private var errorMessage: String?
 
     var body: some View {
         Form {
@@ -54,54 +55,154 @@ struct AIProvidersSettingsView: View {
                 CommitPlusAIUsageView(controller: usage)
             }
 
-            ForEach($drafts) { $draft in
-                let descriptor = controller.descriptors.first { $0.id == draft.id }
-                if let descriptor {
-                    CloudAIProviderSettingsSection(
-                        descriptor: descriptor,
-                        showsConfigurationHeading: draft.id == drafts.first?.id,
-                        controller: controller,
-                        accountController: accountController,
-                        draft: $draft,
-                        restrictedProviderAccess: restrictedProviderAccess,
-                        isOpeningAccess: isOpeningRestrictedProviderAccess,
-                        onAccessAction: presentRestrictedProviderAccess
-                    )
+            Section {
+                if configuredProviders.isEmpty {
+                    Text("No providers configured")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                } else {
+                    ForEach(configuredProviders) { descriptor in
+                        providerRow(descriptor)
+                    }
                 }
+
+                Menu {
+                    ForEach(addableProviders) { descriptor in
+                        Button(menuTitle(for: descriptor)) {
+                            configuringProviderID = descriptor.id
+                        }
+                    }
+                } label: {
+                    Label("Add Provider…", systemImage: "plus")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .disabled(addableProviders.isEmpty)
+            } header: {
+                Text("Providers")
+            } footer: {
+                Text("Use your own API key with a supported provider. Keys are stored in this Mac’s Keychain.")
             }
         }
         .formStyle(.grouped)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !drafts.isEmpty {
-                HStack {
-                    Spacer()
-                    Button("Revert", action: revert)
-                        .disabled(!hasUnsavedChanges)
-                    Button("Save", action: save)
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(!hasUnsavedChanges)
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-            }
+        .navigationTitle("AI")
+        .sheet(item: configuringDescriptor) { descriptor in
+            AIProviderConfigurationSheet(
+                descriptor: descriptor,
+                controller: controller,
+                accountController: accountController,
+                restrictedProviderAccess: restrictedProviderAccess,
+                isOpeningAccess: isOpeningRestrictedProviderAccess,
+                onAccessAction: presentRestrictedProviderAccess
+            )
+        }
+        .confirmationDialog(
+            "Remove \(removingDescriptor?.displayName ?? "Provider")?",
+            isPresented: Binding(
+                get: { removingProviderID != nil },
+                set: { if !$0 { removingProviderID = nil } }
+            ),
+            presenting: removingDescriptor
+        ) { descriptor in
+            Button("Remove", role: .destructive) { remove(descriptor) }
+            Button("Cancel", role: .cancel) {}
+        } message: { descriptor in
+            Text("The \(descriptor.displayName) API key will be deleted from this Mac’s Keychain.")
         }
         .alert(
-            "Couldn’t Save AI Provider Settings",
+            "Couldn’t Update AI Provider",
             isPresented: Binding(
-                get: { saveErrorMessage != nil },
-                set: { if !$0 { saveErrorMessage = nil } }
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
             )
         ) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(saveErrorMessage ?? "")
+            Text(errorMessage ?? "")
         }
-        .navigationTitle("AI Providers")
         .replacingSheet(item: $authenticationMode) { mode in
             AuthenticationSheet(controller: accountController, mode: mode)
         }
         .task(id: controller.availabilityRevision) {
             await controller.refreshAvailability()
+        }
+    }
+
+    private func providerRow(_ descriptor: AIProviderDescriptor) -> some View {
+        HStack(spacing: 10) {
+            AIProviderLogo(descriptor: descriptor, size: 22)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(descriptor.displayName)
+                Text(controller.model(for: descriptor) ?? "")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if case .unavailable(let reason) = controller.availability(for: descriptor.id) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .help(reason)
+                    .accessibilityLabel(reason)
+            }
+
+            Button("Edit…") {
+                configuringProviderID = descriptor.id
+            }
+
+            Button("Remove", systemImage: "minus.circle") {
+                removingProviderID = descriptor.id
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .help("Remove \(descriptor.displayName)")
+        }
+        .contextMenu {
+            Button("Edit…") { configuringProviderID = descriptor.id }
+            Button("Remove…", role: .destructive) { removingProviderID = descriptor.id }
+        }
+    }
+
+    /// Personal-key providers that can be added or edited here.
+    private var personalKeyProviders: [AIProviderDescriptor] {
+        controller.descriptors.filter { $0.billing == .bringYourOwnKey && $0.isImplemented }
+    }
+
+    private var configuredProviders: [AIProviderDescriptor] {
+        personalKeyProviders.filter { controller.isAPIKeyConfigured(for: $0.id) }
+    }
+
+    private var addableProviders: [AIProviderDescriptor] {
+        personalKeyProviders.filter { !controller.isAPIKeyConfigured(for: $0.id) }
+    }
+
+    private var removingDescriptor: AIProviderDescriptor? {
+        controller.descriptors.first { $0.id == removingProviderID }
+    }
+
+    private var configuringDescriptor: Binding<AIProviderDescriptor?> {
+        Binding(
+            get: { controller.descriptors.first { $0.id == configuringProviderID } },
+            set: { configuringProviderID = $0?.id }
+        )
+    }
+
+    private func menuTitle(for descriptor: AIProviderDescriptor) -> String {
+        descriptor.requiresProToConfigureAPIKey && !restrictedProviderAccess.isAllowed
+            ? "\(descriptor.displayName) (Pro)"
+            : descriptor.displayName
+    }
+
+    private func remove(_ descriptor: AIProviderDescriptor) {
+        do {
+            try controller.removeAPIKey(for: descriptor.id)
+            Task { await controller.refreshAvailability() }
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -118,32 +219,5 @@ struct AIProvidersSettingsView: View {
                 isOpeningRestrictedProviderAccess = false
             }
         }
-    }
-
-
-    private var hasUnsavedChanges: Bool {
-        let savedModels = Dictionary(
-            controller.configurationDrafts().map { ($0.id, $0.model) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        return drafts.contains { draft in
-            !draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || draft.shouldRemoveAPIKey
-                || draft.model.trimmingCharacters(in: .whitespacesAndNewlines) != savedModels[draft.id]
-        }
-    }
-
-    private func save() {
-        do {
-            try controller.applyProviderChanges(drafts, restrictedProviderAccess: restrictedProviderAccess)
-            drafts = controller.configurationDrafts()
-            Task { await controller.refreshAvailability() }
-        } catch {
-            saveErrorMessage = error.localizedDescription
-        }
-    }
-
-    private func revert() {
-        drafts = controller.configurationDrafts()
     }
 }

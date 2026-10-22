@@ -42,7 +42,7 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         case .connections: "Connections"
         case .integrations: "Integrations"
         case .customActions: "Custom Actions"
-        case .aiProviders: "AI Providers"
+        case .aiProviders: "AI"
         case .update: "Update"
         case .advanced: "Advanced"
         }
