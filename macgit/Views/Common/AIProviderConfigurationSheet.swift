@@ -2,7 +2,7 @@
 
 import SwiftUI
 
-/// Adds or edits one personal-key AI provider: its API key and model.
+/// Adds or edits one personal AI provider: its API key (or ChatGPT sign-in) and model.
 struct AIProviderConfigurationSheet: View {
     @Environment(\.dismiss) private var dismiss
     let descriptor: AIProviderDescriptor
@@ -14,6 +14,7 @@ struct AIProviderConfigurationSheet: View {
     @State private var draft: AIProviderConfigurationDraft
     @State private var saveErrorMessage: String?
     @State private var isUsingCustomModel: Bool
+    @State private var isConfirmingDisconnect = false
 
     private static let customModelTag = "\u{0}custom"
 
@@ -55,6 +56,17 @@ struct AIProviderConfigurationSheet: View {
         controller.isAPIKeyConfigured(for: descriptor.id)
     }
 
+    private var isConnectedAccount: Bool {
+        descriptor.billing == .connectedAccount
+    }
+
+    private var modelGroups: [(group: String, options: [AIProviderModelOption])] {
+        if isConnectedAccount, !controller.chatGPTModels.isEmpty {
+            return [("Available Models", controller.chatGPTModels)]
+        }
+        return AIProviderModelCatalog.groupedSuggestions(for: descriptor.id)
+    }
+
     private var hasPendingKey: Bool {
         !draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -81,6 +93,7 @@ struct AIProviderConfigurationSheet: View {
 
     private var canSave: Bool {
         guard canConfigureModel else { return false }
+        if isConnectedAccount { return isConfigured }
         if !isConfigured { return hasPendingKey }
         return hasPendingKey || hasModelChange
     }
@@ -100,7 +113,9 @@ struct AIProviderConfigurationSheet: View {
 
             Form {
                 Section {
-                    if canConfigureKey {
+                    if isConnectedAccount {
+                        connectedAccountContent
+                    } else if canConfigureKey {
                         LabeledContent("API Key") {
                             SecureField(
                                 "",
@@ -114,6 +129,7 @@ struct AIProviderConfigurationSheet: View {
                         }
                     }
 
+                    if !isConnectedAccount || !canConfigureKey {
                     HStack {
                         Label(statusText, systemImage: statusImage)
                             .foregroundStyle(statusStyle)
@@ -128,6 +144,7 @@ struct AIProviderConfigurationSheet: View {
                                 )
                         }
                     }
+                    }
                 } header: {
                     Text("Account")
                 } footer: {
@@ -135,7 +152,7 @@ struct AIProviderConfigurationSheet: View {
                 }
 
                 Section {
-                    let groups = AIProviderModelCatalog.groupedSuggestions(for: descriptor.id)
+                    let groups = modelGroups
                     if !groups.isEmpty {
                         Picker("Model", selection: modelSelection) {
                             ForEach(groups, id: \.group) { group in
@@ -172,7 +189,7 @@ struct AIProviderConfigurationSheet: View {
                     if canConfigureModel, !isUsingDefaultModel {
                         Button("Reset to Default Model") {
                             draft.model = descriptor.defaultModel ?? ""
-                            isUsingCustomModel = !AIProviderModelCatalog.suggestions(for: descriptor.id)
+                            isUsingCustomModel = !modelGroups.flatMap(\.options)
                                 .contains { $0.id == draft.model }
                         }
                         .buttonStyle(.link)
@@ -213,6 +230,66 @@ struct AIProviderConfigurationSheet: View {
             .padding(.vertical, 14)
         }
         .frame(width: 540, height: 460)
+        .task(id: controller.chatGPTAccount) {
+            guard isConnectedAccount, isConfigured else { return }
+            await controller.refreshChatGPTModels()
+            isUsingCustomModel = !modelGroups.flatMap(\.options).contains { $0.id == normalizedModel }
+        }
+        .onDisappear {
+            if isConnectedAccount { controller.cancelChatGPTSignIn() }
+        }
+        .confirmationDialog(
+            "Disconnect \(descriptor.displayName)?",
+            isPresented: $isConfirmingDisconnect
+        ) {
+            Button("Disconnect", role: .destructive) {
+                Task { await controller.disconnectChatGPT() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You will be signed out of \(descriptor.displayName), and its sign-in will be deleted from this Mac’s Keychain.")
+        }
+    }
+
+    @ViewBuilder
+    private var connectedAccountContent: some View {
+        if isConfigured {
+            LabeledContent("Account") {
+                Text(controller.chatGPTAccount?.email ?? "Connected")
+                    .textSelection(.enabled)
+            }
+            HStack {
+                Label("Uses your ChatGPT plan", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Spacer()
+                Button("Disconnect…") { isConfirmingDisconnect = true }
+            }
+        } else if canConfigureKey {
+            if controller.chatGPTSignInState == .waitingForBrowser {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Finish signing in in your browser…")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Cancel") { controller.cancelChatGPTSignIn() }
+                }
+            } else {
+                HStack {
+                    Text("Sign in to use your ChatGPT Plus or Pro plan instead of an API key.")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Continue with ChatGPT") {
+                        controller.signInToChatGPT(restrictedProviderAccess: restrictedProviderAccess)
+                    }
+                }
+            }
+        }
+        if let message = controller.chatGPTSignInErrorMessage, !isConfigured {
+            Text(message)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var statusText: String {
@@ -220,7 +297,7 @@ struct AIProviderConfigurationSheet: View {
             isConfigured ? "Replacement ready to save" : "Ready to save"
         } else if !canConfigureKey {
             if isConfigured {
-                "Existing key in Keychain"
+                isConnectedAccount ? "Connected" : "Existing key in Keychain"
             } else {
                 restrictedProviderAccess == .denied(.requiresPro)
                     ? "Commit+ Pro required to add this provider"
@@ -240,11 +317,17 @@ struct AIProviderConfigurationSheet: View {
     }
 
     private var accountFooterText: String {
+        if isConnectedAccount {
+            if !canConfigureKey, isConfigured {
+                return "This ChatGPT connection requires Commit+ Pro to use. You can still disconnect it."
+            }
+            return "Uses your ChatGPT plan allowance, never API billing. Sign-in tokens are stored in this Mac’s Keychain and are never synced."
+        }
         if !canConfigureKey, isConfigured {
             return "This existing key remains available for AI generation. You can change its model or remove it, but replacing it requires Commit+ Pro."
         }
         if !canConfigureKey {
-            return "OpenAI and Gemini keys are available on the Free plan. Commit+ Pro unlocks Claude, DeepSeek, OpenRouter, Groq, and additional AI providers."
+            return "OpenAI and Gemini keys are available on the Free plan. Commit+ Pro unlocks ChatGPT sign-in, Claude, DeepSeek, OpenRouter, Groq, and additional AI providers."
         }
         return "API keys are stored in this Mac’s Keychain and are never synced."
     }

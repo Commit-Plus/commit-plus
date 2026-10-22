@@ -136,6 +136,10 @@ struct AIProviderMenu: View {
            !controller.isAPIKeyConfigured(for: descriptor.id) {
             return "Configure an API key in Settings → AI."
         }
+        if descriptor.billing == .connectedAccount,
+           !controller.isAPIKeyConfigured(for: descriptor.id) {
+            return "Sign in to \(descriptor.displayName) in Settings → AI."
+        }
         return controller.availability(for: descriptor.id).detail
     }
 

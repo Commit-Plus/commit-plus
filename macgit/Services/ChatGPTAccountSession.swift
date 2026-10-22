@@ -1,0 +1,413 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import Foundation
+
+struct ChatGPTAccountSummary: Equatable, Sendable {
+    var email: String?
+}
+
+enum ChatGPTPlanIssue: Equatable, Sendable {
+    case usageLimitReached
+    case notEligible
+}
+
+enum ChatGPTAuthError: LocalizedError, Equatable {
+    case consentDenied
+    case planScopeNotGranted
+    case missingClientID
+    case invalidIDToken
+    case tokenRequestFailed(String)
+    case noPendingSignIn
+
+    var errorDescription: String? {
+        switch self {
+        case .consentDenied:
+            "ChatGPT sign-in was canceled."
+        case .planScopeNotGranted:
+            "ChatGPT plan access was not granted. Sign in again and allow Commit+ to use your ChatGPT plan."
+        case .missingClientID:
+            "ChatGPT did not return a client registration for Commit+. Try signing in again."
+        case .invalidIDToken:
+            "ChatGPT returned a sign-in that could not be verified. Try signing in again."
+        case .tokenRequestFailed(let message):
+            message
+        case .noPendingSignIn:
+            "No ChatGPT sign-in is in progress."
+        }
+    }
+}
+
+/// Owns the ChatGPT sign-in: the PKCE authorization, Keychain token storage,
+/// and refresh. Tokens never leave this actor except as the bearer credential.
+actor ChatGPTAccountSession {
+    private struct PendingAuthorization {
+        let state: String
+        let nonce: String
+        let codeVerifier: String
+        let redirectURI: URL
+        let clientID: String?
+    }
+
+    /// The access token is refreshed when it expires within this interval.
+    static let refreshLeeway: TimeInterval = 300
+    /// How long a reached plan limit keeps the provider unavailable before it is tried again.
+    static let usageLimitCooldown: TimeInterval = 15 * 60
+
+    let configuration: ChatGPTAuthConfiguration
+    private let store: any ChatGPTCredentialStoring
+    private let httpClient: any AIProviderHTTPClient
+    private let now: @Sendable () -> Date
+    private var pending: PendingAuthorization?
+    private var cachedTokens: ChatGPTTokenSet??
+    private var refreshTask: Task<ChatGPTTokenSet, any Error>?
+    private var planIssue: (issue: ChatGPTPlanIssue, date: Date)?
+
+    init(
+        store: any ChatGPTCredentialStoring = KeychainChatGPTCredentialStore(),
+        httpClient: any AIProviderHTTPClient = URLSessionAIProviderHTTPClient(),
+        configuration: ChatGPTAuthConfiguration = .live,
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.store = store
+        self.httpClient = httpClient
+        self.configuration = configuration
+        self.now = now
+    }
+
+    // MARK: Account state
+
+    func account() -> ChatGPTAccountSummary? {
+        guard let tokens = try? tokens() else { return nil }
+        return ChatGPTAccountSummary(email: tokens.email)
+    }
+
+    func availability() -> AIProviderAvailability {
+        guard (try? tokens()) != nil else {
+            return .unavailable("Sign in to ChatGPT in Settings → AI.")
+        }
+        switch planIssue {
+        case (.notEligible, _)?:
+            return .unavailable(CommitMessageGenerationError.chatGPTPlanNotEligible.localizedDescription)
+        case (.usageLimitReached, let date)? where now().timeIntervalSince(date) < Self.usageLimitCooldown:
+            return .unavailable(CommitMessageGenerationError.chatGPTUsageLimitReached.localizedDescription)
+        default:
+            return .available
+        }
+    }
+
+    func recordPlanIssue(_ issue: ChatGPTPlanIssue) {
+        planIssue = (issue, now())
+    }
+
+    /// Clears the local tokens after OpenAI rejects them; the user must sign in again.
+    func signOutLocally() {
+        try? store.deleteTokens()
+        cachedTokens = .some(nil)
+        refreshTask = nil
+        planIssue = nil
+    }
+
+    // MARK: Authorization
+
+    func beginAuthorization(redirectURI: URL) throws -> URL {
+        let registration: ChatGPTRegistration
+        if let saved = try store.loadRegistration() {
+            registration = saved
+        } else {
+            registration = ChatGPTRegistration(hostID: "urn:uuid:\(UUID().uuidString.lowercased())")
+            try store.saveRegistration(registration)
+        }
+        let verifier = GitProviderPKCE.generateVerifier()
+        let request = PendingAuthorization(
+            state: GitProviderPKCE.generateVerifier(),
+            nonce: GitProviderPKCE.generateVerifier(),
+            codeVerifier: verifier,
+            redirectURI: redirectURI,
+            clientID: registration.clientID
+        )
+        pending = request
+        return configuration.authorizationURL(
+            clientID: registration.clientID,
+            hostID: registration.hostID,
+            loginHint: registration.email,
+            redirectURI: redirectURI,
+            state: request.state,
+            nonce: request.nonce,
+            codeChallenge: GitProviderPKCE.challenge(for: verifier)
+        )
+    }
+
+    func cancelAuthorization() {
+        pending = nil
+    }
+
+    /// Completes the pending sign-in from the loopback callback. A callback that
+    /// does not match the pending state throws `GitProviderOAuthError` and leaves
+    /// the sign-in pending, so unsolicited requests are ignored.
+    func completeAuthorization(callbackURL: URL) async throws -> ChatGPTAccountSummary {
+        guard let request = pending else { throw ChatGPTAuthError.noPendingSignIn }
+        let callback: GitProviderOAuthCallback
+        do {
+            callback = try GitProviderOAuthCallback.parse(
+                callbackURL,
+                redirectURI: request.redirectURI,
+                expectedState: request.state
+            )
+        } catch let error as GitProviderOAuthError {
+            switch error {
+            case .stateMismatch, .missingState, .unsupportedCallback:
+                throw error
+            case .providerMessage:
+                pending = nil
+                let code = Self.queryValue("error", in: callbackURL)
+                throw code == "access_denied" ? ChatGPTAuthError.consentDenied : error
+            case .missingCode:
+                pending = nil
+                throw error
+            }
+        }
+        pending = nil
+
+        guard let clientID = Self.queryValue("client_id", in: callbackURL) ?? request.clientID,
+              clientID != configuration.dynamicClientID else {
+            throw ChatGPTAuthError.missingClientID
+        }
+        var registration = try store.loadRegistration()
+            ?? ChatGPTRegistration(hostID: "urn:uuid:\(UUID().uuidString.lowercased())")
+        registration.clientID = clientID
+        try store.saveRegistration(registration)
+
+        let response = try await tokenRequest([
+            ("grant_type", "authorization_code"),
+            ("code", callback.code),
+            ("redirect_uri", request.redirectURI.absoluteString),
+            ("client_id", clientID),
+            ("code_verifier", request.codeVerifier),
+            ("resource", configuration.resource),
+        ])
+        if case .failure(let code, let message, let status) = response {
+            if code == "invalid_client" {
+                // The saved registration is no longer valid; the next sign-in registers again.
+                registration.clientID = nil
+                try? store.saveRegistration(registration)
+            }
+            throw ChatGPTAuthError.tokenRequestFailed(
+                message ?? "ChatGPT sign-in failed (\(code ?? "HTTP \(status)")). Try again."
+            )
+        }
+        guard case .success(let payload) = response,
+              let refreshToken = payload.refreshToken else {
+            throw ChatGPTAuthError.tokenRequestFailed("ChatGPT did not return a renewable sign-in.")
+        }
+        let scopes = payload.scope?.split(separator: " ").map(String.init) ?? []
+        guard scopes.contains(ChatGPTAuthConfiguration.planUsageScope) else {
+            throw ChatGPTAuthError.planScopeNotGranted
+        }
+        guard let idToken = payload.idToken,
+              let claims = Self.validatedClaims(
+                idToken: idToken,
+                issuer: configuration.issuer,
+                clientID: clientID,
+                nonce: request.nonce,
+                now: now()
+              ) else {
+            throw ChatGPTAuthError.invalidIDToken
+        }
+
+        let tokens = ChatGPTTokenSet(
+            clientID: clientID,
+            accessToken: payload.accessToken,
+            refreshToken: refreshToken,
+            idToken: idToken,
+            expiresAt: now().addingTimeInterval(payload.expiresIn ?? 3_600),
+            scopes: scopes,
+            email: claims["email"] as? String,
+            accountID: claims["sub"] as? String
+        )
+        try store.saveTokens(tokens)
+        cachedTokens = .some(tokens)
+        refreshTask = nil
+        planIssue = nil
+        registration.email = tokens.email
+        try? store.saveRegistration(registration)
+        return ChatGPTAccountSummary(email: tokens.email)
+    }
+
+    // MARK: Tokens
+
+    /// A valid access token, refreshed when it is about to expire. Concurrent
+    /// callers share one refresh because refresh tokens rotate.
+    func accessToken() async throws -> String {
+        guard let tokens = try tokens() else {
+            throw CommitMessageGenerationError.chatGPTSignInRequired
+        }
+        if tokens.expiresAt.timeIntervalSince(now()) > Self.refreshLeeway {
+            return tokens.accessToken
+        }
+        if let refreshTask {
+            return try await refreshTask.value.accessToken
+        }
+        let task = Task { try await self.refresh(tokens) }
+        refreshTask = task
+        defer { if refreshTask == task { refreshTask = nil } }
+        return try await task.value.accessToken
+    }
+
+    private func refresh(_ tokens: ChatGPTTokenSet) async throws -> ChatGPTTokenSet {
+        let response = try await tokenRequest([
+            ("grant_type", "refresh_token"),
+            ("client_id", tokens.clientID),
+            ("refresh_token", tokens.refreshToken),
+            ("resource", configuration.resource),
+        ])
+        switch response {
+        case .failure(let code, let message, _):
+            if let code, Self.terminalRefreshErrors.contains(code) {
+                signOutLocally()
+                throw CommitMessageGenerationError.chatGPTSignInRequired
+            }
+            throw CommitMessageGenerationError.providerRequestFailed(
+                message ?? "ChatGPT sign-in could not be renewed. Try again."
+            )
+        case .success(let payload):
+            var updated = tokens
+            updated.accessToken = payload.accessToken
+            updated.refreshToken = payload.refreshToken ?? tokens.refreshToken
+            updated.expiresAt = now().addingTimeInterval(payload.expiresIn ?? 3_600)
+            if let scope = payload.scope {
+                updated.scopes = scope.split(separator: " ").map(String.init)
+            }
+            if let idToken = payload.idToken { updated.idToken = idToken }
+            try store.saveTokens(updated)
+            cachedTokens = .some(updated)
+            return updated
+        }
+    }
+
+    private static let terminalRefreshErrors: Set<String> = [
+        "invalid_grant", "invalid_refresh_token", "token_expired", "refresh_token_expired",
+        "refresh_token_invalidated", "refresh_token_reused", "invalid_client",
+    ]
+
+    private func tokens() throws -> ChatGPTTokenSet? {
+        if let cachedTokens { return cachedTokens }
+        let loaded = try store.loadTokens()
+        cachedTokens = .some(loaded)
+        return loaded
+    }
+
+    // MARK: Disconnect
+
+    /// Revokes the grant when OpenAI is reachable, then deletes the local tokens.
+    /// The registration (issued client ID and host ID) is kept for later sign-ins.
+    func disconnect() async {
+        pending = nil
+        if let tokens = try? tokens() {
+            await revoke(tokens)
+        }
+        signOutLocally()
+    }
+
+    private func revoke(_ tokens: ChatGPTTokenSet) async {
+        var discovery = URLRequest(url: configuration.discoveryURL, timeoutInterval: 10)
+        discovery.httpMethod = "GET"
+        guard let (data, response) = try? await httpClient.data(for: discovery),
+              (200..<300).contains(response.statusCode),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let endpoint = (object["revocation_endpoint"] as? String).flatMap(URL.init(string:)) else {
+            return
+        }
+        var request = URLRequest(url: endpoint, timeoutInterval: 10)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = ChatGPTAuthConfiguration.formBody([
+            ("token", tokens.refreshToken),
+            ("token_type_hint", "refresh_token"),
+            ("client_id", tokens.clientID),
+        ])
+        _ = try? await httpClient.data(for: request)
+    }
+
+    // MARK: Token endpoint
+
+    private struct TokenPayload: Decodable {
+        let accessToken: String
+        let refreshToken: String?
+        let idToken: String?
+        let expiresIn: TimeInterval?
+        let scope: String?
+
+        enum CodingKeys: String, CodingKey {
+            case accessToken = "access_token"
+            case refreshToken = "refresh_token"
+            case idToken = "id_token"
+            case expiresIn = "expires_in"
+            case scope
+        }
+    }
+
+    private enum TokenResponse {
+        case success(TokenPayload)
+        case failure(code: String?, message: String?, status: Int)
+    }
+
+    private func tokenRequest(_ fields: [(String, String)]) async throws -> TokenResponse {
+        var request = URLRequest(url: configuration.tokenURL, timeoutInterval: 30)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = ChatGPTAuthConfiguration.formBody(fields)
+        let (data, response) = try await httpClient.data(for: request)
+        if (200..<300).contains(response.statusCode) {
+            guard let payload = try? JSONDecoder().decode(TokenPayload.self, from: data) else {
+                return .failure(
+                    code: nil,
+                    message: "ChatGPT returned an unexpected sign-in response. Try again.",
+                    status: response.statusCode
+                )
+            }
+            return .success(payload)
+        }
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let nested = object?["error"] as? [String: Any]
+        let code = (object?["error"] as? String) ?? (nested?["code"] as? String)
+        let message = (object?["error_description"] as? String) ?? (nested?["message"] as? String)
+        return .failure(code: code, message: message, status: response.statusCode)
+    }
+
+    // MARK: Helpers
+
+    private static func queryValue(_ name: String, in url: URL) -> String? {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == name }?.value
+    }
+
+    /// Checks the ID token's issuer, audience, expiry, and nonce. The token comes
+    /// directly from the token endpoint over TLS, which OIDC Core §3.1.3.7 accepts
+    /// in place of a signature check.
+    static func validatedClaims(
+        idToken: String,
+        issuer: String,
+        clientID: String,
+        nonce: String,
+        now: Date
+    ) -> [String: Any]? {
+        let parts = idToken.split(separator: ".")
+        guard parts.count == 3 else { return nil }
+        var payload = parts[1]
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
+        guard let data = Data(base64Encoded: payload),
+              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              claims["iss"] as? String == issuer,
+              claims["nonce"] as? String == nonce,
+              let exp = claims["exp"] as? TimeInterval,
+              Date(timeIntervalSince1970: exp) > now else {
+            return nil
+        }
+        let audiences = (claims["aud"] as? [String]) ?? [claims["aud"] as? String].compactMap { $0 }
+        guard audiences.contains(clientID) else { return nil }
+        return claims
+    }
+}

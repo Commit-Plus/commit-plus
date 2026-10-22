@@ -169,13 +169,17 @@ final class AICommitMessageTests: XCTestCase {
     @MainActor
     func testLiveRegistryProvidesCredentialBackedCloudProviders() async {
         let credentialStore = InMemoryAIProviderCredentialStore()
-        let registry = AIProviderRegistry.live(credentialStore: credentialStore)
+        let registry = AIProviderRegistry.live(
+            credentialStore: credentialStore,
+            chatGPTSession: ChatGPTAccountSession(store: InMemoryChatGPTCredentialStore())
+        )
         let ids = registry.descriptors.map(\.id)
 
         XCTAssertEqual(
             ids,
-            [.appleIntelligence, .openAI, .googleGemini, .anthropic, .deepSeek, .openRouter, .groq]
+            [.appleIntelligence, .openAI, .googleGemini, .chatGPTSubscription, .anthropic, .deepSeek, .openRouter, .groq]
         )
+        XCTAssertEqual(registry.provider(for: .chatGPTSubscription)?.descriptor.billing, .connectedAccount)
         XCTAssertEqual(registry.provider(for: .appleIntelligence)?.descriptor.billing, AIProviderBilling.none)
         for id in [AIProviderID.openAI, .anthropic, .googleGemini, .deepSeek, .openRouter, .groq] {
             let provider = registry.provider(for: id)

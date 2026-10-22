@@ -15,8 +15,14 @@
 //  You should have received a copy of the GNU Affero General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
+import AppKit
 import Combine
 import Foundation
+
+enum ChatGPTSignInState: Equatable {
+    case idle
+    case waitingForBrowser
+}
 
 @MainActor
 final class AIProviderController: ObservableObject {
@@ -27,6 +33,11 @@ final class AIProviderController: ObservableObject {
     @Published private(set) var isGenerating = false
     @Published private(set) var selectedProviderID: AIProviderID
     @Published private(set) var isThinkingEnabled: Bool
+    @Published private(set) var chatGPTAccount: ChatGPTAccountSummary?
+    @Published private(set) var chatGPTSignInState: ChatGPTSignInState = .idle
+    @Published var chatGPTSignInErrorMessage: String?
+    @Published private(set) var chatGPTModels: [AIProviderModelOption] = []
+    private var chatGPTSignInTask: Task<Void, Never>?
 
     @Published private(set) var availabilityRevision = 0
     private var availabilityTasks: [AIProviderID: (id: UUID, task: Task<AIProviderAvailability, Never>)] = [:]
@@ -44,6 +55,7 @@ final class AIProviderController: ObservableObject {
     private let defaults: UserDefaults
     private let credentialStore: any AIProviderCredentialStore
     private let modelStore: any AIProviderModelStore
+    private let openURL: @MainActor (URL) -> Void
     private let selectedProviderDefaultsKey = "ai.commitMessage.selectedProvider"
 
     convenience init(
@@ -80,9 +92,11 @@ final class AIProviderController: ObservableObject {
         modelStore: any AIProviderModelStore = UserDefaultsAIProviderModelStore(),
         restrictedProviderAccess: @escaping () -> FeatureAccessDecision = { .denied(.requiresPro) },
         managedProviderAccess: @escaping () -> Bool = { false },
-        managedUsageController: CommitPlusAIUsageController? = nil
+        managedUsageController: CommitPlusAIUsageController? = nil,
+        openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) }
     ) {
         self.managedUsageController = managedUsageController
+        self.openURL = openURL
         self.managedProviderAccess = managedProviderAccess
         self.restrictedProviderAccess = restrictedProviderAccess
         self.registry = registry
@@ -103,7 +117,7 @@ final class AIProviderController: ObservableObject {
 
         for descriptor in registry.descriptors {
             availabilityByProviderID[descriptor.id] = descriptor.isImplemented ? .checking : .comingSoon
-            if descriptor.billing == .bringYourOwnKey,
+            if descriptor.billing.usesPersonalCredential,
                let customModel = modelStore.customModel(for: descriptor.id) {
                 customModelsByProviderID[descriptor.id] = customModel
             }
@@ -171,7 +185,7 @@ final class AIProviderController: ObservableObject {
               availability(for: descriptor.id).isAvailable else {
             return false
         }
-        if descriptor.billing == .bringYourOwnKey,
+        if descriptor.billing.usesPersonalCredential,
            !isAPIKeyConfigured(for: descriptor.id) {
             return false
         }
@@ -189,7 +203,7 @@ final class AIProviderController: ObservableObject {
 
     func configurationDrafts() -> [AIProviderConfigurationDraft] {
         descriptors.compactMap { descriptor in
-            guard descriptor.billing == .bringYourOwnKey,
+            guard descriptor.billing.usesPersonalCredential,
                   let model = model(for: descriptor) else { return nil }
             return AIProviderConfigurationDraft(id: descriptor.id, model: model)
         }
@@ -225,7 +239,7 @@ final class AIProviderController: ObservableObject {
         restrictedProviderAccess: FeatureAccessDecision
     ) throws {
         for draft in drafts {
-            guard registry.provider(for: draft.id)?.descriptor.billing == .bringYourOwnKey else {
+            guard registry.provider(for: draft.id)?.descriptor.billing.usesPersonalCredential == true else {
                 throw CommitMessageGenerationError.providerRequestFailed("Only personal-key providers can be configured here.")
             }
         }
@@ -238,9 +252,10 @@ final class AIProviderController: ObservableObject {
         }
 
         for draft in drafts {
-            if !draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let usesAPIKey = registry.provider(for: draft.id)?.descriptor.billing == .bringYourOwnKey
+            if usesAPIKey, !draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 try saveAPIKey(draft.apiKey, for: draft.id)
-            } else if draft.shouldRemoveAPIKey {
+            } else if usesAPIKey, draft.shouldRemoveAPIKey {
                 try removeAPIKey(for: draft.id)
             }
 
@@ -256,6 +271,93 @@ final class AIProviderController: ObservableObject {
             }
         }
         if !drafts.isEmpty { invalidateAvailability() }
+    }
+
+    // MARK: ChatGPT account
+
+    private var chatGPTProvider: ChatGPTSubscriptionProvider? {
+        registry.provider(for: .chatGPTSubscription) as? ChatGPTSubscriptionProvider
+    }
+
+    private var chatGPTSession: ChatGPTAccountSession? {
+        chatGPTProvider?.session
+    }
+
+    private func updateChatGPTAccount(_ account: ChatGPTAccountSummary?) {
+        chatGPTAccount = account
+        if account != nil {
+            configuredProviderIDs.insert(.chatGPTSubscription)
+        } else {
+            configuredProviderIDs.remove(.chatGPTSubscription)
+            chatGPTModels = []
+        }
+    }
+
+    /// Opens "Sign in with ChatGPT" in the browser and waits for the loopback callback.
+    func signInToChatGPT(restrictedProviderAccess: FeatureAccessDecision) {
+        guard chatGPTSignInTask == nil, let session = chatGPTSession else { return }
+        guard restrictedProviderAccess.isAllowed else {
+            chatGPTSignInErrorMessage = AIProviderConfigurationError
+                .requiresProToConnect(providerName: "ChatGPT").localizedDescription
+            return
+        }
+        chatGPTSignInErrorMessage = nil
+        chatGPTSignInState = .waitingForBrowser
+        chatGPTSignInTask = Task { [weak self] in
+            do {
+                let server = try await ChatGPTLoopbackCallbackServer.start()
+                defer { server.stop() }
+                let authorizationURL = try await session.beginAuthorization(redirectURI: server.redirectURI)
+                self?.openURL(authorizationURL)
+                var account: ChatGPTAccountSummary?
+                for await callbackURL in server.callbacks {
+                    do {
+                        account = try await session.completeAuthorization(callbackURL: callbackURL)
+                        break
+                    } catch let error as GitProviderOAuthError
+                        where error == .stateMismatch || error == .missingState || error == .unsupportedCallback {
+                        continue
+                    }
+                }
+                try Task.checkCancellation()
+                if let account, let self {
+                    self.updateChatGPTAccount(account)
+                    self.invalidateAvailability()
+                    await self.refreshChatGPTModels()
+                }
+            } catch is CancellationError {
+            } catch ChatGPTAuthError.consentDenied {
+            } catch {
+                self?.chatGPTSignInErrorMessage = error.localizedDescription
+            }
+            await session.cancelAuthorization()
+            self?.chatGPTSignInState = .idle
+            self?.chatGPTSignInTask = nil
+        }
+    }
+
+    func cancelChatGPTSignIn() {
+        chatGPTSignInTask?.cancel()
+    }
+
+    /// Revokes and deletes the ChatGPT sign-in. Allowed without Pro, so a lapsed
+    /// subscriber can still remove the connection.
+    func disconnectChatGPT() async {
+        cancelChatGPTSignIn()
+        guard let session = chatGPTSession else { return }
+        await session.disconnect()
+        updateChatGPTAccount(nil)
+        invalidateAvailability()
+        if selectedProviderID == .chatGPTSubscription {
+            selectProvider(.appleIntelligence)
+        }
+    }
+
+    func refreshChatGPTModels() async {
+        guard let provider = chatGPTProvider, chatGPTAccount != nil else { return }
+        if let models = try? await provider.availableModels(), !models.isEmpty {
+            chatGPTModels = models
+        }
     }
 
     private func validateProviderAccess(_ descriptor: AIProviderDescriptor) throws {
@@ -310,6 +412,9 @@ final class AIProviderController: ObservableObject {
                 } else {
                     configuredProviderIDs.remove(id)
                 }
+            }
+            if id == .chatGPTSubscription, let chatGPTSession {
+                updateChatGPTAccount(await chatGPTSession.account())
             }
             request = (UUID(), Task { await provider.availability() })
             availabilityTasks[id] = request

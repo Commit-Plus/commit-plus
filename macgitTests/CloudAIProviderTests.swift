@@ -1115,6 +1115,88 @@ final class CloudAIProviderTests: XCTestCase {
     }
 }
 
+extension CloudAIProviderTests {
+    @MainActor
+    func testChatGPTIsSelectableOnlyWhenSignedInAvailableAndAllowed() async throws {
+        let signedOut = makeChatGPTController(tokens: nil)
+        await signedOut.controller.refreshAvailability()
+        let descriptor = try XCTUnwrap(signedOut.controller.descriptors.first { $0.id == .chatGPTSubscription })
+        XCTAssertEqual(descriptor.billing, .connectedAccount)
+        XCTAssertFalse(signedOut.controller.isAPIKeyConfigured(for: .chatGPTSubscription))
+        XCTAssertFalse(signedOut.controller.canSelect(descriptor, restrictedProviderAccess: .allowed))
+
+        let signedIn = makeChatGPTController(tokens: .expiring(at: Date().addingTimeInterval(3_000)))
+        await signedIn.controller.refreshAvailability()
+        XCTAssertTrue(signedIn.controller.isAPIKeyConfigured(for: .chatGPTSubscription))
+        XCTAssertEqual(signedIn.controller.chatGPTAccount?.email, "dev@example.com")
+        XCTAssertTrue(signedIn.controller.canSelect(descriptor, restrictedProviderAccess: .allowed))
+        XCTAssertFalse(signedIn.controller.canSelect(descriptor, restrictedProviderAccess: .denied(.requiresPro)))
+
+        await signedIn.session.recordPlanIssue(.notEligible)
+        signedIn.controller.invalidateAvailability()
+        await signedIn.controller.refreshAvailability()
+        XCTAssertFalse(signedIn.controller.canSelect(descriptor, restrictedProviderAccess: .allowed))
+    }
+
+    @MainActor
+    func testOpenAIAndChatGPTAreSeparateProviders() async throws {
+        let credentialStore = InMemoryAIProviderCredentialStore(keys: [.openAI: "openai-key"])
+        let chatGPT = makeChatGPTController(
+            tokens: .expiring(at: Date().addingTimeInterval(3_000)),
+            credentialStore: credentialStore
+        )
+        await chatGPT.controller.refreshAvailability()
+
+        XCTAssertTrue(chatGPT.controller.isAPIKeyConfigured(for: .openAI))
+        XCTAssertTrue(chatGPT.controller.isAPIKeyConfigured(for: .chatGPTSubscription))
+        chatGPT.controller.selectProvider(.chatGPTSubscription)
+        XCTAssertEqual(chatGPT.controller.selectedProviderID, .chatGPTSubscription)
+        chatGPT.controller.selectProvider(.openAI)
+        XCTAssertEqual(chatGPT.controller.selectedProviderID, .openAI)
+    }
+
+    @MainActor
+    func testDisconnectingDefaultChatGPTFallsBackToAppleIntelligence() async throws {
+        let chatGPT = makeChatGPTController(tokens: .expiring(at: Date().addingTimeInterval(3_000)))
+        await chatGPT.controller.refreshAvailability()
+        chatGPT.controller.selectProvider(.chatGPTSubscription)
+        XCTAssertEqual(chatGPT.controller.selectedProviderID, .chatGPTSubscription)
+
+        await chatGPT.controller.disconnectChatGPT()
+
+        XCTAssertNil(try chatGPT.store.loadTokens())
+        XCTAssertNil(chatGPT.controller.chatGPTAccount)
+        XCTAssertFalse(chatGPT.controller.isAPIKeyConfigured(for: .chatGPTSubscription))
+        XCTAssertEqual(chatGPT.controller.selectedProviderID, .appleIntelligence)
+        let availability = await chatGPT.session.availability()
+        XCTAssertFalse(availability.isAvailable)
+    }
+
+    @MainActor
+    private func makeChatGPTController(
+        tokens: ChatGPTTokenSet?,
+        credentialStore: InMemoryAIProviderCredentialStore = InMemoryAIProviderCredentialStore()
+    ) -> (controller: AIProviderController, session: ChatGPTAccountSession, store: InMemoryChatGPTCredentialStore) {
+        let store = InMemoryChatGPTCredentialStore(tokens: tokens)
+        let http = ChatGPTStubHTTPClient()
+        let session = ChatGPTAccountSession(store: store, httpClient: http)
+        let controller = AIProviderController(
+            registry: .live(
+                credentialStore: credentialStore,
+                modelStore: InMemoryAIProviderModelStore(),
+                httpClient: http,
+                chatGPTSession: session
+            ),
+            snapshotLoader: StubCloudCommitChangeSnapshotLoader(),
+            defaults: makeDefaults(),
+            credentialStore: credentialStore,
+            restrictedProviderAccess: { .allowed },
+            openURL: { _ in }
+        )
+        return (controller, session, store)
+    }
+}
+
 final class InMemoryAIProviderCredentialStore: AIProviderCredentialStore, @unchecked Sendable {
     private let lock = NSLock()
     private var keys: [AIProviderID: String]

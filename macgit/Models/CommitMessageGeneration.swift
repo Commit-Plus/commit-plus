@@ -100,6 +100,9 @@ enum CommitMessageGenerationError: LocalizedError, Equatable {
     case contextTooLarge
     case invalidResponse
     case changesChanged(CommitChangeSource)
+    case chatGPTSignInRequired
+    case chatGPTUsageLimitReached
+    case chatGPTPlanNotEligible
 
     var errorDescription: String? {
         switch self {
@@ -119,6 +122,12 @@ enum CommitMessageGenerationError: LocalizedError, Equatable {
             "The AI provider did not return a valid commit message."
         case .changesChanged(let source):
             "The \(source.displayName) changed while the message was being generated. Generate it again."
+        case .chatGPTSignInRequired:
+            "Sign in to ChatGPT again in Settings → AI."
+        case .chatGPTUsageLimitReached:
+            "Your ChatGPT plan limit for Commit+ is reached. Check usage at chatgpt.com/settings/usage, or choose another provider."
+        case .chatGPTPlanNotEligible:
+            "This ChatGPT account’s plan does not include usage in other apps. Connect a ChatGPT Plus or Pro account, or choose another provider."
         }
     }
 }
