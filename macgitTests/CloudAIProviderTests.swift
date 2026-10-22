@@ -504,6 +504,12 @@ final class CloudAIProviderTests: XCTestCase {
         let body = try requestJSONObject(try XCTUnwrap(receivedRequest))
         let messages = try XCTUnwrap(body["messages"] as? [[String: Any]])
 
+        let tools = try XCTUnwrap(body["tools"] as? [[String: Any]])
+        let firstTurnToolNames = RepositoryAIAgentToolSchema
+            .declarations(includingQuickActions: true)
+            .compactMap { $0["name"] as? String }
+
+        XCTAssertEqual(tools.compactMap { $0["name"] as? String }, firstTurnToolNames)
         XCTAssertEqual(messages.count, 3)
         let assistantContent = try XCTUnwrap(messages[1]["content"] as? [[String: Any]])
         XCTAssertEqual(assistantContent.map { $0["type"] as? String }, ["thinking", "redacted_thinking", "tool_use", "tool_use"])

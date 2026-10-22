@@ -172,9 +172,12 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
                 },
             ])
         }
+        // Keep `tools` identical on every turn: replayed thinking blocks are bound to the tools
+        // they were produced with, and Claude rejects them once that set changes. The harness
+        // already rejects quick actions and mutations chosen after the first turn.
         let tools = RepositoryAIAgentToolSchema
             .declarations(
-                includingQuickActions: request.isFirstTurn,
+                includingQuickActions: true,
                 allowsBuiltInWorkflows: request.allowsBuiltInWorkflows,
                 mutationContext: request.mutationContext,
                 remoteOperationContext: request.remoteOperationContext
