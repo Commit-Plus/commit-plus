@@ -23,11 +23,11 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
         id: .anthropic,
         displayName: "Claude",
         systemImage: "cloud",
-        detail: "Cloud · Claude Haiku 4.5",
+        detail: "Cloud · Claude Haiku 5.5",
         dataProcessing: .cloud,
         billing: .bringYourOwnKey,
         requiresProToConfigureAPIKey: true,
-        defaultModel: "claude-haiku-4-5",
+        defaultModel: "claude-haiku-5-5",
         inputCharacterBudget: 12_000,
         isImplemented: true
     )
@@ -67,7 +67,7 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
         urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "max_tokens": 250,
             "system": CloudCommitMessagePrompt.instructions,
@@ -81,7 +81,9 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
                 "role": "user",
                 "content": CloudCommitMessagePrompt.userPrompt(for: request),
             ]],
-        ])
+        ]
+        AIThinkingPolicy.claude(model: model, enabled: modelStore.isThinkingEnabled, maxTokens: 250).apply(to: &body, maxTokensKey: "max_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
@@ -107,7 +109,7 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
         urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "max_tokens": 3_000,
             "system": RepositoryAIPrompt.instructions(for: request),
@@ -115,7 +117,9 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
                 "role": "user",
                 "content": RepositoryAIPrompt.userPrompt(for: request),
             ]],
-        ])
+        ]
+        AIThinkingPolicy.claude(model: model, enabled: modelStore.isThinkingEnabled, maxTokens: 3_000).apply(to: &body, maxTokensKey: "max_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
@@ -144,28 +148,36 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
             "role": "user",
             "content": RepositoryAIPrompt.agentPrompt(for: request),
         ]]
-        for toolResult in request.previousToolResults {
+        for group in Self.toolResultGroups(request.previousToolResults) {
+            let thinkingBlocks = group.first?.toolCall.claudeToolUseState?.thinkingBlocks ?? []
             messages.append([
                 "role": "assistant",
-                "content": [[
-                    "type": "tool_use",
-                    "id": toolResult.toolCall.id,
-                    "name": toolResult.toolCall.name,
-                    "input": ["arguments": toolResult.toolCall.arguments],
-                ]],
+                "content": thinkingBlocks.map(Self.requestContent) + group.map { toolResult in
+                    [
+                        "type": "tool_use",
+                        "id": toolResult.toolCall.id,
+                        "name": toolResult.toolCall.name,
+                        "input": ["arguments": toolResult.toolCall.arguments],
+                    ] as [String: Any]
+                },
             ])
             messages.append([
                 "role": "user",
-                "content": [[
-                    "type": "tool_result",
-                    "tool_use_id": toolResult.toolCall.id,
-                    "content": toolResult.commandResult.output,
-                ]],
+                "content": group.map { toolResult in
+                    [
+                        "type": "tool_result",
+                        "tool_use_id": toolResult.toolCall.id,
+                        "content": toolResult.commandResult.output,
+                    ] as [String: Any]
+                },
             ])
         }
+        // Keep `tools` identical on every turn: replayed thinking blocks are bound to the tools
+        // they were produced with, and Claude rejects them once that set changes. The harness
+        // already rejects quick actions and mutations chosen after the first turn.
         let tools = RepositoryAIAgentToolSchema
             .declarations(
-                includingQuickActions: request.isFirstTurn,
+                includingQuickActions: true,
                 allowsBuiltInWorkflows: request.allowsBuiltInWorkflows,
                 mutationContext: request.mutationContext,
                 remoteOperationContext: request.remoteOperationContext
@@ -177,6 +189,9 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
                     "input_schema": declaration["parameters"] as? [String: Any] ?? [:],
                 ] as [String: Any]
             }
+        // Pin the setting to the one the loop started with; see `isThinkingEnabled`.
+        let isThinkingEnabled = request.previousToolResults.first?.toolCall.claudeToolUseState?.isThinkingEnabled
+            ?? modelStore.isThinkingEnabled
         var body: [String: Any] = [
             "model": model,
             "max_tokens": 1_200,
@@ -184,16 +199,40 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
             "messages": messages,
             "tools": tools,
         ]
-        if request.isFirstTurn {
+        let thinking = AIThinkingPolicy.claude(model: model, enabled: isThinkingEnabled, maxTokens: 1_200)
+        thinking.apply(to: &body, maxTokensKey: "max_tokens")
+        // Newer models and thinking requests reject forced tool use; the agent prompt already asks for a tool call.
+        if request.isFirstTurn, thinking.allowsForcedToolChoice {
             body["tool_choice"] = ["type": "any"]
         }
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await httpClient.data(for: urlRequest)
-        try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
-        guard let payload = try? JSONDecoder().decode(Response.self, from: data) else {
-            throw RepositoryAIError.invalidResponse("Claude did not return a usable Git tool response.")
+        var payload = try await agentResponse(for: urlRequest)
+        // Without a forced tool choice, Claude may answer the first turn from the prompt alone,
+        // which the harness rejects for lacking repository evidence. Ask once more for a tool call.
+        if request.isFirstTurn, !thinking.allowsForcedToolChoice,
+           !payload.content.contains(where: { $0.type == "tool_use" }) {
+            body["messages"] = [[
+                "role": "user",
+                "content": RepositoryAIPrompt.agentPrompt(for: request)
+                    + "\n\nCall one of the provided Git tools now. Do not answer before inspecting the repository.",
+            ]]
+            urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
+            payload = try await agentResponse(for: urlRequest)
         }
+        let toolUseState = RepositoryAIClaudeToolUseState(
+            messageID: payload.id ?? UUID().uuidString,
+            thinkingBlocks: payload.content.compactMap { content in
+                guard content.type == "thinking" || content.type == "redacted_thinking" else { return nil }
+                return RepositoryAIClaudeThinkingBlock(
+                    type: content.type,
+                    thinking: content.thinking,
+                    signature: content.signature,
+                    data: content.data
+                )
+            },
+            isThinkingEnabled: isThinkingEnabled
+        )
         let toolCalls: [RepositoryAIAgentToolCall] = try payload.content.compactMap { content in
             guard content.type == "tool_use" else { return nil }
             guard let id = content.id,
@@ -204,13 +243,27 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
                   ) else {
                 throw RepositoryAIError.invalidResponse("Claude returned an invalid Git tool call.")
             }
-            return RepositoryAIAgentToolCall(id: id, name: name, arguments: arguments)
+            return RepositoryAIAgentToolCall(
+                id: id,
+                name: name,
+                arguments: arguments,
+                claudeToolUseState: toolUseState
+            )
         }
         let text = payload.content
             .filter { $0.type == "text" }
             .compactMap(\.text)
             .joined(separator: "\n")
         return RepositoryAIAgentTurn(text: text, toolCalls: toolCalls)
+    }
+
+    private func agentResponse(for urlRequest: URLRequest) async throws -> Response {
+        let (data, response) = try await httpClient.data(for: urlRequest)
+        try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
+        guard let payload = try? JSONDecoder().decode(Response.self, from: data) else {
+            throw RepositoryAIError.invalidResponse("Claude did not return a usable Git tool response.")
+        }
+        return payload
     }
 
     func generateConflictResolution(
@@ -229,7 +282,7 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
         urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "max_tokens": 4_000,
             "system": ConflictAIPrompt.instructions,
@@ -240,7 +293,9 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
                 ],
             ],
             "messages": [["role": "user", "content": context]],
-        ])
+        ]
+        AIThinkingPolicy.claude(model: model, enabled: modelStore.isThinkingEnabled, maxTokens: 4_000).apply(to: &body, maxTokensKey: "max_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
@@ -253,7 +308,33 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
         return try ConflictAIResolutionResponse.decode(from: text)
     }
 
+    /// Splits tool results into runs issued by the same Claude message, so each run is
+    /// replayed as one assistant message followed by one user message of results.
+    private static func toolResultGroups(
+        _ toolResults: [RepositoryAIAgentToolResult]
+    ) -> [[RepositoryAIAgentToolResult]] {
+        var groups: [[RepositoryAIAgentToolResult]] = []
+        for toolResult in toolResults {
+            if let messageID = toolResult.toolCall.claudeToolUseState?.messageID,
+               groups.last?.last?.toolCall.claudeToolUseState?.messageID == messageID {
+                groups[groups.count - 1].append(toolResult)
+            } else {
+                groups.append([toolResult])
+            }
+        }
+        return groups
+    }
+
+    private static func requestContent(for block: RepositoryAIClaudeThinkingBlock) -> [String: Any] {
+        var content: [String: Any] = ["type": block.type]
+        content["thinking"] = block.thinking
+        content["signature"] = block.signature
+        content["data"] = block.data
+        return content
+    }
+
     private struct Response: Decodable {
+        let id: String?
         let content: [Content]
     }
 
@@ -263,5 +344,8 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
         let id: String?
         let name: String?
         let input: RepositoryAIAgentToolArgumentsPayload?
+        let thinking: String?
+        let signature: String?
+        let data: String?
     }
 }

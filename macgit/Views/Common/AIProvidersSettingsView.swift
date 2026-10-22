@@ -21,9 +21,11 @@ struct AIProvidersSettingsView: View {
     @ObservedObject var controller: AIProviderController
     @ObservedObject var accountController: AccountSessionController
     let restrictedProviderAccess: FeatureAccessDecision
-    @Binding var drafts: [AIProviderConfigurationDraft]
     @State private var authenticationMode: AuthenticationMode?
     @State private var isOpeningRestrictedProviderAccess = false
+    @State private var configuringProviderID: AIProviderID?
+    @State private var removingProviderID: AIProviderID?
+    @State private var errorMessage: String?
 
     var body: some View {
         Form {
@@ -38,7 +40,7 @@ struct AIProvidersSettingsView: View {
 
                 if controller.selectedDescriptor.billing != .commitPlus {
                     LabeledContent("Model") {
-                        Text(controller.model(for: controller.selectedDescriptor) ?? "On-device")
+                        Text(modelName(for: controller.selectedDescriptor) ?? "On-device")
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -53,29 +55,172 @@ struct AIProvidersSettingsView: View {
                 CommitPlusAIUsageView(controller: usage)
             }
 
-            ForEach($drafts) { $draft in
-                let descriptor = controller.descriptors.first { $0.id == draft.id }
-                if let descriptor {
-                    CloudAIProviderSettingsSection(
-                        descriptor: descriptor,
-                        showsConfigurationHeading: draft.id == drafts.first?.id,
-                        controller: controller,
-                        accountController: accountController,
-                        draft: $draft,
-                        restrictedProviderAccess: restrictedProviderAccess,
-                        isOpeningAccess: isOpeningRestrictedProviderAccess,
-                        onAccessAction: presentRestrictedProviderAccess
-                    )
+            Section {
+                Toggle(isOn: Binding(
+                    get: { controller.isThinkingEnabled },
+                    set: { controller.setThinkingEnabled($0) }
+                )) {
+                    Text("Thinking")
+                    Text("Let models that support it reason before answering. Responses take longer and use more tokens.")
                 }
+            } footer: {
+                Text("Applies to every provider you configure here. When off, thinking is turned off where the model allows it, or set to its lowest level on models that always think. Apple Intelligence and Commit+ AI are not affected.")
+            }
+
+            Section {
+                if configuredProviders.isEmpty {
+                    Text("No providers configured")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                } else {
+                    ForEach(configuredProviders) { descriptor in
+                        providerRow(descriptor)
+                    }
+                }
+
+                Menu {
+                    ForEach(addableProviders) { descriptor in
+                        Button(menuTitle(for: descriptor)) {
+                            configuringProviderID = descriptor.id
+                        }
+                    }
+                } label: {
+                    Label("Add Provider…", systemImage: "plus")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .disabled(addableProviders.isEmpty)
+            } header: {
+                Text("Providers")
+            } footer: {
+                Text("Use your own API key with a supported provider. Keys are stored in this Mac’s Keychain.")
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("AI Providers")
+        .navigationTitle("AI")
+        .replacingSheet(item: configuringDescriptor) { descriptor in
+            AIProviderConfigurationSheet(
+                descriptor: descriptor,
+                controller: controller,
+                accountController: accountController,
+                restrictedProviderAccess: restrictedProviderAccess,
+                isOpeningAccess: isOpeningRestrictedProviderAccess,
+                onAccessAction: presentRestrictedProviderAccess
+            )
+        }
+        .confirmationDialog(
+            "Remove \(removingDescriptor?.displayName ?? "Provider")?",
+            isPresented: Binding(
+                get: { removingProviderID != nil },
+                set: { if !$0 { removingProviderID = nil } }
+            ),
+            presenting: removingDescriptor
+        ) { descriptor in
+            Button("Remove", role: .destructive) { remove(descriptor) }
+            Button("Cancel", role: .cancel) {}
+        } message: { descriptor in
+            Text("The \(descriptor.displayName) API key will be deleted from this Mac’s Keychain.")
+        }
+        .alert(
+            "Couldn’t Update AI Provider",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
         .replacingSheet(item: $authenticationMode) { mode in
             AuthenticationSheet(controller: accountController, mode: mode)
         }
         .task(id: controller.availabilityRevision) {
             await controller.refreshAvailability()
+        }
+    }
+
+    private func providerRow(_ descriptor: AIProviderDescriptor) -> some View {
+        HStack(spacing: 10) {
+            AIProviderLogo(descriptor: descriptor, size: 22)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(descriptor.displayName)
+                Text(modelName(for: descriptor) ?? "")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if case .unavailable(let reason) = controller.availability(for: descriptor.id) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .help(reason)
+                    .accessibilityLabel(reason)
+            }
+
+            Button("Edit…") {
+                configuringProviderID = descriptor.id
+            }
+
+            Button("Remove", systemImage: "minus.circle") {
+                removingProviderID = descriptor.id
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .help("Remove \(descriptor.displayName)")
+        }
+        .contextMenu {
+            Button("Edit…") { configuringProviderID = descriptor.id }
+            Button("Remove…", role: .destructive) { removingProviderID = descriptor.id }
+        }
+    }
+
+    private func modelName(for descriptor: AIProviderDescriptor) -> String? {
+        controller.model(for: descriptor).map {
+            AIProviderModelCatalog.displayName(for: $0, provider: descriptor.id)
+        }
+    }
+
+    /// Personal-key providers that can be added or edited here.
+    private var personalKeyProviders: [AIProviderDescriptor] {
+        controller.descriptors.filter { $0.billing == .bringYourOwnKey && $0.isImplemented }
+    }
+
+    private var configuredProviders: [AIProviderDescriptor] {
+        personalKeyProviders.filter { controller.isAPIKeyConfigured(for: $0.id) }
+    }
+
+    private var addableProviders: [AIProviderDescriptor] {
+        personalKeyProviders.filter { !controller.isAPIKeyConfigured(for: $0.id) }
+    }
+
+    private var removingDescriptor: AIProviderDescriptor? {
+        controller.descriptors.first { $0.id == removingProviderID }
+    }
+
+    private var configuringDescriptor: Binding<AIProviderDescriptor?> {
+        Binding(
+            get: { controller.descriptors.first { $0.id == configuringProviderID } },
+            set: { configuringProviderID = $0?.id }
+        )
+    }
+
+    private func menuTitle(for descriptor: AIProviderDescriptor) -> String {
+        descriptor.requiresProToConfigureAPIKey && !restrictedProviderAccess.isAllowed
+            ? "\(descriptor.displayName) (Pro)"
+            : descriptor.displayName
+    }
+
+    private func remove(_ descriptor: AIProviderDescriptor) {
+        do {
+            try controller.removeAPIKey(for: descriptor.id)
+            Task { await controller.refreshAvailability() }
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -93,5 +238,4 @@ struct AIProvidersSettingsView: View {
             }
         }
     }
-
 }

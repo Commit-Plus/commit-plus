@@ -42,7 +42,7 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         case .connections: "Connections"
         case .integrations: "Integrations"
         case .customActions: "Custom Actions"
-        case .aiProviders: "AI Providers"
+        case .aiProviders: "AI"
         case .update: "Update"
         case .advanced: "Advanced"
         }
@@ -61,22 +61,6 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         case .aiProviders: "sparkles"
         case .update: "arrow.triangle.2.circlepath"
         case .advanced: "wrench.and.screwdriver"
-        }
-    }
-
-    var iconColor: Color {
-        switch self {
-        case .general: .blue
-        case .appearance: .orange
-        case .diff: .pink
-        case .git: .green
-        case .accounts: .indigo
-        case .connections: .blue
-        case .integrations: .teal
-        case .customActions: .mint
-        case .aiProviders: .purple
-        case .update: .cyan
-        case .advanced: .brown
         }
     }
 

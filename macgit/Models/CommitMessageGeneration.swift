@@ -110,7 +110,7 @@ enum CommitMessageGenerationError: LocalizedError, Equatable {
         case .providerNotImplemented:
             "This AI provider is not available yet."
         case .missingAPIKey(let providerName):
-            "Add a \(providerName) API key in Settings → AI Providers."
+            "Add a \(providerName) API key in Settings → AI."
         case .providerRequestFailed(let message):
             message
         case .contextTooLarge:

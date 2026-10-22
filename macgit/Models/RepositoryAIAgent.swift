@@ -48,22 +48,44 @@ nonisolated struct RepositoryAIGeminiFunctionCallState: Codable, Equatable, Send
     let thoughtSignature: String?
 }
 
+nonisolated struct RepositoryAIClaudeThinkingBlock: Codable, Equatable, Sendable {
+    /// `thinking` or `redacted_thinking`.
+    let type: String
+    let thinking: String?
+    let signature: String?
+    let data: String?
+}
+
+nonisolated struct RepositoryAIClaudeToolUseState: Codable, Equatable, Sendable {
+    /// The Claude message that issued the call; calls from one message are replayed together.
+    let messageID: String
+    /// Thinking blocks that preceded the tool use. Claude requires them unchanged,
+    /// signatures included, when a tool-use turn continues with thinking enabled.
+    let thinkingBlocks: [RepositoryAIClaudeThinkingBlock]
+    /// The Thinking setting the agent loop started with. Later turns reuse it so that
+    /// toggling the setting mid-loop cannot drop or require thinking blocks.
+    let isThinkingEnabled: Bool?
+}
+
 nonisolated struct RepositoryAIAgentToolCall: Codable, Equatable, Sendable {
     let id: String
     let name: String
     let arguments: [String]
     let geminiFunctionCallState: RepositoryAIGeminiFunctionCallState?
+    let claudeToolUseState: RepositoryAIClaudeToolUseState?
 
     init(
         id: String,
         name: String,
         arguments: [String],
-        geminiFunctionCallState: RepositoryAIGeminiFunctionCallState? = nil
+        geminiFunctionCallState: RepositoryAIGeminiFunctionCallState? = nil,
+        claudeToolUseState: RepositoryAIClaudeToolUseState? = nil
     ) {
         self.id = id
         self.name = name
         self.arguments = arguments
         self.geminiFunctionCallState = geminiFunctionCallState
+        self.claudeToolUseState = claudeToolUseState
     }
 }
 

@@ -23,11 +23,11 @@ struct DeepSeekCommitMessageProvider: CommitMessageAIProvider {
         id: .deepSeek,
         displayName: "DeepSeek",
         systemImage: "cloud",
-        detail: "Cloud · DeepSeek V4 Flash",
+        detail: "Cloud · DeepSeek V4.1 Flash",
         dataProcessing: .cloud,
         billing: .bringYourOwnKey,
         requiresProToConfigureAPIKey: true,
-        defaultModel: "deepseek-v4-flash",
+        defaultModel: "deepseek-flash",
         inputCharacterBudget: 12_000,
         isImplemented: true
     )
@@ -69,7 +69,7 @@ struct DeepSeekCommitMessageProvider: CommitMessageAIProvider {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "messages": [
                 ["role": "system", "content": CloudCommitMessagePrompt.jsonInstructions],
@@ -78,7 +78,9 @@ struct DeepSeekCommitMessageProvider: CommitMessageAIProvider {
             "max_tokens": 250,
             "response_format": ["type": "json_object"],
             "thinking": ["type": "disabled"],
-        ])
+        ]
+        AIThinkingPolicy.deepSeek(enabled: modelStore.isThinkingEnabled, maxTokens: 250).apply(to: &body, maxTokensKey: "max_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
@@ -115,6 +117,7 @@ struct DeepSeekCommitMessageProvider: CommitMessageAIProvider {
         if request.requiresStructuredResponse {
             body["response_format"] = ["type": "json_object"]
         }
+        AIThinkingPolicy.deepSeek(enabled: modelStore.isThinkingEnabled, maxTokens: 3_000).apply(to: &body, maxTokensKey: "max_tokens")
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
@@ -144,7 +147,7 @@ struct DeepSeekCommitMessageProvider: CommitMessageAIProvider {
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "messages": [
                 ["role": "system", "content": RepositoryAIPrompt.instructions(for: request)],
@@ -153,7 +156,9 @@ struct DeepSeekCommitMessageProvider: CommitMessageAIProvider {
             "max_tokens": 3_000,
             "stream": true,
             "thinking": ["type": "disabled"],
-        ])
+        ]
+        AIThinkingPolicy.deepSeek(enabled: modelStore.isThinkingEnabled, maxTokens: 3_000).apply(to: &body, maxTokensKey: "max_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         try Task.checkCancellation()
         let (bytes, urlResponse) = try await streamingSession.bytes(for: urlRequest)
@@ -225,14 +230,17 @@ struct DeepSeekCommitMessageProvider: CommitMessageAIProvider {
             .map { declaration in
                 ["type": "function", "function": declaration] as [String: Any]
             }
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        let body: [String: Any] = [
             "model": model,
             "messages": messages,
             "tools": tools,
             "tool_choice": request.isFirstTurn ? "required" : "auto",
             "max_tokens": 1_200,
+            // Thinking mode rejects `tool_choice: required` and needs `reasoning_content`
+            // replayed on every later tool turn, so agent turns always run without it.
             "thinking": ["type": "disabled"],
-        ])
+        ]
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
@@ -317,7 +325,7 @@ struct DeepSeekCommitMessageProvider: CommitMessageAIProvider {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "messages": [
                 ["role": "system", "content": ConflictAIPrompt.instructions],
@@ -326,7 +334,9 @@ struct DeepSeekCommitMessageProvider: CommitMessageAIProvider {
             "max_tokens": 4_000,
             "response_format": ["type": "json_object"],
             "thinking": ["type": "disabled"],
-        ])
+        ]
+        AIThinkingPolicy.deepSeek(enabled: modelStore.isThinkingEnabled, maxTokens: 4_000).apply(to: &body, maxTokensKey: "max_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)

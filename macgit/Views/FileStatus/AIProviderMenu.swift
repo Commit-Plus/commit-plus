@@ -134,7 +134,7 @@ struct AIProviderMenu: View {
         }
         if descriptor.billing == .bringYourOwnKey,
            !controller.isAPIKeyConfigured(for: descriptor.id) {
-            return "Configure an API key in Settings → AI Providers."
+            return "Configure an API key in Settings → AI."
         }
         return controller.availability(for: descriptor.id).detail
     }

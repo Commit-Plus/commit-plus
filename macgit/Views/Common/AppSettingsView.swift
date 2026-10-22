@@ -15,11 +15,11 @@
 //  You should have received a copy of the GNU Affero General Public License
 //  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //
+import Combine
 import SwiftUI
 
 struct AppSettingsView: View {
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismissWindow) private var dismissWindow
     @ObservedObject var appState: AppState
     @ObservedObject var accountController: AccountSessionController
     @ObservedObject var featureAccessController: FeatureAccessController
@@ -28,11 +28,9 @@ struct AppSettingsView: View {
     @ObservedObject var appUpdateController: AppUpdateController
     @ObservedObject var customActionStore: CustomActionStore
     @Binding private var selectedSection: AppSettingsSection
-    @State private var aiProviderDrafts: [AIProviderConfigurationDraft]
     @State private var diffAppearanceDraft: DiffAppearanceSettingsDraft
     @State private var diffSyntaxHighlightingDraft: Bool
-    @State private var saveErrorMessage: String?
-    @State private var isShowingSaveError = false
+    @State private var windowReference = AppSettingsWindowReference()
 
     init(
         appState: AppState,
@@ -52,7 +50,6 @@ struct AppSettingsView: View {
         self.appUpdateController = appUpdateController
         self.customActionStore = customActionStore
         _selectedSection = selectedSection
-        _aiProviderDrafts = State(initialValue: aiProviderController.configurationDrafts())
         _diffAppearanceDraft = State(initialValue: DiffAppearanceSettingsStore.shared.draft)
         _diffSyntaxHighlightingDraft = State(
             initialValue: AdvancedSettingsStore.shared.diffSyntaxHighlighting
@@ -60,87 +57,97 @@ struct AppSettingsView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            List(AppSettingsSection.allCases, selection: $selectedSection) { section in
-                Label {
-                    Text(section.title)
-                } icon: {
-                    Image(systemName: section.systemImage)
-                        .foregroundStyle(section.iconColor)
+        AppSettingsDetailView(
+            section: selectedSection,
+            appState: appState,
+            accountController: accountController,
+            providerAccountController: providerAccountController,
+            aiProviderController: aiProviderController,
+            appUpdateController: appUpdateController,
+            customActionStore: customActionStore,
+            restrictedAIProviderAccess: restrictedAIProviderAccess,
+            diffAppearanceDraft: $diffAppearanceDraft,
+            diffSyntaxHighlightingDraft: $diffSyntaxHighlightingDraft
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(minWidth: 900, idealWidth: 920, minHeight: 540, idealHeight: 640)
+        .navigationTitle(selectedSection.title)
+        .background(AppSettingsWindowControls(windowReference: windowReference))
+        .background(AppSettingsToolbar(selection: $selectedSection))
+        // Account flows started here (sync conflict, sign-in) pick the key window as their owner.
+        .replacingSheet(item: accountSheetPresentation) { sheet in
+            Group {
+                switch sheet {
+                case .authentication(let mode):
+                    AuthenticationSheet(controller: accountController, mode: mode, presentedByController: true)
+                case .settingsConflict:
+                    SettingsSyncConflictSheet(controller: accountController)
+                case .deviceLimit:
+                    DeviceLimitSheet(controller: accountController)
                 }
-                    .tag(section)
             }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
-        } detail: {
-            VStack(spacing: 0) {
-                AppSettingsDetailView(
-                    section: selectedSection,
-                    appState: appState,
-                    accountController: accountController,
-                    providerAccountController: providerAccountController,
-                    aiProviderController: aiProviderController,
-                    appUpdateController: appUpdateController,
-                    customActionStore: customActionStore,
-                    restrictedAIProviderAccess: restrictedAIProviderAccess,
-                    aiProviderDrafts: $aiProviderDrafts,
-                    diffAppearanceDraft: $diffAppearanceDraft,
-                    diffSyntaxHighlightingDraft: $diffSyntaxHighlightingDraft
-                )
-
-                Divider()
-
-                HStack {
-                    Spacer()
-
-                    Button("Cancel", action: close)
-                        .keyboardShortcut(.cancelAction)
-
-                    Button("Done", action: saveChangesAndDismiss)
-                        .keyboardShortcut(.defaultAction)
-                }
-                .padding()
-            }
+            .disabled(accountController.isOpeningAccountOnWeb)
+            .interactiveDismissDisabled(accountController.isOpeningAccountOnWeb)
         }
-        .navigationSplitViewStyle(.balanced)
-        .frame(minWidth: 860, idealWidth: 920, minHeight: 540, idealHeight: 640)
-        .navigationTitle("Settings")
-        .background(AppSettingsWindowControls())
+        .sheetPresentationScope()
         .onReceive(NotificationCenter.default.publisher(for: .showAppSettings)) { notification in
             guard let rawSection = notification.userInfo?["section"] as? String,
                   let section = AppSettingsSection(rawValue: rawSection) else { return }
             selectedSection = section
             openWindow(id: "settings")
         }
-        .alert("Couldn’t Save Settings", isPresented: $isShowingSaveError) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(saveErrorMessage ?? "An unknown error occurred.")
+        // Settings apply as they change; reload drafts so a pane never re-applies stale values.
+        .onChange(of: selectedSection, initial: true) { _, section in
+            switch section {
+            case .diff:
+                reloadDiffDraftsFromStores()
+            default:
+                break
+            }
         }
+        // Cloud sync can change these stores while the pane is open. Wait until the change has
+        // finished applying (main-queue hop), then adopt it so the next edit does not revert it.
+        .onReceive(
+            DiffAppearanceSettingsStore.shared.objectWillChange
+                .merge(with: AdvancedSettingsStore.shared.objectWillChange)
+                .receive(on: DispatchQueue.main)
+        ) { _ in
+            reloadDiffDraftsFromStores()
+        }
+        .onChange(of: diffAppearanceDraft) { _, _ in applyDiffSettings() }
+        .onChange(of: diffSyntaxHighlightingDraft) { _, _ in applyDiffSettings() }
     }
 
-    private func saveChangesAndDismiss() {
-        do {
-            try aiProviderController.applyProviderChanges(
-                aiProviderDrafts,
-                restrictedProviderAccess: restrictedAIProviderAccess
-            )
-            appState.applyLocalDiffSettings(
-                appearance: diffAppearanceDraft,
-                syntaxHighlighting: diffSyntaxHighlightingDraft
-            )
-            close()
-            Task { await aiProviderController.refreshAvailability() }
-        } catch {
-            saveErrorMessage = error.localizedDescription
-            isShowingSaveError = true
-        }
+    private func reloadDiffDraftsFromStores() {
+        let appearance = DiffAppearanceSettingsStore.shared.draft
+        let syntaxHighlighting = AdvancedSettingsStore.shared.diffSyntaxHighlighting
+        if diffAppearanceDraft != appearance { diffAppearanceDraft = appearance }
+        if diffSyntaxHighlightingDraft != syntaxHighlighting { diffSyntaxHighlightingDraft = syntaxHighlighting }
     }
 
-    private func close() {
-        diffAppearanceDraft = DiffAppearanceSettingsStore.shared.draft
-        diffSyntaxHighlightingDraft = AdvancedSettingsStore.shared.diffSyntaxHighlighting
-        dismissWindow(id: "settings")
+    private func applyDiffSettings() {
+        guard diffAppearanceDraft != DiffAppearanceSettingsStore.shared.draft
+                || diffSyntaxHighlightingDraft != AdvancedSettingsStore.shared.diffSyntaxHighlighting
+        else { return }
+        appState.applyLocalDiffSettings(
+            appearance: diffAppearanceDraft,
+            syntaxHighlighting: diffSyntaxHighlightingDraft
+        )
+    }
+
+    private var accountSheetPresentation: Binding<AccountSheet?> {
+        Binding(
+            get: {
+                guard let window = windowReference.window,
+                      accountController.sheetPresentationWindow === window else { return nil }
+                return accountController.presentedSheet
+            },
+            set: { sheet in
+                guard let window = windowReference.window,
+                      accountController.sheetPresentationWindow === window else { return }
+                accountController.presentedSheet = sheet
+            }
+        )
     }
 
     private var restrictedAIProviderAccess: FeatureAccessDecision {

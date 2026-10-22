@@ -69,7 +69,7 @@ struct OpenAICommitMessageProvider: CommitMessageAIProvider {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "instructions": CloudCommitMessagePrompt.instructions,
             "input": CloudCommitMessagePrompt.userPrompt(for: request),
@@ -83,7 +83,9 @@ struct OpenAICommitMessageProvider: CommitMessageAIProvider {
                     "schema": CloudCommitMessagePrompt.responseSchema,
                 ],
             ],
-        ])
+        ]
+        AIThinkingPolicy.openAI(model: model, enabled: modelStore.isThinkingEnabled, maxTokens: 250).apply(to: &body, maxTokensKey: "max_output_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
@@ -108,13 +110,15 @@ struct OpenAICommitMessageProvider: CommitMessageAIProvider {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "instructions": RepositoryAIPrompt.instructions(for: request),
             "input": RepositoryAIPrompt.userPrompt(for: request),
             "max_output_tokens": 1_200,
             "store": false,
-        ])
+        ]
+        AIThinkingPolicy.openAI(model: model, enabled: modelStore.isThinkingEnabled, maxTokens: 1_200).apply(to: &body, maxTokensKey: "max_output_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
@@ -143,14 +147,16 @@ struct OpenAICommitMessageProvider: CommitMessageAIProvider {
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "instructions": RepositoryAIPrompt.instructions(for: request),
             "input": RepositoryAIPrompt.userPrompt(for: request),
             "max_output_tokens": 3_000,
             "stream": true,
             "store": false,
-        ])
+        ]
+        AIThinkingPolicy.openAI(model: model, enabled: modelStore.isThinkingEnabled, maxTokens: 3_000).apply(to: &body, maxTokensKey: "max_output_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         try Task.checkCancellation()
         let (bytes, urlResponse) = try await streamingSession.bytes(for: urlRequest)
@@ -223,7 +229,7 @@ struct OpenAICommitMessageProvider: CommitMessageAIProvider {
                 tool["strict"] = true
                 return tool
             }
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "instructions": RepositoryAIPrompt.agentInstructions,
             "input": repositoryAgentInput(for: request),
@@ -231,7 +237,9 @@ struct OpenAICommitMessageProvider: CommitMessageAIProvider {
             "store": false,
             "tool_choice": request.isFirstTurn ? "required" : "auto",
             "tools": tools,
-        ])
+        ]
+        AIThinkingPolicy.openAI(model: model, enabled: modelStore.isThinkingEnabled, maxTokens: 1_200).apply(to: &body, maxTokensKey: "max_output_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
@@ -322,7 +330,7 @@ struct OpenAICommitMessageProvider: CommitMessageAIProvider {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "instructions": ConflictAIPrompt.instructions,
             "input": context,
@@ -336,7 +344,9 @@ struct OpenAICommitMessageProvider: CommitMessageAIProvider {
                     "schema": ConflictAIPrompt.responseSchema,
                 ],
             ],
-        ])
+        ]
+        AIThinkingPolicy.openAI(model: model, enabled: modelStore.isThinkingEnabled, maxTokens: 4_000).apply(to: &body, maxTokensKey: "max_output_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)

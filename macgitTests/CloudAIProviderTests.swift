@@ -202,7 +202,7 @@ final class CloudAIProviderTests: XCTestCase {
         }
         XCTAssertNil(try credentialStore.apiKey(for: .anthropic))
 
-        for (id, name) in [(AIProviderID.deepSeek, "DeepSeek"), (.openRouter, "OpenRouter")] {
+        for (id, name) in [(AIProviderID.deepSeek, "DeepSeek"), (.openRouter, "OpenRouter"), (.groq, "Groq")] {
             XCTAssertThrowsError(try controller.applyProviderChanges([
                 AIProviderConfigurationDraft(id: id, apiKey: "restricted-key"),
             ], restrictedProviderAccess: .denied(.requiresPro))) { error in
@@ -253,11 +253,11 @@ final class CloudAIProviderTests: XCTestCase {
         XCTAssertEqual(controller.model(for: descriptor), "claude-custom")
 
         try controller.applyProviderChanges([
-            AIProviderConfigurationDraft(id: .anthropic, model: "claude-haiku-4-5"),
+            AIProviderConfigurationDraft(id: .anthropic, model: "claude-haiku-5-5"),
         ], restrictedProviderAccess: .denied(.requiresPro))
 
         XCTAssertNil(modelStore.customModel(for: .anthropic))
-        XCTAssertEqual(controller.model(for: descriptor), "claude-haiku-4-5")
+        XCTAssertEqual(controller.model(for: descriptor), "claude-haiku-5-5")
     }
 
     func testOpenAIRequestUsesBearerKeyAndParsesStructuredResponse() async throws {
@@ -421,6 +421,208 @@ final class CloudAIProviderTests: XCTestCase {
         XCTAssertNotNil(body["output_config"])
     }
 
+    func testAnthropicLowersEffortWhenThinkingCannotBeDisabled() async throws {
+        let store = InMemoryAIProviderCredentialStore(keys: [.anthropic: "anthropic-secret"])
+        let modelStore = InMemoryAIProviderModelStore(models: [.anthropic: "claude-opus-5-5"], thinkingEnabled: false)
+        let client = StubAIProviderHTTPClient(responseBody: """
+            {"content":[{"type":"thinking","thinking":""},{"type":"text","text":"{\\"type\\":\\"fix\\",\\"subject\\":\\"Handle errors\\",\\"body\\":\\"\\"}"}]}
+            """)
+        let provider = AnthropicCommitMessageProvider(credentialStore: store, modelStore: modelStore, httpClient: client)
+
+        let result = try await provider.generateCommitMessage(request: makeRequest())
+        let receivedRequest = await client.receivedRequest()
+        let body = try requestJSONObject(try XCTUnwrap(receivedRequest))
+
+        XCTAssertEqual(result.subject, "fix: Handle errors")
+        XCTAssertNil(body["thinking"])
+        let outputConfig = try XCTUnwrap(body["output_config"] as? [String: Any])
+        XCTAssertEqual(outputConfig["effort"] as? String, "low")
+        XCTAssertNotNil(outputConfig["format"])
+        XCTAssertEqual(body["max_tokens"] as? Int, 250 + AIThinkingPolicy.minimalReasoningHeadroom)
+    }
+
+    func testAnthropicAgentDoesNotForceToolUseWhileThinking() async throws {
+        let store = InMemoryAIProviderCredentialStore(keys: [.anthropic: "anthropic-secret"])
+        let modelStore = InMemoryAIProviderModelStore(models: [.anthropic: "claude-haiku-5-5"], thinkingEnabled: true)
+        let client = StubAIProviderHTTPClient(responseBody: """
+            {"content":[{"type":"tool_use","id":"toolu_1","name":"review_file","input":{}}]}
+            """)
+        let provider = AnthropicCommitMessageProvider(credentialStore: store, modelStore: modelStore, httpClient: client)
+        let request = RepositoryAIAgentRequest(
+            repositoryName: "Example",
+            branchName: "main",
+            question: "review file",
+            conversation: [],
+            previousToolResults: [],
+            isFirstTurn: true
+        )
+
+        _ = try await provider.generateRepositoryAgentTurn(request: request)
+        let receivedRequest = await client.receivedRequest()
+        let body = try requestJSONObject(try XCTUnwrap(receivedRequest))
+
+        XCTAssertNil(body["tool_choice"])
+        XCTAssertEqual((body["thinking"] as? [String: Any])?["type"] as? String, "adaptive")
+    }
+
+    func testAnthropicAgentReplaysThinkingBlocksWithTheirToolUses() async throws {
+        let store = InMemoryAIProviderCredentialStore(keys: [.anthropic: "anthropic-secret"])
+        let modelStore = InMemoryAIProviderModelStore(models: [.anthropic: "claude-haiku-5-5"], thinkingEnabled: true)
+        let client = StubAIProviderHTTPClient(responseBody: """
+            {"id":"msg_1","content":[{"type":"thinking","thinking":"Check the diff.","signature":"sig-1"},{"type":"redacted_thinking","data":"opaque"},{"type":"tool_use","id":"toolu_1","name":"execute_git","input":{"arguments":["status"]}},{"type":"tool_use","id":"toolu_2","name":"execute_git","input":{"arguments":["diff"]}}]}
+            """)
+        let provider = AnthropicCommitMessageProvider(credentialStore: store, modelStore: modelStore, httpClient: client)
+        let firstTurn = try await provider.generateRepositoryAgentTurn(request: RepositoryAIAgentRequest(
+            repositoryName: "macgit",
+            branchName: "main",
+            question: "Review changes",
+            conversation: [],
+            previousToolResults: [],
+            isFirstTurn: true
+        ))
+        let results = firstTurn.toolCalls.map { call in
+            RepositoryAIAgentToolResult(
+                toolCall: call,
+                commandResult: RepositoryAIGitCommandResult(
+                    displayCommand: "git \(call.arguments.joined(separator: " "))",
+                    output: "output \(call.id)",
+                    succeeded: true,
+                    isTruncated: false
+                )
+            )
+        }
+
+        _ = try await provider.generateRepositoryAgentTurn(request: RepositoryAIAgentRequest(
+            repositoryName: "macgit",
+            branchName: "main",
+            question: "Review changes",
+            conversation: [],
+            previousToolResults: results,
+            isFirstTurn: false
+        ))
+        let receivedRequest = await client.receivedRequest()
+        let body = try requestJSONObject(try XCTUnwrap(receivedRequest))
+        let messages = try XCTUnwrap(body["messages"] as? [[String: Any]])
+
+        let tools = try XCTUnwrap(body["tools"] as? [[String: Any]])
+        let firstTurnToolNames = RepositoryAIAgentToolSchema
+            .declarations(includingQuickActions: true)
+            .compactMap { $0["name"] as? String }
+
+        XCTAssertEqual(tools.compactMap { $0["name"] as? String }, firstTurnToolNames)
+        XCTAssertEqual(messages.count, 3)
+        let assistantContent = try XCTUnwrap(messages[1]["content"] as? [[String: Any]])
+        XCTAssertEqual(assistantContent.map { $0["type"] as? String }, ["thinking", "redacted_thinking", "tool_use", "tool_use"])
+        XCTAssertEqual(assistantContent[0]["thinking"] as? String, "Check the diff.")
+        XCTAssertEqual(assistantContent[0]["signature"] as? String, "sig-1")
+        XCTAssertEqual(assistantContent[1]["data"] as? String, "opaque")
+        XCTAssertEqual(assistantContent.compactMap { $0["id"] as? String }, ["toolu_1", "toolu_2"])
+        let resultContent = try XCTUnwrap(messages[2]["content"] as? [[String: Any]])
+        XCTAssertEqual(resultContent.compactMap { $0["tool_use_id"] as? String }, ["toolu_1", "toolu_2"])
+    }
+
+    func testAnthropicAgentRetriesFirstTurnOnceWhenToolUseCannotBeForced() async throws {
+        let store = InMemoryAIProviderCredentialStore(keys: [.anthropic: "anthropic-secret"])
+        let modelStore = InMemoryAIProviderModelStore(models: [.anthropic: "claude-sonnet-5-5"])
+        let client = StubAIProviderHTTPClient(responseBodies: [
+            #"{"content":[{"type":"text","text":"Looks fine."}]}"#,
+            #"{"content":[{"type":"tool_use","id":"toolu_1","name":"execute_git","input":{"arguments":["status"]}}]}"#,
+        ])
+        let provider = AnthropicCommitMessageProvider(credentialStore: store, modelStore: modelStore, httpClient: client)
+
+        let turn = try await provider.generateRepositoryAgentTurn(request: RepositoryAIAgentRequest(
+            repositoryName: "macgit",
+            branchName: "main",
+            question: "Review changes",
+            conversation: [],
+            previousToolResults: [],
+            isFirstTurn: true
+        ))
+        let requestCount = await client.requestCount()
+        let receivedRequest = await client.receivedRequest()
+        let body = try requestJSONObject(try XCTUnwrap(receivedRequest))
+
+        XCTAssertEqual(requestCount, 2)
+        XCTAssertNil(body["tool_choice"])
+        XCTAssertEqual(turn.toolCalls.map(\.name), ["execute_git"])
+    }
+
+    func testAnthropicAgentKeepsThinkingSettingForTheWholeLoop() async throws {
+        let store = InMemoryAIProviderCredentialStore(keys: [.anthropic: "anthropic-secret"])
+        let modelStore = InMemoryAIProviderModelStore(models: [.anthropic: "claude-sonnet-4-5"])
+        let client = StubAIProviderHTTPClient(responseBody: """
+            {"id":"msg_1","content":[{"type":"tool_use","id":"toolu_1","name":"execute_git","input":{"arguments":["status"]}}]}
+            """)
+        let provider = AnthropicCommitMessageProvider(credentialStore: store, modelStore: modelStore, httpClient: client)
+        let firstTurn = try await provider.generateRepositoryAgentTurn(request: RepositoryAIAgentRequest(
+            repositoryName: "macgit",
+            branchName: "main",
+            question: "Review changes",
+            conversation: [],
+            previousToolResults: [],
+            isFirstTurn: true
+        ))
+        let results = firstTurn.toolCalls.map { call in
+            RepositoryAIAgentToolResult(
+                toolCall: call,
+                commandResult: RepositoryAIGitCommandResult(
+                    displayCommand: "git status",
+                    output: "clean",
+                    succeeded: true,
+                    isTruncated: false
+                )
+            )
+        }
+        modelStore.setThinkingEnabled(true)
+
+        _ = try await provider.generateRepositoryAgentTurn(request: RepositoryAIAgentRequest(
+            repositoryName: "macgit",
+            branchName: "main",
+            question: "Review changes",
+            conversation: [],
+            previousToolResults: results,
+            isFirstTurn: false
+        ))
+        let receivedRequest = await client.receivedRequest()
+        let body = try requestJSONObject(try XCTUnwrap(receivedRequest))
+
+        // The replayed tool use has no thinking block, so thinking must stay off.
+        XCTAssertNil(body["thinking"])
+    }
+
+    func testOpenRouterCapabilityStoreBacksOffAfterAFailedLoad() async {
+        let client = StubAIProviderHTTPClient(responseBody: "{}", statusCode: 503)
+        let capabilities = OpenRouterReasoningCapabilityStore(httpClient: client)
+
+        let first = await capabilities.capability(for: "z-ai/glm-5.3-flash")
+        let second = await capabilities.capability(for: "z-ai/glm-5.3-flash")
+        let requestCount = await client.requestCount()
+
+        XCTAssertNil(first)
+        XCTAssertNil(second)
+        XCTAssertEqual(requestCount, 1)
+    }
+
+    func testOpenRouterCapabilityStoreRefreshesForUnknownModelsAfterInterval() async {
+        let client = StubAIProviderHTTPClient(responseBodies: [
+            #"{"data":[]}"#,
+            #"{"data":[{"id":"new/model","reasoning":{"mandatory":false,"supported_efforts":["none","low"]}}]}"#,
+        ])
+        let clock = TestClock()
+        let capabilities = OpenRouterReasoningCapabilityStore(httpClient: client, now: { clock.now })
+
+        let before = await capabilities.capability(for: "new/model")
+        let cached = await capabilities.capability(for: "new/model")
+        clock.advance(by: OpenRouterReasoningCapabilityStore.unknownModelRefreshInterval)
+        let after = await capabilities.capability(for: "new/model")
+        let requestCount = await client.requestCount()
+
+        XCTAssertNil(before)
+        XCTAssertNil(cached)
+        XCTAssertEqual(after?.supportedEfforts, ["none", "low"])
+        XCTAssertEqual(requestCount, 2)
+    }
+
     func testGeminiRequestUsesHeaderKeyAndStructuredOutputSchema() async throws {
         let store = InMemoryAIProviderCredentialStore(keys: [.googleGemini: "gemini-secret"])
         let modelStore = InMemoryAIProviderModelStore(models: [.googleGemini: "gemini-custom"])
@@ -571,6 +773,74 @@ final class CloudAIProviderTests: XCTestCase {
         XCTAssertEqual((body["thinking"] as? [String: Any])?["type"] as? String, "disabled")
     }
 
+    func testGroqRequestUsesBearerKeyAndJSONMode() async throws {
+        let store = InMemoryAIProviderCredentialStore(keys: [.groq: "groq-secret"])
+        let modelStore = InMemoryAIProviderModelStore(models: [.groq: "groq-custom"])
+        let client = StubAIProviderHTTPClient(responseBody: """
+            {"choices":[{"message":{"role":"assistant","content":"{\\"type\\":\\"feat\\",\\"subject\\":\\"Add Groq generation\\",\\"body\\":\\"\\"}"}}]}
+            """)
+        let provider = GroqCommitMessageProvider(
+            credentialStore: store,
+            modelStore: modelStore,
+            httpClient: client
+        )
+
+        let result = try await provider.generateCommitMessage(request: makeRequest())
+        let receivedRequest = await client.receivedRequest()
+        let request = try XCTUnwrap(receivedRequest)
+
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer groq-secret")
+        XCTAssertEqual(request.url?.absoluteString, "https://api.groq.com/openai/v1/chat/completions")
+        XCTAssertEqual(result.text, "feat: Add Groq generation")
+        let body = try requestJSONObject(request)
+        XCTAssertEqual(body["model"] as? String, "groq-custom")
+        XCTAssertEqual((body["response_format"] as? [String: Any])?["type"] as? String, "json_object")
+        XCTAssertNil(body["thinking"])
+    }
+
+    func testGroqRecoversJSONFromFailedGeneration() async throws {
+        let store = InMemoryAIProviderCredentialStore(keys: [.groq: "groq-secret"])
+        let client = StubAIProviderHTTPClient(responseBody: """
+            {"error":{"message":"Failed to validate JSON.","type":"invalid_request_error","code":"json_validate_failed","failed_generation":"Here it is: {\\"type\\":\\"feat\\",\\"subject\\":\\"Add Groq\\",\\"body\\":\\"\\"}"}}
+            """, statusCode: 400)
+        let provider = GroqCommitMessageProvider(
+            credentialStore: store,
+            modelStore: InMemoryAIProviderModelStore(models: [.groq: "llama-3.3-70b-versatile"]),
+            httpClient: client
+        )
+
+        let result = try await provider.generateCommitMessage(request: makeRequest())
+        let requestCount = await client.requestCount()
+
+        XCTAssertEqual(result.subject, "feat: Add Groq")
+        XCTAssertEqual(requestCount, 1)
+    }
+
+    func testOpenRouterUsesLowestEffortForMandatoryReasoningWhenThinkingIsOff() async throws {
+        let store = InMemoryAIProviderCredentialStore(keys: [.openRouter: "openrouter-secret"])
+        let modelStore = InMemoryAIProviderModelStore(models: [.openRouter: "z-ai/glm-5.3-flash"])
+        let capabilities = OpenRouterReasoningCapabilityStore(httpClient: StubAIProviderHTTPClient(responseBody: """
+            {"data":[{"id":"z-ai/glm-5.3-flash","reasoning":{"mandatory":true,"supported_efforts":["max","high","low"]}}]}
+            """))
+        let client = StubAIProviderHTTPClient(responseBody: """
+            {"choices":[{"message":{"role":"assistant","content":"{\\"type\\":\\"feat\\",\\"subject\\":\\"Add GLM\\",\\"body\\":\\"\\"}"}}]}
+            """)
+        let provider = OpenRouterCommitMessageProvider(
+            credentialStore: store,
+            modelStore: modelStore,
+            httpClient: client,
+            reasoningCapabilities: capabilities
+        )
+
+        _ = try await provider.generateCommitMessage(request: makeRequest())
+        let receivedRequest = await client.receivedRequest()
+        let body = try requestJSONObject(try XCTUnwrap(receivedRequest))
+
+        let reasoning = try XCTUnwrap(body["reasoning"] as? [String: Any])
+        XCTAssertEqual(reasoning["effort"] as? String, "low")
+        XCTAssertEqual(body["max_completion_tokens"] as? Int, 250 + AIThinkingPolicy.minimalReasoningHeadroom)
+    }
+
     func testDeepSeekAgentAcceptsAnEquivalentRawArgumentArray() async throws {
         let store = InMemoryAIProviderCredentialStore(keys: [.deepSeek: "deepseek-secret"])
         let client = StubAIProviderHTTPClient(responseBody: """
@@ -592,6 +862,30 @@ final class CloudAIProviderTests: XCTestCase {
         XCTAssertEqual(turn.toolCalls.first?.arguments, ["diff", "--cached"])
     }
 
+    func testDeepSeekAgentKeepsThinkingDisabledWithForcedToolUse() async throws {
+        let store = InMemoryAIProviderCredentialStore(keys: [.deepSeek: "deepseek-secret"])
+        let modelStore = InMemoryAIProviderModelStore(models: [.deepSeek: "deepseek-custom"], thinkingEnabled: true)
+        let client = StubAIProviderHTTPClient(responseBody: """
+            {"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","function":{"name":"execute_git","arguments":"{\\"arguments\\":[\\"status\\"]}"}}]}}]}
+            """)
+        let provider = DeepSeekCommitMessageProvider(credentialStore: store, modelStore: modelStore, httpClient: client)
+
+        _ = try await provider.generateRepositoryAgentTurn(request: RepositoryAIAgentRequest(
+            repositoryName: "macgit",
+            branchName: "main",
+            question: "Review changes",
+            conversation: [],
+            previousToolResults: [],
+            isFirstTurn: true
+        ))
+        let receivedRequest = await client.receivedRequest()
+        let body = try requestJSONObject(try XCTUnwrap(receivedRequest))
+
+        XCTAssertEqual(body["tool_choice"] as? String, "required")
+        XCTAssertEqual((body["thinking"] as? [String: Any])?["type"] as? String, "disabled")
+        XCTAssertEqual(body["max_tokens"] as? Int, 1_200)
+    }
+
     func testOpenRouterRequestUsesBearerKeyAndStructuredOutput() async throws {
         let store = InMemoryAIProviderCredentialStore(keys: [.openRouter: "openrouter-secret"])
         let modelStore = InMemoryAIProviderModelStore(models: [.openRouter: "vendor/model"])
@@ -601,7 +895,8 @@ final class CloudAIProviderTests: XCTestCase {
         let provider = OpenRouterCommitMessageProvider(
             credentialStore: store,
             modelStore: modelStore,
-            httpClient: client
+            httpClient: client,
+            reasoningCapabilities: .offline
         )
 
         let result = try await provider.generateCommitMessage(request: makeRequest())
@@ -629,7 +924,8 @@ final class CloudAIProviderTests: XCTestCase {
             """)
         let provider = OpenRouterCommitMessageProvider(
             credentialStore: store,
-            httpClient: client
+            httpClient: client,
+            reasoningCapabilities: .offline
         )
 
         let result = try await provider.generateCommitMessage(request: makeRequest())
@@ -644,7 +940,8 @@ final class CloudAIProviderTests: XCTestCase {
             """)
         let provider = OpenRouterCommitMessageProvider(
             credentialStore: store,
-            httpClient: client
+            httpClient: client,
+            reasoningCapabilities: .offline
         )
 
         do {
@@ -669,7 +966,8 @@ final class CloudAIProviderTests: XCTestCase {
             """)
         let provider = OpenRouterCommitMessageProvider(
             credentialStore: store,
-            httpClient: client
+            httpClient: client,
+            reasoningCapabilities: .offline
         )
 
         let result = try await provider.generateRepositoryResponse(
@@ -695,7 +993,8 @@ final class CloudAIProviderTests: XCTestCase {
         ])
         let provider = OpenRouterCommitMessageProvider(
             credentialStore: store,
-            httpClient: client
+            httpClient: client,
+            reasoningCapabilities: .offline
         )
 
         let result = try await provider.generateRepositoryResponse(
@@ -715,7 +1014,8 @@ final class CloudAIProviderTests: XCTestCase {
         let client = StubAIProviderHTTPClient(responseBodies: [response, response])
         let provider = OpenRouterCommitMessageProvider(
             credentialStore: store,
-            httpClient: client
+            httpClient: client,
+            reasoningCapabilities: .offline
         )
 
         do {
@@ -839,9 +1139,19 @@ final class InMemoryAIProviderCredentialStore: AIProviderCredentialStore, @unche
 final class InMemoryAIProviderModelStore: AIProviderModelStore, @unchecked Sendable {
     private let lock = NSLock()
     private var models: [AIProviderID: String]
+    private var thinkingEnabled: Bool
 
-    init(models: [AIProviderID: String] = [:]) {
+    init(models: [AIProviderID: String] = [:], thinkingEnabled: Bool = false) {
         self.models = models
+        self.thinkingEnabled = thinkingEnabled
+    }
+
+    var isThinkingEnabled: Bool {
+        lock.withLock { thinkingEnabled }
+    }
+
+    func setThinkingEnabled(_ isEnabled: Bool) {
+        lock.withLock { thinkingEnabled = isEnabled }
     }
 
     func customModel(for providerID: AIProviderID) -> String? {
@@ -854,6 +1164,28 @@ final class InMemoryAIProviderModelStore: AIProviderModelStore, @unchecked Senda
 
     func resetModel(for providerID: AIProviderID) {
         lock.withLock { models.removeValue(forKey: providerID) }
+    }
+}
+
+extension OpenRouterReasoningCapabilityStore {
+    /// Never loads capabilities, so tests send no extra request and no reasoning fields.
+    static let offline = OpenRouterReasoningCapabilityStore(httpClient: OfflineAIProviderHTTPClient())
+}
+
+private final class TestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var date = Date(timeIntervalSince1970: 0)
+
+    var now: Date { lock.withLock { date } }
+
+    func advance(by interval: TimeInterval) {
+        lock.withLock { date += interval }
+    }
+}
+
+struct OfflineAIProviderHTTPClient: AIProviderHTTPClient {
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        throw URLError(.notConnectedToInternet)
     }
 }
 

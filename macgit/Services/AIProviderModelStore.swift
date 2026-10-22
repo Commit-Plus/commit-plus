@@ -22,17 +22,24 @@ protocol AIProviderModelStore: Sendable {
     func customModel(for providerID: AIProviderID) -> String?
     func saveCustomModel(_ model: String, for providerID: AIProviderID)
     func resetModel(for providerID: AIProviderID)
+    /// The Settings → AI "Thinking" setting, shared by every provider.
+    var isThinkingEnabled: Bool { get }
+    func setThinkingEnabled(_ isEnabled: Bool)
 }
 
 extension AIProviderModelStore {
     func model(for descriptor: AIProviderDescriptor) -> String? {
         customModel(for: descriptor.id) ?? descriptor.defaultModel
     }
+
+    var isThinkingEnabled: Bool { false }
+    func setThinkingEnabled(_ isEnabled: Bool) {}
 }
 
 final class UserDefaultsAIProviderModelStore: AIProviderModelStore, @unchecked Sendable {
     private let defaults: UserDefaults
     private let keyPrefix = "ai.commitMessage.modelOverride."
+    private let thinkingKey = "ai.thinkingEnabled"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -50,6 +57,14 @@ final class UserDefaultsAIProviderModelStore: AIProviderModelStore, @unchecked S
 
     func resetModel(for providerID: AIProviderID) {
         defaults.removeObject(forKey: key(for: providerID))
+    }
+
+    var isThinkingEnabled: Bool {
+        defaults.bool(forKey: thinkingKey)
+    }
+
+    func setThinkingEnabled(_ isEnabled: Bool) {
+        defaults.set(isEnabled, forKey: thinkingKey)
     }
 
     private func key(for providerID: AIProviderID) -> String {

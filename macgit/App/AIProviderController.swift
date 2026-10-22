@@ -26,6 +26,7 @@ final class AIProviderController: ObservableObject {
     private var commitMessageGenerationID: UUID?
     @Published private(set) var isGenerating = false
     @Published private(set) var selectedProviderID: AIProviderID
+    @Published private(set) var isThinkingEnabled: Bool
 
     @Published private(set) var availabilityRevision = 0
     private var availabilityTasks: [AIProviderID: (id: UUID, task: Task<AIProviderAvailability, Never>)] = [:]
@@ -92,6 +93,7 @@ final class AIProviderController: ObservableObject {
         self.defaults = defaults
         self.credentialStore = credentialStore
         self.modelStore = modelStore
+        isThinkingEnabled = modelStore.isThinkingEnabled
         let storedID = defaults.string(forKey: selectedProviderDefaultsKey).map(AIProviderID.init(rawValue:))
         if let storedID, registry.provider(for: storedID)?.descriptor.isImplemented == true {
             selectedProviderID = storedID
@@ -146,6 +148,12 @@ final class AIProviderController: ObservableObject {
         selectedProviderID = id
         defaults.set(id.rawValue, forKey: selectedProviderDefaultsKey)
         Task { await refreshAvailability(for: id) }
+    }
+
+    /// Applies to every provider on its next request; providers read it from the model store.
+    func setThinkingEnabled(_ isEnabled: Bool) {
+        modelStore.setThinkingEnabled(isEnabled)
+        isThinkingEnabled = isEnabled
     }
 
     func isAPIKeyConfigured(for id: AIProviderID) -> Bool {
