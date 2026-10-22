@@ -62,6 +62,11 @@ struct AIProviderRegistry: Sendable {
                 modelStore: modelStore,
                 httpClient: httpClient
             ),
+            GroqCommitMessageProvider(
+                credentialStore: credentialStore,
+                modelStore: modelStore,
+                httpClient: httpClient
+            ),
         ]
         if let managedProvider { providers.insert(managedProvider, at: 1) }
         return Self(providers: providers)

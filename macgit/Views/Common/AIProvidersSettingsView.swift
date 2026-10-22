@@ -40,7 +40,7 @@ struct AIProvidersSettingsView: View {
 
                 if controller.selectedDescriptor.billing != .commitPlus {
                     LabeledContent("Model") {
-                        Text(controller.model(for: controller.selectedDescriptor) ?? "On-device")
+                        Text(modelName(for: controller.selectedDescriptor) ?? "On-device")
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -53,6 +53,18 @@ struct AIProvidersSettingsView: View {
             if controller.selectedDescriptor.billing == .commitPlus,
                let usage = controller.managedUsageController {
                 CommitPlusAIUsageView(controller: usage)
+            }
+
+            Section {
+                Toggle(isOn: Binding(
+                    get: { controller.isThinkingEnabled },
+                    set: { controller.setThinkingEnabled($0) }
+                )) {
+                    Text("Thinking")
+                    Text("Let models that support it reason before answering. Responses take longer and use more tokens.")
+                }
+            } footer: {
+                Text("Applies to every provider you configure here. When off, thinking is turned off where the model allows it, or set to its lowest level on models that always think. Apple Intelligence and Commit+ AI are not affected.")
             }
 
             Section {
@@ -135,7 +147,7 @@ struct AIProvidersSettingsView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(descriptor.displayName)
-                Text(controller.model(for: descriptor) ?? "")
+                Text(modelName(for: descriptor) ?? "")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -164,6 +176,12 @@ struct AIProvidersSettingsView: View {
         .contextMenu {
             Button("Edit…") { configuringProviderID = descriptor.id }
             Button("Remove…", role: .destructive) { removingProviderID = descriptor.id }
+        }
+    }
+
+    private func modelName(for descriptor: AIProviderDescriptor) -> String? {
+        controller.model(for: descriptor).map {
+            AIProviderModelCatalog.displayName(for: $0, provider: descriptor.id)
         }
     }
 

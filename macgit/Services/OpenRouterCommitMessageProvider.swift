@@ -37,6 +37,7 @@ struct OpenRouterCommitMessageProvider: CommitMessageAIProvider {
     private let httpClient: any AIProviderHTTPClient
     private let endpoint: URL
     private let streamingSession: URLSession
+    private let reasoningCapabilities: OpenRouterReasoningCapabilityStore
 
     var supportsRepositoryAgent: Bool { true }
 
@@ -45,13 +46,15 @@ struct OpenRouterCommitMessageProvider: CommitMessageAIProvider {
         modelStore: any AIProviderModelStore = UserDefaultsAIProviderModelStore(),
         httpClient: any AIProviderHTTPClient = URLSessionAIProviderHTTPClient(),
         endpoint: URL = URL(string: "https://openrouter.ai/api/v1/chat/completions")!,
-        streamingSession: URLSession = .shared
+        streamingSession: URLSession = .shared,
+        reasoningCapabilities: OpenRouterReasoningCapabilityStore = .shared
     ) {
         self.credentialStore = credentialStore
         self.modelStore = modelStore
         self.httpClient = httpClient
         self.endpoint = endpoint
         self.streamingSession = streamingSession
+        self.reasoningCapabilities = reasoningCapabilities
     }
 
     func availability() async -> AIProviderAvailability {
@@ -65,11 +68,12 @@ struct OpenRouterCommitMessageProvider: CommitMessageAIProvider {
         guard let model = modelStore.model(for: descriptor) else {
             throw CommitMessageGenerationError.providerRequestFailed("OpenRouter model is not configured.")
         }
+        let reasoningCapability = await reasoningCapabilities.capability(for: model)
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "messages": [
                 ["role": "system", "content": CloudCommitMessagePrompt.jsonInstructions],
@@ -86,7 +90,9 @@ struct OpenRouterCommitMessageProvider: CommitMessageAIProvider {
             ],
             "provider": ["require_parameters": true],
             "plugins": [["id": "response-healing"]],
-        ])
+        ]
+        AIThinkingPolicy.openRouter(capability: reasoningCapability, enabled: modelStore.isThinkingEnabled, maxTokens: 250).apply(to: &body, maxTokensKey: "max_completion_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
@@ -112,6 +118,7 @@ struct OpenRouterCommitMessageProvider: CommitMessageAIProvider {
         guard let model = modelStore.model(for: descriptor) else {
             throw CommitMessageGenerationError.providerRequestFailed("OpenRouter model is not configured.")
         }
+        let reasoningCapability = await reasoningCapabilities.capability(for: model)
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -128,6 +135,8 @@ struct OpenRouterCommitMessageProvider: CommitMessageAIProvider {
            !sessionID.isEmpty {
             requestBody["session_id"] = sessionID
         }
+        AIThinkingPolicy.openRouter(capability: reasoningCapability, enabled: modelStore.isThinkingEnabled, maxTokens: 3_000)
+            .apply(to: &requestBody, maxTokensKey: "max_completion_tokens")
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
 
         for attempt in 0..<2 {
@@ -172,6 +181,7 @@ struct OpenRouterCommitMessageProvider: CommitMessageAIProvider {
         guard let model = modelStore.model(for: descriptor) else {
             throw CommitMessageGenerationError.providerRequestFailed("OpenRouter model is not configured.")
         }
+        let reasoningCapability = await reasoningCapabilities.capability(for: model)
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -189,6 +199,7 @@ struct OpenRouterCommitMessageProvider: CommitMessageAIProvider {
         if let sessionID = request.sessionID?.trimmingCharacters(in: .whitespacesAndNewlines), !sessionID.isEmpty {
             body["session_id"] = sessionID
         }
+        AIThinkingPolicy.openRouter(capability: reasoningCapability, enabled: modelStore.isThinkingEnabled, maxTokens: 3_000).apply(to: &body, maxTokensKey: "max_completion_tokens")
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         try Task.checkCancellation()
@@ -246,6 +257,7 @@ struct OpenRouterCommitMessageProvider: CommitMessageAIProvider {
         guard let model = modelStore.model(for: descriptor) else {
             throw CommitMessageGenerationError.providerRequestFailed("OpenRouter model is not configured.")
         }
+        let reasoningCapability = await reasoningCapabilities.capability(for: model)
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -261,14 +273,16 @@ struct OpenRouterCommitMessageProvider: CommitMessageAIProvider {
             .map { declaration in
                 ["type": "function", "function": declaration] as [String: Any]
             }
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "messages": messages,
             "tools": tools,
             "tool_choice": request.isFirstTurn ? "required" : "auto",
             "max_completion_tokens": 1_200,
             "provider": ["require_parameters": true],
-        ])
+        ]
+        AIThinkingPolicy.openRouter(capability: reasoningCapability, enabled: modelStore.isThinkingEnabled, maxTokens: 1_200).apply(to: &body, maxTokensKey: "max_completion_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
@@ -337,6 +351,7 @@ struct OpenRouterCommitMessageProvider: CommitMessageAIProvider {
         guard let model = modelStore.model(for: descriptor) else {
             throw CommitMessageGenerationError.providerRequestFailed("OpenRouter model is not configured.")
         }
+        let reasoningCapability = await reasoningCapabilities.capability(for: model)
         let context = try ConflictAIPrompt.context(
             for: request.snapshot,
             characterBudget: descriptor.inputCharacterBudget
@@ -345,7 +360,7 @@ struct OpenRouterCommitMessageProvider: CommitMessageAIProvider {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "messages": [
                 ["role": "system", "content": ConflictAIPrompt.instructions],
@@ -362,7 +377,9 @@ struct OpenRouterCommitMessageProvider: CommitMessageAIProvider {
             ],
             "provider": ["require_parameters": true],
             "plugins": [["id": "response-healing"]],
-        ])
+        ]
+        AIThinkingPolicy.openRouter(capability: reasoningCapability, enabled: modelStore.isThinkingEnabled, maxTokens: 4_000).apply(to: &body, maxTokensKey: "max_completion_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)

@@ -23,11 +23,11 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
         id: .anthropic,
         displayName: "Claude",
         systemImage: "cloud",
-        detail: "Cloud · Claude Haiku 4.5",
+        detail: "Cloud · Claude Haiku 5.5",
         dataProcessing: .cloud,
         billing: .bringYourOwnKey,
         requiresProToConfigureAPIKey: true,
-        defaultModel: "claude-haiku-4-5",
+        defaultModel: "claude-haiku-5-5",
         inputCharacterBudget: 12_000,
         isImplemented: true
     )
@@ -67,7 +67,7 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
         urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "max_tokens": 250,
             "system": CloudCommitMessagePrompt.instructions,
@@ -81,7 +81,9 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
                 "role": "user",
                 "content": CloudCommitMessagePrompt.userPrompt(for: request),
             ]],
-        ])
+        ]
+        AIThinkingPolicy.claude(model: model, enabled: modelStore.isThinkingEnabled, maxTokens: 250).apply(to: &body, maxTokensKey: "max_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
@@ -107,7 +109,7 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
         urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "max_tokens": 3_000,
             "system": RepositoryAIPrompt.instructions(for: request),
@@ -115,7 +117,9 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
                 "role": "user",
                 "content": RepositoryAIPrompt.userPrompt(for: request),
             ]],
-        ])
+        ]
+        AIThinkingPolicy.claude(model: model, enabled: modelStore.isThinkingEnabled, maxTokens: 3_000).apply(to: &body, maxTokensKey: "max_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
@@ -184,7 +188,10 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
             "messages": messages,
             "tools": tools,
         ]
-        if request.isFirstTurn {
+        let thinking = AIThinkingPolicy.claude(model: model, enabled: modelStore.isThinkingEnabled, maxTokens: 1_200)
+        thinking.apply(to: &body, maxTokensKey: "max_tokens")
+        // Newer models and thinking requests reject forced tool use; the agent prompt already asks for a tool call.
+        if request.isFirstTurn, thinking.allowsForcedToolChoice {
             body["tool_choice"] = ["type": "any"]
         }
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -229,7 +236,7 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
         urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+        var body: [String: Any] = [
             "model": model,
             "max_tokens": 4_000,
             "system": ConflictAIPrompt.instructions,
@@ -240,7 +247,9 @@ struct AnthropicCommitMessageProvider: CommitMessageAIProvider {
                 ],
             ],
             "messages": [["role": "user", "content": context]],
-        ])
+        ]
+        AIThinkingPolicy.claude(model: model, enabled: modelStore.isThinkingEnabled, maxTokens: 4_000).apply(to: &body, maxTokensKey: "max_tokens")
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)

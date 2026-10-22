@@ -76,13 +76,10 @@ struct GeminiCommitMessageProvider: CommitMessageAIProvider {
                 "parts": [["text": CloudCommitMessagePrompt.userPrompt(for: request)]],
             ]],
             "generationConfig": [
-                "maxOutputTokens": 512,
+                "maxOutputTokens": thinking(for: model, maxTokens: 512).maxTokens,
                 "responseMimeType": "application/json",
                 "responseJsonSchema": CloudCommitMessagePrompt.responseSchema,
-                "thinkingConfig": [
-                    "thinkingLevel": "MINIMAL",
-                    "includeThoughts": false,
-                ],
+                "thinkingConfig": thinking(for: model, maxTokens: 512).thinkingConfig,
             ],
             "store": false,
         ])
@@ -154,8 +151,8 @@ struct GeminiCommitMessageProvider: CommitMessageAIProvider {
                 "parts": [["text": RepositoryAIPrompt.userPrompt(for: request)]],
             ]],
             "generationConfig": [
-                "maxOutputTokens": 3_000,
-                "thinkingConfig": ["thinkingLevel": "MINIMAL", "includeThoughts": false],
+                "maxOutputTokens": thinking(for: model, maxTokens: 3_000).maxTokens,
+                "thinkingConfig": thinking(for: model, maxTokens: 3_000).thinkingConfig,
             ],
             "store": false,
         ])
@@ -248,8 +245,8 @@ struct GeminiCommitMessageProvider: CommitMessageAIProvider {
                 "functionCallingConfig": functionCallingConfig,
             ],
             "generationConfig": [
-                "maxOutputTokens": 1_200,
-                "thinkingConfig": ["thinkingLevel": "MINIMAL", "includeThoughts": false],
+                "maxOutputTokens": thinking(for: model, maxTokens: 1_200).maxTokens,
+                "thinkingConfig": thinking(for: model, maxTokens: 1_200).thinkingConfig,
             ],
             "store": false,
         ])
@@ -305,10 +302,10 @@ struct GeminiCommitMessageProvider: CommitMessageAIProvider {
             "systemInstruction": ["parts": [["text": ConflictAIPrompt.instructions]]],
             "contents": [["role": "user", "parts": [["text": context]]]],
             "generationConfig": [
-                "maxOutputTokens": 4_096,
+                "maxOutputTokens": thinking(for: model, maxTokens: 4_096).maxTokens,
                 "responseMimeType": "application/json",
                 "responseJsonSchema": ConflictAIPrompt.responseSchema,
-                "thinkingConfig": ["thinkingLevel": "MINIMAL", "includeThoughts": false],
+                "thinkingConfig": thinking(for: model, maxTokens: 4_096).thinkingConfig,
             ],
             "store": false,
         ])
@@ -338,6 +335,10 @@ struct GeminiCommitMessageProvider: CommitMessageAIProvider {
         throw ConflictAIResolutionError.invalidResponse(
             "Gemini did not return a conflict-resolution plan."
         )
+    }
+
+    private func thinking(for model: String, maxTokens: Int) -> (thinkingConfig: [String: Any], maxTokens: Int) {
+        AIThinkingPolicy.gemini(model: model, enabled: modelStore.isThinkingEnabled, maxTokens: maxTokens)
     }
 
     private struct Response: Decodable {

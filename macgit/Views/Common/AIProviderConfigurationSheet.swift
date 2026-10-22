@@ -13,6 +13,9 @@ struct AIProviderConfigurationSheet: View {
     let onAccessAction: () -> Void
     @State private var draft: AIProviderConfigurationDraft
     @State private var saveErrorMessage: String?
+    @State private var isUsingCustomModel: Bool
+
+    private static let customModelTag = "\u{0}custom"
 
     init(
         descriptor: AIProviderDescriptor,
@@ -28,10 +31,24 @@ struct AIProviderConfigurationSheet: View {
         self.restrictedProviderAccess = restrictedProviderAccess
         self.isOpeningAccess = isOpeningAccess
         self.onAccessAction = onAccessAction
-        _draft = State(initialValue: AIProviderConfigurationDraft(
-            id: descriptor.id,
-            model: controller.model(for: descriptor) ?? ""
-        ))
+        let model = controller.model(for: descriptor) ?? ""
+        _draft = State(initialValue: AIProviderConfigurationDraft(id: descriptor.id, model: model))
+        let suggestions = AIProviderModelCatalog.suggestions(for: descriptor.id)
+        _isUsingCustomModel = State(initialValue: !suggestions.contains { $0.id == model })
+    }
+
+    private var modelSelection: Binding<String> {
+        Binding(
+            get: { isUsingCustomModel ? Self.customModelTag : normalizedModel },
+            set: { tag in
+                if tag == Self.customModelTag {
+                    isUsingCustomModel = true
+                } else {
+                    isUsingCustomModel = false
+                    draft.model = tag
+                }
+            }
+        )
     }
 
     private var isConfigured: Bool {
@@ -118,18 +135,45 @@ struct AIProviderConfigurationSheet: View {
                 }
 
                 Section {
-                    LabeledContent("Model ID") {
-                        TextField("", text: $draft.model, prompt: Text(descriptor.defaultModel ?? ""))
-                            .labelsHidden()
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: 300)
-                            .disabled(!canConfigureModel)
-                            .accessibilityLabel("\(descriptor.displayName) model ID")
+                    let groups = AIProviderModelCatalog.groupedSuggestions(for: descriptor.id)
+                    if !groups.isEmpty {
+                        Picker("Model", selection: modelSelection) {
+                            ForEach(groups, id: \.group) { group in
+                                Section(group.group) {
+                                    ForEach(group.options) { option in
+                                        Text(option.name).tag(option.id)
+                                    }
+                                }
+                            }
+                            Divider()
+                            Text("Other…").tag(Self.customModelTag)
+                        }
+                        .disabled(!canConfigureModel)
+                    }
+
+                    if groups.isEmpty || isUsingCustomModel {
+                        LabeledContent("Model ID") {
+                            TextField("", text: $draft.model, prompt: Text(descriptor.defaultModel ?? ""))
+                                .labelsHidden()
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: 300)
+                                .disabled(!canConfigureModel)
+                                .accessibilityLabel("\(descriptor.displayName) model ID")
+                        }
+                    } else {
+                        LabeledContent("Model ID") {
+                            Text(normalizedModel)
+                                .font(.callout.monospaced())
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
                     }
 
                     if canConfigureModel, !isUsingDefaultModel {
                         Button("Reset to Default Model") {
                             draft.model = descriptor.defaultModel ?? ""
+                            isUsingCustomModel = !AIProviderModelCatalog.suggestions(for: descriptor.id)
+                                .contains { $0.id == draft.model }
                         }
                         .buttonStyle(.link)
                     }
@@ -137,7 +181,7 @@ struct AIProviderConfigurationSheet: View {
                     Text("Model")
                 } footer: {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Enter a model ID supported by this provider’s API.")
+                        Text("Choose a suggested model, or choose Other… to enter any model ID this provider’s API supports.")
 
                         if descriptor.id == .openRouter {
                             Text("Do not use openrouter/free.")
@@ -200,7 +244,7 @@ struct AIProviderConfigurationSheet: View {
             return "This existing key remains available for AI generation. You can change its model or remove it, but replacing it requires Commit+ Pro."
         }
         if !canConfigureKey {
-            return "OpenAI and Gemini keys are available on the Free plan. Commit+ Pro unlocks Claude, DeepSeek, OpenRouter, and additional AI providers."
+            return "OpenAI and Gemini keys are available on the Free plan. Commit+ Pro unlocks Claude, DeepSeek, OpenRouter, Groq, and additional AI providers."
         }
         return "API keys are stored in this Mac’s Keychain and are never synced."
     }

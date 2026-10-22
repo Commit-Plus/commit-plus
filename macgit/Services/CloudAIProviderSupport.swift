@@ -35,7 +35,7 @@ enum CloudAIProviderSupport {
     ) -> AIProviderAvailability {
         do {
             return try credentialStore.apiKey(for: descriptor.id) == nil
-                ? .unavailable("Add an API key in Settings → AI Providers.")
+                ? .unavailable("Add an API key in Settings → AI.")
                 : .available
         } catch {
             return .unavailable(error.localizedDescription)
@@ -51,7 +51,7 @@ enum CloudAIProviderSupport {
             let message = providerErrorMessage(from: data)
             if response.statusCode == 401 || response.statusCode == 403 {
                 throw CommitMessageGenerationError.providerRequestFailed(
-                    "\(providerName) rejected the API key. Replace it in Settings → AI Providers."
+                    "\(providerName) rejected the API key. Replace it in Settings → AI."
                 )
             }
             throw CommitMessageGenerationError.providerRequestFailed(
