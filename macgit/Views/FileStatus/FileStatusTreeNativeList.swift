@@ -174,6 +174,8 @@ struct FileStatusTreeNativeList: NSViewRepresentable {
         }
 
         private func viewportAnchor(_ source: [Row]) -> (String, CGFloat)? {
+            // At the top, stay there so rows inserted above the first visible row are shown.
+            guard table.visibleRect.minY > 0 else { return nil }
             let visible = table.rows(in: table.visibleRect)
             guard visible.location != NSNotFound, source.indices.contains(visible.location) else { return nil }
             return (source[visible.location].id, table.visibleRect.minY - table.rect(ofRow: visible.location).minY)

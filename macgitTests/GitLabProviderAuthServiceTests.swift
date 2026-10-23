@@ -129,9 +129,97 @@ final class GitLabProviderAuthServiceTests: XCTestCase {
         XCTAssertEqual(request.url?.absoluteString, "https://gitlab.example.com/oauth/token")
         XCTAssertTrue(body.contains("grant_type=refresh_token"))
         XCTAssertTrue(body.contains("refresh_token=old-refresh-token"))
+        let redirectURI = URLComponents(string: "?\(body)")?.queryItems?.first { $0.name == "redirect_uri" }?.value
+        XCTAssertEqual(redirectURI, "https://commitplus.app/oauth/gitlab/callback")
         XCTAssertEqual(token.accessToken, "new-token")
         XCTAssertEqual(token.refreshToken, "new-refresh-token")
         XCTAssertEqual(token.expiresAt, Date(timeIntervalSince1970: 1_700_007_200))
+    }
+
+    func testAppConfigurationUsesCommitPlusCallbackPage() {
+        let configuration = GitLabProviderAuthConfiguration.appConfiguration()
+
+        XCTAssertEqual(configuration.redirectURI.absoluteString, "https://commitplus.app/oauth/gitlab/callback")
+        XCTAssertEqual(configuration.appCallbackURL.absoluteString, "macgit://git-provider/oauth/gitlab/callback")
+    }
+
+    func testOAuthSessionRedirectsThroughWebPageToAppCallback() {
+        let service = makeService(httpClient: StubGitLabAuthHTTPClient())
+
+        let session = service.makeOAuthSession(host: .gitlabDotCom)
+
+        XCTAssertEqual(session.provider, .gitlab)
+        XCTAssertEqual(session.host, GitProviderHost.gitlabDotCom.normalized)
+        XCTAssertEqual(session.redirectURI.absoluteString, "https://commitplus.app/oauth/gitlab/callback")
+        XCTAssertEqual(session.callbackURL.absoluteString, "macgit://git-provider/oauth/gitlab/callback")
+        XCTAssertEqual(session.startedAt, Date(timeIntervalSince1970: 1_700_000_000))
+        XCTAssertFalse(session.state.isEmpty)
+        XCTAssertNotEqual(session.state, service.makeOAuthSession(host: .gitlabDotCom).state)
+    }
+
+    func testAuthorizationURLCarriesRedirectStateAndS256Challenge() throws {
+        let service = makeService(httpClient: StubGitLabAuthHTTPClient())
+        let session = service.makeOAuthSession(host: .gitlabDotCom)
+
+        let url = try service.authorizationURL(for: session)
+
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        XCTAssertEqual(components.host, "gitlab.com")
+        XCTAssertEqual(components.path, "/oauth/authorize")
+        XCTAssertEqual(query["client_id"], "gitlab-client-id")
+        XCTAssertEqual(query["redirect_uri"], "https://commitplus.app/oauth/gitlab/callback")
+        XCTAssertEqual(query["response_type"], "code")
+        XCTAssertEqual(query["state"], session.state)
+        XCTAssertEqual(query["scope"], "api read_user write_repository")
+        XCTAssertEqual(query["code_challenge"], GitProviderPKCE.challenge(for: session.codeVerifier))
+        XCTAssertEqual(query["code_challenge_method"], "S256")
+    }
+
+    func testExchangeCallbackSendsVerifierAndRedirectWithoutSecret() async throws {
+        let client = StubGitLabAuthHTTPClient(responses: [
+            .json(
+                statusCode: 200,
+                body: #"{"access_token":"gitlab-token","refresh_token":"gitlab-refresh","expires_in":7200,"token_type":"Bearer"}"#
+            )
+        ])
+        let service = makeService(httpClient: client)
+        let session = service.makeOAuthSession(host: .gitlabDotCom)
+
+        let token = try await service.exchangeCallback(
+            GitProviderOAuthCallback(code: "gitlab-code", state: session.state),
+            session: session
+        )
+
+        let request = try XCTUnwrap(client.requests.first)
+        let body = try XCTUnwrap(request.httpBody.flatMap { String(data: $0, encoding: .utf8) })
+        let fields = Dictionary(uniqueKeysWithValues: (URLComponents(string: "?\(body)")?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        XCTAssertEqual(request.url?.absoluteString, "https://gitlab.com/oauth/token")
+        XCTAssertEqual(fields["grant_type"], "authorization_code")
+        XCTAssertEqual(fields["code"], "gitlab-code")
+        XCTAssertEqual(fields["code_verifier"], session.codeVerifier)
+        XCTAssertEqual(fields["redirect_uri"], "https://commitplus.app/oauth/gitlab/callback")
+        XCTAssertEqual(fields["client_id"], "gitlab-client-id")
+        XCTAssertNil(fields["client_secret"])
+        XCTAssertEqual(token.accessToken, "gitlab-token")
+        XCTAssertEqual(token.refreshToken, "gitlab-refresh")
+    }
+
+    func testExchangeCallbackRejectsMismatchedStateWithoutRequest() async throws {
+        let client = StubGitLabAuthHTTPClient()
+        let service = makeService(httpClient: client)
+        let session = service.makeOAuthSession(host: .gitlabDotCom)
+
+        do {
+            _ = try await service.exchangeCallback(
+                GitProviderOAuthCallback(code: "gitlab-code", state: "other"),
+                session: session
+            )
+            XCTFail("Expected a state mismatch")
+        } catch {
+            XCTAssertEqual(error as? GitProviderOAuthError, .stateMismatch)
+        }
+        XCTAssertTrue(client.requests.isEmpty)
     }
 
     func testInvalidRefreshTokenRequiresReauthorization() async throws {
@@ -241,7 +329,7 @@ final class GitLabProviderAuthServiceTests: XCTestCase {
         GitLabProviderAuthService(
             configuration: GitLabProviderAuthConfiguration(
                 clientID: "gitlab-client-id",
-                redirectURI: URL(string: "macgit://git-provider/oauth/callback")!,
+                redirectURI: URL(string: "https://commitplus.app/oauth/gitlab/callback")!,
                 scopes: ["api", "read_user", "write_repository"]
             ),
             httpClient: httpClient,

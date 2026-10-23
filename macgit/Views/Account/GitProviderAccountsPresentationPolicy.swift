@@ -29,6 +29,7 @@ enum GitProviderAddAccountHost: String, CaseIterable, Identifiable {
     case github
     case gitlab
     case bitbucket
+    case azureDevOps
 
     var id: Self { self }
 }
@@ -96,20 +97,26 @@ enum GitProviderAddAccountPresentationPolicy {
     static let hostOptions: [GitProviderAddAccountOption<GitProviderAddAccountHost>] = [
         GitProviderAddAccountOption(id: .github, title: "GitHub", isEnabled: true),
         GitProviderAddAccountOption(id: .gitlab, title: "GitLab", isEnabled: true),
-        GitProviderAddAccountOption(id: .bitbucket, title: "Bitbucket", isEnabled: true)
+        GitProviderAddAccountOption(id: .bitbucket, title: "Bitbucket", isEnabled: true),
+        GitProviderAddAccountOption(id: .azureDevOps, title: "Azure Repos", isEnabled: true)
     ]
 
     static func authTypeOptions(
         for host: GitProviderAddAccountHost
     ) -> [GitProviderAddAccountOption<GitProviderAddAccountAuthType>] {
         [
-            GitProviderAddAccountOption(id: .oauth, title: "OAuth", isEnabled: host != .bitbucket),
+            GitProviderAddAccountOption(id: .oauth, title: "OAuth", isEnabled: !usesTokenOnly(host)),
             GitProviderAddAccountOption(
                 id: .personalAccessToken,
-                title: "API Token",
-                isEnabled: host == .bitbucket
+                title: host == .bitbucket ? "API Token" : "Personal Access Token",
+                isEnabled: true
             )
         ]
+    }
+
+    /// Bitbucket and Azure Repos connect over HTTPS only with a token.
+    static func usesTokenOnly(_ host: GitProviderAddAccountHost) -> Bool {
+        host == .bitbucket || host == .azureDevOps
     }
 
     static func canSelectAuthType(for host: GitProviderAddAccountHost) -> Bool {
@@ -131,10 +138,18 @@ enum GitProviderAddAccountPresentationPolicy {
         }
         switch host {
         case .github, .gitlab:
-            return authType == .oauth
-        case .bitbucket:
+            return true
+        case .bitbucket, .azureDevOps:
             return authType == .personalAccessToken
         }
+    }
+
+    static func initialAuthType(for account: GitProviderAccount?) -> GitProviderAddAccountAuthType {
+        guard let account else { return .oauth }
+        if account.provider == .bitbucket || account.provider == .azureDevOps || account.permissions["authentication"] == "personalAccessToken" {
+            return .personalAccessToken
+        }
+        return .oauth
     }
 
     static func canSave(
@@ -174,6 +189,7 @@ enum GitProviderAddAccountPresentationPolicy {
         case .github: .github
         case .gitlab: .gitlab
         case .bitbucket: .bitbucket
+        case .azureDevOps: .azureDevOps
         }
     }
 

@@ -148,6 +148,113 @@ final class GitHubProviderAuthServiceTests: XCTestCase {
         }
     }
 
+    func testOAuthSessionRedirectsThroughCommitPlusAndReturnsToApp() {
+        let service = makeService(httpClient: StubGitProviderHTTPClient())
+
+        let session = service.makeOAuthSession()
+
+        XCTAssertEqual(session.provider, .github)
+        XCTAssertEqual(session.redirectURI, URL(string: "https://commitplus.app/oauth/github/callback"))
+        XCTAssertEqual(session.callbackURL, URL(string: "macgit://git-provider/oauth/github/callback"))
+        XCTAssertEqual(session.startedAt, Date(timeIntervalSince1970: 1_700_000_000))
+        XCTAssertFalse(session.state.isEmpty)
+        XCTAssertNotEqual(session.state, service.makeOAuthSession().state)
+    }
+
+    func testAuthorizationURLRequestsScopesStateAndS256Challenge() throws {
+        let service = makeService(httpClient: StubGitProviderHTTPClient())
+        let session = makeOAuthSession()
+
+        let url = try service.authorizationURL(for: session)
+
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        let items = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        XCTAssertEqual(components.host, "github.com")
+        XCTAssertEqual(components.path, "/login/oauth/authorize")
+        XCTAssertEqual(items["client_id"], "github-client-id")
+        XCTAssertEqual(items["redirect_uri"], "https://commitplus.app/oauth/github/callback")
+        XCTAssertEqual(items["scope"], "repo read:user workflow")
+        XCTAssertEqual(items["state"], "expected-state")
+        XCTAssertEqual(items["code_challenge"], GitProviderPKCE.challenge(for: "test-verifier"))
+        XCTAssertEqual(items["code_challenge_method"], "S256")
+        XCTAssertNil(items["client_secret"])
+    }
+
+    func testExchangeSendsOnlyCodeAndVerifierToCommitPlus() async throws {
+        let client = StubGitProviderHTTPClient(responses: [
+            .json(statusCode: 200, body: #"{"access_token":"web-token","token_type":"bearer","scope":"repo,read:user,workflow"}"#)
+        ])
+        let service = makeService(httpClient: client)
+
+        let token = try await service.exchangeCallback(
+            GitProviderOAuthCallback(code: "oauth-code", state: "expected-state"),
+            session: makeOAuthSession()
+        )
+
+        let request = try XCTUnwrap(client.requests.first)
+        let body = try XCTUnwrap(request.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.absoluteString, "https://commitplus.app/api/git-providers/github/token")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
+        XCTAssertEqual(json, ["code": "oauth-code", "code_verifier": "test-verifier"])
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertFalse(String(decoding: body, as: UTF8.self).contains("secret"))
+        XCTAssertEqual(token, GitProviderToken(accessToken: "web-token", refreshToken: nil, expiresAt: nil, tokenType: "bearer"))
+    }
+
+    func testExchangeRejectsCallbackForAnotherSession() async throws {
+        let client = StubGitProviderHTTPClient()
+        let service = makeService(httpClient: client)
+
+        do {
+            _ = try await service.exchangeCallback(
+                GitProviderOAuthCallback(code: "oauth-code", state: "other-state"),
+                session: makeOAuthSession()
+            )
+            XCTFail("Expected a state mismatch.")
+        } catch {
+            XCTAssertEqual(error as? GitProviderOAuthError, .stateMismatch)
+        }
+        XCTAssertTrue(client.requests.isEmpty)
+    }
+
+    func testExchangeFailuresOfferRetryOrDeviceCode() async throws {
+        let cases: [(StubGitProviderHTTPClient.Response?, GitProviderAuthError)] = [
+            (.json(statusCode: 400, body: #"{"error":"bad_verification_code"}"#), .connectionRejected),
+            (.json(statusCode: 429, body: #"{"error":"rate_limited"}"#), .connectionRateLimited),
+            (.json(statusCode: 503, body: #"{"error":"unavailable"}"#), .connectionServiceUnavailable),
+            (nil, .connectionServiceUnavailable)
+        ]
+        for (response, expected) in cases {
+            let client = StubGitProviderHTTPClient(responses: response.map { [$0] } ?? [])
+            client.failure = response == nil ? URLError(.notConnectedToInternet) : nil
+            let service = makeService(httpClient: client)
+
+            do {
+                _ = try await service.exchangeCallback(
+                    GitProviderOAuthCallback(code: "oauth-code", state: "expected-state"),
+                    session: makeOAuthSession()
+                )
+                XCTFail("Expected \(expected).")
+            } catch {
+                XCTAssertEqual(error as? GitProviderAuthError, expected)
+                XCTAssertTrue(error.localizedDescription.contains("device code"))
+            }
+        }
+    }
+
+    private func makeOAuthSession() -> GitProviderOAuthSession {
+        GitProviderOAuthSession(
+            provider: .github,
+            host: .githubDotCom,
+            state: "expected-state",
+            codeVerifier: "test-verifier",
+            redirectURI: URL(string: "https://commitplus.app/oauth/github/callback")!,
+            appCallbackURL: URL(string: "macgit://git-provider/oauth/github/callback")!
+        )
+    }
+
     private func makeService(httpClient: GitProviderHTTPClient) -> GitHubProviderAuthService {
         GitHubProviderAuthService(
             configuration: GitHubProviderAuthConfiguration(
@@ -184,6 +291,7 @@ private final class StubGitProviderHTTPClient: GitProviderHTTPClient {
 
     private(set) var requests: [URLRequest] = []
     private var responses: [Response]
+    var failure: Error?
 
     init(responses: [Response] = []) {
         self.responses = responses
@@ -191,6 +299,7 @@ private final class StubGitProviderHTTPClient: GitProviderHTTPClient {
 
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         requests.append(request)
+        if let failure { throw failure }
         let response = responses.removeFirst()
         let httpResponse = try XCTUnwrap(
             HTTPURLResponse(

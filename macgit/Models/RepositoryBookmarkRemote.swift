@@ -16,7 +16,8 @@ struct RepositoryBookmarkRemote: Identifiable, Equatable {
         switch identity.provider {
         case .github, .bitbucket: webURL.appending(path: "issues")
         case .gitlab: webURL.appending(path: "-/issues")
-        case .generic: nil
+        // Azure Repos has no per-repository issues page.
+        case .azureDevOps, .generic: nil
         }
     }
 
@@ -25,6 +26,7 @@ struct RepositoryBookmarkRemote: Identifiable, Equatable {
         case .github: webURL.appending(path: "pulls")
         case .gitlab: webURL.appending(path: "-/merge_requests")
         case .bitbucket: webURL.appending(path: "pull-requests")
+        case .azureDevOps: webURL.appending(path: "pullrequests")
         case .generic: nil
         }
     }

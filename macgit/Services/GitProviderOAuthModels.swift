@@ -20,11 +20,23 @@ import CryptoKit
 import Foundation
 
 struct GitProviderOAuthSession: Equatable {
+    /// Scene routing key for provider OAuth callbacks (`macgit://git-provider/...`).
+    nonisolated static let externalEventIdentifier = "macgit://git-provider"
+
     var provider: GitProviderKind
     var host: GitProviderHost
     var state: String
     var codeVerifier: String
+    /// The redirect URI sent to the provider and repeated in the token exchange.
     var redirectURI: URL
+    /// Where the callback reaches the app when it differs from `redirectURI`,
+    /// for example when a web page forwards the provider redirect to `macgit://`.
+    var appCallbackURL: URL? = nil
+    var startedAt = Date()
+
+    var callbackURL: URL {
+        appCallbackURL ?? redirectURI
+    }
 }
 
 struct GitProviderOAuthCallback: Equatable {
@@ -32,7 +44,7 @@ struct GitProviderOAuthCallback: Equatable {
     var state: String
 
     static func parse(_ url: URL, for session: GitProviderOAuthSession) throws -> GitProviderOAuthCallback {
-        try parse(url, redirectURI: session.redirectURI, expectedState: session.state)
+        try parse(url, redirectURI: session.callbackURL, expectedState: session.state)
     }
 
     static func parse(_ url: URL, redirectURI: URL, expectedState: String) throws -> GitProviderOAuthCallback {
@@ -42,17 +54,22 @@ struct GitProviderOAuthCallback: Equatable {
         }
 
         let queryItems = components.queryItems ?? []
-        if let providerError = queryItems.first(where: { $0.name == "error_description" })?.value
-            ?? queryItems.first(where: { $0.name == "error" })?.value {
-            throw GitProviderOAuthError.providerMessage(providerError)
-        }
-
+        // Verify state before trusting an error, so a forged link cannot end a pending connection.
         guard let state = queryItems.first(where: { $0.name == "state" })?.value,
               !state.isEmpty else {
             throw GitProviderOAuthError.missingState
         }
         guard state == expectedState else {
             throw GitProviderOAuthError.stateMismatch
+        }
+
+        if let error = queryItems.first(where: { $0.name == "error" })?.value {
+            if error == "access_denied" {
+                throw GitProviderOAuthError.accessDenied
+            }
+            throw GitProviderOAuthError.providerMessage(
+                queryItems.first(where: { $0.name == "error_description" })?.value ?? error
+            )
         }
         guard let code = queryItems.first(where: { $0.name == "code" })?.value,
               !code.isEmpty else {
@@ -80,10 +97,13 @@ enum GitProviderOAuthError: LocalizedError, Equatable {
     case missingState
     case stateMismatch
     case unsupportedCallback
+    case accessDenied
     case providerMessage(String)
 
     var errorDescription: String? {
         switch self {
+        case .accessDenied:
+            "Authorization was cancelled."
         case .missingCode:
             "The provider callback did not include an authorization code."
         case .missingState:

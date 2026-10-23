@@ -20,15 +20,18 @@ import Foundation
 
 struct GitLabProviderAuthConfiguration: Equatable {
     var clientID: String
+    /// The redirect URI registered on the GitLab application and sent on authorize,
+    /// code exchange, and refresh. Its page forwards the result to `appCallbackURL`.
     var redirectURI: URL
     var scopes: [String]
+    var appCallbackURL = URL(string: "macgit://git-provider/oauth/gitlab/callback")!
 
     static func appConfiguration(bundle: Bundle = .main) -> GitLabProviderAuthConfiguration {
         let configuredClientID = (bundle.object(forInfoDictionaryKey: "GitLabOAuthClientID") as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return GitLabProviderAuthConfiguration(
             clientID: configuredClientID,
-            redirectURI: URL(string: "macgit://git-provider/oauth/callback")!,
+            redirectURI: URL(string: "https://commitplus.app/oauth/gitlab/callback")!,
             scopes: ["api", "read_user", "write_repository"]
         )
     }
@@ -40,6 +43,7 @@ protocol GitLabProviderOAuthAuthenticating {
         _ authorization: GitProviderDeviceAuthorization,
         host: GitProviderHost
     ) async throws -> GitProviderToken
+    func makeOAuthSession(host: GitProviderHost) -> GitProviderOAuthSession
     func authorizationURL(for session: GitProviderOAuthSession) throws -> URL
     func exchangeCallback(
         _ callback: GitProviderOAuthCallback,
@@ -142,6 +146,18 @@ struct GitLabProviderAuthService: GitLabProviderOAuthAuthenticating {
             refreshToken: payload.refreshToken,
             expiresAt: payload.expiresIn.map { now().addingTimeInterval(TimeInterval($0)) },
             tokenType: payload.tokenType
+        )
+    }
+
+    func makeOAuthSession(host: GitProviderHost) -> GitProviderOAuthSession {
+        GitProviderOAuthSession(
+            provider: .gitlab,
+            host: host.normalized,
+            state: UUID().uuidString,
+            codeVerifier: GitProviderPKCE.generateVerifier(),
+            redirectURI: configuration.redirectURI,
+            appCallbackURL: configuration.appCallbackURL,
+            startedAt: now()
         )
     }
 

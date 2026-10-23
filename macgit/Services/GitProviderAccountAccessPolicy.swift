@@ -58,6 +58,8 @@ enum GitProviderAccountAccessError: LocalizedError, Equatable {
     case selfHostedRequiresPro
     case freeAccountLimitReached(limit: Int)
     case featureDisabled
+    case accountAlreadyConnected(username: String)
+    case differentAccount
 
     var errorDescription: String? {
         switch self {
@@ -67,6 +69,10 @@ enum GitProviderAccountAccessError: LocalizedError, Equatable {
             "Free plan includes \(limit) Git provider account. Upgrade to Pro to add more."
         case .featureDisabled:
             "Adding Git provider accounts is currently unavailable."
+        case .accountAlreadyConnected(let username):
+            "\(username) is already connected. Edit that account to update its sign-in."
+        case .differentAccount:
+            "This sign-in belongs to a different account. Add it as a new account instead."
         }
     }
 }

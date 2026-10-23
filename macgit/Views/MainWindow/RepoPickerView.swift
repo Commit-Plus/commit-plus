@@ -26,7 +26,11 @@ import SwiftUI
 
 func determineRepoIconName(from remoteURLString: String) -> String {
     let lower = remoteURLString.lowercased()
-    if lower.contains("github.com") || lower.contains("github") {
+    // Azure first: its parser only accepts Azure hosts, while the substring checks
+    // below would match names like `.../_git/github-importer`.
+    if AzureReposRemote.parse(remoteURLString) != nil {
+        return "azure"
+    } else if lower.contains("github.com") || lower.contains("github") {
         return "github"
     } else if lower.contains("gitlab.com") || lower.contains("gitlab") {
         return "gitlab"
@@ -48,6 +52,7 @@ enum RepoPickerFilterType: String, CaseIterable, Identifiable {
     case github = "GitHub"
     case gitlab = "GitLab"
     case bitbucket = "Bitbucket"
+    case azureDevOps = "Azure Repos"
 
     var id: String { rawValue }
 
@@ -56,6 +61,7 @@ enum RepoPickerFilterType: String, CaseIterable, Identifiable {
         case .github: return "github"
         case .gitlab: return "gitlab"
         case .bitbucket: return "bitbucket"
+        case .azureDevOps: return "azure"
         }
     }
 }
@@ -196,6 +202,8 @@ struct RepoPickerView: View {
                     filterType = .gitlab
                 case .bitbucket:
                     filterType = .bitbucket
+                case .azureDevOps:
+                    filterType = .azureDevOps
                 case .generic:
                     filterType = nil
                 }

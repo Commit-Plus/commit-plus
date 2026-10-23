@@ -96,7 +96,6 @@ struct macgitApp: App {
             authService: GitHubProviderAuthService(configuration: providerConfiguration),
             configuration: providerConfiguration,
             gitLabAuthService: GitLabProviderAuthService(configuration: gitLabProviderConfiguration),
-            gitLabRedirectURI: gitLabProviderConfiguration.redirectURI,
             openURL: NSWorkspace.shared.open,
             hasProAccess: { accountController.entitlement.hasProAccess },
             multipleAccountAccess: {
@@ -628,6 +627,15 @@ struct macgitApp: App {
             }
             .font(appState.textSize.font)
             .environment(\.appTextScale, appState.textSize.scale)
+            // Accounts are connected here, so provider OAuth callbacks finish in this
+            // window instead of opening the Welcome window.
+            .onOpenURL { url in
+                Task { _ = await providerAccountController.handleProviderOAuthCallback(url) }
+            }
+            .handlesExternalEvents(
+                preferring: [GitProviderOAuthSession.externalEventIdentifier],
+                allowing: [GitProviderOAuthSession.externalEventIdentifier]
+            )
         }
         .defaultSize(width: 920, height: 640)
         .defaultLaunchBehavior(.suppressed)

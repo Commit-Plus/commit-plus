@@ -34,6 +34,16 @@ enum GitRemoteIdentityResolver {
     ) -> GitRemoteIdentity? {
         let trimmed = remoteURLString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+        // Azure paths ({org}/{project}/_git/{repo}) do not fit the owner/repo rules below.
+        if let azure = AzureReposRemote.parse(trimmed) {
+            return GitRemoteIdentity(
+                provider: .azureDevOps,
+                hostURL: azure.organizationURL,
+                ownerPath: azure.project,
+                repositoryName: azure.repository,
+                canonicalHTTPSURL: azure.canonicalURL
+            )
+        }
 
         let remote: URL? = {
             if trimmed.contains("://") { return URL(string: trimmed) }

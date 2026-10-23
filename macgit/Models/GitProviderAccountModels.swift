@@ -22,6 +22,7 @@ enum GitProviderKind: String, Codable, CaseIterable, Identifiable {
     case github
     case gitlab
     case bitbucket
+    case azureDevOps = "azure"
 
     var id: String { rawValue }
 
@@ -30,6 +31,7 @@ enum GitProviderKind: String, Codable, CaseIterable, Identifiable {
         case .github: "GitHub"
         case .gitlab: "GitLab"
         case .bitbucket: "Bitbucket"
+        case .azureDevOps: "Azure Repos"
         }
     }
 }
@@ -57,7 +59,7 @@ struct GitProviderHost: Hashable, Codable {
         switch kind {
         case .github: return normalized != Self.githubDotCom
         case .gitlab: return normalized != Self.gitlabDotCom
-        case .bitbucket: return false
+        case .bitbucket, .azureDevOps: return false
         }
     }
 
@@ -68,6 +70,8 @@ struct GitProviderHost: Hashable, Codable {
             return server == Self.githubDotCom.baseURL ? URL(string: "https://api.github.com")! : server.appending(path: "api/v3")
         case .gitlab: return server.appending(path: "api/v4")
         case .bitbucket: return URL(string: "https://api.bitbucket.org/2.0")!
+        // Azure DevOps APIs live under the organization URL (`{org}/_apis/...`).
+        case .azureDevOps: return server
         }
     }
 

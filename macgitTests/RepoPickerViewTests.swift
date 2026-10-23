@@ -140,6 +140,34 @@ final class RepoPickerViewTests: XCTestCase {
         XCTAssertEqual(pathMatch.map { $0.name }, ["Docs"])
     }
 
+    func testAzureReposRemotesUseAzureIconAndFilter() {
+        let azureURL = URL(fileURLWithPath: "/tmp/ChatApp")
+        let gitHubURL = URL(fileURLWithPath: "/tmp/Hello-World")
+        let repositories = [
+            RecentRepository(url: azureURL, lastOpened: Date(timeIntervalSince1970: 2)),
+            RecentRepository(url: gitHubURL, lastOpened: Date(timeIntervalSince1970: 1)),
+        ]
+        let icons = [
+            azureURL: determineRepoIconName(from: "https://Trantienthanh1998@dev.azure.com/Trantienthanh1998/ChatApp/_git/ChatApp"),
+            gitHubURL: determineRepoIconName(from: "git@github.com:octocat/Hello-World.git"),
+        ]
+
+        let visible = RepoPickerView.visibleRepositories(
+            from: repositories,
+            searchText: "",
+            sortOption: .lastOpened,
+            selectedFilterTypes: [.azureDevOps],
+            repoIcons: icons,
+            rowStates: [:]
+        )
+
+        XCTAssertEqual(icons[azureURL], "azure")
+        XCTAssertEqual(determineRepoIconName(from: "git@ssh.dev.azure.com:v3/Contoso/Web/Site"), "azure")
+        XCTAssertEqual(determineRepoIconName(from: "https://dev.azure.com/org/proj/_git/github-importer"), "azure")
+        XCTAssertEqual(determineRepoIconName(from: "https://dev.azure.com/gitlab-mirror/Web/_git/bitbucket-sync"), "azure")
+        XCTAssertEqual(visible.map(\.url), [azureURL])
+    }
+
     func testCloneSheetDefaultsRepositoryNameFromHTTPRemoteURL() {
         let name = CloneSheetView.defaultRepositoryName(
             from: "https://gitlab.com/cki-project/cki-tools.git"

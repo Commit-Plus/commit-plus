@@ -18,6 +18,9 @@ struct GitProviderRepositoryDiscoveryService {
 
     func repositories(account: GitProviderAccount, token: GitProviderToken, page: Int) async throws -> GitProviderRepositoryPage {
         guard account.provider != .bitbucket else { throw GitProviderCredentialError.unsupportedRemote }
+        if account.provider == .azureDevOps {
+            return try await azureRepositories(account: account, token: token, page: page)
+        }
         let host = GitProviderHost(kind: account.provider, baseURL: account.hostURL)
         let endpoint = host.apiURL.appending(path: account.provider == .github ? "user/repos" : "projects")
         var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
@@ -49,6 +52,55 @@ struct GitProviderRepositoryDiscoveryService {
         let hasNext = account.provider == .gitlab && next != nil ? !(next?.isEmpty ?? true)
             : response.value(forHTTPHeaderField: "Link")?.contains("rel=\"next\"") ?? false
         return GitProviderRepositoryPage(repositories: repositories, hasNextPage: hasNext)
+    }
+
+    /// Lists every repository across the organization's projects; Azure returns them in one response.
+    private func azureRepositories(account: GitProviderAccount, token: GitProviderToken, page: Int) async throws -> GitProviderRepositoryPage {
+        guard page <= 1 else { return GitProviderRepositoryPage(repositories: [], hasNextPage: false) }
+        var components = URLComponents(url: account.hostURL.appending(path: "_apis/git/repositories"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "api-version", value: "7.1")]
+        let request = AzureDevOpsProviderAuthService.apiRequest(url: components.url!, token: token)
+        let (data, response) = try await httpClient.data(for: request)
+        if AzureDevOpsProviderAuthService.isRejected(response) {
+            throw GitProviderAuthError.providerMessage("The personal access token is invalid or expired. Reconnect the account.")
+        }
+        guard (200..<300).contains(response.statusCode) else {
+            throw GitProviderAuthError.providerMessage("Repository discovery failed (HTTP \(response.statusCode)). Check token permissions and repository access.")
+        }
+        guard let payload = try? JSONDecoder().decode(AzureRepositoryList.self, from: data) else {
+            throw GitProviderAuthError.invalidResponse
+        }
+        let repositories = payload.value
+            .filter { $0.isDisabled != true }
+            .compactMap { repository -> GitProviderDiscoveredRepository? in
+                let cloneURL = account.transportProtocol == .ssh ? repository.sshUrl : repository.remoteUrl.map(Self.removingUserInfo)
+                guard let cloneURL else { return nil }
+                return GitProviderDiscoveredRepository(name: "\(repository.project.name)/\(repository.name)", cloneURL: cloneURL)
+            }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        return GitProviderRepositoryPage(repositories: repositories, hasNextPage: false)
+    }
+
+    /// Azure embeds the organization as the user (`https://org@dev.azure.com/...`); the account supplies credentials.
+    private static func removingUserInfo(_ value: String) -> String {
+        guard var components = URLComponents(string: value) else { return value }
+        components.user = nil
+        components.password = nil
+        return components.string ?? value
+    }
+
+    private struct AzureRepositoryList: Decodable {
+        var value: [AzureRepository]
+    }
+    private struct AzureRepository: Decodable {
+        var name: String
+        var project: AzureProject
+        var remoteUrl: String?
+        var sshUrl: String?
+        var isDisabled: Bool?
+    }
+    private struct AzureProject: Decodable {
+        var name: String
     }
 
     private struct GitHubRepository: Decodable {

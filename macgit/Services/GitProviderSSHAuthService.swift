@@ -36,7 +36,9 @@ struct GitProviderSSHAuthService: GitProviderSSHAuthenticating {
         guard FileManager.default.fileExists(atPath: keyPath) else {
             throw GitProviderCredentialError.sshKeyMissing(path: keyPath)
         }
-        guard let hostName = host.normalized.baseURL.host(percentEncoded: false) else {
+        guard let hostName = host.kind == .azureDevOps
+            ? "ssh.dev.azure.com"
+            : host.normalized.baseURL.host(percentEncoded: false) else {
             throw GitProviderCredentialError.unsupportedRemote
         }
 
@@ -75,6 +77,9 @@ struct GitProviderSSHAuthService: GitProviderSSHAuthenticating {
             return capture(in: output, pattern: #"Welcome to GitLab, @([^!\s]+)"#)
         case .bitbucket:
             return output.localizedCaseInsensitiveContains("authenticated via ssh key") ? "git" : nil
+        case .azureDevOps:
+            // Azure DevOps accepts the key but never names the user; callers supply the organization.
+            return output.localizedCaseInsensitiveContains("shell access is not supported") ? "git" : nil
         }
     }
 
