@@ -27,6 +27,8 @@ struct BadgeToolbarButton: View {
     let label: String
     let badgeCount: Int
     let isLoading: Bool
+    /// A queued or running background action of this kind; the button stays enabled.
+    var isBackgroundActive = false
     let disabled: Bool
     var showText: Bool = true
     let action: () -> Void
@@ -42,7 +44,9 @@ struct BadgeToolbarButton: View {
                 ToolbarButtonLabel(icon: icon, label: label, showText: showText)
                     .opacity(isLoading ? 0.3 : 1.0)
 
-                if badgeCount > 0 && !isLoading {
+                if isBackgroundActive && !isLoading {
+                    ToolbarBackgroundActivityBadge()
+                } else if badgeCount > 0 && !isLoading {
                     Text(badgeText)
                         .font(.system(size: 9, weight: .bold).scaled(by: textScale))
                         .foregroundColor(.white)
@@ -68,7 +72,7 @@ struct BadgeToolbarButton: View {
             .alignmentGuide(.lastTextBaseline) { $0[VerticalAlignment.center] }
         }
         .repositoryToolbarButtonStyle()
-        .help(label)
+        .help(isBackgroundActive ? "\(label) (in progress)" : label)
         .disabled(disabled || isLoading)
     }
 }

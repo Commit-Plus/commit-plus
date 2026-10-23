@@ -307,6 +307,85 @@ final class RepositoryOperationProgressTests: XCTestCase {
         XCTAssertTrue(progress.backgroundItems.isEmpty)
     }
 
+    func testDuplicatePendingRequestIsNotQueuedTwice() async {
+        let progress = RepositoryOperationProgress()
+        let firstStarted = expectation(description: "first started")
+        var releaseFirst: CheckedContinuation<Void, Never>?
+        var runCount = 0
+        let options = GitStatusService.PushOptions(remote: "origin", branches: ["main"])
+
+        let first = progress.runInBackground(title: "Pushing", kind: .push, dedupeKey: options) {
+            runCount += 1
+            await withCheckedContinuation { continuation in
+                releaseFirst = continuation
+                firstStarted.fulfill()
+            }
+            return .succeeded
+        }
+        await fulfillment(of: [firstStarted], timeout: 1)
+
+        let duplicate = progress.runInBackground(title: "Pushing", kind: .push, dedupeKey: options) {
+            runCount += 1
+            return .succeeded
+        }
+        var otherBranch = options
+        otherBranch.branches = ["topic"]
+        progress.runInBackground(title: "Pushing", kind: .push, dedupeKey: otherBranch) {
+            runCount += 1
+            return .succeeded
+        }
+
+        XCTAssertEqual(duplicate, first)
+        XCTAssertEqual(progress.backgroundItems.map(\.state), [.running, .queued])
+
+        releaseFirst?.resume()
+        await progress.waitForBackgroundIdle()
+
+        XCTAssertEqual(runCount, 2)
+    }
+
+    func testFinishedRequestCanBeQueuedAgain() async {
+        let progress = RepositoryOperationProgress()
+        let options = GitStatusService.FetchOptions()
+        var runCount = 0
+
+        progress.runInBackground(title: "Fetching", kind: .fetch, dedupeKey: options) {
+            runCount += 1
+            return .failed("network down")
+        }
+        await progress.waitForBackgroundIdle()
+        progress.runInBackground(title: "Fetching", kind: .fetch, dedupeKey: options) {
+            runCount += 1
+            return .succeeded
+        }
+        await progress.waitForBackgroundIdle()
+
+        XCTAssertEqual(runCount, 2)
+    }
+
+    func testPendingWorkIsReportedPerKind() async {
+        let progress = RepositoryOperationProgress()
+        let started = expectation(description: "push started")
+        var release: CheckedContinuation<Void, Never>?
+
+        progress.runInBackground(title: "Pushing", kind: .push) {
+            await withCheckedContinuation { continuation in
+                release = continuation
+                started.fulfill()
+            }
+            return .succeeded
+        }
+        await fulfillment(of: [started], timeout: 1)
+
+        XCTAssertTrue(progress.hasPendingBackgroundWork(of: .push))
+        XCTAssertFalse(progress.hasPendingBackgroundWork(of: .fetch))
+
+        release?.resume()
+        await progress.waitForBackgroundIdle()
+
+        XCTAssertFalse(progress.hasPendingBackgroundWork(of: .push))
+    }
+
     func testBackgroundErrorSummaryUsesFirstLineAndTruncates() {
         XCTAssertEqual(RepositoryOperationProgress.backgroundErrorSummary("\n\n  fatal: bad\nmore"), "fatal: bad")
         XCTAssertEqual(RepositoryOperationProgress.backgroundErrorSummary("   \n"), "Unknown error")

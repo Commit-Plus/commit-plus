@@ -67,7 +67,12 @@ extension MainWindowView {
                       onForcePush: { branch, remote, remoteBranch in
             pendingSheetForcePush = (branch, remote, remoteBranch)
         }) { options in
-            runBackgroundRemoteOperation("Pushing to \(options.remote)", remotes: [options.remote]) { credentialResolver in
+            runBackgroundRemoteOperation(
+                "Pushing to \(options.remote)",
+                remotes: [options.remote],
+                kind: .push,
+                dedupeKey: options
+            ) { credentialResolver in
                 await syncState.performBackgroundPush(
                     options: options,
                     repositoryURL: repositoryURL,
@@ -83,7 +88,7 @@ extension MainWindowView {
         FetchSheetView(repositoryURL: repositoryURL) { options in
             Task {
                 guard let credentialResolver = await credentialResolverForFetch(options: options) else { return }
-                operationProgress.runInBackground(title: "Fetching remotes") {
+                operationProgress.runInBackground(title: "Fetching remotes", kind: .fetch, dedupeKey: options) {
                     await syncState.performBackgroundFetch(
                         options: options,
                         repositoryURL: repositoryURL,

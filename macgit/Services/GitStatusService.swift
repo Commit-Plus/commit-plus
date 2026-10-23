@@ -605,7 +605,7 @@ actor GitStatusService {
         return result.data
     }
 
-    struct PushOptions {
+    struct PushOptions: Hashable {
         var remote: String = "origin"
         var branches: [String] = []
         var branchMappings: [String: String] = [:] // local branch -> remote branch name
@@ -634,7 +634,7 @@ actor GitStatusService {
         var includeUntracked: Bool = false
     }
 
-    struct FetchOptions {
+    struct FetchOptions: Hashable {
         var fetchAllRemotes: Bool = true
         var prune: Bool = false
         var fetchTags: Bool = false

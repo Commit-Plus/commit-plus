@@ -47,6 +47,8 @@ extension MainWindowView {
     func runBackgroundRemoteOperation(
         _ title: String,
         remotes: [String],
+        kind: RepositoryBackgroundActivityKind = .other,
+        dedupeKey: AnyHashable? = nil,
         onNotQueued: (@MainActor () -> Void)? = nil,
         operation: @escaping (GitProviderCredentialResolver) async -> RepositoryBackgroundActivityOutcome
     ) {
@@ -56,7 +58,12 @@ extension MainWindowView {
                 onNotQueued?()
                 return
             }
-            let queuedID = operationProgress.runInBackground(ifGeneration: generation, title: title) {
+            let queuedID = operationProgress.runInBackground(
+                ifGeneration: generation,
+                title: title,
+                kind: kind,
+                dedupeKey: dedupeKey
+            ) {
                 await operation(credentialResolver)
             }
             if queuedID == nil {

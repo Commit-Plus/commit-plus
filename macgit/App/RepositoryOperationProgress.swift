@@ -52,10 +52,20 @@ enum RepositoryBackgroundActivityState: Equatable {
     case failed(summary: String, detail: String)
 }
 
+/// Lets the header show which remote action is busy without disabling its button.
+enum RepositoryBackgroundActivityKind: Equatable {
+    case push
+    case fetch
+    case other
+}
+
 struct RepositoryBackgroundActivityItem: Identifiable, Equatable {
     let id: UUID
     let title: String
     var state: RepositoryBackgroundActivityState
+    var kind: RepositoryBackgroundActivityKind = .other
+    /// Identical pending requests with the same key are not queued twice.
+    var dedupeKey: AnyHashable?
 
     var isPending: Bool {
         switch state {
@@ -202,18 +212,36 @@ final class RepositoryOperationProgress: ObservableObject {
         backgroundItems.contains(where: \.isPending)
     }
 
+    func hasPendingBackgroundWork(of kind: RepositoryBackgroundActivityKind) -> Bool {
+        backgroundItems.contains { $0.isPending && $0.kind == kind }
+    }
+
     /// Advances when `cancelAllBackground()` runs, e.g. when the window closes.
     var backgroundGeneration: Int {
         backgroundDrainGeneration
     }
 
+    /// Returns the existing item's ID instead of queueing again when a pending item has the
+    /// same `kind` and non-nil `dedupeKey`.
     @discardableResult
     func runInBackground(
         title: String,
+        kind: RepositoryBackgroundActivityKind = .other,
+        dedupeKey: AnyHashable? = nil,
         operation: @escaping () async -> RepositoryBackgroundActivityOutcome
     ) -> UUID {
+        if let dedupeKey,
+           let existing = backgroundItems.first(where: { $0.isPending && $0.kind == kind && $0.dedupeKey == dedupeKey }) {
+            return existing.id
+        }
         let id = UUID()
-        backgroundItems.append(RepositoryBackgroundActivityItem(id: id, title: title, state: .queued))
+        backgroundItems.append(RepositoryBackgroundActivityItem(
+            id: id,
+            title: title,
+            state: .queued,
+            kind: kind,
+            dedupeKey: dedupeKey
+        ))
         backgroundOperations[id] = operation
         startBackgroundDrainIfNeeded()
         return id
@@ -225,10 +253,12 @@ final class RepositoryOperationProgress: ObservableObject {
     func runInBackground(
         ifGeneration generation: Int,
         title: String,
+        kind: RepositoryBackgroundActivityKind = .other,
+        dedupeKey: AnyHashable? = nil,
         operation: @escaping () async -> RepositoryBackgroundActivityOutcome
     ) -> UUID? {
         guard generation == backgroundDrainGeneration else { return nil }
-        return runInBackground(title: title, operation: operation)
+        return runInBackground(title: title, kind: kind, dedupeKey: dedupeKey, operation: operation)
     }
 
     func dismissBackgroundItem(id: UUID) {

@@ -41,15 +41,29 @@ struct ToolbarButtonLabel: View {
     }
 }
 
-func toolbarButton(icon: String, label: String, showText: Bool = true, isLoading: Bool = false, disabled: Bool = false, action: @escaping () -> Void) -> some View {
+/// Small spinner in a toolbar button's badge corner while its background action is queued or running.
+struct ToolbarBackgroundActivityBadge: View {
+    var body: some View {
+        ProgressView()
+            .controlSize(.mini)
+            .scaleEffect(0.7)
+            .frame(width: 10, height: 10)
+            .offset(x: 8, y: -4)
+    }
+}
+
+func toolbarButton(icon: String, label: String, showText: Bool = true, isLoading: Bool = false, isBackgroundActive: Bool = false, disabled: Bool = false, action: @escaping () -> Void) -> some View {
     Button(action: action) {
-        ZStack {
+        ZStack(alignment: .topTrailing) {
             ToolbarButtonLabel(icon: icon, label: label, showText: showText)
                 .opacity(isLoading ? 0.3 : 1.0)
 
             if isLoading {
                 ProgressView()
                     .scaleEffect(0.6)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if isBackgroundActive {
+                ToolbarBackgroundActivityBadge()
             }
         }
         // Center the complete custom label, rather than an icon/text baseline.
@@ -57,6 +71,6 @@ func toolbarButton(icon: String, label: String, showText: Bool = true, isLoading
         .alignmentGuide(.lastTextBaseline) { $0[VerticalAlignment.center] }
     }
     .repositoryToolbarButtonStyle()
-    .help(label)
+    .help(isBackgroundActive ? "\(label) (in progress)" : label)
     .disabled(disabled || isLoading)
 }

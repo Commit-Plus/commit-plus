@@ -403,16 +403,19 @@ struct MainWindowView: View {
                 Button("Force Push", role: .destructive) {
                     guard let confirmation = pendingForcePushTagConfirmation else { return }
                     pendingForcePushTagConfirmation = nil
+                    let options = GitStatusService.PushOptions(
+                        remote: confirmation.remote,
+                        tags: [confirmation.tag],
+                        forceTags: true
+                    )
                     runBackgroundRemoteOperation(
                         "Force-pushing \(confirmation.tag) to \(confirmation.remote)",
-                        remotes: [confirmation.remote]
+                        remotes: [confirmation.remote],
+                        kind: .push,
+                        dedupeKey: options
                     ) { credentialResolver in
                         await syncState.performBackgroundPush(
-                            options: GitStatusService.PushOptions(
-                                remote: confirmation.remote,
-                                tags: [confirmation.tag],
-                                forceTags: true
-                            ),
+                            options: options,
                             repositoryURL: repositoryURL,
                             undoManager: undoManager,
                             credentialResolver: credentialResolver
@@ -1164,12 +1167,17 @@ struct MainWindowView: View {
                 )
             },
             onRequestPushTagToRemote: { tag, remote in
-                runBackgroundRemoteOperation("Pushing \(tag) to \(remote)", remotes: [remote]) { credentialResolver in
-                    let options = GitStatusService.PushOptions(
-                        remote: remote,
-                        tags: [tag]
-                    )
-                    return await syncState.performBackgroundPush(
+                let options = GitStatusService.PushOptions(
+                    remote: remote,
+                    tags: [tag]
+                )
+                runBackgroundRemoteOperation(
+                    "Pushing \(tag) to \(remote)",
+                    remotes: [remote],
+                    kind: .push,
+                    dedupeKey: options
+                ) { credentialResolver in
+                    await syncState.performBackgroundPush(
                         options: options,
                         repositoryURL: repositoryURL,
                         undoManager: undoManager,
@@ -2113,8 +2121,8 @@ struct MainWindowView: View {
         return HStack(spacing: 2) {
             BadgeToolbarButton(icon: "plus", label: "Commit", badgeCount: syncState.commitBadgeCount, isLoading: syncState.isCommitting, disabled: operationInProgress, showText: showText, action: { showCommitSheetIfNoConflicts() })
             BadgeToolbarButton(icon: "arrow.down.to.line", label: "Pull", badgeCount: syncState.pullBadgeCount, isLoading: syncState.isPulling, disabled: syncing || operationInProgress, showText: showText, action: { showingPullSheet = true })
-            BadgeToolbarButton(icon: "arrow.up.to.line", label: "Push", badgeCount: syncState.pushBadgeCount, isLoading: syncState.isPushing, disabled: syncing || operationInProgress, showText: showText, action: { showingPushSheet = true })
-            toolbarButton(icon: "arrow.down.circle", label: "Fetch", showText: showText, isLoading: syncState.isFetching, disabled: syncing || operationInProgress, action: { showingFetchSheet = true })
+            BadgeToolbarButton(icon: "arrow.up.to.line", label: "Push", badgeCount: syncState.pushBadgeCount, isLoading: syncState.isPushing, isBackgroundActive: operationProgress.hasPendingBackgroundWork(of: .push), disabled: syncing || operationInProgress, showText: showText, action: { showingPushSheet = true })
+            toolbarButton(icon: "arrow.down.circle", label: "Fetch", showText: showText, isLoading: syncState.isFetching, isBackgroundActive: operationProgress.hasPendingBackgroundWork(of: .fetch), disabled: syncing || operationInProgress, action: { showingFetchSheet = true })
             if appState.showHeaderBranchButton {
                 toolbarButton(icon: "arrow.triangle.branch", label: "Branch", showText: showText, disabled: operationInProgress, action: { presentBranchSheet(startPoint: nil) })
             }
