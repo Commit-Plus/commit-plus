@@ -77,9 +77,12 @@ final class ReleaseNotesPresentationStore {
         return version
     }
 
+    /// Presents only versions newer than the highest one already presented, so an older
+    /// build sharing these defaults (e.g. an installed release next to a local build)
+    /// cannot make a newer build show its notes again.
     func claimPresentation() async -> ReleaseNotesPresentation? {
         guard let version = currentVersion,
-              defaults.string(forKey: lastPresentedVersionKey) != version,
+              isNewerThanLastPresented(version),
               !versionsInFlight.contains(version) else {
             return nil
         }
@@ -88,8 +91,19 @@ final class ReleaseNotesPresentationStore {
         defer { versionsInFlight.remove(version) }
 
         guard let presentation = await loadPresentation() else { return nil }
-        defaults.set(version, forKey: lastPresentedVersionKey)
+        if isNewerThanLastPresented(version) {
+            defaults.set(version, forKey: lastPresentedVersionKey)
+        }
         return presentation
+    }
+
+    private func isNewerThanLastPresented(_ version: String) -> Bool {
+        guard let lastPresented = defaults.string(forKey: lastPresentedVersionKey) else { return true }
+        return Self.isVersion(version, newerThan: lastPresented)
+    }
+
+    nonisolated static func isVersion(_ version: String, newerThan other: String) -> Bool {
+        version.compare(other, options: .numeric) == .orderedDescending
     }
 
     /// Explicit viewing remains available after the startup presentation was seen.

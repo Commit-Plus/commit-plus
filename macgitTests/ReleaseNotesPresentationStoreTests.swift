@@ -38,6 +38,25 @@ final class ReleaseNotesPresentationStoreTests: XCTestCase {
         XCTAssertEqual(nextPresentation?.version, "1.2.1")
     }
 
+    func testOlderVersionDoesNotResetNewerPresentedVersion() async {
+        let defaults = makeDefaults()
+        let newer = await makeStore(defaults: defaults, version: "1.1.20").claimPresentation()
+        XCTAssertNotNil(newer)
+
+        let older = await makeStore(defaults: defaults, version: "1.1.19").claimPresentation()
+        XCTAssertNil(older)
+
+        let newerAgain = await makeStore(defaults: defaults, version: "1.1.20").claimPresentation()
+        XCTAssertNil(newerAgain)
+    }
+
+    func testVersionComparisonIsNumeric() {
+        XCTAssertTrue(ReleaseNotesPresentationStore.isVersion("1.1.10", newerThan: "1.1.9"))
+        XCTAssertTrue(ReleaseNotesPresentationStore.isVersion("1.2", newerThan: "1.1.20"))
+        XCTAssertFalse(ReleaseNotesPresentationStore.isVersion("1.1.9", newerThan: "1.1.10"))
+        XCTAssertFalse(ReleaseNotesPresentationStore.isVersion("1.1.20", newerThan: "1.1.20"))
+    }
+
     func testFailedDownloadDoesNotConsumeVersion() async {
         let defaults = makeDefaults()
         let failedDownloadStore = ReleaseNotesPresentationStore(
