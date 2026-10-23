@@ -258,6 +258,9 @@ struct FileStatusNativeList: NSViewRepresentable {
         }
 
         private func viewportAnchor(in source: [Row]) -> (String, CGFloat)? {
+            // At the top, stay there so rows inserted above the first visible row are shown
+            // instead of being scrolled out of view.
+            guard tableView.visibleRect.minY > 0 else { return nil }
             let visible = tableView.rows(in: tableView.visibleRect)
             guard visible.location != NSNotFound, source.indices.contains(visible.location) else { return nil }
             let row = visible.location
