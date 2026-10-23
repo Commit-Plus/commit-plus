@@ -441,6 +441,52 @@ final class GitProviderAccountControllerTests: XCTestCase {
         XCTAssertTrue(events.values.isEmpty)
     }
 
+    func testTestingSSHKeyForHTTPSAccountKeepsItsIdentityAndToken() async throws {
+        var existingAccount = makeProviderAccount(macgitUID: "local-owner")
+        existingAccount.permissions["authentication"] = "personalAccessToken"
+        let token = GitProviderToken(accessToken: "existing-token", refreshToken: nil, tokenType: "bearer")
+        let vault = FakeGitProviderTokenVault(tokensByAccountID: [existingAccount.id: token])
+        let sshKeyStore = FakeGitProviderSSHKeyStore()
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(localAccounts: [existingAccount]),
+            tokenVault: vault,
+            sshKeyStore: sshKeyStore,
+            sshAuthService: FakeGitProviderSSHAuthService(username: "octocat")
+        )
+        await controller.updateMacgitAccount(nil, cloudSyncEnabled: true)
+
+        await controller.connectSSH(host: .githubDotCom, key: GitProviderSSHKey(path: "/test/key"), replacing: existingAccount)
+
+        XCTAssertNil(controller.errorMessage)
+        let account = try XCTUnwrap(controller.accounts.first)
+        XCTAssertEqual(controller.accounts.count, 1)
+        XCTAssertEqual(account.id, existingAccount.id)
+        XCTAssertEqual(account.providerUserID, existingAccount.providerUserID)
+        XCTAssertEqual(account.permissions, existingAccount.permissions)
+        XCTAssertEqual(account.transportProtocol, .ssh)
+        XCTAssertEqual(try sshKeyStore.key(for: account), GitProviderSSHKey(path: "/test/key"))
+        XCTAssertEqual(try vault.readToken(for: account), token)
+    }
+
+    func testTestingSSHKeyOfDifferentUserForExistingAccountIsRejected() async {
+        let events = EventRecorder()
+        let existingAccount = makeProviderAccount(macgitUID: "local-owner")
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(localAccounts: [existingAccount], events: events),
+            tokenVault: FakeGitProviderTokenVault(),
+            sshKeyStore: FakeGitProviderSSHKeyStore(),
+            sshAuthService: FakeGitProviderSSHAuthService(username: "someone-else")
+        )
+        await controller.updateMacgitAccount(nil, cloudSyncEnabled: true)
+
+        await controller.connectSSH(host: .githubDotCom, key: GitProviderSSHKey(path: "/test/key"), replacing: existingAccount)
+
+        XCTAssertEqual(controller.errorMessage, GitProviderAccountAccessError.differentAccount.localizedDescription)
+        XCTAssertEqual(controller.accounts.map(\.id), [existingAccount.id])
+        XCTAssertEqual(controller.accounts.map(\.transportProtocol), [.https])
+        XCTAssertTrue(events.values.isEmpty)
+    }
+
     func testConnectSSHCreatesProviderAccountAndStoresKey() async throws {
         let events = EventRecorder()
         let store = FakeGitProviderAccountStore(events: events)
