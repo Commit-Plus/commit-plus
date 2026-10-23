@@ -1128,7 +1128,7 @@ extension CloudAIProviderTests {
         let signedIn = makeChatGPTController(tokens: .expiring(at: Date().addingTimeInterval(3_000)))
         await signedIn.controller.refreshAvailability()
         XCTAssertTrue(signedIn.controller.isAPIKeyConfigured(for: .chatGPTSubscription))
-        XCTAssertEqual(signedIn.controller.chatGPTAccount?.email, "dev@example.com")
+        XCTAssertEqual(signedIn.controller.connectedAccount(for: .chatGPTSubscription)?.email, "dev@example.com")
         XCTAssertTrue(signedIn.controller.canSelect(descriptor, restrictedProviderAccess: .allowed))
         XCTAssertFalse(signedIn.controller.canSelect(descriptor, restrictedProviderAccess: .denied(.requiresPro)))
 
@@ -1162,10 +1162,10 @@ extension CloudAIProviderTests {
         chatGPT.controller.selectProvider(.chatGPTSubscription)
         XCTAssertEqual(chatGPT.controller.selectedProviderID, .chatGPTSubscription)
 
-        await chatGPT.controller.disconnectChatGPT()
+        await chatGPT.controller.disconnect(.chatGPTSubscription)
 
         XCTAssertNil(try chatGPT.store.loadTokens())
-        XCTAssertNil(chatGPT.controller.chatGPTAccount)
+        XCTAssertNil(chatGPT.controller.connectedAccount(for: .chatGPTSubscription))
         XCTAssertFalse(chatGPT.controller.isAPIKeyConfigured(for: .chatGPTSubscription))
         XCTAssertEqual(chatGPT.controller.selectedProviderID, .appleIntelligence)
         let availability = await chatGPT.session.availability()
@@ -1173,27 +1173,110 @@ extension CloudAIProviderTests {
     }
 
     @MainActor
+    func testOpenAIChatGPTAndCodexStayIndependent() async throws {
+        let credentialStore = InMemoryAIProviderCredentialStore(keys: [.openAI: "openai-key"])
+        let providers = makeChatGPTController(
+            tokens: .expiring(at: Date().addingTimeInterval(3_000)),
+            codexTokens: .expiring(at: Date().addingTimeInterval(3_000)),
+            credentialStore: credentialStore
+        )
+        await providers.controller.refreshAvailability()
+
+        for id in [AIProviderID.openAI, .chatGPTSubscription, .chatGPTCodex] {
+            XCTAssertTrue(providers.controller.isAPIKeyConfigured(for: id))
+        }
+
+        await providers.controller.disconnect(.chatGPTCodex)
+
+        XCTAssertNil(try providers.codexStore.loadTokens())
+        XCTAssertNotNil(try providers.store.loadTokens())
+        XCTAssertEqual(try credentialStore.apiKey(for: .openAI), "openai-key")
+        XCTAssertFalse(providers.controller.isAPIKeyConfigured(for: .chatGPTCodex))
+        await providers.controller.refreshAvailability()
+        XCTAssertTrue(providers.controller.isAPIKeyConfigured(for: .chatGPTSubscription))
+        XCTAssertTrue(providers.controller.isAPIKeyConfigured(for: .openAI))
+        XCTAssertTrue(providers.controller.availability(for: .chatGPTSubscription).isAvailable)
+    }
+
+    @MainActor
+    func testDisconnectingDefaultCodexFallsBackToAppleIntelligence() async throws {
+        let providers = makeChatGPTController(tokens: nil, codexTokens: .expiring(at: Date().addingTimeInterval(3_000)))
+        await providers.controller.refreshAvailability()
+        providers.controller.selectProvider(.chatGPTCodex)
+        XCTAssertEqual(providers.controller.selectedProviderID, .chatGPTCodex)
+
+        await providers.controller.disconnect(.chatGPTCodex)
+
+        XCTAssertNil(try providers.codexStore.loadTokens())
+        XCTAssertNil(providers.controller.connectedAccount(for: .chatGPTCodex))
+        XCTAssertEqual(providers.controller.selectedProviderID, .appleIntelligence)
+    }
+
+    @MainActor
+    func testCodexSignInIsRefusedUntilRiskIsAcknowledged() async throws {
+        var openedURLs: [URL] = []
+        let providers = makeChatGPTController(tokens: nil, codexTokens: nil) { openedURLs.append($0) }
+        XCTAssertFalse(providers.controller.isUnofficialProviderRiskAcknowledged)
+
+        providers.controller.signIn(to: .chatGPTCodex, restrictedProviderAccess: .allowed)
+
+        XCTAssertEqual(providers.controller.signInState(for: .chatGPTCodex), .idle)
+        XCTAssertNotNil(providers.controller.signInErrorMessage(for: .chatGPTCodex))
+        XCTAssertTrue(openedURLs.isEmpty)
+
+        providers.controller.acknowledgeUnofficialProviderRisk()
+        XCTAssertTrue(providers.controller.isUnofficialProviderRiskAcknowledged)
+        XCTAssertTrue(providers.defaults.bool(forKey: "ai.chatgptCodex.riskAcknowledged"))
+    }
+
+    @MainActor
+    func testCodexAccountShowsPlanType() async throws {
+        var codexTokens = ChatGPTTokenSet.expiring(at: Date().addingTimeInterval(3_000))
+        codexTokens.planType = "free"
+        let providers = makeChatGPTController(tokens: nil, codexTokens: codexTokens)
+
+        await providers.controller.refreshAvailability()
+
+        XCTAssertEqual(
+            providers.controller.connectedAccount(for: .chatGPTCodex),
+            ChatGPTAccountSummary(email: "dev@example.com", planType: "free")
+        )
+        XCTAssertNil(providers.controller.connectedAccount(for: .chatGPTSubscription))
+    }
+
+    @MainActor
     private func makeChatGPTController(
         tokens: ChatGPTTokenSet?,
-        credentialStore: InMemoryAIProviderCredentialStore = InMemoryAIProviderCredentialStore()
-    ) -> (controller: AIProviderController, session: ChatGPTAccountSession, store: InMemoryChatGPTCredentialStore) {
+        codexTokens: ChatGPTTokenSet? = nil,
+        credentialStore: InMemoryAIProviderCredentialStore = InMemoryAIProviderCredentialStore(),
+        openURL: @escaping @MainActor (URL) -> Void = { _ in }
+    ) -> (
+        controller: AIProviderController,
+        session: ChatGPTAccountSession,
+        store: InMemoryChatGPTCredentialStore,
+        codexStore: InMemoryChatGPTCredentialStore,
+        defaults: UserDefaults
+    ) {
         let store = InMemoryChatGPTCredentialStore(tokens: tokens)
+        let codexStore = InMemoryChatGPTCredentialStore(tokens: codexTokens)
         let http = ChatGPTStubHTTPClient()
         let session = ChatGPTAccountSession(store: store, httpClient: http)
+        let defaults = makeDefaults()
         let controller = AIProviderController(
             registry: .live(
                 credentialStore: credentialStore,
                 modelStore: InMemoryAIProviderModelStore(),
                 httpClient: http,
-                chatGPTSession: session
+                chatGPTSession: session,
+                chatGPTCodexSession: ChatGPTAccountSession(store: codexStore, httpClient: http, configuration: .codex)
             ),
             snapshotLoader: StubCloudCommitChangeSnapshotLoader(),
-            defaults: makeDefaults(),
+            defaults: defaults,
             credentialStore: credentialStore,
             restrictedProviderAccess: { .allowed },
-            openURL: { _ in }
+            openURL: openURL
         )
-        return (controller, session, store)
+        return (controller, session, store, codexStore, defaults)
     }
 }
 

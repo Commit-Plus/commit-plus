@@ -403,6 +403,200 @@ final class ChatGPTAccountSessionTests: XCTestCase {
         XCTAssertEqual(URLComponents(url: received, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "code" }?.value, "abc")
     }
 
+    // MARK: Codex flow
+
+    private let codexRedirectURI = URL(string: "http://localhost:1455/auth/callback")!
+
+    func testCodexAuthorizeURLUsesFixedClientWithoutRegistrationOrNonce() async throws {
+        let store = InMemoryChatGPTCredentialStore()
+        let session = ChatGPTAccountSession(store: store, httpClient: ChatGPTStubHTTPClient(), configuration: .codex)
+
+        let url = try await session.beginAuthorization(redirectURI: codexRedirectURI)
+        let items = queryItems(url)
+
+        XCTAssertEqual(url.host, "auth.openai.com")
+        XCTAssertEqual(url.path, "/oauth/authorize")
+        XCTAssertEqual(items["client_id"], "app_EMoamEEZ73f0CkXaXp7hrann")
+        XCTAssertEqual(items["redirect_uri"], "http://localhost:1455/auth/callback")
+        XCTAssertEqual(items["scope"], "openid profile email offline_access api.connectors.read api.connectors.invoke")
+        XCTAssertEqual(items["id_token_add_organizations"], "true")
+        XCTAssertEqual(items["codex_cli_simplified_flow"], "true")
+        XCTAssertEqual(items["originator"], "codex_cli_rs")
+        XCTAssertEqual(items["code_challenge_method"], "S256")
+        XCTAssertNotNil(items["state"])
+        XCTAssertNil(items["nonce"])
+        XCTAssertNil(items["resource"])
+        XCTAssertNil(items["ext_agent_host_id"])
+        XCTAssertNil(try store.loadRegistration())
+        let returning = await session.returningAccount()
+        XCTAssertNil(returning)
+    }
+
+    func testCodexCodeExchangeStoresAccountAndPlanWithoutNonce() async throws {
+        let store = InMemoryChatGPTCredentialStore()
+        let http = ChatGPTStubHTTPClient()
+        let session = ChatGPTAccountSession(store: store, httpClient: http, configuration: .codex)
+        let items = queryItems(try await session.beginAuthorization(redirectURI: codexRedirectURI))
+        await http.respond(to: "/oauth/token", body: codexTokenResponse(
+            idToken: ChatGPTTestTokens.codexIDToken(accountID: "acct-1", planType: "free")
+        ))
+
+        let account = try await session.completeAuthorization(
+            callbackURL: codexCallback(state: try XCTUnwrap(items["state"]))
+        )
+
+        XCTAssertEqual(account, ChatGPTAccountSummary(email: "dev@example.com", planType: "free"))
+        let tokens = try XCTUnwrap(try store.loadTokens())
+        XCTAssertEqual(tokens.clientID, "app_EMoamEEZ73f0CkXaXp7hrann")
+        XCTAssertEqual(tokens.accountID, "acct-1")
+        XCTAssertEqual(tokens.planType, "free")
+        let accountID = await session.chatGPTAccountID()
+        XCTAssertEqual(accountID, "acct-1")
+        let exchangeRequests = await http.requests(path: "/oauth/token")
+        let form = formFields(try XCTUnwrap(exchangeRequests.first))
+        XCTAssertEqual(form["grant_type"], "authorization_code")
+        XCTAssertEqual(form["client_id"], "app_EMoamEEZ73f0CkXaXp7hrann")
+        XCTAssertEqual(form["redirect_uri"], codexRedirectURI.absoluteString)
+        XCTAssertNotNil(form["code_verifier"])
+        XCTAssertNil(form["resource"])
+    }
+
+    func testCodexSignInWithoutAccountIDIsRejected() async throws {
+        let store = InMemoryChatGPTCredentialStore()
+        let http = ChatGPTStubHTTPClient()
+        let session = ChatGPTAccountSession(store: store, httpClient: http, configuration: .codex)
+        let items = queryItems(try await session.beginAuthorization(redirectURI: codexRedirectURI))
+        await http.respond(to: "/oauth/token", body: codexTokenResponse(
+            idToken: ChatGPTTestTokens.codexIDToken(accountID: "", planType: "plus")
+        ))
+
+        do {
+            _ = try await session.completeAuthorization(callbackURL: codexCallback(state: try XCTUnwrap(items["state"])))
+            XCTFail("A Codex sign-in without an account ID must be rejected")
+        } catch let error as ChatGPTAuthError {
+            XCTAssertEqual(error, .invalidIDToken)
+        }
+        XCTAssertNil(try store.loadTokens())
+    }
+
+    func testCodexRejectedClientReportsBlockedConnection() async throws {
+        let http = ChatGPTStubHTTPClient()
+        let session = ChatGPTAccountSession(store: InMemoryChatGPTCredentialStore(), httpClient: http, configuration: .codex)
+        let items = queryItems(try await session.beginAuthorization(redirectURI: codexRedirectURI))
+        await http.respond(to: "/oauth/token", status: 401, body: """
+            {"error":"invalid_client","error_description":"Unknown client"}
+            """)
+
+        do {
+            _ = try await session.completeAuthorization(callbackURL: codexCallback(state: try XCTUnwrap(items["state"])))
+            XCTFail("A rejected client must fail the sign-in")
+        } catch let error as ChatGPTAuthError {
+            XCTAssertEqual(error, .clientRejected)
+        }
+    }
+
+    func testCodexRefreshSendsScopeInsteadOfResource() async throws {
+        let clock = ChatGPTTestClock()
+        var expiring = ChatGPTTokenSet.expiring(at: clock.now.addingTimeInterval(60))
+        expiring.clientID = "app_EMoamEEZ73f0CkXaXp7hrann"
+        let store = InMemoryChatGPTCredentialStore(tokens: expiring)
+        let http = ChatGPTStubHTTPClient()
+        await http.respond(to: "/oauth/token", body: """
+            {"access_token":"access-2","refresh_token":"refresh-2","expires_in":3600}
+            """)
+        let session = ChatGPTAccountSession(store: store, httpClient: http, configuration: .codex, now: { clock.now })
+
+        let token = try await session.accessToken()
+
+        XCTAssertEqual(token, "access-2")
+        let refreshes = await http.requests(path: "/oauth/token")
+        let form = formFields(try XCTUnwrap(refreshes.first))
+        XCTAssertEqual(form["grant_type"], "refresh_token")
+        XCTAssertEqual(form["client_id"], "app_EMoamEEZ73f0CkXaXp7hrann")
+        XCTAssertEqual(form["scope"], "openid profile email offline_access api.connectors.read api.connectors.invoke")
+        XCTAssertNil(form["resource"])
+    }
+
+    func testCodexDisconnectRevokesAtFixedEndpointWithoutDiscovery() async throws {
+        let store = InMemoryChatGPTCredentialStore(tokens: .expiring(at: Date().addingTimeInterval(3_000)))
+        let http = ChatGPTStubHTTPClient()
+        let session = ChatGPTAccountSession(store: store, httpClient: http, configuration: .codex)
+
+        await session.disconnect()
+
+        XCTAssertNil(try store.loadTokens())
+        let revocations = await http.requests(path: "/oauth/revoke")
+        XCTAssertEqual(formFields(try XCTUnwrap(revocations.first))["token"], "refresh-1")
+        let discovery = await http.requests(path: "/.well-known/openid-configuration")
+        XCTAssertTrue(discovery.isEmpty)
+    }
+
+    func testCodexAndOfficialKeychainItemsAreSeparate() {
+        XCTAssertNotEqual(
+            String(describing: KeychainChatGPTCredentialStore.codex),
+            String(describing: KeychainChatGPTCredentialStore())
+        )
+    }
+
+    // MARK: Loopback port
+
+    func testRequiredLoopbackPortFailsWhenTaken() async throws {
+        let occupied = try OccupiedLoopbackPort()
+        defer { occupied.close() }
+
+        do {
+            let server = try await ChatGPTLoopbackCallbackServer.start(
+                preferredPort: occupied.port,
+                redirectHost: "localhost",
+                requiresPreferredPort: true
+            )
+            server.stop()
+            XCTFail("A required port that is in use must fail the sign-in")
+        } catch let error as ChatGPTAuthError {
+            XCTAssertEqual(error, .loopbackPortInUse(occupied.port))
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Port \(occupied.port) is in use. Close other ChatGPT sign-ins and try again."
+            )
+        }
+    }
+
+    func testOfficialLoopbackFallsBackToFreePortWhenTaken() async throws {
+        let occupied = try OccupiedLoopbackPort()
+        defer { occupied.close() }
+
+        let server = try await ChatGPTLoopbackCallbackServer.start(preferredPort: occupied.port)
+        defer { server.stop() }
+
+        XCTAssertNotEqual(server.redirectURI.port, Int(occupied.port))
+        XCTAssertEqual(server.redirectURI.host, "127.0.0.1")
+    }
+
+    func testCodexLoopbackNamesLocalhostAndDeliversCallback() async throws {
+        let server = try await ChatGPTLoopbackCallbackServer.start(preferredPort: 0, redirectHost: "localhost")
+        defer { server.stop() }
+        XCTAssertEqual(server.redirectURI.host, "localhost")
+        let port = try XCTUnwrap(server.redirectURI.port)
+
+        _ = try await URLSession.shared.data(from: URL(string: "http://127.0.0.1:\(port)/auth/callback?code=abc&state=xyz")!)
+
+        var iterator = server.callbacks.makeAsyncIterator()
+        let next = await iterator.next()
+        let received = try XCTUnwrap(next)
+        XCTAssertEqual(received.host, "localhost")
+        XCTAssertEqual(received.port, port)
+    }
+
+    private func codexCallback(state: String) -> URL {
+        URL(string: "\(codexRedirectURI.absoluteString)?code=auth-code&state=\(state)")!
+    }
+
+    private func codexTokenResponse(idToken: String) -> String {
+        """
+        {"access_token":"access-1","refresh_token":"refresh-1","id_token":"\(idToken)","token_type":"Bearer","expires_in":3600}
+        """
+    }
+
     // MARK: Helpers
 
     private func callback(state: String, extra: String = "") -> URL {
@@ -484,12 +678,60 @@ enum ChatGPTTestTokens {
         return "\(header).\(payload).signature"
     }
 
+    /// A Codex ID token: no nonce, and the account and plan in OpenAI's namespaced claims.
+    static func codexIDToken(accountID: String, planType: String) -> String {
+        let header = encode(["alg": "RS256", "typ": "JWT"])
+        let payload = encode([
+            "iss": "https://auth.openai.com",
+            "aud": "app_EMoamEEZ73f0CkXaXp7hrann",
+            "sub": "user-1",
+            "exp": Date().addingTimeInterval(3_600).timeIntervalSince1970,
+            "https://api.openai.com/profile": ["email": "dev@example.com"],
+            "https://api.openai.com/auth": ["chatgpt_account_id": accountID, "chatgpt_plan_type": planType],
+        ])
+        return "\(header).\(payload).signature"
+    }
+
     private static func encode(_ object: [String: Any]) -> String {
         (try! JSONSerialization.data(withJSONObject: object))
             .base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
+    }
+}
+
+/// Holds a loopback TCP port open (without address reuse), like another app's sign-in listener.
+final class OccupiedLoopbackPort {
+    let port: UInt16
+    private let socketDescriptor: Int32
+
+    init() throws {
+        let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { throw POSIXError(.EMFILE) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        address.sin_port = 0
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let bound = withUnsafeMutablePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { generic in
+                Darwin.bind(descriptor, generic, length) == 0
+                    && listen(descriptor, 1) == 0
+                    && getsockname(descriptor, generic, &length) == 0
+            }
+        }
+        guard bound else {
+            Darwin.close(descriptor)
+            throw POSIXError(.EADDRINUSE)
+        }
+        socketDescriptor = descriptor
+        port = UInt16(bigEndian: address.sin_port)
+    }
+
+    func close() {
+        Darwin.close(socketDescriptor)
     }
 }
 

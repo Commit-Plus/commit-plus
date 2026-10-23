@@ -11,6 +11,12 @@ struct OpenAIResponsesClient: Sendable {
         /// Every request sends `"stream": true` (required for ChatGPT plan usage).
         /// One-shot calls read the whole event stream and decode the final response.
         case streamingRequired
+        /// ChatGPT's Codex backend: streaming-required, plus the Codex dialect. It
+        /// rejects `max_output_tokens`, needs a reasoning `summary`, and may send the
+        /// output items only in `response.output_item.done` events.
+        case codexBackend
+
+        var streamsEveryRequest: Bool { self != .standard }
     }
 
     let descriptor: AIProviderDescriptor
@@ -24,6 +30,8 @@ struct OpenAIResponsesClient: Sendable {
     let validate: @Sendable (HTTPURLResponse, Data, _ bearerToken: String) async throws -> Void
     /// Maps a `response.failed` or `error` stream event to the error to throw.
     let streamFailure: @Sendable (_ code: String?, _ message: String?, _ bearerToken: String) async -> any Error
+    /// Extra request headers, such as the Codex backend's account and client headers.
+    var extraHeaders: @Sendable () async throws -> [String: String] = { [:] }
 
     func generateCommitMessage(
         request: CommitMessageGenerationRequest
@@ -99,6 +107,7 @@ struct OpenAIResponsesClient: Sendable {
             "store": false,
         ]
         AIThinkingPolicy.openAI(model: model, enabled: modelStore.isThinkingEnabled, maxTokens: 3_000).apply(to: &body, maxTokensKey: "max_output_tokens")
+        adaptToDialect(&body)
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         try Task.checkCancellation()
@@ -138,7 +147,7 @@ struct OpenAIResponsesClient: Sendable {
                    event.response?.incompleteDetails?.reason == "max_output_tokens" {
                     reachedOutputLimit = true
                 }
-                if transport == .streamingRequired {
+                if transport.streamsEveryRequest {
                     if event.type == "response.completed" {
                         receivedTerminalEvent = true
                     }
@@ -158,7 +167,7 @@ struct OpenAIResponsesClient: Sendable {
                 }
             }
             try Task.checkCancellation()
-            if transport == .streamingRequired, !receivedTerminalEvent {
+            if transport.streamsEveryRequest, !receivedTerminalEvent {
                 throw CommitMessageGenerationError.providerRequestFailed(
                     "\(descriptor.displayName) ended the response before it completed. Try again."
                 )
@@ -275,28 +284,64 @@ struct OpenAIResponsesClient: Sendable {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        for (field, value) in try await extraHeaders() {
+            urlRequest.setValue(value, forHTTPHeaderField: field)
+        }
         return (urlRequest, token)
+    }
+
+    /// Applies the Codex backend's request dialect; other transports are unchanged.
+    private func adaptToDialect(_ body: inout [String: Any]) {
+        guard transport == .codexBackend else { return }
+        body.removeValue(forKey: "max_output_tokens")
+        // The Codex backend accepts only a list of typed input items whose message
+        // content is a list of typed parts, not a plain string.
+        if let text = body["input"] as? String {
+            body["input"] = [Self.codexMessage(role: "user", text: text)]
+        } else if let items = body["input"] as? [[String: Any]] {
+            body["input"] = items.map { item in
+                guard item["type"] == nil,
+                      let role = item["role"] as? String,
+                      let text = item["content"] as? String
+                else { return item }
+                return Self.codexMessage(role: role, text: text)
+            }
+        }
+        if var reasoning = body["reasoning"] as? [String: Any] {
+            reasoning["summary"] = "auto"
+            body["reasoning"] = reasoning
+        }
+    }
+
+    private static func codexMessage(role: String, text: String) -> [String: Any] {
+        [
+            "type": "message",
+            "role": role,
+            "content": [["type": "input_text", "text": text]],
+        ]
     }
 
     /// Sends one request and returns the Responses API response object as JSON.
     private func send(_ body: [String: Any]) async throws -> Data {
         var (urlRequest, bearerToken) = try await makeRequest()
         var body = body
-        if transport == .streamingRequired {
+        if transport.streamsEveryRequest {
             body["stream"] = true
             body["store"] = false
             urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         }
+        adaptToDialect(&body)
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
         try await validate(response, data, bearerToken)
-        guard transport == .streamingRequired else { return data }
+        guard transport.streamsEveryRequest else { return data }
         return try await finalResponse(fromEventStream: data, bearerToken: bearerToken)
     }
 
     private func finalResponse(fromEventStream data: Data, bearerToken: String) async throws -> Data {
         let text = String(decoding: data, as: UTF8.self)
+        var doneItems: [Any] = []
         for line in text.split(whereSeparator: \.isNewline) where line.hasPrefix("data:") {
             let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
             guard let eventData = payload.data(using: .utf8),
@@ -305,8 +350,16 @@ struct OpenAIResponsesClient: Sendable {
                 throw await streamFailure(failure.code, failure.message, bearerToken)
             }
             let type = event["type"] as? String
+            if transport == .codexBackend, type == "response.output_item.done", let item = event["item"] {
+                doneItems.append(item)
+            }
             if type == "response.completed" || type == "response.incomplete",
-               let response = event["response"] as? [String: Any] {
+               var response = event["response"] as? [String: Any] {
+                // The Codex backend may leave `output` empty and send items only as they finish.
+                if transport == .codexBackend, !doneItems.isEmpty,
+                   (response["output"] as? [Any])?.isEmpty ?? true {
+                    response["output"] = doneItems
+                }
                 return try JSONSerialization.data(withJSONObject: response)
             }
         }

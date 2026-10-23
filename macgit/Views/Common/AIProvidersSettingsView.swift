@@ -150,7 +150,12 @@ struct AIProvidersSettingsView: View {
             AIProviderLogo(descriptor: descriptor, size: 22)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(descriptor.displayName)
+                HStack(spacing: 6) {
+                    Text(descriptor.displayName)
+                    if descriptor.isUnofficial {
+                        UnofficialProviderBadge()
+                    }
+                }
                 Text(modelName(for: descriptor) ?? "")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -214,14 +219,15 @@ struct AIProvidersSettingsView: View {
     }
 
     private func menuTitle(for descriptor: AIProviderDescriptor) -> String {
-        descriptor.requiresProToConfigureAPIKey && !restrictedProviderAccess.isAllowed
-            ? "\(descriptor.displayName) (Pro)"
-            : descriptor.displayName
+        var title = descriptor.displayName
+        if descriptor.isUnofficial { title += " — Unofficial" }
+        if descriptor.requiresProToConfigureAPIKey && !restrictedProviderAccess.isAllowed { title += " (Pro)" }
+        return title
     }
 
     private func remove(_ descriptor: AIProviderDescriptor) {
         if descriptor.billing == .connectedAccount {
-            Task { await controller.disconnectChatGPT() }
+            Task { await controller.disconnect(descriptor.id) }
             return
         }
         do {

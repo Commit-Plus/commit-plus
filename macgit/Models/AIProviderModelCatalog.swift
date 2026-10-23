@@ -18,6 +18,7 @@ enum AIProviderModelCatalog {
     private static let balanced = "Balanced"
     private static let mostCapable = "Most Capable"
     private static let popular = "Popular"
+    private static let codexModels = "Codex Models"
 
     static func suggestions(for id: AIProviderID) -> [AIProviderModelOption] {
         switch id {
@@ -33,6 +34,13 @@ enum AIProviderModelCatalog {
                 AIProviderModelOption(id: "gpt-6-luna", name: "GPT-6 Luna", group: lowCost),
                 AIProviderModelOption(id: "gpt-6.1-sol", name: "GPT-6.1 Sol", group: balanced),
                 AIProviderModelOption(id: "gpt-6-astra", name: "GPT-6 Astra", group: mostCapable),
+            ]
+        case .chatGPTCodex:
+            // The Codex backend has no model list; these are the slugs TablePro ships.
+            [
+                AIProviderModelOption(id: "gpt-5.6-sol", name: "GPT-5.6 Sol", group: codexModels),
+                AIProviderModelOption(id: "gpt-5.6-terra", name: "GPT-5.6 Terra", group: codexModels),
+                AIProviderModelOption(id: "gpt-5.5", name: "GPT-5.5", group: codexModels),
             ]
         case .anthropic:
             [

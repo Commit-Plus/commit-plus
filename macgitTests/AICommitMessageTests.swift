@@ -171,15 +171,22 @@ final class AICommitMessageTests: XCTestCase {
         let credentialStore = InMemoryAIProviderCredentialStore()
         let registry = AIProviderRegistry.live(
             credentialStore: credentialStore,
-            chatGPTSession: ChatGPTAccountSession(store: InMemoryChatGPTCredentialStore())
+            chatGPTSession: ChatGPTAccountSession(store: InMemoryChatGPTCredentialStore()),
+            chatGPTCodexSession: ChatGPTAccountSession(store: InMemoryChatGPTCredentialStore(), configuration: .codex)
         )
         let ids = registry.descriptors.map(\.id)
 
         XCTAssertEqual(
             ids,
-            [.appleIntelligence, .openAI, .googleGemini, .chatGPTSubscription, .anthropic, .deepSeek, .openRouter, .groq]
+            [.appleIntelligence, .openAI, .googleGemini, .chatGPTSubscription, .chatGPTCodex,
+             .anthropic, .deepSeek, .openRouter, .groq]
         )
         XCTAssertEqual(registry.provider(for: .chatGPTSubscription)?.descriptor.billing, .connectedAccount)
+        let codex = registry.provider(for: .chatGPTCodex)?.descriptor
+        XCTAssertEqual(codex?.billing, .connectedAccount)
+        XCTAssertEqual(codex?.isUnofficial, true)
+        XCTAssertEqual(codex?.requiresProToConfigureAPIKey, true)
+        XCTAssertEqual(registry.provider(for: .chatGPTSubscription)?.descriptor.isUnofficial, false)
         XCTAssertEqual(registry.provider(for: .appleIntelligence)?.descriptor.billing, AIProviderBilling.none)
         for id in [AIProviderID.openAI, .anthropic, .googleGemini, .deepSeek, .openRouter, .groq] {
             let provider = registry.provider(for: id)

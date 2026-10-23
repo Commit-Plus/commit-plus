@@ -14,27 +14,47 @@ final class ChatGPTLoopbackCallbackServer: @unchecked Sendable {
     private let continuation: AsyncStream<URL>.Continuation
     private let queue: DispatchQueue
 
-    private init(listener: NWListener, port: UInt16, path: String, queue: DispatchQueue) {
+    private init(listener: NWListener, port: UInt16, path: String, redirectHost: String, queue: DispatchQueue) {
         self.listener = listener
         self.path = path
         self.queue = queue
-        redirectURI = URL(string: "http://127.0.0.1:\(port)\(path)")!
+        redirectURI = URL(string: "http://\(redirectHost):\(port)\(path)")!
         (callbacks, continuation) = AsyncStream.makeStream(of: URL.self)
     }
 
+    /// Starts listening for `configuration`'s sign-in flow.
+    static func start(for configuration: ChatGPTAuthConfiguration) async throws -> ChatGPTLoopbackCallbackServer {
+        try await start(
+            preferredPort: configuration.preferredLoopbackPort,
+            path: configuration.callbackPath,
+            redirectHost: configuration.loopbackRedirectHost,
+            requiresPreferredPort: configuration.requiresPreferredLoopbackPort
+        )
+    }
+
     /// Starts listening on the preferred port, or any free port when it is taken.
+    /// With `requiresPreferredPort`, a taken port fails with `loopbackPortInUse`.
+    /// The listener always binds to 127.0.0.1; `redirectHost` only names it in the
+    /// redirect URI.
     static func start(
         preferredPort: UInt16 = ChatGPTAuthConfiguration.live.preferredLoopbackPort,
-        path: String = ChatGPTAuthConfiguration.live.callbackPath
+        path: String = ChatGPTAuthConfiguration.live.callbackPath,
+        redirectHost: String = ChatGPTAuthConfiguration.live.loopbackRedirectHost,
+        requiresPreferredPort: Bool = false
     ) async throws -> ChatGPTLoopbackCallbackServer {
         do {
-            return try await start(port: preferredPort, path: path)
+            return try await start(port: preferredPort, path: path, redirectHost: redirectHost)
         } catch {
-            return try await start(port: 0, path: path)
+            if requiresPreferredPort { throw ChatGPTAuthError.loopbackPortInUse(preferredPort) }
+            return try await start(port: 0, path: path, redirectHost: redirectHost)
         }
     }
 
-    private static func start(port: UInt16, path: String) async throws -> ChatGPTLoopbackCallbackServer {
+    private static func start(
+        port: UInt16,
+        path: String,
+        redirectHost: String
+    ) async throws -> ChatGPTLoopbackCallbackServer {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(
             host: "127.0.0.1",
@@ -65,7 +85,13 @@ final class ChatGPTLoopbackCallbackServer: @unchecked Sendable {
             listener.newConnectionHandler = { $0.cancel() }
             listener.start(queue: queue)
         }
-        let server = ChatGPTLoopbackCallbackServer(listener: listener, port: boundPort, path: path, queue: queue)
+        let server = ChatGPTLoopbackCallbackServer(
+            listener: listener,
+            port: boundPort,
+            path: path,
+            redirectHost: redirectHost,
+            queue: queue
+        )
         listener.newConnectionHandler = { [weak server] connection in
             guard let server else { return connection.cancel() }
             server.handle(connection)
@@ -92,7 +118,7 @@ final class ChatGPTLoopbackCallbackServer: @unchecked Sendable {
             }
             let parts = requestLine.split(separator: " ")
             guard parts.count >= 2, parts[0] == "GET",
-                  let url = URL(string: "http://127.0.0.1:\(redirectURI.port ?? 0)\(parts[1])"),
+                  let url = URL(string: "http://\(redirectURI.host ?? "127.0.0.1"):\(redirectURI.port ?? 0)\(parts[1])"),
                   url.path == path else {
                 respond(on: connection, status: "404 Not Found", body: "Not found.")
                 return

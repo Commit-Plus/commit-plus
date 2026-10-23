@@ -50,12 +50,14 @@ struct AIProviderDescriptor: Identifiable, Sendable {
     let defaultModel: String?
     let inputCharacterBudget: Int
     let isImplemented: Bool
+    /// Uses an interface the vendor does not support; labeled "Unofficial" wherever it is shown.
+    var isUnofficial = false
 
     var logoAssetName: String? {
         switch id {
         case .appleIntelligence:
             nil
-        case .openAI, .chatGPTSubscription:
+        case .openAI, .chatGPTSubscription, .chatGPTCodex:
             "chatgpt"
         case .anthropic:
             "claude-icon"
