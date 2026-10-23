@@ -78,6 +78,8 @@ Reuse the PKCE helpers (`GitProviderPKCE`) and the callback parsing in `GitProvi
   - The first sign-in uses `dynamic_agent_client` with `agent_name_hint=Commit+` and a per-Mac `ext_agent_host_id` (`urn:uuid:`).
   - The callback's issued `client_id` is used for the token exchange and refresh, and saved for later sign-ins.
   - The issued client ID and the host ID are kept in the Keychain registration item, which survives disconnect.
+  - An issued client ID is bound to the account and workspace that registered it. Another account gets `3p_login_workspace_scope_denied`. The sheet therefore offers "Use Another Account", which registers again through `dynamic_agent_client` and replaces the saved registration only after that sign-in succeeds. A returning sign-in rejects a callback whose `client_id` differs from the saved one.
+- **Sign-in wait:** while the browser is open, the sheet shows the authorization link with a Copy Link button for opening it in another browser profile. The listener closes on success, failure, Cancel, sheet dismissal, or after a 10-minute timeout.
 - **Scopes:** `openid profile email offline_access resource.invoke chatgpt.tokens.use.direct` with `resource=https://api.openai.com/v1`. After the code exchange, the app requires `chatgpt.tokens.use.direct` in the granted `scope`; without it, no tokens are saved.
 - **ID token:** the app checks `iss`, `aud` (the issued client ID), `exp`, and `nonce`, and reads `email` and `sub`. The token comes directly from the token endpoint over TLS, which OIDC Core §3.1.3.7 accepts in place of a JWKS signature check.
 - **Configuration:** endpoints, scopes, resource, and the agent name live in one `ChatGPTAuthConfiguration` type.

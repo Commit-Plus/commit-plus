@@ -15,6 +15,7 @@ struct AIProviderConfigurationSheet: View {
     @State private var saveErrorMessage: String?
     @State private var isUsingCustomModel: Bool
     @State private var isConfirmingDisconnect = false
+    @State private var didCopySignInLink = false
 
     private static let customModelTag = "\u{0}custom"
 
@@ -231,7 +232,11 @@ struct AIProviderConfigurationSheet: View {
         }
         .frame(width: 540, height: 460)
         .task(id: controller.chatGPTAccount) {
-            guard isConnectedAccount, isConfigured else { return }
+            guard isConnectedAccount else { return }
+            guard isConfigured else {
+                await controller.refreshChatGPTReturningAccount()
+                return
+            }
             await controller.refreshChatGPTModels()
             isUsingCustomModel = !modelGroups.flatMap(\.options).contains { $0.id == normalizedModel }
         }
@@ -274,6 +279,31 @@ struct AIProviderConfigurationSheet: View {
                     Spacer()
                     Button("Cancel") { controller.cancelChatGPTSignIn() }
                 }
+                if let url = controller.chatGPTAuthorizationURL {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Wrong browser profile? Copy this link and open it in the right one.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            Text(url.absoluteString)
+                                .font(.callout.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .textSelection(.enabled)
+                            Spacer()
+                            Button(didCopySignInLink ? "Copied" : "Copy Link", systemImage: didCopySignInLink ? "checkmark" : "doc.on.doc") {
+                                controller.copyChatGPTAuthorizationURL()
+                                didCopySignInLink = true
+                            }
+                        }
+                    }
+                    .task(id: didCopySignInLink) {
+                        guard didCopySignInLink else { return }
+                        try? await Task.sleep(for: .seconds(2))
+                        didCopySignInLink = false
+                    }
+                }
             } else {
                 HStack {
                     Text("Sign in to use your ChatGPT Plus or Pro plan instead of an API key.")
@@ -281,6 +311,20 @@ struct AIProviderConfigurationSheet: View {
                     Spacer()
                     Button("Continue with ChatGPT") {
                         controller.signInToChatGPT(restrictedProviderAccess: restrictedProviderAccess)
+                    }
+                }
+                if let returning = controller.chatGPTReturningAccount {
+                    HStack {
+                        Text(returning.email.map { "Continues as \($0)." } ?? "Continues with the previously registered account.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Use Another Account") {
+                            controller.signInToChatGPT(
+                                restrictedProviderAccess: restrictedProviderAccess,
+                                newAccount: true
+                            )
+                        }
                     }
                 }
             }

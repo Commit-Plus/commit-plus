@@ -75,6 +75,26 @@ final class CommitPlusAISelectionPolicyTests: XCTestCase {
         XCTAssertTrue(openedURLs.isEmpty)
     }
 
+    func testChatGPTSignInExposesLinkAndTimesOut() async throws {
+        var openedURLs: [URL] = []
+        let (controller, _, suite) = try makeChatGPTController(tokens: nil, access: { .allowed }) { openedURLs.append($0) }
+        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        controller.chatGPTSignInTimeout = .milliseconds(300)
+
+        controller.signInToChatGPT(restrictedProviderAccess: .allowed)
+        while openedURLs.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+
+        XCTAssertEqual(controller.chatGPTSignInState, .waitingForBrowser)
+        XCTAssertEqual(controller.chatGPTAuthorizationURL, openedURLs.first)
+        let deadline = Date().addingTimeInterval(5)
+        while controller.chatGPTSignInState != .idle, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(controller.chatGPTSignInState, .idle)
+        XCTAssertNil(controller.chatGPTAuthorizationURL)
+        XCTAssertEqual(controller.chatGPTSignInErrorMessage, ChatGPTAuthError.timedOut.localizedDescription)
+    }
+
     func testLapsedProCannotUseChatGPTButCanDisconnect() async throws {
         var access: FeatureAccessDecision = .allowed
         let (controller, store, suite) = try makeChatGPTController(

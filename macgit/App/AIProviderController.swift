@@ -35,9 +35,15 @@ final class AIProviderController: ObservableObject {
     @Published private(set) var isThinkingEnabled: Bool
     @Published private(set) var chatGPTAccount: ChatGPTAccountSummary?
     @Published private(set) var chatGPTSignInState: ChatGPTSignInState = .idle
+    /// The browser link for the pending sign-in, shown so it can be opened in another browser profile.
+    @Published private(set) var chatGPTAuthorizationURL: URL?
+    /// The previously registered account a plain sign-in returns to; nil before the first registration.
+    @Published private(set) var chatGPTReturningAccount: ChatGPTReturningAccount?
     @Published var chatGPTSignInErrorMessage: String?
     @Published private(set) var chatGPTModels: [AIProviderModelOption] = []
     private var chatGPTSignInTask: Task<Void, Never>?
+    /// How long the loopback listener waits for the browser before the sign-in is abandoned.
+    var chatGPTSignInTimeout: Duration = .seconds(600)
 
     @Published private(set) var availabilityRevision = 0
     private var availabilityTasks: [AIProviderID: (id: UUID, task: Task<AIProviderAvailability, Never>)] = [:]
@@ -294,7 +300,8 @@ final class AIProviderController: ObservableObject {
     }
 
     /// Opens "Sign in with ChatGPT" in the browser and waits for the loopback callback.
-    func signInToChatGPT(restrictedProviderAccess: FeatureAccessDecision) {
+    /// `newAccount` registers a new client instead of returning to the saved account.
+    func signInToChatGPT(restrictedProviderAccess: FeatureAccessDecision, newAccount: Bool = false) {
         guard chatGPTSignInTask == nil, let session = chatGPTSession else { return }
         guard restrictedProviderAccess.isAllowed else {
             chatGPTSignInErrorMessage = AIProviderConfigurationError
@@ -307,8 +314,19 @@ final class AIProviderController: ObservableObject {
             do {
                 let server = try await ChatGPTLoopbackCallbackServer.start()
                 defer { server.stop() }
-                let authorizationURL = try await session.beginAuthorization(redirectURI: server.redirectURI)
+                let authorizationURL = try await session.beginAuthorization(
+                    redirectURI: server.redirectURI,
+                    newAccount: newAccount
+                )
+                self?.chatGPTAuthorizationURL = authorizationURL
                 self?.openURL(authorizationURL)
+                // Stopping the server ends the callback stream, so a timeout ends the wait below.
+                let timeout = self?.chatGPTSignInTimeout ?? .seconds(600)
+                let timer = Task {
+                    try await Task.sleep(for: timeout)
+                    server.stop()
+                }
+                defer { timer.cancel() }
                 var account: ChatGPTAccountSummary?
                 for await callbackURL in server.callbacks {
                     do {
@@ -320,7 +338,8 @@ final class AIProviderController: ObservableObject {
                     }
                 }
                 try Task.checkCancellation()
-                if let account, let self {
+                guard let account else { throw ChatGPTAuthError.timedOut }
+                if let self {
                     self.updateChatGPTAccount(account)
                     self.invalidateAvailability()
                     await self.refreshChatGPTModels()
@@ -331,6 +350,8 @@ final class AIProviderController: ObservableObject {
                 self?.chatGPTSignInErrorMessage = error.localizedDescription
             }
             await session.cancelAuthorization()
+            self?.chatGPTReturningAccount = await session.returningAccount()
+            self?.chatGPTAuthorizationURL = nil
             self?.chatGPTSignInState = .idle
             self?.chatGPTSignInTask = nil
         }
@@ -338,6 +359,12 @@ final class AIProviderController: ObservableObject {
 
     func cancelChatGPTSignIn() {
         chatGPTSignInTask?.cancel()
+    }
+
+    func copyChatGPTAuthorizationURL() {
+        guard let chatGPTAuthorizationURL else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(chatGPTAuthorizationURL.absoluteString, forType: .string)
     }
 
     /// Revokes and deletes the ChatGPT sign-in. Allowed without Pro, so a lapsed
@@ -351,6 +378,11 @@ final class AIProviderController: ObservableObject {
         if selectedProviderID == .chatGPTSubscription {
             selectProvider(.appleIntelligence)
         }
+    }
+
+    func refreshChatGPTReturningAccount() async {
+        guard let chatGPTSession else { return }
+        chatGPTReturningAccount = await chatGPTSession.returningAccount()
     }
 
     func refreshChatGPTModels() async {
@@ -415,6 +447,7 @@ final class AIProviderController: ObservableObject {
             }
             if id == .chatGPTSubscription, let chatGPTSession {
                 updateChatGPTAccount(await chatGPTSession.account())
+                chatGPTReturningAccount = await chatGPTSession.returningAccount()
             }
             request = (UUID(), Task { await provider.availability() })
             availabilityTasks[id] = request

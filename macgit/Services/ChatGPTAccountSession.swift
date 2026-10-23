@@ -6,6 +6,11 @@ struct ChatGPTAccountSummary: Equatable, Sendable {
     var email: String?
 }
 
+/// A previously registered ChatGPT account that a plain sign-in returns to.
+struct ChatGPTReturningAccount: Equatable, Sendable {
+    var email: String?
+}
+
 enum ChatGPTPlanIssue: Equatable, Sendable {
     case usageLimitReached
     case notEligible
@@ -18,6 +23,7 @@ enum ChatGPTAuthError: LocalizedError, Equatable {
     case invalidIDToken
     case tokenRequestFailed(String)
     case noPendingSignIn
+    case timedOut
 
     var errorDescription: String? {
         switch self {
@@ -33,6 +39,8 @@ enum ChatGPTAuthError: LocalizedError, Equatable {
             message
         case .noPendingSignIn:
             "No ChatGPT sign-in is in progress."
+        case .timedOut:
+            "ChatGPT sign-in timed out. Try again."
         }
     }
 }
@@ -109,13 +117,25 @@ actor ChatGPTAccountSession {
 
     // MARK: Authorization
 
-    func beginAuthorization(redirectURI: URL) throws -> URL {
-        let registration: ChatGPTRegistration
+    /// The account whose issued client ID a plain sign-in reuses, if one was registered.
+    func returningAccount() -> ChatGPTReturningAccount? {
+        guard let registration = try? store.loadRegistration(), registration.clientID != nil else { return nil }
+        return ChatGPTReturningAccount(email: registration.email)
+    }
+
+    /// Starts a sign-in. An issued client ID is bound to the account and workspace that
+    /// registered it, so `newAccount` registers a fresh client for a different account.
+    func beginAuthorization(redirectURI: URL, newAccount: Bool = false) throws -> URL {
+        var registration: ChatGPTRegistration
         if let saved = try store.loadRegistration() {
             registration = saved
         } else {
             registration = ChatGPTRegistration(hostID: "urn:uuid:\(UUID().uuidString.lowercased())")
             try store.saveRegistration(registration)
+        }
+        if newAccount {
+            registration.clientID = nil
+            registration.email = nil
         }
         let verifier = GitProviderPKCE.generateVerifier()
         let request = PendingAuthorization(
@@ -168,12 +188,20 @@ actor ChatGPTAccountSession {
         }
         pending = nil
 
-        guard let clientID = Self.queryValue("client_id", in: callbackURL) ?? request.clientID,
+        let callbackClientID = Self.queryValue("client_id", in: callbackURL)
+        if let saved = request.clientID, let callbackClientID, callbackClientID != saved {
+            throw ChatGPTAuthError.missingClientID
+        }
+        guard let clientID = callbackClientID ?? request.clientID,
               clientID != configuration.dynamicClientID else {
             throw ChatGPTAuthError.missingClientID
         }
         var registration = try store.loadRegistration()
             ?? ChatGPTRegistration(hostID: "urn:uuid:\(UUID().uuidString.lowercased())")
+        if registration.clientID != clientID {
+            // A new registration replaces the previous account's client ID and email.
+            registration.email = nil
+        }
         registration.clientID = clientID
         try store.saveRegistration(registration)
 

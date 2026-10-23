@@ -45,6 +45,54 @@ final class ChatGPTAccountSessionTests: XCTestCase {
         XCTAssertEqual(items["login_hint"], "dev@example.com")
     }
 
+    func testAnotherAccountRegistersNewClientAndReplacesSavedOne() async throws {
+        let store = InMemoryChatGPTCredentialStore(
+            registration: ChatGPTRegistration(hostID: "urn:uuid:host", clientID: "oaiapp_saved", email: "old@example.com")
+        )
+        let http = ChatGPTStubHTTPClient()
+        let session = ChatGPTAccountSession(store: store, httpClient: http)
+        let returning = await session.returningAccount()
+        XCTAssertEqual(returning, ChatGPTReturningAccount(email: "old@example.com"))
+
+        let items = queryItems(try await session.beginAuthorization(redirectURI: redirectURI, newAccount: true))
+
+        XCTAssertEqual(items["client_id"], "dynamic_agent_client")
+        XCTAssertEqual(items["agent_name_hint"], "Commit+")
+        XCTAssertEqual(items["ext_agent_host_id"], "urn:uuid:host")
+        XCTAssertNil(items["login_hint"])
+        XCTAssertEqual(try store.loadRegistration()?.clientID, "oaiapp_saved")
+        let state = try XCTUnwrap(items["state"])
+        let nonce = try XCTUnwrap(items["nonce"])
+        await http.respond(to: "/api/accounts/oauth/token", body: tokenResponse(clientID: "oaiapp_new", nonce: nonce))
+
+        _ = try await session.completeAuthorization(callbackURL: callback(state: state, extra: "&client_id=oaiapp_new"))
+
+        XCTAssertEqual(try store.loadRegistration()?.clientID, "oaiapp_new")
+        XCTAssertEqual(try store.loadTokens()?.clientID, "oaiapp_new")
+    }
+
+    func testReturningSignInRejectsDifferentIssuedClientID() async throws {
+        let store = InMemoryChatGPTCredentialStore(
+            registration: ChatGPTRegistration(hostID: "urn:uuid:host", clientID: "oaiapp_saved", email: nil)
+        )
+        let http = ChatGPTStubHTTPClient()
+        let session = ChatGPTAccountSession(store: store, httpClient: http)
+        let items = queryItems(try await session.beginAuthorization(redirectURI: redirectURI))
+
+        do {
+            _ = try await session.completeAuthorization(
+                callbackURL: callback(state: try XCTUnwrap(items["state"]), extra: "&client_id=oaiapp_other")
+            )
+            XCTFail("A different issued client ID must be rejected")
+        } catch {
+            XCTAssertEqual(error as? ChatGPTAuthError, .missingClientID)
+        }
+        XCTAssertNil(try store.loadTokens())
+        XCTAssertEqual(try store.loadRegistration()?.clientID, "oaiapp_saved")
+        let requests = await http.allRequests()
+        XCTAssertTrue(requests.isEmpty)
+    }
+
     func testSuccessfulSignInStoresTokensFromKeychainOnly() async throws {
         let store = InMemoryChatGPTCredentialStore()
         let http = ChatGPTStubHTTPClient()
