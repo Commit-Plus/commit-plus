@@ -195,7 +195,7 @@ jobs:
           done
 
       - name: Generate appcast
-        run: scripts/release/generate-appcast.sh "$GITHUB_REF_NAME" "$ZIP_NAME" "$ZIP_PATH" "$RUNNER_TEMP/appcast.xml"
+        run: scripts/release/generate-appcast.sh "$GITHUB_REF_NAME" "$ZIP_NAME" "$ZIP_PATH" "$RUNNER_TEMP/appcast.xml" "${{ steps.release_notes.outputs.release_notes_path }}"
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           SPARKLE_ED25519_PRIVATE_KEY: ${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}

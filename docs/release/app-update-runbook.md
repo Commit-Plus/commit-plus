@@ -25,7 +25,7 @@ The `Release App Update` workflow in [.github/workflows/release-app-update.yml](
 8. Notarizes, staples, mounts, and verifies the DMG.
 9. Creates a stable GitHub Release and uploads both the ZIP and DMG, replacing both assets safely on retries.
 10. Waits until both public release assets are reachable.
-11. Generates a signed Sparkle `appcast.xml` from the ZIP only.
+11. Generates a signed Sparkle `appcast.xml` from the ZIP only, embedding the CHANGELOG release notes so the update alert shows them.
 12. Publishes the appcast to GitHub Pages.
 
 The appcast is intentionally last. If an earlier step fails, clients should never discover a partially published release.
