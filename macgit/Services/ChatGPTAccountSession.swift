@@ -243,9 +243,12 @@ actor ChatGPTAccountSession {
             switch error {
             case .stateMismatch, .missingState, .unsupportedCallback:
                 throw error
+            case .accessDenied:
+                pending = nil
+                throw ChatGPTAuthError.consentDenied
             case .providerMessage:
-                // The provider error is checked before the state, so an unsolicited
-                // error callback must not cancel the pending sign-in.
+                // Parsing verifies the state first; keep the check so an unsolicited
+                // error callback can never cancel the pending sign-in.
                 guard Self.queryValue("state", in: callbackURL) == request.state else {
                     throw GitProviderOAuthError.stateMismatch
                 }

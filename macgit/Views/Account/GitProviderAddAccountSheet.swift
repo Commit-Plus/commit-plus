@@ -50,6 +50,8 @@ struct GitProviderAddAccountSheet: View {
     @State private var savedProtocol: GitProviderAddAccountProtocol = .https
     @State private var savedSSHKeyPath = ""
     @State private var connectionTask: Task<Void, Never>?
+    /// This view started a GitHub or GitLab browser authorization whose account has not arrived yet.
+    @State private var awaitsBrowserResult = false
 
     init(
         controller: GitProviderAccountController,
@@ -168,7 +170,7 @@ struct GitProviderAddAccountSheet: View {
 
                 if selectedProtocol == .https {
                     Button(connectButtonTitle, action: connectAccount)
-                        .disabled(!canConnect || controller.isLoading)
+                        .disabled(!canConnect || controller.isLoading || controller.awaitingBrowserAuthorizationProvider != nil)
                 }
 
                 Picker("Protocol", selection: $selectedProtocol) {
@@ -197,6 +199,21 @@ struct GitProviderAddAccountSheet: View {
             }
             .formStyle(.grouped)
             .disabled(showsControllerActivity && controller.isLoading)
+
+            if showsControllerActivity, awaitsBrowserResult, controller.awaitingBrowserAuthorizationProvider != nil {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Finish connecting in your browser…")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Cancel", action: cancelConnection)
+                    }
+                    Button("Use a device code instead", action: useDeviceCode)
+                        .buttonStyle(.link)
+                }
+            }
 
             if showsControllerActivity, let authorization = controller.pendingDeviceAuthorization {
                 GitProviderDeviceAuthorizationView(
@@ -258,6 +275,12 @@ struct GitProviderAddAccountSheet: View {
         }
         .onAppear(perform: loadExistingSSHKey)
         .onDisappear(perform: cancelConnection)
+        // The browser flow completes from the URL callback, after `connectAccount` returned.
+        .onChange(of: controller.accounts.map(\.id)) { _, _ in
+            guard awaitsBrowserResult else { return }
+            awaitsBrowserResult = false
+            refreshConnectedUsername()
+        }
     }
 
     private var configuredHost: GitProviderHost? {
@@ -378,6 +401,22 @@ struct GitProviderAddAccountSheet: View {
                     }
                 }
             }
+            awaitsBrowserResult = controller.awaitingBrowserAuthorizationProvider != nil
+            refreshConnectedUsername()
+            connectionTask = nil
+        }
+    }
+
+    private func useDeviceCode() {
+        let provider = controller.awaitingBrowserAuthorizationProvider
+        awaitsBrowserResult = false
+        connectionTask?.cancel()
+        connectionTask = Task { @MainActor in
+            if provider == .gitlab {
+                await controller.connectGitLabWithDeviceCode()
+            } else {
+                await controller.connectGitHubWithDeviceCode()
+            }
             refreshConnectedUsername()
             connectionTask = nil
         }
@@ -427,6 +466,10 @@ struct GitProviderAddAccountSheet: View {
     private func cancelConnection() {
         connectionTask?.cancel()
         connectionTask = nil
+        if awaitsBrowserResult {
+            awaitsBrowserResult = false
+            controller.cancelBrowserAuthorization()
+        }
     }
 
     private func copyToPasteboard(_ value: String) {
