@@ -580,6 +580,120 @@ final class GitProviderAccountControllerTests: XCTestCase {
         XCTAssertNil(controller.errorMessage)
     }
 
+    // MARK: Duplicate accounts
+
+    func testAddingAlreadyConnectedAccountIsRejectedWithoutOverwritingIt() async {
+        let events = EventRecorder()
+        let existingAccount = makeProviderAccount(macgitUID: "local-owner")
+        let existingToken = GitProviderToken(accessToken: "existing-token", refreshToken: nil, tokenType: "bearer")
+        let vault = FakeGitProviderTokenVault(tokensByAccountID: [existingAccount.id: existingToken], events: events)
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(localAccounts: [existingAccount], events: events),
+            tokenVault: vault,
+            authService: FakeGitProviderAuthService(account: existingAccount),
+            configuration: makeConfiguration(),
+            openURL: { _ in true },
+            multipleAccountAccess: { .allowed }
+        )
+        await controller.updateMacgitAccount(nil, cloudSyncEnabled: true)
+
+        await controller.connectGitHub()
+        _ = await controller.handleProviderOAuthCallback(gitHubCallback())
+
+        XCTAssertEqual(controller.errorMessage, "octocat is already connected. Edit that account to update its sign-in.")
+        XCTAssertEqual(controller.accounts, [existingAccount])
+        XCTAssertTrue(events.values.isEmpty)
+        XCTAssertEqual(try vault.readToken(for: existingAccount), existingToken)
+    }
+
+    func testReconnectWithDifferentProviderUserIsRejected() async {
+        let events = EventRecorder()
+        let existingAccount = makeProviderAccount(macgitUID: "local-owner")
+        let otherAccount = makeProviderAccount(macgitUID: "local-owner", id: "connection-2", providerUserID: "provider-user-84")
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(localAccounts: [existingAccount], events: events),
+            tokenVault: FakeGitProviderTokenVault(events: events),
+            authService: FakeGitProviderAuthService(account: otherAccount),
+            configuration: makeConfiguration(),
+            openURL: { _ in true },
+            multipleAccountAccess: { .allowed }
+        )
+        await controller.updateMacgitAccount(nil, cloudSyncEnabled: true)
+
+        await controller.reconnect(existingAccount)
+        _ = await controller.handleProviderOAuthCallback(gitHubCallback())
+
+        XCTAssertEqual(controller.errorMessage, GitProviderAccountAccessError.differentAccount.localizedDescription)
+        XCTAssertEqual(controller.accounts.map(\.id), [existingAccount.id])
+        XCTAssertTrue(events.values.isEmpty)
+    }
+
+    func testAddingSSHAccountForUserConnectedOverHTTPSIsRejected() async {
+        let events = EventRecorder()
+        let existingAccount = makeProviderAccount(macgitUID: "local-owner")
+        let sshKeyStore = FakeGitProviderSSHKeyStore()
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(localAccounts: [existingAccount], events: events),
+            tokenVault: FakeGitProviderTokenVault(),
+            sshKeyStore: sshKeyStore,
+            sshAuthService: FakeGitProviderSSHAuthService(username: "OctoCat"),
+            multipleAccountAccess: { .allowed }
+        )
+        await controller.updateMacgitAccount(nil, cloudSyncEnabled: true)
+
+        await controller.connectSSH(host: .githubDotCom, key: GitProviderSSHKey(path: "/test/key"))
+
+        XCTAssertEqual(controller.errorMessage, "octocat is already connected. Edit that account to update its sign-in.")
+        XCTAssertEqual(controller.accounts.map(\.id), [existingAccount.id])
+        XCTAssertTrue(events.values.isEmpty)
+    }
+
+    func testAddingHTTPSAccountForUserConnectedOverSSHIsRejected() async {
+        let events = EventRecorder()
+        let sshAccount = makeProviderAccount(
+            macgitUID: "local-owner",
+            id: "local-owner:github:github.com:octocat",
+            providerUserID: "octocat",
+            transportProtocol: .ssh
+        )
+        let sshKeyStore = FakeGitProviderSSHKeyStore(keysByAccountID: [sshAccount.id: GitProviderSSHKey(path: "/test/key")])
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(localAccounts: [sshAccount], events: events),
+            tokenVault: FakeGitProviderTokenVault(events: events),
+            sshKeyStore: sshKeyStore,
+            authService: FakeGitProviderAuthService(account: makeProviderAccount(macgitUID: "local-owner")),
+            configuration: makeConfiguration(),
+            openURL: { _ in true },
+            multipleAccountAccess: { .allowed }
+        )
+        await controller.updateMacgitAccount(nil, cloudSyncEnabled: true)
+
+        await controller.connectGitHub()
+        _ = await controller.handleProviderOAuthCallback(gitHubCallback())
+
+        XCTAssertEqual(controller.errorMessage, "octocat is already connected. Edit that account to update its sign-in.")
+        XCTAssertEqual(controller.accounts.map(\.id), [sshAccount.id])
+        XCTAssertTrue(events.values.isEmpty)
+    }
+
+    func testAddingSameBitbucketUserTwiceIsRejected() async {
+        let events = EventRecorder()
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(events: events),
+            tokenVault: FakeGitProviderTokenVault(events: events),
+            multipleAccountAccess: { .allowed }
+        )
+        await controller.updateMacgitAccount(nil, cloudSyncEnabled: true)
+        await controller.connectBitbucket(username: "Trantienthanh2412", apiToken: "first-token")
+        events.values.removeAll()
+
+        await controller.connectBitbucket(username: "Trantienthanh2412", apiToken: "second-token")
+
+        XCTAssertEqual(controller.errorMessage, "Trantienthanh2412 is already connected. Edit that account to update its sign-in.")
+        XCTAssertEqual(controller.accounts.count, 1)
+        XCTAssertTrue(events.values.isEmpty)
+    }
+
     // MARK: GitHub browser authorization
 
     func testConnectGitHubOpensBrowserAndCompletesFromCallback() async throws {

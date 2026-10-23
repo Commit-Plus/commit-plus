@@ -49,6 +49,9 @@ final class GitProviderAccountController: ObservableObject {
     /// How long a browser authorization may take; GitHub and GitLab codes expire after 10 minutes.
     var oauthAuthorizationLifetime: TimeInterval = 600
     private var oauthExpiryTask: Task<Void, Never>?
+    /// The account a pending OAuth or device authorization reconnects; nil when it adds a new account.
+    /// Kept across the browser-to-device-code fallback, which replaces the OAuth session.
+    private var authorizationReplacingAccount: GitProviderAccount?
     private var gitLabRefreshTasks: [String: Task<GitProviderToken, Error>] = [:]
 
     private var accountOwnerID: String { store.accountOwnerID }
@@ -122,6 +125,7 @@ final class GitProviderAccountController: ObservableObject {
 
     func connectGitHub() async {
         guard authorizeNewAccountCreation() else { return }
+        authorizationReplacingAccount = nil
         startGitHubBrowserAuthorization()
     }
 
@@ -138,6 +142,7 @@ final class GitProviderAccountController: ObservableObject {
 
     func connectGitLabDotCom() async {
         guard authorizeNewAccountCreation() else { return }
+        authorizationReplacingAccount = nil
         startGitLabBrowserAuthorization()
     }
 
@@ -150,6 +155,7 @@ final class GitProviderAccountController: ObservableObject {
     func connectSelfHostedGitLab(hostURL: URL) async {
         guard authorizeConnection(to: GitProviderHost(kind: .gitlab, baseURL: hostURL)) else { return }
         guard authorizeNewAccountCreation() else { return }
+        authorizationReplacingAccount = nil
         await startGitLabDeviceAuthorization(host: GitProviderHost(kind: .gitlab, baseURL: hostURL).normalized)
     }
 
@@ -175,13 +181,10 @@ final class GitProviderAccountController: ObservableObject {
             case .bitbucket: return
             }
             try Task.checkCancellation()
-            if let existingAccount, !hasSameProviderIdentity(existingAccount, account) {
-                throw GitProviderAuthError.providerMessage("This token belongs to a different account. Add it as a new account instead.")
-            }
             // PAT scope validation happens on each Git/API operation; OAuth scopes are not applicable.
             account.permissions["authentication"] = "personalAccessToken"
             account.scopes = []
-            try await saveAuthorizedAccount(account, token: token)
+            try await saveAuthorizedAccount(account, token: token, replacing: existingAccount)
         } catch {
             errorMessage = GitProviderAuthError.connectionMessage(error)
         }
@@ -238,7 +241,8 @@ final class GitProviderAccountController: ObservableObject {
                     refreshToken: nil,
                     expiresAt: nil,
                     tokenType: "Basic"
-                )
+                ),
+                replacing: existingAccount
             )
         } catch {
             errorMessage = error.localizedDescription
@@ -254,6 +258,7 @@ final class GitProviderAccountController: ObservableObject {
                 return
             }
         }
+        authorizationReplacingAccount = account
         switch account.provider {
         case .github:
             startGitHubBrowserAuthorization()
@@ -366,7 +371,7 @@ final class GitProviderAccountController: ObservableObject {
             case .bitbucket:
                 throw GitProviderAuthError.invalidConfiguration
             }
-            try await saveAuthorizedAccount(account, token: token)
+            try await saveAuthorizedAccount(account, token: token, replacing: authorizationReplacingAccount)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -519,6 +524,7 @@ final class GitProviderAccountController: ObservableObject {
                 lastValidatedAt: .now
             )
 
+            try validateConnectedAccount(account, replacing: existingAccount)
             try validateAccountCreation(for: account)
             try await sshKeyStore.saveKey(key, for: account)
             do {
@@ -610,7 +616,7 @@ final class GitProviderAccountController: ObservableObject {
                 macgitUID: accountOwnerID,
                 host: .githubDotCom
             )
-            try await saveAuthorizedAccount(account, token: token)
+            try await saveAuthorizedAccount(account, token: token, replacing: authorizationReplacingAccount)
         } catch is CancellationError {
             errorMessage = nil
         } catch {
@@ -678,7 +684,7 @@ final class GitProviderAccountController: ObservableObject {
                 macgitUID: accountOwnerID,
                 host: normalizedHost
             )
-            try await saveAuthorizedAccount(account, token: token)
+            try await saveAuthorizedAccount(account, token: token, replacing: authorizationReplacingAccount)
         } catch is CancellationError {
             errorMessage = nil
         } catch GitProviderAuthError.invalidConfiguration {
@@ -743,7 +749,12 @@ final class GitProviderAccountController: ObservableObject {
         return "\(macgitUID):\(provider.rawValue):\(hostIdentifier):\(username)"
     }
 
-    private func saveAuthorizedAccount(_ account: GitProviderAccount, token: GitProviderToken) async throws {
+    private func saveAuthorizedAccount(
+        _ account: GitProviderAccount,
+        token: GitProviderToken,
+        replacing existingAccount: GitProviderAccount?
+    ) async throws {
+        try validateConnectedAccount(account, replacing: existingAccount)
         try validateAccountCreation(for: account)
         let previousToken = try tokenVault.readToken(for: account)
         try tokenVault.saveToken(token, for: account)
@@ -772,6 +783,35 @@ final class GitProviderAccountController: ObservableObject {
         lhs.provider == rhs.provider
             && GitProviderHost.identityKey(lhs.hostURL) == GitProviderHost.identityKey(rhs.hostURL)
             && lhs.providerUserID == rhs.providerUserID
+    }
+
+    /// Adding must not overwrite an account the user already connected, and reconnecting
+    /// must keep the same provider user.
+    private func validateConnectedAccount(
+        _ account: GitProviderAccount,
+        replacing existingAccount: GitProviderAccount?
+    ) throws {
+        if let existingAccount {
+            guard isSameProviderUser(existingAccount, account) else {
+                throw GitProviderAccountAccessError.differentAccount
+            }
+            return
+        }
+        if let connectedAccount = accounts.first(where: { isSameProviderUser($0, account) }) {
+            throw GitProviderAccountAccessError.accountAlreadyConnected(username: connectedAccount.username)
+        }
+    }
+
+    /// Like `hasSameProviderIdentity`, but also matches SSH accounts, which only know the
+    /// username, against HTTPS accounts keyed by the provider's numeric user ID.
+    private func isSameProviderUser(_ lhs: GitProviderAccount, _ rhs: GitProviderAccount) -> Bool {
+        if hasSameProviderIdentity(lhs, rhs) { return true }
+        guard lhs.provider == rhs.provider,
+              GitProviderHost.identityKey(lhs.hostURL) == GitProviderHost.identityKey(rhs.hostURL),
+              lhs.transportProtocol == .ssh || rhs.transportProtocol == .ssh else {
+            return false
+        }
+        return lhs.username.caseInsensitiveCompare(rhs.username) == .orderedSame
     }
 
     private func authorizeNewAccountCreation() -> Bool {
