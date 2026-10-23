@@ -294,6 +294,14 @@ struct OpenAIResponsesClient: Sendable {
     private func adaptToDialect(_ body: inout [String: Any]) {
         guard transport == .codexBackend else { return }
         body.removeValue(forKey: "max_output_tokens")
+        // The Codex backend accepts only a list of input items, not a plain string.
+        if let text = body["input"] as? String {
+            body["input"] = [[
+                "type": "message",
+                "role": "user",
+                "content": [["type": "input_text", "text": text]],
+            ]]
+        }
         if var reasoning = body["reasoning"] as? [String: Any] {
             reasoning["summary"] = "auto"
             body["reasoning"] = reasoning

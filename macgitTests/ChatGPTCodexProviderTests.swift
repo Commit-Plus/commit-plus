@@ -29,6 +29,13 @@ final class ChatGPTCodexProviderTests: XCTestCase {
         XCTAssertEqual(body["store"] as? Bool, false)
         XCTAssertEqual(body["model"] as? String, "gpt-5.6-sol")
         XCTAssertNil(body["max_output_tokens"])
+        let input = try XCTUnwrap(body["input"] as? [[String: Any]])
+        XCTAssertEqual(input.count, 1)
+        XCTAssertEqual(input.first?["type"] as? String, "message")
+        XCTAssertEqual(input.first?["role"] as? String, "user")
+        let content = try XCTUnwrap(input.first?["content"] as? [[String: Any]])
+        XCTAssertEqual(content.first?["type"] as? String, "input_text")
+        XCTAssertFalse((content.first?["text"] as? String ?? "").isEmpty)
         let reasoning = try XCTUnwrap(body["reasoning"] as? [String: Any])
         XCTAssertEqual(reasoning["summary"] as? String, "auto")
         let bodyText = String(decoding: try XCTUnwrap(request.httpBody), as: UTF8.self)
@@ -71,6 +78,13 @@ final class ChatGPTCodexProviderTests: XCTestCase {
 
         XCTAssertEqual(turn.toolCalls.map(\.id), ["call_1"])
         XCTAssertEqual(turn.toolCalls.first?.arguments, ["diff", "--cached"])
+        let sent = await http.requests(path: responsesPath)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: try XCTUnwrap(sent.first?.httpBody)
+        ) as? [String: Any])
+        // Agent input is already a list of items and is sent unchanged.
+        let input = try XCTUnwrap(body["input"] as? [[String: Any]])
+        XCTAssertEqual(input.first?["role"] as? String, "user")
     }
 
     func testRejectedAccessTokenClearsSignIn() async throws {
