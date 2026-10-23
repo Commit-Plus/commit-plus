@@ -502,6 +502,12 @@ final class GitProviderAccountController: ObservableObject {
         try sshKeyStore.key(for: account)
     }
 
+    /// Whether this Mac still holds the account's HTTPS token, which switching to SSH keeps.
+    func hasStoredToken(for account: GitProviderAccount) -> Bool {
+        guard let token = try? tokenVault.readToken(for: account) else { return false }
+        return !token.accessToken.isEmpty
+    }
+
     func saveConnectionSettings(
         account: GitProviderAccount,
         transportProtocol: GitProviderTransportProtocol,

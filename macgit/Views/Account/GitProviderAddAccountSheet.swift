@@ -198,7 +198,9 @@ struct GitProviderAddAccountSheet: View {
                     }
                     if selectedProtocol == .https {
                         SecureField("Personal Access Token", text: $personalAccessToken)
-                        Text("Requires Code (Read & Write) scope.")
+                        Text(hasStoredAzureToken
+                             ? "A personal access token is saved for this account. Enter a new one only to replace it."
+                             : "Requires Code (Read & Write) scope.")
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                         Button("Get Personal Access Token", action: openAzureDevOpsTokenPage)
@@ -238,6 +240,12 @@ struct GitProviderAddAccountSheet: View {
 
                             Button("Choose...", action: chooseSSHKey)
                         }
+                    }
+
+                    if selectedHost == .azureDevOps {
+                        Text("Azure DevOps accepts RSA SSH keys only. Your personal access token stays saved for switching back to HTTPS.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     Button(connectButtonTitle, action: connectAccount)
@@ -347,6 +355,11 @@ struct GitProviderAddAccountSheet: View {
         }
     }
 
+    private var hasStoredAzureToken: Bool {
+        guard selectedHost == .azureDevOps, let account = matchingAccount() ?? editingAccount else { return false }
+        return controller.hasStoredToken(for: account)
+    }
+
     private var azureOrganizationName: String? {
         AzureReposRemote.organization(fromInput: azureOrganization)
     }
@@ -398,6 +411,10 @@ struct GitProviderAddAccountSheet: View {
 
     private var canSave: Bool {
         guard isSheet || hasUnsavedChanges else { return false }
+        // An Azure account switched back to HTTPS needs a PAT on this Mac, kept from before or entered now.
+        if selectedHost == .azureDevOps, selectedProtocol == .https, !hasStoredAzureToken {
+            return false
+        }
         return (editingAccount != nil || matchingAccount() != nil || accountCreationDecision.isAllowed)
             && GitProviderAddAccountPresentationPolicy.canSave(
             connectedUsername: connectedUsername,
