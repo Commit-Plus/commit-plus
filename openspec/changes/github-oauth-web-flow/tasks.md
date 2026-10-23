@@ -19,8 +19,8 @@
 
 ## 4. Rollout (requires explicit authorization)
 
-- [ ] 4.1 With explicit user authorization, deploy the `../landing-page` change to production on Vercel and set the secret as a server-only environment variable. Verify that the production callback page loads and the exchange route returns 400 for a fake code (and not 503).
-- [ ] 4.2 With explicit user authorization, add `https://commitplus.app/oauth/github/callback` to the Commit+ GitHub OAuth app's callback URLs and confirm Device Flow stays enabled. Verify by reviewing the OAuth app settings page.
+- [x] 4.1 With explicit user authorization, deploy the `../landing-page` change to production on Vercel and set the secret as a server-only environment variable. Verify that the production callback page loads and the exchange route returns 400 for a fake code (and not 503).
+- [x] 4.2 With explicit user authorization, add `https://commitplus.app/oauth/github/callback` to the Commit+ GitHub OAuth app's callback URLs and confirm Device Flow stays enabled. Verify by reviewing the OAuth app settings page.
 
 ## 5. Integration checks
 

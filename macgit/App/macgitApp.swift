@@ -96,7 +96,6 @@ struct macgitApp: App {
             authService: GitHubProviderAuthService(configuration: providerConfiguration),
             configuration: providerConfiguration,
             gitLabAuthService: GitLabProviderAuthService(configuration: gitLabProviderConfiguration),
-            gitLabRedirectURI: gitLabProviderConfiguration.redirectURI,
             openURL: NSWorkspace.shared.open,
             hasProAccess: { accountController.entitlement.hasProAccess },
             multipleAccountAccess: {

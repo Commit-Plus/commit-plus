@@ -88,6 +88,31 @@ final class GitProviderOAuthTests: XCTestCase {
         }
     }
 
+    func testGitLabSessionAcceptsOnlyItsOwnForwardedCallback() throws {
+        let session = GitProviderOAuthSession(
+            provider: .gitlab,
+            host: .gitlabDotCom,
+            state: "expected-state",
+            codeVerifier: GitProviderPKCE.generateVerifier(),
+            redirectURI: try XCTUnwrap(URL(string: "https://commitplus.app/oauth/gitlab/callback")),
+            appCallbackURL: try XCTUnwrap(URL(string: "macgit://git-provider/oauth/gitlab/callback"))
+        )
+        let gitLabCallback = try XCTUnwrap(URL(
+            string: "macgit://git-provider/oauth/gitlab/callback?code=oauth-code&state=expected-state"
+        ))
+
+        XCTAssertEqual(try GitProviderOAuthCallback.parse(gitLabCallback, for: session).code, "oauth-code")
+        for value in [
+            "macgit://git-provider/oauth/github/callback?code=oauth-code&state=expected-state",
+            "macgit://git-provider/oauth/callback?code=oauth-code&state=expected-state"
+        ] {
+            let url = try XCTUnwrap(URL(string: value))
+            XCTAssertThrowsError(try GitProviderOAuthCallback.parse(url, for: session)) { error in
+                XCTAssertEqual(error as? GitProviderOAuthError, .unsupportedCallback)
+            }
+        }
+    }
+
     func testDeniedCallbackWithMatchingStateIsAccessDenied() throws {
         let session = try makeForwardedSession(state: "expected-state")
         let url = try XCTUnwrap(URL(

@@ -50,7 +50,7 @@ struct GitProviderAddAccountSheet: View {
     @State private var savedProtocol: GitProviderAddAccountProtocol = .https
     @State private var savedSSHKeyPath = ""
     @State private var connectionTask: Task<Void, Never>?
-    /// This view started a GitHub browser authorization whose account has not arrived yet.
+    /// This view started a GitHub or GitLab browser authorization whose account has not arrived yet.
     @State private var awaitsBrowserResult = false
 
     init(
@@ -170,7 +170,7 @@ struct GitProviderAddAccountSheet: View {
 
                 if selectedProtocol == .https {
                     Button(connectButtonTitle, action: connectAccount)
-                        .disabled(!canConnect || controller.isLoading || controller.isAwaitingGitHubBrowserAuthorization)
+                        .disabled(!canConnect || controller.isLoading || controller.awaitingBrowserAuthorizationProvider != nil)
                 }
 
                 Picker("Protocol", selection: $selectedProtocol) {
@@ -200,7 +200,7 @@ struct GitProviderAddAccountSheet: View {
             .formStyle(.grouped)
             .disabled(showsControllerActivity && controller.isLoading)
 
-            if showsControllerActivity, awaitsBrowserResult, controller.isAwaitingGitHubBrowserAuthorization {
+            if showsControllerActivity, awaitsBrowserResult, controller.awaitingBrowserAuthorizationProvider != nil {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
                         ProgressView()
@@ -401,17 +401,22 @@ struct GitProviderAddAccountSheet: View {
                     }
                 }
             }
-            awaitsBrowserResult = controller.isAwaitingGitHubBrowserAuthorization
+            awaitsBrowserResult = controller.awaitingBrowserAuthorizationProvider != nil
             refreshConnectedUsername()
             connectionTask = nil
         }
     }
 
     private func useDeviceCode() {
+        let provider = controller.awaitingBrowserAuthorizationProvider
         awaitsBrowserResult = false
         connectionTask?.cancel()
         connectionTask = Task { @MainActor in
-            await controller.connectGitHubWithDeviceCode()
+            if provider == .gitlab {
+                await controller.connectGitLabWithDeviceCode()
+            } else {
+                await controller.connectGitHubWithDeviceCode()
+            }
             refreshConnectedUsername()
             connectionTask = nil
         }
@@ -463,7 +468,7 @@ struct GitProviderAddAccountSheet: View {
         connectionTask = nil
         if awaitsBrowserResult {
             awaitsBrowserResult = false
-            controller.cancelGitHubAuthorization()
+            controller.cancelBrowserAuthorization()
         }
     }
 
