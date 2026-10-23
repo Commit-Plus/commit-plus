@@ -63,6 +63,106 @@ final class GitProviderOAuthTests: XCTestCase {
         XCTAssertEqual(callback, GitProviderOAuthCallback(code: "oauth-code", state: "expected-state"))
     }
 
+    func testForwardedCallbackMatchesAppCallbackURL() throws {
+        let session = try makeForwardedSession(state: "expected-state")
+        let callbackURL = try XCTUnwrap(
+            URL(string: "macgit://git-provider/oauth/github/callback?code=oauth-code&state=expected-state")
+        )
+
+        let callback = try GitProviderOAuthCallback.parse(callbackURL, for: session)
+
+        XCTAssertEqual(callback.code, "oauth-code")
+        XCTAssertEqual(session.redirectURI.scheme, "https")
+    }
+
+    func testForwardedCallbackRejectsProviderRedirectAndOtherPaths() throws {
+        let session = try makeForwardedSession(state: "expected-state")
+        for value in [
+            "https://commitplus.app/oauth/github/callback?code=oauth-code&state=expected-state",
+            "macgit://git-provider/oauth/callback?code=oauth-code&state=expected-state"
+        ] {
+            let url = try XCTUnwrap(URL(string: value))
+            XCTAssertThrowsError(try GitProviderOAuthCallback.parse(url, for: session)) { error in
+                XCTAssertEqual(error as? GitProviderOAuthError, .unsupportedCallback)
+            }
+        }
+    }
+
+    func testGitLabSessionAcceptsOnlyItsOwnForwardedCallback() throws {
+        let session = GitProviderOAuthSession(
+            provider: .gitlab,
+            host: .gitlabDotCom,
+            state: "expected-state",
+            codeVerifier: GitProviderPKCE.generateVerifier(),
+            redirectURI: try XCTUnwrap(URL(string: "https://commitplus.app/oauth/gitlab/callback")),
+            appCallbackURL: try XCTUnwrap(URL(string: "macgit://git-provider/oauth/gitlab/callback"))
+        )
+        let gitLabCallback = try XCTUnwrap(URL(
+            string: "macgit://git-provider/oauth/gitlab/callback?code=oauth-code&state=expected-state"
+        ))
+
+        XCTAssertEqual(try GitProviderOAuthCallback.parse(gitLabCallback, for: session).code, "oauth-code")
+        for value in [
+            "macgit://git-provider/oauth/github/callback?code=oauth-code&state=expected-state",
+            "macgit://git-provider/oauth/callback?code=oauth-code&state=expected-state"
+        ] {
+            let url = try XCTUnwrap(URL(string: value))
+            XCTAssertThrowsError(try GitProviderOAuthCallback.parse(url, for: session)) { error in
+                XCTAssertEqual(error as? GitProviderOAuthError, .unsupportedCallback)
+            }
+        }
+    }
+
+    func testDeniedCallbackWithMatchingStateIsAccessDenied() throws {
+        let session = try makeForwardedSession(state: "expected-state")
+        let url = try XCTUnwrap(URL(
+            string: "macgit://git-provider/oauth/github/callback?error=access_denied&state=expected-state"
+        ))
+
+        XCTAssertThrowsError(try GitProviderOAuthCallback.parse(url, for: session)) { error in
+            XCTAssertEqual(error as? GitProviderOAuthError, .accessDenied)
+        }
+    }
+
+    func testErrorCallbackIsCheckedAgainstStateFirst() throws {
+        let session = try makeForwardedSession(state: "expected-state")
+        let forged = try XCTUnwrap(URL(
+            string: "macgit://git-provider/oauth/github/callback?error=access_denied&state=forged"
+        ))
+        let missing = try XCTUnwrap(URL(
+            string: "macgit://git-provider/oauth/github/callback?error=access_denied"
+        ))
+
+        XCTAssertThrowsError(try GitProviderOAuthCallback.parse(forged, for: session)) { error in
+            XCTAssertEqual(error as? GitProviderOAuthError, .stateMismatch)
+        }
+        XCTAssertThrowsError(try GitProviderOAuthCallback.parse(missing, for: session)) { error in
+            XCTAssertEqual(error as? GitProviderOAuthError, .missingState)
+        }
+    }
+
+    func testOtherProviderErrorUsesDescription() throws {
+        let session = try makeForwardedSession(state: "expected-state")
+        let url = try XCTUnwrap(URL(
+            string: "macgit://git-provider/oauth/github/callback?error=server_error&error_description=Try%20later&state=expected-state"
+        ))
+
+        XCTAssertThrowsError(try GitProviderOAuthCallback.parse(url, for: session)) { error in
+            XCTAssertEqual(error as? GitProviderOAuthError, .providerMessage("Try later"))
+        }
+    }
+
+    private func makeForwardedSession(state: String) throws -> GitProviderOAuthSession {
+        GitProviderOAuthSession(
+            provider: .github,
+            host: .githubDotCom,
+            state: state,
+            codeVerifier: "test-verifier",
+            redirectURI: try XCTUnwrap(URL(string: "https://commitplus.app/oauth/github/callback")),
+            appCallbackURL: try XCTUnwrap(URL(string: "macgit://git-provider/oauth/github/callback"))
+        )
+    }
+
     private func makeSession(state: String) throws -> GitProviderOAuthSession {
         GitProviderOAuthSession(
             provider: .github,

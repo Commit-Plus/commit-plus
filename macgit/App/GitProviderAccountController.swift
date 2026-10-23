@@ -33,13 +33,22 @@ final class GitProviderAccountController: ObservableObject {
     private let authService: GitProviderAuthenticating?
     private let configuration: GitHubProviderAuthConfiguration?
     private let gitLabAuthService: (any GitLabProviderOAuthAuthenticating)?
-    private let gitLabRedirectURI: URL
     private let openURL: (URL) -> Bool
     private let hasProAccess: () -> Bool
     private let multipleAccountAccess: () -> FeatureAccessDecision
     private let accountAccessPolicy = GitProviderAccountAccessPolicy()
     private var cacheOwnerUID: String?
-    private var pendingOAuthSession: GitProviderOAuthSession?
+    private var pendingOAuthSession: GitProviderOAuthSession? {
+        didSet {
+            awaitingBrowserAuthorizationProvider = pendingOAuthSession?.provider
+            if pendingOAuthSession != oldValue { oauthExpiryTask?.cancel() }
+        }
+    }
+    /// The provider whose browser authorization is pending, if any.
+    @Published private(set) var awaitingBrowserAuthorizationProvider: GitProviderKind?
+    /// How long a browser authorization may take; GitHub and GitLab codes expire after 10 minutes.
+    var oauthAuthorizationLifetime: TimeInterval = 600
+    private var oauthExpiryTask: Task<Void, Never>?
     private var gitLabRefreshTasks: [String: Task<GitProviderToken, Error>] = [:]
 
     private var accountOwnerID: String { store.accountOwnerID }
@@ -52,7 +61,6 @@ final class GitProviderAccountController: ObservableObject {
         authService: GitProviderAuthenticating? = nil,
         configuration: GitHubProviderAuthConfiguration? = nil,
         gitLabAuthService: (any GitLabProviderOAuthAuthenticating)? = nil,
-        gitLabRedirectURI: URL = GitLabProviderAuthConfiguration.appConfiguration().redirectURI,
         openURL: @escaping (URL) -> Bool = { _ in false },
         hasProAccess: @escaping () -> Bool = { false },
         multipleAccountAccess: @escaping () -> FeatureAccessDecision = {
@@ -66,7 +74,6 @@ final class GitProviderAccountController: ObservableObject {
         self.authService = authService
         self.configuration = configuration
         self.gitLabAuthService = gitLabAuthService
-        self.gitLabRedirectURI = gitLabRedirectURI
         self.openURL = openURL
         self.multipleAccountAccess = multipleAccountAccess
         self.hasProAccess = hasProAccess
@@ -115,11 +122,28 @@ final class GitProviderAccountController: ObservableObject {
 
     func connectGitHub() async {
         guard authorizeNewAccountCreation() else { return }
+        startGitHubBrowserAuthorization()
+    }
+
+    /// Ends a pending browser authorization; a later callback for it is ignored.
+    func cancelBrowserAuthorization() {
+        pendingOAuthSession = nil
+    }
+
+    /// Falls back to the device flow, replacing any pending browser authorization.
+    func connectGitHubWithDeviceCode() async {
+        cancelBrowserAuthorization()
         await startGitHubDeviceAuthorization()
     }
 
     func connectGitLabDotCom() async {
         guard authorizeNewAccountCreation() else { return }
+        startGitLabBrowserAuthorization()
+    }
+
+    /// Falls back to the GitLab.com device flow, replacing any pending browser authorization.
+    func connectGitLabWithDeviceCode() async {
+        cancelBrowserAuthorization()
         await startGitLabDeviceAuthorization(host: .gitlabDotCom)
     }
 
@@ -232,9 +256,9 @@ final class GitProviderAccountController: ObservableObject {
         }
         switch account.provider {
         case .github:
-            await startGitHubDeviceAuthorization()
+            startGitHubBrowserAuthorization()
         case .gitlab:
-            await startGitLabDeviceAuthorization(host: GitProviderHost(kind: .gitlab, baseURL: account.hostURL))
+            startGitLabBrowserAuthorization()
         case .bitbucket:
             errorMessage = "Enter a new Bitbucket API token to reconnect this account."
         }
@@ -304,38 +328,52 @@ final class GitProviderAccountController: ObservableObject {
             callback = try GitProviderOAuthCallback.parse(url, for: session)
         } catch GitProviderOAuthError.unsupportedCallback {
             return false
+        } catch GitProviderOAuthError.stateMismatch, GitProviderOAuthError.missingState {
+            // Not from this attempt: ignore it and keep waiting for the real callback.
+            return true
+        } catch GitProviderOAuthError.accessDenied {
+            pendingOAuthSession = nil
+            return true
         } catch {
             errorMessage = error.localizedDescription
             pendingOAuthSession = nil
             return true
         }
 
-        guard let gitLabAuthService else {
-            errorMessage = GitProviderAuthError.invalidConfiguration.localizedDescription
-            pendingOAuthSession = nil
+        // Take the session before any await so a repeated delivery cannot exchange the code twice.
+        pendingOAuthSession = nil
+        guard Date().timeIntervalSince(session.startedAt) < oauthAuthorizationLifetime else {
+            errorMessage = Self.authorizationExpiredMessage
             return true
         }
 
         isLoading = true
         errorMessage = nil
-        defer {
-            isLoading = false
-            pendingOAuthSession = nil
-        }
+        defer { isLoading = false }
 
         do {
-            let token = try await gitLabAuthService.exchangeCallback(callback, session: session)
-            let account = try await gitLabAuthService.fetchAccount(
-                token: token,
-                macgitUID: accountOwnerID,
-                host: session.host
-            )
+            let token: GitProviderToken
+            let account: GitProviderAccount
+            switch session.provider {
+            case .github:
+                guard let authService else { throw GitProviderAuthError.invalidConfiguration }
+                token = try await authService.exchangeCallback(callback, session: session)
+                account = try await authService.fetchAccount(token: token, macgitUID: accountOwnerID, host: .githubDotCom)
+            case .gitlab:
+                guard let gitLabAuthService else { throw GitProviderAuthError.invalidConfiguration }
+                token = try await gitLabAuthService.exchangeCallback(callback, session: session)
+                account = try await gitLabAuthService.fetchAccount(token: token, macgitUID: accountOwnerID, host: session.host)
+            case .bitbucket:
+                throw GitProviderAuthError.invalidConfiguration
+            }
             try await saveAuthorizedAccount(account, token: token)
         } catch {
             errorMessage = error.localizedDescription
         }
         return true
     }
+
+    private static let authorizationExpiredMessage = "The authorization expired. Try connecting again."
 
     func credentialResolver(
         preferredAccountIDsByRemoteIdentity: [String: String] = [:]
@@ -496,6 +534,52 @@ final class GitProviderAccountController: ObservableObject {
         }
     }
 
+    /// Opens GitHub's authorization page; the result arrives through `handleProviderOAuthCallback`.
+    private func startGitHubBrowserAuthorization() {
+        guard let authService,
+              let configuration,
+              !configuration.clientID.isEmpty else {
+            errorMessage = GitProviderAuthError.invalidConfiguration.localizedDescription
+            return
+        }
+
+        let session = authService.makeOAuthSession()
+        startBrowserAuthorization(session, providerName: "GitHub") {
+            try authService.authorizationURL(for: session)
+        }
+    }
+
+    /// Opens the provider's authorization page and waits for its callback until the
+    /// authorization lifetime ends.
+    private func startBrowserAuthorization(
+        _ session: GitProviderOAuthSession,
+        providerName: String,
+        authorizationURL: () throws -> URL
+    ) {
+        errorMessage = nil
+        pendingDeviceAuthorization = nil
+        do {
+            guard openURL(try authorizationURL()) else {
+                errorMessage = "Commit+ could not open the \(providerName) authorization page."
+                return
+            }
+        } catch GitProviderAuthError.invalidConfiguration where session.provider == .gitlab {
+            errorMessage = gitLabInvalidConfigurationMessage
+            return
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+        pendingOAuthSession = session
+        let lifetime = oauthAuthorizationLifetime
+        oauthExpiryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(lifetime))
+            guard !Task.isCancelled, let self, self.pendingOAuthSession == session else { return }
+            self.pendingOAuthSession = nil
+            self.errorMessage = Self.authorizationExpiredMessage
+        }
+    }
+
     private func startGitHubDeviceAuthorization() async {
         guard let authService,
               let configuration,
@@ -632,38 +716,16 @@ final class GitProviderAccountController: ObservableObject {
         throw GitProviderAuthError.deviceCodeExpired
     }
 
-    private func startGitLabOAuth(host: GitProviderHost) async {
+    /// Opens GitLab.com's authorization page; the result arrives through `handleProviderOAuthCallback`.
+    private func startGitLabBrowserAuthorization() {
         guard let gitLabAuthService else {
             errorMessage = gitLabInvalidConfigurationMessage
             return
         }
 
-        isLoading = true
-        errorMessage = nil
-        defer { isLoading = false }
-
-        let session = GitProviderOAuthSession(
-            provider: .gitlab,
-            host: host.normalized,
-            state: UUID().uuidString,
-            codeVerifier: GitProviderPKCE.generateVerifier(),
-            redirectURI: gitLabRedirectURI
-        )
-
-        do {
-            let authorizationURL = try gitLabAuthService.authorizationURL(for: session)
-            guard openURL(authorizationURL) else {
-                errorMessage = "Commit+ could not open the GitLab authorization page."
-                pendingOAuthSession = nil
-                return
-            }
-            pendingOAuthSession = session
-        } catch GitProviderAuthError.invalidConfiguration {
-            errorMessage = gitLabInvalidConfigurationMessage
-            pendingOAuthSession = nil
-        } catch {
-            errorMessage = error.localizedDescription
-            pendingOAuthSession = nil
+        let session = gitLabAuthService.makeOAuthSession(host: .gitlabDotCom)
+        startBrowserAuthorization(session, providerName: "GitLab") {
+            try gitLabAuthService.authorizationURL(for: session)
         }
     }
 

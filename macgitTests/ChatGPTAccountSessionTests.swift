@@ -211,7 +211,7 @@ final class ChatGPTAccountSessionTests: XCTestCase {
                 )
                 XCTFail("An error callback without the pending state must be rejected")
             } catch let error as GitProviderOAuthError {
-                XCTAssertEqual(error, .stateMismatch)
+                XCTAssertTrue([.stateMismatch, .missingState].contains(error), "Unexpected \(error)")
             }
         }
 
