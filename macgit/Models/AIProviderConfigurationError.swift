@@ -21,6 +21,7 @@ import Foundation
 enum AIProviderConfigurationError: LocalizedError, Equatable {
     case requiresPro(providerName: String)
     case unavailableOnCurrentPlan(providerName: String)
+    case requiresProToConnect(providerName: String)
 
     var errorDescription: String? {
         switch self {
@@ -28,6 +29,8 @@ enum AIProviderConfigurationError: LocalizedError, Equatable {
             "\(providerName) is not available on your current plan. On Free, choose OpenAI or Gemini. Go to Settings → AI and select a default provider with a configured API key."
         case .requiresPro(let providerName):
             "Commit+ Pro is required to add or replace a \(providerName) API key."
+        case .requiresProToConnect(let providerName):
+            "Commit+ Pro is required to connect \(providerName)."
         }
     }
 }

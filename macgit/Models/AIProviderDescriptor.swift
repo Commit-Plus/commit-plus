@@ -25,7 +25,14 @@ enum AIDataProcessing: Sendable {
 enum AIProviderBilling: Equatable, Sendable {
     case none
     case bringYourOwnKey
+    /// Signs in to a third-party account (for example a ChatGPT plan) instead of storing an API key.
+    case connectedAccount
     case commitPlus
+
+    /// Providers the user sets up in Settings → AI with their own credential.
+    var usesPersonalCredential: Bool {
+        self == .bringYourOwnKey || self == .connectedAccount
+    }
 
     var requiresProAccess: Bool {
         self == .commitPlus
@@ -48,7 +55,7 @@ struct AIProviderDescriptor: Identifiable, Sendable {
         switch id {
         case .appleIntelligence:
             nil
-        case .openAI:
+        case .openAI, .chatGPTSubscription:
             "chatgpt"
         case .anthropic:
             "claude-icon"

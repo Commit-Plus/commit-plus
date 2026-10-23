@@ -28,6 +28,12 @@ enum AIProviderModelCatalog {
                 AIProviderModelOption(id: "gpt-6.1-sol", name: "GPT-6.1 Sol", group: balanced),
                 AIProviderModelOption(id: "gpt-6-astra", name: "GPT-6 Astra", group: mostCapable),
             ]
+        case .chatGPTSubscription:
+            [
+                AIProviderModelOption(id: "gpt-6-luna", name: "GPT-6 Luna", group: lowCost),
+                AIProviderModelOption(id: "gpt-6.1-sol", name: "GPT-6.1 Sol", group: balanced),
+                AIProviderModelOption(id: "gpt-6-astra", name: "GPT-6 Astra", group: mostCapable),
+            ]
         case .anthropic:
             [
                 AIProviderModelOption(id: "claude-haiku-5-5", name: "Claude Haiku 5.5", group: lowCost),

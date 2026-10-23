@@ -27,11 +27,11 @@ Connecting and using ChatGPT SHALL require access to the `aiBringYourOwnKey` fea
 - **AND** the user can still disconnect it
 
 ### Requirement: Sign-in uses official OAuth with PKCE
-The app SHALL sign in through OpenAI's "Sign in with ChatGPT" authorization in the user's browser, using PKCE (S256) and the redirect URI registered for Commit+. The app SHALL reject a callback whose state does not match the request it started.
+The app SHALL sign in through OpenAI's "Sign in with ChatGPT" authorization in the user's browser, using PKCE (S256), OpenAI's dynamic client registration for open-source apps, and a loopback redirect URI on `127.0.0.1`. The app SHALL reject a callback whose state does not match the request it started.
 
 #### Scenario: Successful sign-in
-- **WHEN** the user clicks "Sign in with ChatGPT" and approves access in the browser
-- **THEN** the sheet shows the connected ChatGPT account and plan
+- **WHEN** the user clicks "Continue with ChatGPT" and approves access in the browser
+- **THEN** the sheet shows the connected ChatGPT account
 - **AND** the provider can be saved
 
 #### Scenario: User cancels in the browser
@@ -78,11 +78,11 @@ When the plan allowance or a user-set cap is exhausted, the grant is revoked, or
 
 #### Scenario: Ineligible plan
 - **WHEN** the connected account's plan does not include third-party usage
-- **THEN** the sheet states which plans are supported
+- **THEN** the provider shows that the ChatGPT plan does not include usage in other apps
 - **AND** the provider cannot be used
 
 ### Requirement: User can disconnect ChatGPT
-Removing ChatGPT from the Providers table SHALL ask for confirmation, delete its tokens from the Keychain, and remove it from the default-provider picker. If ChatGPT was the default provider, the default SHALL revert to Apple Intelligence, the app's standard fallback provider.
+Removing ChatGPT from the Providers table SHALL ask for confirmation, attempt to revoke the grant with OpenAI, delete its tokens from the Keychain, and remove it from the default-provider picker. If ChatGPT was the default provider, the default SHALL revert to Apple Intelligence, the app's standard fallback provider.
 
 #### Scenario: Disconnect
 - **WHEN** the user confirms removing ChatGPT

@@ -60,6 +60,125 @@ final class CommitPlusAISelectionPolicyTests: XCTestCase {
             XCTFail("Logged-out selection must not authorize generation")
         } catch { }
     }
+
+    func testFreeUserCannotStartChatGPTSignIn() async throws {
+        var openedURLs: [URL] = []
+        let (controller, _, suite) = try makeChatGPTController(tokens: nil, access: { .denied(.requiresPro) }) { openedURLs.append($0) }
+        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        let decision = FeatureAccessResolver(policy: .bundled).decision(for: .aiBringYourOwnKey, entitlement: .free)
+
+        controller.signInToChatGPT(restrictedProviderAccess: decision)
+
+        XCTAssertEqual(decision, .denied(.requiresPro))
+        XCTAssertEqual(controller.chatGPTSignInErrorMessage, "Commit+ Pro is required to connect ChatGPT.")
+        XCTAssertEqual(controller.chatGPTSignInState, .idle)
+        XCTAssertTrue(openedURLs.isEmpty)
+    }
+
+    func testChatGPTSignInExposesLinkAndTimesOut() async throws {
+        var openedURLs: [URL] = []
+        let (controller, _, suite) = try makeChatGPTController(tokens: nil, access: { .allowed }) { openedURLs.append($0) }
+        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        controller.chatGPTSignInTimeout = .milliseconds(300)
+
+        controller.signInToChatGPT(restrictedProviderAccess: .allowed)
+        let openDeadline = Date().addingTimeInterval(5)
+        while openedURLs.isEmpty, Date() < openDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertFalse(openedURLs.isEmpty, "Sign-in did not open the authorization URL")
+
+        XCTAssertEqual(controller.chatGPTSignInState, .waitingForBrowser)
+        XCTAssertEqual(controller.chatGPTAuthorizationURL, openedURLs.first)
+        let deadline = Date().addingTimeInterval(5)
+        while controller.chatGPTSignInState != .idle, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(controller.chatGPTSignInState, .idle)
+        XCTAssertNil(controller.chatGPTAuthorizationURL)
+        XCTAssertEqual(controller.chatGPTSignInErrorMessage, ChatGPTAuthError.timedOut.localizedDescription)
+    }
+
+    func testLapsedProCannotUseChatGPTButCanDisconnect() async throws {
+        var access: FeatureAccessDecision = .allowed
+        let (controller, store, suite) = try makeChatGPTController(
+            tokens: .expiring(at: Date().addingTimeInterval(3_000)),
+            access: { access }
+        ) { _ in }
+        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        await controller.refreshAvailability()
+        let descriptor = try XCTUnwrap(controller.descriptors.first { $0.id == .chatGPTSubscription })
+        XCTAssertTrue(controller.canSelect(descriptor, restrictedProviderAccess: access))
+        controller.selectProvider(.chatGPTSubscription)
+
+        access = .denied(.requiresPro)
+
+        XCTAssertFalse(controller.canSelect(descriptor, restrictedProviderAccess: access))
+        do {
+            _ = try await controller.generateCommitMessage(
+                repositoryURL: URL(fileURLWithPath: "/tmp/unused"),
+                branchName: "main",
+                changeSource: .staged,
+                recentCommitSubjects: []
+            )
+            XCTFail("A lapsed Pro user must not use ChatGPT")
+        } catch {
+            XCTAssertEqual(error as? AIProviderConfigurationError, .unavailableOnCurrentPlan(providerName: "ChatGPT"))
+        }
+
+        await controller.disconnectChatGPT()
+
+        XCTAssertNil(try store.loadTokens())
+        XCTAssertFalse(controller.isAPIKeyConfigured(for: .chatGPTSubscription))
+        XCTAssertEqual(controller.selectedProviderID, .appleIntelligence)
+    }
+
+    func testPolicyUnavailableFallbackGatesChatGPTByEntitlement() async throws {
+        let resolver = FeatureAccessResolver(policy: .bundled)
+        let pro = AccountEntitlement(plan: .pro, access: .active, billingStatus: .active)
+        let (controller, _, suite) = try makeChatGPTController(
+            tokens: .expiring(at: Date().addingTimeInterval(3_000)),
+            access: { resolver.decision(for: .aiBringYourOwnKey, entitlement: .free) }
+        ) { _ in }
+        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        await controller.refreshAvailability()
+        let descriptor = try XCTUnwrap(controller.descriptors.first { $0.id == .chatGPTSubscription })
+
+        XCTAssertFalse(controller.canSelect(
+            descriptor,
+            restrictedProviderAccess: resolver.decision(for: .aiBringYourOwnKey, entitlement: .free)
+        ))
+        XCTAssertTrue(controller.canSelect(
+            descriptor,
+            restrictedProviderAccess: resolver.decision(for: .aiBringYourOwnKey, entitlement: pro)
+        ))
+    }
+
+    private func makeChatGPTController(
+        tokens: ChatGPTTokenSet?,
+        access: @escaping () -> FeatureAccessDecision,
+        openURL: @escaping @MainActor (URL) -> Void
+    ) throws -> (AIProviderController, InMemoryChatGPTCredentialStore, String) {
+        let store = InMemoryChatGPTCredentialStore(tokens: tokens)
+        let credentials = InMemoryAIProviderCredentialStore()
+        let http = ChatGPTStubHTTPClient()
+        let suite = "CommitPlusAISelectionPolicyTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let controller = AIProviderController(
+            registry: .live(
+                credentialStore: credentials,
+                modelStore: InMemoryAIProviderModelStore(),
+                httpClient: http,
+                chatGPTSession: ChatGPTAccountSession(store: store, httpClient: http)
+            ),
+            snapshotLoader: ManagedSelectionSnapshotLoader(),
+            defaults: defaults,
+            credentialStore: credentials,
+            restrictedProviderAccess: access,
+            openURL: openURL
+        )
+        return (controller, store, suite)
+    }
 }
 
 @MainActor

@@ -27,6 +27,7 @@ struct AIProviderID: RawRepresentable, Hashable, Codable, Sendable {
     static let commitPlusAI = Self(rawValue: "commit-plus-ai")
     static let appleIntelligence = Self(rawValue: "apple-intelligence")
     static let openAI = Self(rawValue: "openai")
+    static let chatGPTSubscription = Self(rawValue: "chatgpt-subscription")
     static let anthropic = Self(rawValue: "anthropic")
     static let googleGemini = Self(rawValue: "google-gemini")
     static let deepSeek = Self(rawValue: "deepseek")

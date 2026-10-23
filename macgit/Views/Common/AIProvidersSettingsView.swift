@@ -94,7 +94,7 @@ struct AIProvidersSettingsView: View {
             } header: {
                 Text("Providers")
             } footer: {
-                Text("Use your own API key with a supported provider. Keys are stored in this Mac’s Keychain.")
+                Text("Use your own API key with a supported provider, or connect your ChatGPT plan. Credentials are stored in this Mac’s Keychain.")
             }
         }
         .formStyle(.grouped)
@@ -120,7 +120,11 @@ struct AIProvidersSettingsView: View {
             Button("Remove", role: .destructive) { remove(descriptor) }
             Button("Cancel", role: .cancel) {}
         } message: { descriptor in
-            Text("The \(descriptor.displayName) API key will be deleted from this Mac’s Keychain.")
+            if descriptor.billing == .connectedAccount {
+                Text("You will be signed out of \(descriptor.displayName), and its sign-in will be deleted from this Mac’s Keychain.")
+            } else {
+                Text("The \(descriptor.displayName) API key will be deleted from this Mac’s Keychain.")
+            }
         }
         .alert(
             "Couldn’t Update AI Provider",
@@ -185,9 +189,9 @@ struct AIProvidersSettingsView: View {
         }
     }
 
-    /// Personal-key providers that can be added or edited here.
+    /// Personal-key and connected-account providers that can be added or edited here.
     private var personalKeyProviders: [AIProviderDescriptor] {
-        controller.descriptors.filter { $0.billing == .bringYourOwnKey && $0.isImplemented }
+        controller.descriptors.filter { $0.billing.usesPersonalCredential && $0.isImplemented }
     }
 
     private var configuredProviders: [AIProviderDescriptor] {
@@ -216,6 +220,10 @@ struct AIProvidersSettingsView: View {
     }
 
     private func remove(_ descriptor: AIProviderDescriptor) {
+        if descriptor.billing == .connectedAccount {
+            Task { await controller.disconnectChatGPT() }
+            return
+        }
         do {
             try controller.removeAPIKey(for: descriptor.id)
             Task { await controller.refreshAvailability() }

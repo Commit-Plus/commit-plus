@@ -32,7 +32,8 @@ struct AIProviderRegistry: Sendable {
         credentialStore: any AIProviderCredentialStore = KeychainAIProviderCredentialStore(),
         modelStore: any AIProviderModelStore = UserDefaultsAIProviderModelStore(),
         httpClient: any AIProviderHTTPClient = URLSessionAIProviderHTTPClient(),
-        managedProvider: CommitPlusAIProvider? = nil
+        managedProvider: CommitPlusAIProvider? = nil,
+        chatGPTSession: ChatGPTAccountSession? = nil
     ) -> Self {
         var providers: [any CommitMessageAIProvider] = [
             AppleIntelligenceCommitMessageProvider(),
@@ -47,6 +48,11 @@ struct AIProviderRegistry: Sendable {
                 httpClient: httpClient
             ),
             // Providers requiring Commit+ Pro are listed after the Free-plan providers.
+            ChatGPTSubscriptionProvider(
+                session: chatGPTSession ?? ChatGPTAccountSession(httpClient: httpClient),
+                modelStore: modelStore,
+                httpClient: httpClient
+            ),
             AnthropicCommitMessageProvider(
                 credentialStore: credentialStore,
                 modelStore: modelStore,

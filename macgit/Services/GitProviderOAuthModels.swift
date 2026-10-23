@@ -32,7 +32,11 @@ struct GitProviderOAuthCallback: Equatable {
     var state: String
 
     static func parse(_ url: URL, for session: GitProviderOAuthSession) throws -> GitProviderOAuthCallback {
-        guard matchesRedirect(url, redirectURI: session.redirectURI),
+        try parse(url, redirectURI: session.redirectURI, expectedState: session.state)
+    }
+
+    static func parse(_ url: URL, redirectURI: URL, expectedState: String) throws -> GitProviderOAuthCallback {
+        guard matchesRedirect(url, redirectURI: redirectURI),
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             throw GitProviderOAuthError.unsupportedCallback
         }
@@ -47,7 +51,7 @@ struct GitProviderOAuthCallback: Equatable {
               !state.isEmpty else {
             throw GitProviderOAuthError.missingState
         }
-        guard state == session.state else {
+        guard state == expectedState else {
             throw GitProviderOAuthError.stateMismatch
         }
         guard let code = queryItems.first(where: { $0.name == "code" })?.value,
