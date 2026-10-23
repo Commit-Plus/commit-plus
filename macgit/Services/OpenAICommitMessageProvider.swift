@@ -56,10 +56,10 @@ struct OpenAICommitMessageProvider: CommitMessageAIProvider {
             bearerToken: {
                 try CloudAIProviderSupport.apiKey(for: descriptor, credentialStore: credentialStore)
             },
-            validate: { response, data in
+            validate: { response, data, _ in
                 try CloudAIProviderSupport.validate(response: response, data: data, providerName: descriptor.displayName)
             },
-            streamFailure: { _, message in
+            streamFailure: { _, message, _ in
                 CommitMessageGenerationError.providerRequestFailed(
                     message ?? "\(descriptor.displayName) request failed."
                 )

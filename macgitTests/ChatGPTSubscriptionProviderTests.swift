@@ -111,6 +111,24 @@ final class ChatGPTSubscriptionProviderTests: XCTestCase {
         XCTAssertFalse(availability.isAvailable)
     }
 
+    func testRejectionOfReplacedAccessTokenKeepsCurrentSignIn() async throws {
+        let (provider, _, store) = await makeProvider()
+
+        for code in ["subscription_sharing_invalid_user", nil] {
+            let error = await ChatGPTSubscriptionProvider.error(
+                status: 401,
+                code: code,
+                message: nil,
+                session: provider.session,
+                rejectedAccessToken: "replaced-access"
+            )
+            XCTAssertEqual(error as? CommitMessageGenerationError, .chatGPTSignInRequired)
+        }
+        XCTAssertNotNil(try store.loadTokens())
+        let availability = await provider.availability()
+        XCTAssertTrue(availability.isAvailable)
+    }
+
     func testFailedStreamEventMapsToPlanError() async throws {
         let (provider, http, _) = await makeProvider()
         await http.respond(to: "/v1/responses", body: sse([

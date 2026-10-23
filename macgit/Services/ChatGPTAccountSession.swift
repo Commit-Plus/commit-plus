@@ -110,7 +110,14 @@ actor ChatGPTAccountSession {
         planIssue = (issue, now())
     }
 
-    /// Clears the local tokens after OpenAI rejects them; the user must sign in again.
+    /// Clears the local tokens after OpenAI rejects `rejectedAccessToken`, unless a
+    /// refresh or a new sign-in has already replaced it.
+    func signOutLocally(rejectedAccessToken: String) {
+        guard (try? tokens())??.accessToken == rejectedAccessToken else { return }
+        signOutLocally()
+    }
+
+    /// Clears the local tokens; the user must sign in again.
     func signOutLocally() {
         try? store.deleteTokens()
         cachedTokens = .some(nil)

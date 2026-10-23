@@ -43,18 +43,25 @@ struct ChatGPTSubscriptionProvider: CommitMessageAIProvider {
             streamingSession: streamingSession,
             transport: .streamingRequired,
             bearerToken: { try await session.accessToken() },
-            validate: { response, data in
+            validate: { response, data, bearerToken in
                 guard !(200..<300).contains(response.statusCode) else { return }
                 let failure = Self.failure(in: data)
                 throw await Self.error(
                     status: response.statusCode,
                     code: failure.code,
                     message: failure.message,
-                    session: session
+                    session: session,
+                    rejectedAccessToken: bearerToken
                 )
             },
-            streamFailure: { code, message in
-                await Self.error(status: nil, code: code, message: message, session: session)
+            streamFailure: { code, message, bearerToken in
+                await Self.error(
+                    status: nil,
+                    code: code,
+                    message: message,
+                    session: session,
+                    rejectedAccessToken: bearerToken
+                )
             }
         )
     }
@@ -96,11 +103,18 @@ struct ChatGPTSubscriptionProvider: CommitMessageAIProvider {
     func availableModels() async throws -> [AIProviderModelOption] {
         var request = URLRequest(url: modelsURL, timeoutInterval: 20)
         request.httpMethod = "GET"
-        request.setValue("Bearer \(try await session.accessToken())", forHTTPHeaderField: "Authorization")
+        let accessToken = try await session.accessToken()
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await httpClient.data(for: request)
         guard (200..<300).contains(response.statusCode) else {
             let failure = Self.failure(in: data)
-            throw await Self.error(status: response.statusCode, code: failure.code, message: failure.message, session: session)
+            throw await Self.error(
+                status: response.statusCode,
+                code: failure.code,
+                message: failure.message,
+                session: session,
+                rejectedAccessToken: accessToken
+            )
         }
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return []
@@ -138,7 +152,8 @@ struct ChatGPTSubscriptionProvider: CommitMessageAIProvider {
         status: Int?,
         code: String?,
         message: String?,
-        session: ChatGPTAccountSession
+        session: ChatGPTAccountSession,
+        rejectedAccessToken: String
     ) async -> any Error {
         switch code {
         case "subscription_sharing_usage_limit_exceeded":
@@ -148,7 +163,7 @@ struct ChatGPTSubscriptionProvider: CommitMessageAIProvider {
             await session.recordPlanIssue(.notEligible)
             return CommitMessageGenerationError.chatGPTPlanNotEligible
         case "subscription_sharing_invalid_user":
-            await session.signOutLocally()
+            await session.signOutLocally(rejectedAccessToken: rejectedAccessToken)
             return CommitMessageGenerationError.chatGPTSignInRequired
         case "subscription_sharing_usage_unavailable", "subscription_sharing_user_unavailable":
             return CommitMessageGenerationError.providerRequestFailed(
@@ -157,7 +172,7 @@ struct ChatGPTSubscriptionProvider: CommitMessageAIProvider {
         default:
             if status == 401 {
                 // The access token was rejected; keeping it would fail every later request.
-                await session.signOutLocally()
+                await session.signOutLocally(rejectedAccessToken: rejectedAccessToken)
                 return CommitMessageGenerationError.chatGPTSignInRequired
             }
             let fallback = status.map { "ChatGPT request failed (HTTP \($0))." } ?? "ChatGPT request failed."

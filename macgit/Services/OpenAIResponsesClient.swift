@@ -20,9 +20,10 @@ struct OpenAIResponsesClient: Sendable {
     let streamingSession: URLSession
     let transport: Transport
     let bearerToken: @Sendable () async throws -> String
-    let validate: @Sendable (HTTPURLResponse, Data) async throws -> Void
+    /// Checks an HTTP response; `bearerToken` is the credential the request was sent with.
+    let validate: @Sendable (HTTPURLResponse, Data, _ bearerToken: String) async throws -> Void
     /// Maps a `response.failed` or `error` stream event to the error to throw.
-    let streamFailure: @Sendable (_ code: String?, _ message: String?) async -> any Error
+    let streamFailure: @Sendable (_ code: String?, _ message: String?, _ bearerToken: String) async -> any Error
 
     func generateCommitMessage(
         request: CommitMessageGenerationRequest
@@ -87,7 +88,7 @@ struct OpenAIResponsesClient: Sendable {
             return try await generateRepositoryResponse(request: request)
         }
         let model = try configuredModel()
-        var urlRequest = try await makeRequest()
+        var (urlRequest, bearerToken) = try await makeRequest()
         urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         var body: [String: Any] = [
             "model": model,
@@ -116,7 +117,7 @@ struct OpenAIResponsesClient: Sendable {
                     try Task.checkCancellation()
                     data.append(byte)
                 }
-                try await validate(response, data)
+                try await validate(response, data, bearerToken)
                 throw RepositoryAIError.invalidResponse("\(descriptor.displayName) returned an invalid streaming response.")
             }
 
@@ -138,14 +139,21 @@ struct OpenAIResponsesClient: Sendable {
                     reachedOutputLimit = true
                 }
                 if transport == .streamingRequired {
-                    if event.type == "response.completed" || event.type == "response.incomplete" {
+                    if event.type == "response.completed" {
                         receivedTerminalEvent = true
                     }
                     if event.type == "response.incomplete" {
+                        // Only an output-token cutoff yields a usable, truncated answer.
+                        guard event.response?.incompleteDetails?.reason == "max_output_tokens" else {
+                            throw CommitMessageGenerationError.providerRequestFailed(
+                                "\(descriptor.displayName) did not complete the response. Try again."
+                            )
+                        }
+                        receivedTerminalEvent = true
                         reachedOutputLimit = true
                     }
                     if let failure = Self.failure(in: data) {
-                        throw await streamFailure(failure.code, failure.message)
+                        throw await streamFailure(failure.code, failure.message, bearerToken)
                     }
                 }
             }
@@ -261,18 +269,18 @@ struct OpenAIResponsesClient: Sendable {
         return model
     }
 
-    private func makeRequest() async throws -> URLRequest {
+    private func makeRequest() async throws -> (request: URLRequest, bearerToken: String) {
         let token = try await bearerToken()
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        return urlRequest
+        return (urlRequest, token)
     }
 
     /// Sends one request and returns the Responses API response object as JSON.
     private func send(_ body: [String: Any]) async throws -> Data {
-        var urlRequest = try await makeRequest()
+        var (urlRequest, bearerToken) = try await makeRequest()
         var body = body
         if transport == .streamingRequired {
             body["stream"] = true
@@ -282,19 +290,19 @@ struct OpenAIResponsesClient: Sendable {
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await httpClient.data(for: urlRequest)
-        try await validate(response, data)
+        try await validate(response, data, bearerToken)
         guard transport == .streamingRequired else { return data }
-        return try await finalResponse(fromEventStream: data)
+        return try await finalResponse(fromEventStream: data, bearerToken: bearerToken)
     }
 
-    private func finalResponse(fromEventStream data: Data) async throws -> Data {
+    private func finalResponse(fromEventStream data: Data, bearerToken: String) async throws -> Data {
         let text = String(decoding: data, as: UTF8.self)
         for line in text.split(whereSeparator: \.isNewline) where line.hasPrefix("data:") {
             let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
             guard let eventData = payload.data(using: .utf8),
                   let event = try? JSONSerialization.jsonObject(with: eventData) as? [String: Any] else { continue }
             if let failure = Self.failure(in: eventData) {
-                throw await streamFailure(failure.code, failure.message)
+                throw await streamFailure(failure.code, failure.message, bearerToken)
             }
             let type = event["type"] as? String
             if type == "response.completed" || type == "response.incomplete",
