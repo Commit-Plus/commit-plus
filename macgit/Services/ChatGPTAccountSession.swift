@@ -207,12 +207,16 @@ actor ChatGPTAccountSession {
         }
         var registration = try store.loadRegistration()
             ?? ChatGPTRegistration(hostID: "urn:uuid:\(UUID().uuidString.lowercased())")
+        let replacesSavedClient = registration.clientID != nil && registration.clientID != clientID
         if registration.clientID != clientID {
             // A new registration replaces the previous account's client ID and email.
             registration.email = nil
         }
         registration.clientID = clientID
-        try store.saveRegistration(registration)
+        // Another account's registration replaces the saved one only after its sign-in succeeds.
+        if !replacesSavedClient {
+            try store.saveRegistration(registration)
+        }
 
         let response = try await tokenRequest([
             ("grant_type", "authorization_code"),
@@ -223,7 +227,7 @@ actor ChatGPTAccountSession {
             ("resource", configuration.resource),
         ])
         if case .failure(let code, let message, let status) = response {
-            if code == "invalid_client" {
+            if code == "invalid_client", !replacesSavedClient {
                 // The saved registration is no longer valid; the next sign-in registers again.
                 registration.clientID = nil
                 try? store.saveRegistration(registration)

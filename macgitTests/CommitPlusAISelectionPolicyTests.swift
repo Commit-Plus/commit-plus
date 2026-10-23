@@ -82,7 +82,11 @@ final class CommitPlusAISelectionPolicyTests: XCTestCase {
         controller.chatGPTSignInTimeout = .milliseconds(300)
 
         controller.signInToChatGPT(restrictedProviderAccess: .allowed)
-        while openedURLs.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        let openDeadline = Date().addingTimeInterval(5)
+        while openedURLs.isEmpty, Date() < openDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertFalse(openedURLs.isEmpty, "Sign-in did not open the authorization URL")
 
         XCTAssertEqual(controller.chatGPTSignInState, .waitingForBrowser)
         XCTAssertEqual(controller.chatGPTAuthorizationURL, openedURLs.first)

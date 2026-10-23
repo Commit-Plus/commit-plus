@@ -71,6 +71,29 @@ final class ChatGPTAccountSessionTests: XCTestCase {
         XCTAssertEqual(try store.loadTokens()?.clientID, "oaiapp_new")
     }
 
+    func testFailedAnotherAccountSignInKeepsSavedRegistration() async throws {
+        let saved = ChatGPTRegistration(hostID: "urn:uuid:host", clientID: "oaiapp_saved", email: "old@example.com")
+        let store = InMemoryChatGPTCredentialStore(registration: saved)
+        let http = ChatGPTStubHTTPClient()
+        let session = ChatGPTAccountSession(store: store, httpClient: http)
+
+        for (status, body) in [
+            (200, tokenResponse(clientID: "oaiapp_new", nonce: "unused", scope: "openid email offline_access")),
+            (401, #"{"error":"invalid_client","error_description":"Unknown client"}"#),
+        ] {
+            let items = queryItems(try await session.beginAuthorization(redirectURI: redirectURI, newAccount: true))
+            await http.respond(to: "/api/accounts/oauth/token", status: status, body: body)
+            do {
+                _ = try await session.completeAuthorization(
+                    callbackURL: callback(state: try XCTUnwrap(items["state"]), extra: "&client_id=oaiapp_new")
+                )
+                XCTFail("The token exchange must fail")
+            } catch is ChatGPTAuthError {}
+            XCTAssertEqual(try store.loadRegistration(), saved)
+            XCTAssertNil(try store.loadTokens())
+        }
+    }
+
     func testReturningSignInRejectsDifferentIssuedClientID() async throws {
         let store = InMemoryChatGPTCredentialStore(
             registration: ChatGPTRegistration(hostID: "urn:uuid:host", clientID: "oaiapp_saved", email: nil)
