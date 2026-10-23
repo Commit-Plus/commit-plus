@@ -2,13 +2,13 @@
 
 ## 1. Language server spike
 
-- [ ] 1.1 Pin a `@github/copilot-language-server` version and confirm, by driving it from a scratch script over stdio, the exact JSON-RPC methods for sign-in initiate/confirm/status, sign-out, model listing, and a single-turn chat. Verify by recording the request and response shapes in the design's Decisions section.
-- [ ] 1.2 Determine whether that version ships a standalone macOS executable (arm64 and x86_64) or needs Node. Verify by launching it on this Mac without a global Node install, and record the result in the design.
+- [x] 1.1 Pin a `@github/copilot-language-server` version and confirm, by driving it from a scratch script over stdio, the exact JSON-RPC methods for sign-in initiate/confirm/status, sign-out, model listing, and a single-turn chat. Verify by recording the request and response shapes in the design's Decisions section.
+- [x] 1.2 Determine whether that version ships a standalone macOS executable (arm64 and x86_64) or needs Node. Verify by launching it on this Mac without a global Node install, and record the result in the design.
 
 ## 2. Runtime management
 
-- [ ] 2.1 Add `CopilotLanguageServerRuntime`, modeled on `GitRuntimeManager`/`GitLFSRuntime`, that downloads, verifies the checksum of, caches, and locates the pinned server under Application Support. Verify with a new `CopilotLanguageServerRuntimeTests` class covering cache hit, checksum mismatch, and download failure.
-- [ ] 2.2 Add `actor CopilotLanguageServerClient` with JSON-RPC framing, request correlation, lazy start, one restart after unexpected exit, and termination on app quit. Verify with `CopilotLanguageServerClientTests` using a fake process transport (framing, correlation, restart).
+- [x] 2.1 Add `CopilotLanguageServerRuntime`, modeled on `GitRuntimeManager`/`GitLFSRuntime`, that downloads, verifies the checksum of, caches, and locates the pinned server under Application Support. Verify with a new `CopilotLanguageServerRuntimeTests` class covering cache hit, checksum mismatch, and download failure.
+- [x] 2.2 Add `actor CopilotLanguageServerClient` with JSON-RPC framing, request correlation, lazy start, one restart after unexpected exit, and termination on app quit. Verify with `CopilotLanguageServerClientTests` using a fake process transport (framing, correlation, restart).
 
 ## 3. Account-based provider support
 
