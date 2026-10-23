@@ -163,6 +163,8 @@ final class RepoPickerViewTests: XCTestCase {
 
         XCTAssertEqual(icons[azureURL], "azure")
         XCTAssertEqual(determineRepoIconName(from: "git@ssh.dev.azure.com:v3/Contoso/Web/Site"), "azure")
+        XCTAssertEqual(determineRepoIconName(from: "https://dev.azure.com/org/proj/_git/github-importer"), "azure")
+        XCTAssertEqual(determineRepoIconName(from: "https://dev.azure.com/gitlab-mirror/Web/_git/bitbucket-sync"), "azure")
         XCTAssertEqual(visible.map(\.url), [azureURL])
     }
 

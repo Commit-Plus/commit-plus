@@ -26,14 +26,16 @@ import SwiftUI
 
 func determineRepoIconName(from remoteURLString: String) -> String {
     let lower = remoteURLString.lowercased()
-    if lower.contains("github.com") || lower.contains("github") {
+    // Azure first: its parser only accepts Azure hosts, while the substring checks
+    // below would match names like `.../_git/github-importer`.
+    if AzureReposRemote.parse(remoteURLString) != nil {
+        return "azure"
+    } else if lower.contains("github.com") || lower.contains("github") {
         return "github"
     } else if lower.contains("gitlab.com") || lower.contains("gitlab") {
         return "gitlab"
     } else if lower.contains("bitbucket.org") || lower.contains("bitbucket") {
         return "bitbucket"
-    } else if AzureReposRemote.parse(remoteURLString) != nil {
-        return "azure"
     } else {
         return "code-branch"
     }
