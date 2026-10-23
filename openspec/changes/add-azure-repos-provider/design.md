@@ -83,6 +83,7 @@ In `../landing-page/firestore.rules`, add `'azure'` to the `provider` allowlist 
 1. In `../landing-page`: update `firestore.rules` and the rules tests, review the diff, then deploy **Firestore rules only** to the production project after explicit user authorization. Verify the CLI deploy result.
 2. Ship the app build with Azure support. Rollback: revert the app change; the rules change is additive and can stay deployed.
 
-## Open Questions
+## Resolved Questions
 
-- Which SSH key types Azure DevOps currently accepts (historically RSA only). The app does not restrict key types; the SSH test surfaces Azure's error, so this only affects the help text.
+- SSH key types: `ssh.dev.azure.com` advertises only `rsa-sha2-256` and `rsa-sha2-512` (checked 2026-10-23), so Azure accepts RSA keys only. The add-account sheet says so when SSH is selected; the SSH test still surfaces Azure's own error for other key types.
+- Switching protocols keeps the PAT: `connectSSH(replacing:)` and `saveConnectionSettings` keep the account id and never delete the token, so switching back to HTTPS reuses it. The sheet shows that a token is saved and blocks saving HTTPS for an Azure account that has no PAT on this Mac.

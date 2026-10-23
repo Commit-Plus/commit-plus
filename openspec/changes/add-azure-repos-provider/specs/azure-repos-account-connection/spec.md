@@ -67,6 +67,28 @@ Connecting Azure Repos over SSH SHALL require an organization and a private key,
 - **WHEN** Azure DevOps denies the key
 - **THEN** the sheet shows the SSH error and the account is not saved
 
+### Requirement: Azure SSH guidance names the accepted key type
+When SSH is selected for Azure Repos, the add-account sheet SHALL state that Azure DevOps accepts RSA SSH keys only and that a saved personal access token is kept.
+
+#### Scenario: Choose SSH for Azure Repos
+- **WHEN** the user selects the SSH protocol for an Azure Repos account
+- **THEN** the sheet states that only RSA keys are accepted and that the saved token stays for switching back to HTTPS
+
+### Requirement: Switching protocols keeps the Azure personal access token
+Switching an Azure Repos account between HTTPS and SSH SHALL keep the account's identity and its personal access token on this Mac, so switching back to HTTPS uses the saved token without entering it again. The token SHALL be removed only when the account is disconnected.
+
+#### Scenario: HTTPS to SSH and back
+- **WHEN** the user switches an Azure Repos HTTPS account to SSH, saves, and later switches it back to HTTPS and saves
+- **THEN** the account keeps its identity and Git operations over HTTPS use the previously saved token
+
+#### Scenario: Saved token is shown when switching back
+- **WHEN** the user edits an Azure Repos account with a saved token and selects HTTPS
+- **THEN** the sheet states that a personal access token is saved and that entering a new one only replaces it
+
+#### Scenario: SSH-only account switched to HTTPS
+- **WHEN** an Azure Repos account connected only over SSH is switched to HTTPS without entering a token
+- **THEN** Save stays disabled until a personal access token is connected
+
 ### Requirement: Azure accounts supply Git credentials for their organization
 For an HTTPS remote recognized as Azure Repos, Git operations SHALL use the PAT of the connected account whose organization matches, regardless of the username embedded in the remote URL or whether the remote uses the `dev.azure.com` or legacy `visualstudio.com` form. For an SSH Azure remote, they SHALL use the matching SSH account's key. Existing preferred-account selection SHALL apply when several accounts match.
 
