@@ -106,8 +106,8 @@ enum GitProviderAddAccountPresentationPolicy {
             GitProviderAddAccountOption(id: .oauth, title: "OAuth", isEnabled: host != .bitbucket),
             GitProviderAddAccountOption(
                 id: .personalAccessToken,
-                title: "API Token",
-                isEnabled: host == .bitbucket
+                title: host == .bitbucket ? "API Token" : "Personal Access Token",
+                isEnabled: true
             )
         ]
     }
@@ -131,10 +131,18 @@ enum GitProviderAddAccountPresentationPolicy {
         }
         switch host {
         case .github, .gitlab:
-            return authType == .oauth
+            return true
         case .bitbucket:
             return authType == .personalAccessToken
         }
+    }
+
+    static func initialAuthType(for account: GitProviderAccount?) -> GitProviderAddAccountAuthType {
+        guard let account else { return .oauth }
+        if account.provider == .bitbucket || account.permissions["authentication"] == "personalAccessToken" {
+            return .personalAccessToken
+        }
+        return .oauth
     }
 
     static func canSave(

@@ -71,7 +71,7 @@ struct GitProviderAddAccountSheet: View {
             _serverURL = State(initialValue: account.hostURL.absoluteString)
         }
         _selectedHost = State(initialValue: editingAccount.map(GitProviderAddAccountPresentationPolicy.host(for:)) ?? .github)
-        _selectedAuthType = State(initialValue: editingAccount?.provider == .bitbucket ? .personalAccessToken : .oauth)
+        _selectedAuthType = State(initialValue: GitProviderAddAccountPresentationPolicy.initialAuthType(for: editingAccount))
         _selectedProtocol = State(initialValue: editingAccount?.transportProtocol == .ssh ? .ssh : .https)
         _savedProtocol = State(initialValue: editingAccount?.transportProtocol == .ssh ? .ssh : .https)
         _connectedAccountID = State(initialValue: editingAccount?.id)
@@ -148,6 +148,20 @@ struct GitProviderAddAccountSheet: View {
                         }
                     }
                     .disabled(!GitProviderAddAccountPresentationPolicy.canSelectAuthType(for: selectedHost))
+                    .onChange(of: selectedAuthType) { _, _ in
+                        personalAccessToken = ""
+                    }
+
+                    if usesPublicPersonalAccessToken {
+                        SecureField("Personal Access Token", text: $personalAccessToken)
+                        Text(selectedHost == .github
+                             ? "Use a token with repo scope, or a fine-grained token with Contents and Pull requests read and write access."
+                             : "Use a personal access token with api scope for API access and Git operations.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Create Personal Access Token", action: openPersonalAccessTokenPage)
+                            .buttonStyle(.link)
+                    }
                 }
 
                 if selectedHost == .bitbucket {
@@ -307,6 +321,9 @@ struct GitProviderAddAccountSheet: View {
         ) else {
             return false
         }
+        if usesPublicPersonalAccessToken {
+            return !personalAccessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
         guard selectedHost == .bitbucket else { return true }
         guard !bitbucketUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
@@ -315,6 +332,11 @@ struct GitProviderAddAccountSheet: View {
             return !sshKeyPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         return !bitbucketAPIToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// GitHub.com or GitLab.com over HTTPS with a token instead of the OAuth flow.
+    private var usesPublicPersonalAccessToken: Bool {
+        !isSelfHosted && selectedHost != .bitbucket && selectedProtocol == .https && selectedAuthType == .personalAccessToken
     }
 
     private var connectButtonTitle: String {
@@ -359,6 +381,9 @@ struct GitProviderAddAccountSheet: View {
                     await controller.connectPersonalAccessToken(host: host, accessToken: personalAccessToken, replacing: editingAccount)
                     if controller.errorMessage == nil { personalAccessToken = "" }
                 }
+            } else if usesPublicPersonalAccessToken, let host = configuredHost {
+                await controller.connectPersonalAccessToken(host: host, accessToken: personalAccessToken, replacing: editingAccount)
+                if controller.errorMessage == nil { personalAccessToken = "" }
             } else {
                 switch selectedHost {
                 case .github:
@@ -481,6 +506,14 @@ struct GitProviderAddAccountSheet: View {
         guard let url = URL(string: "https://id.atlassian.com/manage-profile/security/api-tokens") else {
             return
         }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func openPersonalAccessTokenPage() {
+        let address = selectedHost == .github
+            ? "https://github.com/settings/tokens"
+            : "https://gitlab.com/-/user_settings/personal_access_tokens?name=Commit%2B&scopes=api"
+        guard let url = URL(string: address) else { return }
         NSWorkspace.shared.open(url)
     }
 

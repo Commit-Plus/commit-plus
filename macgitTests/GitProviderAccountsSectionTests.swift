@@ -93,12 +93,12 @@ final class GitProviderAccountsSectionTests: XCTestCase {
         )
     }
 
-    func testAddAccountAuthOptionsUseOAuthForGitHubAndGitLab() {
+    func testAddAccountAuthOptionsOfferOAuthAndPersonalAccessTokenForGitHubAndGitLab() {
         XCTAssertEqual(
             GitProviderAddAccountPresentationPolicy.authTypeOptions(for: .github),
             [
                 GitProviderAddAccountOption(id: .oauth, title: "OAuth", isEnabled: true),
-                GitProviderAddAccountOption(id: .personalAccessToken, title: "API Token", isEnabled: false)
+                GitProviderAddAccountOption(id: .personalAccessToken, title: "Personal Access Token", isEnabled: true)
             ]
         )
         XCTAssertEqual(
@@ -117,9 +117,9 @@ final class GitProviderAccountsSectionTests: XCTestCase {
         )
     }
 
-    func testAuthTypePickerIsDisabledWhenProviderSupportsOnlyOneAuthType() {
-        XCTAssertFalse(GitProviderAddAccountPresentationPolicy.canSelectAuthType(for: .github))
-        XCTAssertFalse(GitProviderAddAccountPresentationPolicy.canSelectAuthType(for: .gitlab))
+    func testAuthTypePickerIsEnabledOnlyForProvidersWithMultipleAuthTypes() {
+        XCTAssertTrue(GitProviderAddAccountPresentationPolicy.canSelectAuthType(for: .github))
+        XCTAssertTrue(GitProviderAddAccountPresentationPolicy.canSelectAuthType(for: .gitlab))
         XCTAssertFalse(GitProviderAddAccountPresentationPolicy.canSelectAuthType(for: .bitbucket))
     }
 
@@ -162,7 +162,7 @@ final class GitProviderAccountsSectionTests: XCTestCase {
                 protocol: .https
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             GitProviderAddAccountPresentationPolicy.canConnect(
                 host: .github,
                 authType: .personalAccessToken,

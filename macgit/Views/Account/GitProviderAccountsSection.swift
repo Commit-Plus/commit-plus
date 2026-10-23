@@ -43,7 +43,7 @@ struct GitProviderAccountsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Connect Git provider accounts to use private repositories and pull request workflows. GitHub and GitLab use OAuth, Bitbucket Cloud uses an API token, and every provider supports HTTPS or SSH.")
+            Text("Connect Git provider accounts to use private repositories and pull request workflows. GitHub and GitLab use OAuth or a personal access token, Bitbucket Cloud uses an API token, and every provider supports HTTPS or SSH.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
