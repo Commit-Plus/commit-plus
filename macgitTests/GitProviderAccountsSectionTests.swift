@@ -44,15 +44,33 @@ final class GitProviderAccountsSectionTests: XCTestCase {
         )
     }
 
-    func testAddAccountHostOptionsEnableBitbucket() {
+    func testAddAccountHostOptionsEnableBitbucketAndAzureRepos() {
         XCTAssertEqual(
             GitProviderAddAccountPresentationPolicy.hostOptions,
             [
                 GitProviderAddAccountOption(id: .github, title: "GitHub", isEnabled: true),
                 GitProviderAddAccountOption(id: .gitlab, title: "GitLab", isEnabled: true),
-                GitProviderAddAccountOption(id: .bitbucket, title: "Bitbucket", isEnabled: true)
+                GitProviderAddAccountOption(id: .bitbucket, title: "Bitbucket", isEnabled: true),
+                GitProviderAddAccountOption(id: .azureDevOps, title: "Azure Repos", isEnabled: true)
             ]
         )
+    }
+
+    func testAzureReposUsesPersonalAccessTokenOrSSHOnly() {
+        XCTAssertEqual(
+            GitProviderAddAccountPresentationPolicy.authTypeOptions(for: .azureDevOps),
+            [
+                GitProviderAddAccountOption(id: .oauth, title: "OAuth", isEnabled: false),
+                GitProviderAddAccountOption(id: .personalAccessToken, title: "Personal Access Token", isEnabled: true)
+            ]
+        )
+        XCTAssertFalse(GitProviderAddAccountPresentationPolicy.canSelectAuthType(for: .azureDevOps))
+        XCTAssertTrue(GitProviderAddAccountPresentationPolicy.canConnect(host: .azureDevOps, authType: .personalAccessToken, protocol: .https))
+        XCTAssertFalse(GitProviderAddAccountPresentationPolicy.canConnect(host: .azureDevOps, authType: .oauth, protocol: .https))
+        XCTAssertTrue(GitProviderAddAccountPresentationPolicy.canConnect(host: .azureDevOps, authType: .oauth, protocol: .ssh))
+        let account = makeAccount(provider: .azureDevOps, tokenStatus: .valid)
+        XCTAssertEqual(GitProviderAddAccountPresentationPolicy.initialAuthType(for: account), .personalAccessToken)
+        XCTAssertEqual(GitProviderAddAccountPresentationPolicy.host(for: account), .azureDevOps)
     }
 
     func testFreeLimitPresentationOffersTheCorrectAccountAction() {
@@ -338,6 +356,7 @@ final class GitProviderAccountsSectionTests: XCTestCase {
         case .github: URL(string: "https://github.com")!
         case .gitlab: URL(string: "https://gitlab.com")!
         case .bitbucket: URL(string: "https://bitbucket.org")!
+        case .azureDevOps: URL(string: "https://dev.azure.com/contoso")!
         }
     }
 }

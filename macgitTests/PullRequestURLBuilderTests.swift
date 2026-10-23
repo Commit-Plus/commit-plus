@@ -144,4 +144,19 @@ final class PullRequestURLBuilderTests: XCTestCase {
     func testCanBuildReturnsFalseForUnrecognizedHost() {
         XCTAssertFalse(PullRequestURLBuilder.canBuild(remoteURL: "https://example.com/team/repo.git"))
     }
+
+    func testAzureReposRemotesBuildPullRequestCreateURL() {
+        let expected = "https://dev.azure.com/Trantienthanh1998/ChatApp/_git/ChatApp/pullrequestcreate?sourceRef=feature%2Flogin"
+        for remote in [
+            "https://Trantienthanh1998@dev.azure.com/Trantienthanh1998/ChatApp/_git/ChatApp",
+            "git@ssh.dev.azure.com:v3/Trantienthanh1998/ChatApp/ChatApp",
+        ] {
+            XCTAssertEqual(
+                PullRequestURLBuilder.build(remoteURL: remote, branch: "feature/login")?.absoluteString,
+                expected,
+                remote
+            )
+            XCTAssertTrue(PullRequestURLBuilder.canBuild(remoteURL: remote), remote)
+        }
+    }
 }

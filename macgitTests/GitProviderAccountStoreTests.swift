@@ -64,6 +64,39 @@ final class GitProviderAccountStoreTests: XCTestCase {
         XCTAssertNil(data["accessToken"])
     }
 
+    func testFirestoreDocumentRoundTripsAzureDevOpsMetadata() throws {
+        var account = makeAccount()
+        account.provider = .azureDevOps
+        account.hostURL = AzureReposRemote.organizationURL("Contoso")
+        account.scopes = []
+        account.permissions = ["authentication": "personalAccessToken"]
+
+        let data = GitProviderAccountDocument.encode(account)
+        let decoded = try GitProviderAccountDocument.decode(data, id: account.id, macgitUID: account.macgitUID)
+
+        XCTAssertEqual(data["provider"] as? String, "azure")
+        XCTAssertEqual(data["hostURL"] as? String, "https://dev.azure.com/contoso")
+        XCTAssertEqual(decoded, account)
+    }
+
+    func testFirestoreAccountListSkipsUnknownProvidersButRejectsMalformedDocuments() throws {
+        let account = makeAccount()
+        var future = GitProviderAccountDocument.encode(account)
+        future["provider"] = "provider-from-a-newer-version"
+
+        let decoded = try GitProviderAccountDocument.decodeSupported(
+            [(id: "future", data: future), (id: account.id, data: GitProviderAccountDocument.encode(account))],
+            macgitUID: account.macgitUID
+        )
+
+        XCTAssertEqual(decoded, [account])
+        var malformed = GitProviderAccountDocument.encode(account)
+        malformed["provider"] = 42
+        XCTAssertThrowsError(
+            try GitProviderAccountDocument.decodeSupported([(id: "bad", data: malformed)], macgitUID: account.macgitUID)
+        )
+    }
+
     private func makeAccount() -> GitProviderAccount {
         GitProviderAccount(
             id: "connection-1",

@@ -111,6 +111,39 @@ final class GitProviderAccountModelsTests: XCTestCase {
         XCTAssertEqual(decoded.transportProtocol, .ssh)
     }
 
+    func testAzureDevOpsOrganizationHostIsNotSelfHosted() {
+        let host = GitProviderHost(kind: .azureDevOps, baseURL: AzureReposRemote.organizationURL("Contoso"))
+
+        XCTAssertFalse(host.isSelfHosted)
+        XCTAssertEqual(host.baseURL.absoluteString, "https://dev.azure.com/contoso")
+        XCTAssertEqual(GitProviderKind.azureDevOps.displayName, "Azure Repos")
+    }
+
+    func testAzureDevOpsAccountRoundTripsCodableWithAzureRawValue() throws {
+        let account = GitProviderAccount(
+            id: "connection-azure",
+            macgitUID: "macgit-user-1",
+            provider: .azureDevOps,
+            hostURL: AzureReposRemote.organizationURL("Contoso"),
+            providerUserID: "0f6c8f5e-0000-0000-0000-000000000001",
+            username: "dev@contoso.com",
+            displayName: "Dev",
+            avatarURL: nil,
+            scopes: [],
+            permissions: ["authentication": "personalAccessToken"],
+            tokenStatus: .valid,
+            connectedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            lastValidatedAt: nil
+        )
+
+        let data = try JSONEncoder().encode(account)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let decoded = try JSONDecoder().decode(GitProviderAccount.self, from: data)
+
+        XCTAssertEqual(json["provider"] as? String, "azure")
+        XCTAssertEqual(decoded, account)
+    }
+
     func testUnavailableTokenStatusIsDistinctFromRevoked() {
         XCTAssertNotEqual(GitProviderTokenStatus.unavailableOnThisDevice, .revoked)
     }

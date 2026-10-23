@@ -109,4 +109,49 @@ final class GitRemoteIdentityResolverTests: XCTestCase {
     func testRemoteWithoutRepositoryNameReturnsNil() {
         XCTAssertNil(GitRemoteIdentityResolver.identity(from: "https://github.com/octocat"))
     }
+
+    func testParsesAzureReposHTTPSRemoteWithEmbeddedUsername() throws {
+        let identity = try XCTUnwrap(GitRemoteIdentityResolver.identity(
+            from: "https://Trantienthanh1998@dev.azure.com/Trantienthanh1998/ChatApp/_git/ChatApp"
+        ))
+
+        XCTAssertEqual(identity.provider, .azureDevOps)
+        XCTAssertEqual(identity.hostURL.absoluteString, "https://dev.azure.com/trantienthanh1998")
+        XCTAssertEqual(identity.ownerPath, "ChatApp")
+        XCTAssertEqual(identity.repositoryName, "ChatApp")
+        XCTAssertEqual(
+            identity.canonicalHTTPSURL.absoluteString,
+            "https://dev.azure.com/Trantienthanh1998/ChatApp/_git/ChatApp"
+        )
+    }
+
+    func testAzureReposRemoteFormsShareIdentityAndPreferenceKey() throws {
+        let remotes = [
+            "https://Trantienthanh1998@dev.azure.com/Trantienthanh1998/ChatApp/_git/ChatApp",
+            "https://dev.azure.com/trantienthanh1998/ChatApp/_git/ChatApp",
+            "git@ssh.dev.azure.com:v3/Trantienthanh1998/ChatApp/ChatApp",
+            "ssh://git@ssh.dev.azure.com/v3/Trantienthanh1998/ChatApp/ChatApp",
+            "https://trantienthanh1998.visualstudio.com/DefaultCollection/ChatApp/_git/ChatApp",
+            "Trantienthanh1998@vs-ssh.visualstudio.com:v3/Trantienthanh1998/ChatApp/ChatApp",
+        ]
+        let identities = try remotes.map { try XCTUnwrap(GitRemoteIdentityResolver.identity(from: $0), $0) }
+        let keys = Set(identities.map(GitProviderAccountPreferenceKey.make(for:)))
+
+        XCTAssertEqual(keys.count, 1)
+        XCTAssertTrue(identities.allSatisfy { $0.provider == .azureDevOps })
+    }
+
+    func testAzureReposRemoteResolvesWhenAzureAccountIsKnown() throws {
+        let identity = try XCTUnwrap(GitRemoteIdentityResolver.identity(
+            from: "https://dev.azure.com/Contoso/Web/_git/Site",
+            knownHosts: [GitProviderHost(kind: .azureDevOps, baseURL: AzureReposRemote.organizationURL("contoso"))]
+        ))
+
+        XCTAssertEqual(identity.provider, .azureDevOps)
+        XCTAssertEqual(identity.repositoryName, "Site")
+    }
+
+    func testAzureURLWithoutGitSegmentIsNotRecognized() {
+        XCTAssertNil(GitRemoteIdentityResolver.identity(from: "https://dev.azure.com/Contoso/Web/Site"))
+    }
 }

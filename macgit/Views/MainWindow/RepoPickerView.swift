@@ -32,6 +32,8 @@ func determineRepoIconName(from remoteURLString: String) -> String {
         return "gitlab"
     } else if lower.contains("bitbucket.org") || lower.contains("bitbucket") {
         return "bitbucket"
+    } else if AzureReposRemote.parse(remoteURLString) != nil {
+        return "azure"
     } else {
         return "code-branch"
     }
@@ -48,6 +50,7 @@ enum RepoPickerFilterType: String, CaseIterable, Identifiable {
     case github = "GitHub"
     case gitlab = "GitLab"
     case bitbucket = "Bitbucket"
+    case azureDevOps = "Azure Repos"
 
     var id: String { rawValue }
 
@@ -56,6 +59,7 @@ enum RepoPickerFilterType: String, CaseIterable, Identifiable {
         case .github: return "github"
         case .gitlab: return "gitlab"
         case .bitbucket: return "bitbucket"
+        case .azureDevOps: return "azure"
         }
     }
 }
@@ -196,6 +200,8 @@ struct RepoPickerView: View {
                     filterType = .gitlab
                 case .bitbucket:
                     filterType = .bitbucket
+                case .azureDevOps:
+                    filterType = .azureDevOps
                 case .generic:
                     filterType = nil
                 }
