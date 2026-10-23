@@ -387,24 +387,20 @@ struct GitProviderAddAccountSheet: View {
             } else {
                 switch selectedHost {
                 case .github:
-                    if let editingAccount {
+                    if selectedProtocol == .ssh {
+                        await controller.connectSSH(host: .githubDotCom, key: GitProviderSSHKey(path: sshKeyPath), replacing: editingAccount)
+                    } else if let editingAccount {
                         await controller.reconnect(editingAccount)
                     } else {
-                        if selectedProtocol == .ssh {
-                            await controller.connectSSH(host: .githubDotCom, key: GitProviderSSHKey(path: sshKeyPath))
-                        } else {
-                            await controller.connectGitHub()
-                        }
+                        await controller.connectGitHub()
                     }
                 case .gitlab:
-                    if let editingAccount {
+                    if selectedProtocol == .ssh {
+                        await controller.connectSSH(host: .gitlabDotCom, key: GitProviderSSHKey(path: sshKeyPath), replacing: editingAccount)
+                    } else if let editingAccount {
                         await controller.reconnect(editingAccount)
                     } else {
-                        if selectedProtocol == .ssh {
-                            await controller.connectSSH(host: .gitlabDotCom, key: GitProviderSSHKey(path: sshKeyPath))
-                        } else {
-                            await controller.connectGitLabDotCom()
-                        }
+                        await controller.connectGitLabDotCom()
                     }
                 case .bitbucket:
                     if selectedProtocol == .ssh {

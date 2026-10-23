@@ -502,7 +502,7 @@ final class GitProviderAccountController: ObservableObject {
                   !resolvedUsername.isEmpty else {
                 throw GitProviderCredentialError.sshKeyUnavailable(username: "Bitbucket")
             }
-            let account = GitProviderAccount(
+            let authenticatedAccount = GitProviderAccount(
                 id: existingAccount?.id ?? sshAccountID(
                     macgitUID: macgitUID,
                     provider: normalizedHost.kind,
@@ -524,7 +524,16 @@ final class GitProviderAccountController: ObservableObject {
                 lastValidatedAt: .now
             )
 
-            try validateConnectedAccount(account, replacing: existingAccount)
+            try validateConnectedAccount(authenticatedAccount, replacing: existingAccount)
+            // Keep a reconnected account's identity so an HTTPS account switched to SSH
+            // still finds its stored token and matches its synced document.
+            var account = authenticatedAccount
+            if let existingAccount {
+                account = existingAccount
+                account.transportProtocol = .ssh
+                account.tokenStatus = .valid
+                account.lastValidatedAt = authenticatedAccount.lastValidatedAt
+            }
             try validateAccountCreation(for: account)
             try await sshKeyStore.saveKey(key, for: account)
             do {
