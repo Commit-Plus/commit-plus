@@ -175,6 +175,33 @@ final class ChatGPTAccountSessionTests: XCTestCase {
         XCTAssertNil(account)
     }
 
+    func testErrorCallbackWithoutMatchingStateKeepsSignInPending() async throws {
+        let store = InMemoryChatGPTCredentialStore()
+        let http = ChatGPTStubHTTPClient()
+        let session = ChatGPTAccountSession(store: store, httpClient: http)
+        let items = queryItems(try await session.beginAuthorization(redirectURI: redirectURI))
+
+        for forged in ["?error=access_denied", "?error=access_denied&state=forged"] {
+            do {
+                _ = try await session.completeAuthorization(
+                    callbackURL: URL(string: "\(redirectURI.absoluteString)\(forged)")!
+                )
+                XCTFail("An error callback without the pending state must be rejected")
+            } catch let error as GitProviderOAuthError {
+                XCTAssertEqual(error, .stateMismatch)
+            }
+        }
+
+        await http.respond(to: "/api/accounts/oauth/token", body: tokenResponse(
+            clientID: "oaiapp_x",
+            nonce: try XCTUnwrap(items["nonce"])
+        ))
+        _ = try await session.completeAuthorization(
+            callbackURL: callback(state: try XCTUnwrap(items["state"]), extra: "&client_id=oaiapp_x")
+        )
+        XCTAssertNotNil(try store.loadTokens())
+    }
+
     func testMissingPlanUsageScopeStoresNoTokens() async throws {
         let store = InMemoryChatGPTCredentialStore()
         let http = ChatGPTStubHTTPClient()
@@ -260,6 +287,37 @@ final class ChatGPTAccountSessionTests: XCTestCase {
         XCTAssertNil(try store.loadTokens())
         let availability = await session.availability()
         XCTAssertEqual(availability, .unavailable("Sign in to ChatGPT in Settings → AI."))
+    }
+
+    func testDisconnectDuringRefreshDiscardsAndRevokesRotatedToken() async throws {
+        let clock = ChatGPTTestClock()
+        let store = InMemoryChatGPTCredentialStore(tokens: .expiring(at: clock.now.addingTimeInterval(60)))
+        let http = ChatGPTStubHTTPClient(delay: 100_000_000)
+        await http.respond(to: "/api/accounts/oauth/token", body: """
+            {"access_token":"access-2","refresh_token":"refresh-2","expires_in":3600,"token_type":"Bearer"}
+            """)
+        await http.respond(to: "/.well-known/openid-configuration", body: """
+            {"revocation_endpoint":"https://auth.openai.com/oauth/revoke"}
+            """)
+        let session = ChatGPTAccountSession(store: store, httpClient: http, now: { clock.now })
+
+        let request = Task { try await session.accessToken() }
+        while await http.requests(path: "/api/accounts/oauth/token").isEmpty {
+            await Task.yield()
+        }
+        await session.disconnect()
+
+        do {
+            _ = try await request.value
+            XCTFail("A refresh that finishes after disconnect must not sign in again")
+        } catch let error as CommitMessageGenerationError {
+            XCTAssertEqual(error, .chatGPTSignInRequired)
+        }
+        XCTAssertNil(try store.loadTokens())
+        let account = await session.account()
+        XCTAssertNil(account)
+        let revoked = await http.requests(path: "/oauth/revoke").map { formFields($0)["token"] }
+        XCTAssertEqual(Set(revoked.compactMap { $0 }), ["refresh-1", "refresh-2"])
     }
 
     func testUnexpiredTokenIsUsedWithoutRefresh() async throws {

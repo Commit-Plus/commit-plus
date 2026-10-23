@@ -122,6 +122,7 @@ struct OpenAIResponsesClient: Sendable {
 
             var content = ""
             var reachedOutputLimit = false
+            var receivedTerminalEvent = false
             for try await line in bytes.lines {
                 try Task.checkCancellation()
                 guard line.hasPrefix("data:") else { continue }
@@ -137,6 +138,9 @@ struct OpenAIResponsesClient: Sendable {
                     reachedOutputLimit = true
                 }
                 if transport == .streamingRequired {
+                    if event.type == "response.completed" || event.type == "response.incomplete" {
+                        receivedTerminalEvent = true
+                    }
                     if event.type == "response.incomplete" {
                         reachedOutputLimit = true
                     }
@@ -146,6 +150,11 @@ struct OpenAIResponsesClient: Sendable {
                 }
             }
             try Task.checkCancellation()
+            if transport == .streamingRequired, !receivedTerminalEvent {
+                throw CommitMessageGenerationError.providerRequestFailed(
+                    "\(descriptor.displayName) ended the response before it completed. Try again."
+                )
+            }
             guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw RepositoryAIError.emptyResponse
             }

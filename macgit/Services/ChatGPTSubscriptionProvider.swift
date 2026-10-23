@@ -156,6 +156,8 @@ struct ChatGPTSubscriptionProvider: CommitMessageAIProvider {
             )
         default:
             if status == 401 {
+                // The access token was rejected; keeping it would fail every later request.
+                await session.signOutLocally()
                 return CommitMessageGenerationError.chatGPTSignInRequired
             }
             let fallback = status.map { "ChatGPT request failed (HTTP \($0))." } ?? "ChatGPT request failed."

@@ -97,6 +97,20 @@ final class ChatGPTSubscriptionProviderTests: XCTestCase {
         XCTAssertFalse(availability.isAvailable)
     }
 
+    func testRejectedAccessTokenClearsSignIn() async throws {
+        let (provider, http, store) = await makeProvider()
+        await http.respond(to: "/v1/responses", status: 401, body: """
+            {"error":{"message":"Invalid token"}}
+            """)
+
+        await assertError(.chatGPTSignInRequired) {
+            _ = try await provider.generateCommitMessage(request: self.makeCommitRequest())
+        }
+        XCTAssertNil(try store.loadTokens())
+        let availability = await provider.availability()
+        XCTAssertFalse(availability.isAvailable)
+    }
+
     func testFailedStreamEventMapsToPlanError() async throws {
         let (provider, http, _) = await makeProvider()
         await http.respond(to: "/v1/responses", body: sse([

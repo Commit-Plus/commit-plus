@@ -68,6 +68,9 @@ actor ChatGPTAccountSession {
     private var pending: PendingAuthorization?
     private var cachedTokens: ChatGPTTokenSet??
     private var refreshTask: Task<ChatGPTTokenSet, any Error>?
+    /// Changes whenever the local tokens are cleared or replaced, so a refresh that
+    /// was in flight at that point cannot save its result over the newer state.
+    private var credentialGeneration = 0
     private var planIssue: (issue: ChatGPTPlanIssue, date: Date)?
 
     init(
@@ -113,6 +116,7 @@ actor ChatGPTAccountSession {
         cachedTokens = .some(nil)
         refreshTask = nil
         planIssue = nil
+        credentialGeneration += 1
     }
 
     // MARK: Authorization
@@ -178,6 +182,11 @@ actor ChatGPTAccountSession {
             case .stateMismatch, .missingState, .unsupportedCallback:
                 throw error
             case .providerMessage:
+                // The provider error is checked before the state, so an unsolicited
+                // error callback must not cancel the pending sign-in.
+                guard Self.queryValue("state", in: callbackURL) == request.state else {
+                    throw GitProviderOAuthError.stateMismatch
+                }
                 pending = nil
                 let code = Self.queryValue("error", in: callbackURL)
                 throw code == "access_denied" ? ChatGPTAuthError.consentDenied : error
@@ -252,6 +261,7 @@ actor ChatGPTAccountSession {
             email: claims["email"] as? String,
             accountID: claims["sub"] as? String
         )
+        credentialGeneration += 1
         try store.saveTokens(tokens)
         cachedTokens = .some(tokens)
         refreshTask = nil
@@ -275,23 +285,25 @@ actor ChatGPTAccountSession {
         if let refreshTask {
             return try await refreshTask.value.accessToken
         }
-        let task = Task { try await self.refresh(tokens) }
+        let generation = credentialGeneration
+        let task = Task { try await self.refresh(tokens, generation: generation) }
         refreshTask = task
         defer { if refreshTask == task { refreshTask = nil } }
         return try await task.value.accessToken
     }
 
-    private func refresh(_ tokens: ChatGPTTokenSet) async throws -> ChatGPTTokenSet {
+    private func refresh(_ tokens: ChatGPTTokenSet, generation: Int) async throws -> ChatGPTTokenSet {
         let response = try await tokenRequest([
             ("grant_type", "refresh_token"),
             ("client_id", tokens.clientID),
             ("refresh_token", tokens.refreshToken),
             ("resource", configuration.resource),
         ])
+        let isCurrent = generation == credentialGeneration
         switch response {
         case .failure(let code, let message, _):
             if let code, Self.terminalRefreshErrors.contains(code) {
-                signOutLocally()
+                if isCurrent { signOutLocally() }
                 throw CommitMessageGenerationError.chatGPTSignInRequired
             }
             throw CommitMessageGenerationError.providerRequestFailed(
@@ -306,6 +318,11 @@ actor ChatGPTAccountSession {
                 updated.scopes = scope.split(separator: " ").map(String.init)
             }
             if let idToken = payload.idToken { updated.idToken = idToken }
+            guard isCurrent else {
+                // Signed out or signed in again while this refresh was in flight.
+                if case .some(nil) = cachedTokens { await revoke(updated) }
+                throw CommitMessageGenerationError.chatGPTSignInRequired
+            }
             try store.saveTokens(updated)
             cachedTokens = .some(updated)
             return updated
@@ -326,14 +343,15 @@ actor ChatGPTAccountSession {
 
     // MARK: Disconnect
 
-    /// Revokes the grant when OpenAI is reachable, then deletes the local tokens.
+    /// Deletes the local tokens, then revokes the grant when OpenAI is reachable.
     /// The registration (issued client ID and host ID) is kept for later sign-ins.
     func disconnect() async {
         pending = nil
-        if let tokens = try? tokens() {
-            await revoke(tokens)
-        }
+        let current = try? tokens()
         signOutLocally()
+        if let current {
+            await revoke(current)
+        }
     }
 
     private func revoke(_ tokens: ChatGPTTokenSet) async {
