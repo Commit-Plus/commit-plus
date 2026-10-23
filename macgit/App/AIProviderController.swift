@@ -33,17 +33,21 @@ final class AIProviderController: ObservableObject {
     @Published private(set) var isGenerating = false
     @Published private(set) var selectedProviderID: AIProviderID
     @Published private(set) var isThinkingEnabled: Bool
-    @Published private(set) var chatGPTAccount: ChatGPTAccountSummary?
-    @Published private(set) var chatGPTSignInState: ChatGPTSignInState = .idle
-    /// The browser link for the pending sign-in, shown so it can be opened in another browser profile.
-    @Published private(set) var chatGPTAuthorizationURL: URL?
-    /// The previously registered account a plain sign-in returns to; nil before the first registration.
-    @Published private(set) var chatGPTReturningAccount: ChatGPTReturningAccount?
-    @Published var chatGPTSignInErrorMessage: String?
-    @Published private(set) var chatGPTModels: [AIProviderModelOption] = []
-    private var chatGPTSignInTask: Task<Void, Never>?
+    // Connected-account (ChatGPT sign-in) state, keyed by provider so each sign-in stays separate.
+    @Published private(set) var connectedAccounts: [AIProviderID: ChatGPTAccountSummary] = [:]
+    @Published private(set) var signInStates: [AIProviderID: ChatGPTSignInState] = [:]
+    /// The browser link for a pending sign-in, shown so it can be opened in another browser profile.
+    @Published private(set) var authorizationURLs: [AIProviderID: URL] = [:]
+    /// The previously registered account a plain sign-in returns to; absent before the first registration.
+    @Published private(set) var returningAccounts: [AIProviderID: ChatGPTReturningAccount] = [:]
+    @Published private(set) var signInErrorMessages: [AIProviderID: String] = [:]
+    @Published private(set) var connectedAccountModels: [AIProviderID: [AIProviderModelOption]] = [:]
+    /// Whether the unofficial-provider notice was acknowledged on this Mac. Local only; never synced.
+    @Published private(set) var isUnofficialProviderRiskAcknowledged: Bool
+    private var signInTasks: [AIProviderID: Task<Void, Never>] = [:]
     /// How long the loopback listener waits for the browser before the sign-in is abandoned.
-    var chatGPTSignInTimeout: Duration = .seconds(600)
+    var signInTimeout: Duration = .seconds(600)
+    private let unofficialRiskDefaultsKey = "ai.chatgptCodex.riskAcknowledged"
 
     @Published private(set) var availabilityRevision = 0
     private var availabilityTasks: [AIProviderID: (id: UUID, task: Task<AIProviderAvailability, Never>)] = [:]
@@ -114,6 +118,7 @@ final class AIProviderController: ObservableObject {
         self.credentialStore = credentialStore
         self.modelStore = modelStore
         isThinkingEnabled = modelStore.isThinkingEnabled
+        isUnofficialProviderRiskAcknowledged = defaults.bool(forKey: unofficialRiskDefaultsKey)
         let storedID = defaults.string(forKey: selectedProviderDefaultsKey).map(AIProviderID.init(rawValue:))
         if let storedID, registry.provider(for: storedID)?.descriptor.isImplemented == true {
             selectedProviderID = storedID
@@ -279,49 +284,86 @@ final class AIProviderController: ObservableObject {
         if !drafts.isEmpty { invalidateAvailability() }
     }
 
-    // MARK: ChatGPT account
+    // MARK: Connected accounts (ChatGPT sign-in)
 
-    private var chatGPTProvider: ChatGPTSubscriptionProvider? {
-        registry.provider(for: .chatGPTSubscription) as? ChatGPTSubscriptionProvider
+    private func connectedAccountProvider(_ id: AIProviderID) -> (any ConnectedAccountAIProvider)? {
+        registry.provider(for: id) as? any ConnectedAccountAIProvider
     }
 
-    private var chatGPTSession: ChatGPTAccountSession? {
-        chatGPTProvider?.session
+    func connectedAccount(for id: AIProviderID) -> ChatGPTAccountSummary? {
+        connectedAccounts[id]
     }
 
-    private func updateChatGPTAccount(_ account: ChatGPTAccountSummary?) {
-        chatGPTAccount = account
+    func signInState(for id: AIProviderID) -> ChatGPTSignInState {
+        signInStates[id] ?? .idle
+    }
+
+    func authorizationURL(for id: AIProviderID) -> URL? {
+        authorizationURLs[id]
+    }
+
+    func returningAccount(for id: AIProviderID) -> ChatGPTReturningAccount? {
+        returningAccounts[id]
+    }
+
+    func signInErrorMessage(for id: AIProviderID) -> String? {
+        signInErrorMessages[id]
+    }
+
+    func models(forConnectedAccount id: AIProviderID) -> [AIProviderModelOption] {
+        connectedAccountModels[id] ?? []
+    }
+
+    /// Records that the user accepted the unofficial-provider notice on this Mac.
+    func acknowledgeUnofficialProviderRisk() {
+        defaults.set(true, forKey: unofficialRiskDefaultsKey)
+        isUnofficialProviderRiskAcknowledged = true
+    }
+
+    private func updateConnectedAccount(_ account: ChatGPTAccountSummary?, for id: AIProviderID) {
+        connectedAccounts[id] = account
         if account != nil {
-            configuredProviderIDs.insert(.chatGPTSubscription)
+            configuredProviderIDs.insert(id)
         } else {
-            configuredProviderIDs.remove(.chatGPTSubscription)
-            chatGPTModels = []
+            configuredProviderIDs.remove(id)
+            connectedAccountModels[id] = nil
         }
     }
 
-    /// Opens "Sign in with ChatGPT" in the browser and waits for the loopback callback.
-    /// `newAccount` registers a new client instead of returning to the saved account.
-    func signInToChatGPT(restrictedProviderAccess: FeatureAccessDecision, newAccount: Bool = false) {
-        guard chatGPTSignInTask == nil, let session = chatGPTSession else { return }
+    /// Opens the provider's ChatGPT sign-in in the browser and waits for the loopback
+    /// callback. `newAccount` registers a new client instead of returning to the saved
+    /// account (official flow only).
+    func signIn(
+        to id: AIProviderID,
+        restrictedProviderAccess: FeatureAccessDecision,
+        newAccount: Bool = false
+    ) {
+        guard signInTasks[id] == nil, let provider = connectedAccountProvider(id) else { return }
+        let descriptor = provider.descriptor
         guard restrictedProviderAccess.isAllowed else {
-            chatGPTSignInErrorMessage = AIProviderConfigurationError
-                .requiresProToConnect(providerName: "ChatGPT").localizedDescription
+            signInErrorMessages[id] = AIProviderConfigurationError
+                .requiresProToConnect(providerName: descriptor.displayName).localizedDescription
             return
         }
-        chatGPTSignInErrorMessage = nil
-        chatGPTSignInState = .waitingForBrowser
-        chatGPTSignInTask = Task { [weak self] in
+        guard !descriptor.isUnofficial || isUnofficialProviderRiskAcknowledged else {
+            signInErrorMessages[id] = "Acknowledge the notice about this unofficial connection before signing in."
+            return
+        }
+        let session = provider.session
+        signInErrorMessages[id] = nil
+        signInStates[id] = .waitingForBrowser
+        signInTasks[id] = Task { [weak self] in
             do {
-                let server = try await ChatGPTLoopbackCallbackServer.start()
+                let server = try await ChatGPTLoopbackCallbackServer.start(for: session.configuration)
                 defer { server.stop() }
                 let authorizationURL = try await session.beginAuthorization(
                     redirectURI: server.redirectURI,
                     newAccount: newAccount
                 )
-                self?.chatGPTAuthorizationURL = authorizationURL
+                self?.authorizationURLs[id] = authorizationURL
                 self?.openURL(authorizationURL)
                 // Stopping the server ends the callback stream, so a timeout ends the wait below.
-                let timeout = self?.chatGPTSignInTimeout ?? .seconds(600)
+                let timeout = self?.signInTimeout ?? .seconds(600)
                 let timer = Task {
                     try await Task.sleep(for: timeout)
                     server.stop()
@@ -340,55 +382,55 @@ final class AIProviderController: ObservableObject {
                 try Task.checkCancellation()
                 guard let account else { throw ChatGPTAuthError.timedOut }
                 if let self {
-                    self.updateChatGPTAccount(account)
+                    self.updateConnectedAccount(account, for: id)
                     self.invalidateAvailability()
-                    await self.refreshChatGPTModels()
+                    await self.refreshConnectedAccountModels(for: id)
                 }
             } catch is CancellationError {
             } catch ChatGPTAuthError.consentDenied {
             } catch {
-                self?.chatGPTSignInErrorMessage = error.localizedDescription
+                self?.signInErrorMessages[id] = error.localizedDescription
             }
             await session.cancelAuthorization()
-            self?.chatGPTReturningAccount = await session.returningAccount()
-            self?.chatGPTAuthorizationURL = nil
-            self?.chatGPTSignInState = .idle
-            self?.chatGPTSignInTask = nil
+            self?.returningAccounts[id] = await session.returningAccount()
+            self?.authorizationURLs[id] = nil
+            self?.signInStates[id] = .idle
+            self?.signInTasks[id] = nil
         }
     }
 
-    func cancelChatGPTSignIn() {
-        chatGPTSignInTask?.cancel()
+    func cancelSignIn(to id: AIProviderID) {
+        signInTasks[id]?.cancel()
     }
 
-    func copyChatGPTAuthorizationURL() {
-        guard let chatGPTAuthorizationURL else { return }
+    func copyAuthorizationURL(for id: AIProviderID) {
+        guard let url = authorizationURLs[id] else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(chatGPTAuthorizationURL.absoluteString, forType: .string)
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
     }
 
-    /// Revokes and deletes the ChatGPT sign-in. Allowed without Pro, so a lapsed
+    /// Revokes and deletes the provider's sign-in. Allowed without Pro, so a lapsed
     /// subscriber can still remove the connection.
-    func disconnectChatGPT() async {
-        cancelChatGPTSignIn()
-        guard let session = chatGPTSession else { return }
+    func disconnect(_ id: AIProviderID) async {
+        cancelSignIn(to: id)
+        guard let session = connectedAccountProvider(id)?.session else { return }
         await session.disconnect()
-        updateChatGPTAccount(nil)
+        updateConnectedAccount(nil, for: id)
         invalidateAvailability()
-        if selectedProviderID == .chatGPTSubscription {
+        if selectedProviderID == id {
             selectProvider(.appleIntelligence)
         }
     }
 
-    func refreshChatGPTReturningAccount() async {
-        guard let chatGPTSession else { return }
-        chatGPTReturningAccount = await chatGPTSession.returningAccount()
+    func refreshReturningAccount(for id: AIProviderID) async {
+        guard let session = connectedAccountProvider(id)?.session else { return }
+        returningAccounts[id] = await session.returningAccount()
     }
 
-    func refreshChatGPTModels() async {
-        guard let provider = chatGPTProvider, chatGPTAccount != nil else { return }
+    func refreshConnectedAccountModels(for id: AIProviderID) async {
+        guard let provider = connectedAccountProvider(id), connectedAccounts[id] != nil else { return }
         if let models = try? await provider.availableModels(), !models.isEmpty {
-            chatGPTModels = models
+            connectedAccountModels[id] = models
         }
     }
 
@@ -445,9 +487,9 @@ final class AIProviderController: ObservableObject {
                     configuredProviderIDs.remove(id)
                 }
             }
-            if id == .chatGPTSubscription, let chatGPTSession {
-                updateChatGPTAccount(await chatGPTSession.account())
-                chatGPTReturningAccount = await chatGPTSession.returningAccount()
+            if let session = connectedAccountProvider(id)?.session {
+                updateConnectedAccount(await session.account(), for: id)
+                returningAccounts[id] = await session.returningAccount()
             }
             request = (UUID(), Task { await provider.availability() })
             availabilityTasks[id] = request

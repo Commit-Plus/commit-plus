@@ -13,6 +13,8 @@ struct ChatGPTTokenSet: Codable, Equatable, Sendable {
     var scopes: [String]
     var email: String?
     var accountID: String?
+    /// The ChatGPT plan type from the Codex ID token, for example "free" or "plus".
+    var planType: String?
 }
 
 /// Non-secret registration kept across disconnects, so later sign-ins reuse the
@@ -33,8 +35,16 @@ protocol ChatGPTCredentialStoring: Sendable {
 
 struct KeychainChatGPTCredentialStore: ChatGPTCredentialStoring {
     private let service = "com.commitplus.macgit.ai-provider-accounts"
-    private let tokensAccount = "chatgpt.tokens"
-    private let registrationAccount = "chatgpt.registration"
+    private let tokensAccount: String
+    private let registrationAccount: String
+
+    /// `accountPrefix` keeps each sign-in flow's Keychain items separate.
+    init(accountPrefix: String = "chatgpt") {
+        tokensAccount = "\(accountPrefix).tokens"
+        registrationAccount = "\(accountPrefix).registration"
+    }
+
+    static let codex = Self(accountPrefix: "chatgpt-codex")
 
     func loadTokens() throws -> ChatGPTTokenSet? {
         try load(ChatGPTTokenSet.self, account: tokensAccount)

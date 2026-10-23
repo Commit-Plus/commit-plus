@@ -67,11 +67,11 @@ final class CommitPlusAISelectionPolicyTests: XCTestCase {
         defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
         let decision = FeatureAccessResolver(policy: .bundled).decision(for: .aiBringYourOwnKey, entitlement: .free)
 
-        controller.signInToChatGPT(restrictedProviderAccess: decision)
+        controller.signIn(to: .chatGPTSubscription, restrictedProviderAccess: decision)
 
         XCTAssertEqual(decision, .denied(.requiresPro))
-        XCTAssertEqual(controller.chatGPTSignInErrorMessage, "Commit+ Pro is required to connect ChatGPT.")
-        XCTAssertEqual(controller.chatGPTSignInState, .idle)
+        XCTAssertEqual(controller.signInErrorMessage(for: .chatGPTSubscription), "Commit+ Pro is required to connect ChatGPT.")
+        XCTAssertEqual(controller.signInState(for: .chatGPTSubscription), .idle)
         XCTAssertTrue(openedURLs.isEmpty)
     }
 
@@ -79,24 +79,24 @@ final class CommitPlusAISelectionPolicyTests: XCTestCase {
         var openedURLs: [URL] = []
         let (controller, _, suite) = try makeChatGPTController(tokens: nil, access: { .allowed }) { openedURLs.append($0) }
         defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
-        controller.chatGPTSignInTimeout = .milliseconds(300)
+        controller.signInTimeout = .milliseconds(300)
 
-        controller.signInToChatGPT(restrictedProviderAccess: .allowed)
+        controller.signIn(to: .chatGPTSubscription, restrictedProviderAccess: .allowed)
         let openDeadline = Date().addingTimeInterval(5)
         while openedURLs.isEmpty, Date() < openDeadline {
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTAssertFalse(openedURLs.isEmpty, "Sign-in did not open the authorization URL")
 
-        XCTAssertEqual(controller.chatGPTSignInState, .waitingForBrowser)
-        XCTAssertEqual(controller.chatGPTAuthorizationURL, openedURLs.first)
+        XCTAssertEqual(controller.signInState(for: .chatGPTSubscription), .waitingForBrowser)
+        XCTAssertEqual(controller.authorizationURL(for: .chatGPTSubscription), openedURLs.first)
         let deadline = Date().addingTimeInterval(5)
-        while controller.chatGPTSignInState != .idle, Date() < deadline {
+        while controller.signInState(for: .chatGPTSubscription) != .idle, Date() < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        XCTAssertEqual(controller.chatGPTSignInState, .idle)
-        XCTAssertNil(controller.chatGPTAuthorizationURL)
-        XCTAssertEqual(controller.chatGPTSignInErrorMessage, ChatGPTAuthError.timedOut.localizedDescription)
+        XCTAssertEqual(controller.signInState(for: .chatGPTSubscription), .idle)
+        XCTAssertNil(controller.authorizationURL(for: .chatGPTSubscription))
+        XCTAssertEqual(controller.signInErrorMessage(for: .chatGPTSubscription), ChatGPTAuthError.timedOut.localizedDescription)
     }
 
     func testLapsedProCannotUseChatGPTButCanDisconnect() async throws {
@@ -126,7 +126,7 @@ final class CommitPlusAISelectionPolicyTests: XCTestCase {
             XCTAssertEqual(error as? AIProviderConfigurationError, .unavailableOnCurrentPlan(providerName: "ChatGPT"))
         }
 
-        await controller.disconnectChatGPT()
+        await controller.disconnect(.chatGPTSubscription)
 
         XCTAssertNil(try store.loadTokens())
         XCTAssertFalse(controller.isAPIKeyConfigured(for: .chatGPTSubscription))
@@ -154,12 +154,90 @@ final class CommitPlusAISelectionPolicyTests: XCTestCase {
         ))
     }
 
+    func testFreeUserCannotStartCodexSignInEvenAfterAcknowledging() async throws {
+        var openedURLs: [URL] = []
+        let (controller, _, suite) = try makeChatGPTController(
+            tokens: nil,
+            access: { .denied(.requiresPro) },
+            codex: true
+        ) { openedURLs.append($0) }
+        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        let decision = FeatureAccessResolver(policy: .bundled).decision(for: .aiBringYourOwnKey, entitlement: .free)
+        controller.acknowledgeUnofficialProviderRisk()
+
+        controller.signIn(to: .chatGPTCodex, restrictedProviderAccess: decision)
+
+        XCTAssertEqual(controller.signInErrorMessage(for: .chatGPTCodex), "Commit+ Pro is required to connect ChatGPT (Codex).")
+        XCTAssertEqual(controller.signInState(for: .chatGPTCodex), .idle)
+        XCTAssertTrue(openedURLs.isEmpty)
+    }
+
+    func testLapsedProCannotUseCodexButCanDisconnect() async throws {
+        var access: FeatureAccessDecision = .allowed
+        let (controller, store, suite) = try makeChatGPTController(
+            tokens: .expiring(at: Date().addingTimeInterval(3_000)),
+            access: { access },
+            codex: true
+        ) { _ in }
+        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        await controller.refreshAvailability()
+        let descriptor = try XCTUnwrap(controller.descriptors.first { $0.id == .chatGPTCodex })
+        XCTAssertTrue(controller.canSelect(descriptor, restrictedProviderAccess: access))
+        controller.selectProvider(.chatGPTCodex)
+
+        access = .denied(.requiresPro)
+
+        XCTAssertFalse(controller.canSelect(descriptor, restrictedProviderAccess: access))
+        do {
+            _ = try await controller.generateCommitMessage(
+                repositoryURL: URL(fileURLWithPath: "/tmp/unused"),
+                branchName: "main",
+                changeSource: .staged,
+                recentCommitSubjects: []
+            )
+            XCTFail("A lapsed Pro user must not use ChatGPT (Codex)")
+        } catch {
+            XCTAssertEqual(error as? AIProviderConfigurationError, .unavailableOnCurrentPlan(providerName: "ChatGPT (Codex)"))
+        }
+
+        await controller.disconnect(.chatGPTCodex)
+
+        XCTAssertNil(try store.loadTokens())
+        XCTAssertFalse(controller.isAPIKeyConfigured(for: .chatGPTCodex))
+        XCTAssertEqual(controller.selectedProviderID, .appleIntelligence)
+    }
+
+    func testPolicyUnavailableFallbackGatesCodexByEntitlement() async throws {
+        let resolver = FeatureAccessResolver(policy: .bundled)
+        let pro = AccountEntitlement(plan: .pro, access: .active, billingStatus: .active)
+        let (controller, _, suite) = try makeChatGPTController(
+            tokens: .expiring(at: Date().addingTimeInterval(3_000)),
+            access: { resolver.decision(for: .aiBringYourOwnKey, entitlement: .free) },
+            codex: true
+        ) { _ in }
+        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        await controller.refreshAvailability()
+        let descriptor = try XCTUnwrap(controller.descriptors.first { $0.id == .chatGPTCodex })
+
+        XCTAssertFalse(controller.canSelect(
+            descriptor,
+            restrictedProviderAccess: resolver.decision(for: .aiBringYourOwnKey, entitlement: .free)
+        ))
+        XCTAssertTrue(controller.canSelect(
+            descriptor,
+            restrictedProviderAccess: resolver.decision(for: .aiBringYourOwnKey, entitlement: pro)
+        ))
+    }
+
+    /// `codex` puts `tokens` in the Codex provider's store instead of the official one.
     private func makeChatGPTController(
         tokens: ChatGPTTokenSet?,
         access: @escaping () -> FeatureAccessDecision,
+        codex: Bool = false,
         openURL: @escaping @MainActor (URL) -> Void
     ) throws -> (AIProviderController, InMemoryChatGPTCredentialStore, String) {
         let store = InMemoryChatGPTCredentialStore(tokens: tokens)
+        let otherStore = InMemoryChatGPTCredentialStore()
         let credentials = InMemoryAIProviderCredentialStore()
         let http = ChatGPTStubHTTPClient()
         let suite = "CommitPlusAISelectionPolicyTests." + UUID().uuidString
@@ -169,7 +247,12 @@ final class CommitPlusAISelectionPolicyTests: XCTestCase {
                 credentialStore: credentials,
                 modelStore: InMemoryAIProviderModelStore(),
                 httpClient: http,
-                chatGPTSession: ChatGPTAccountSession(store: store, httpClient: http)
+                chatGPTSession: ChatGPTAccountSession(store: codex ? otherStore : store, httpClient: http),
+                chatGPTCodexSession: ChatGPTAccountSession(
+                    store: codex ? store : otherStore,
+                    httpClient: http,
+                    configuration: .codex
+                )
             ),
             snapshotLoader: ManagedSelectionSnapshotLoader(),
             defaults: defaults,

@@ -103,6 +103,10 @@ enum CommitMessageGenerationError: LocalizedError, Equatable {
     case chatGPTSignInRequired
     case chatGPTUsageLimitReached
     case chatGPTPlanNotEligible
+    case codexSignInRequired
+    case codexUsageLimitReached
+    case codexPlanNotAllowed
+    case codexClientRejected
 
     var errorDescription: String? {
         switch self {
@@ -128,6 +132,14 @@ enum CommitMessageGenerationError: LocalizedError, Equatable {
             "Your ChatGPT plan limit for Commit+ is reached. Check usage at chatgpt.com/settings/usage, or choose another provider."
         case .chatGPTPlanNotEligible:
             "This ChatGPT account’s plan does not include usage in other apps. Connect a ChatGPT Plus or Pro account, or choose another provider."
+        case .codexSignInRequired:
+            "Sign in to ChatGPT (Codex) again in Settings → AI."
+        case .codexUsageLimitReached:
+            "Your ChatGPT Codex usage limit is reached. Try again later, or choose another provider."
+        case .codexPlanNotAllowed:
+            "This ChatGPT account’s plan does not include Codex. Choose another provider."
+        case .codexClientRejected:
+            "The unofficial ChatGPT (Codex) connection is not working. OpenAI may have blocked it."
         }
     }
 }

@@ -18,7 +18,7 @@ The Codex flow is reverse-engineered from the Codex CLI. TablePro PR #1618 (merg
 | Item | Value |
 |---|---|
 | Client ID | `app_EMoamEEZ73f0CkXaXp7hrann` (Codex CLI) |
-| Authorize | `https://auth.openai.com/oauth/authorize` with `response_type=code`, PKCE S256, `state`, `id_token_add_organizations=true`, `originator=codex_cli_rs` |
+| Authorize | `https://auth.openai.com/oauth/authorize` with `response_type=code`, PKCE S256, `state`, `id_token_add_organizations=true`, `codex_cli_simplified_flow=true`, `originator=codex_cli_rs` |
 | Scope | `openid profile email offline_access api.connectors.read api.connectors.invoke` |
 | Redirect | `http://localhost:1455/auth/callback` (fixed port, `localhost` host) |
 | Token / revoke | `https://auth.openai.com/oauth/token` and `/oauth/revoke`, form-encoded; refresh sends `scope` |
@@ -30,6 +30,17 @@ TablePro also reports three ways the Codex backend's dialect differs from the pu
 - It rejects `max_output_tokens`.
 - Reasoning items need a `summary`.
 - Tool-call arguments may be keyed by `item_id`, so the arguments are recovered from `response.output_item.done`.
+
+Rechecked on 2026-10-23 against TablePro `main` (`apple/TablePro/Core/AI/ChatGPTCodex/`) and Codex CLI `main` (`codex-rs/login`, `codex-rs/codex-api`):
+- The client ID, endpoints, scope, port, redirect, headers, and claims above match both sources.
+- The Codex CLI also sends `codex_cli_simplified_flow=true` on authorize; this app sends it too.
+- The Codex CLI sends refresh and revoke as JSON, while TablePro sends them form-encoded with `scope` on refresh. This app keeps the form encoding that `ChatGPTAccountSession` already uses, as TablePro does.
+- TablePro omits `max_output_tokens` and sends `reasoning: {effort, summary: "auto"}`. It builds tool calls from `response.output_item.done` items instead of the final `response.completed` output.
+
+Backend error signals from the Codex CLI source (`api_bridge.rs`, `sse/responses_error.rs`, `auth/manager.rs`):
+- HTTP 429 carries the cause in `error.type`, not `error.code`: `usage_limit_reached` is the Codex usage limit, and `usage_not_included` means the plan does not include Codex.
+- A `response.failed` stream event carries `error.code`: `usage_not_included`, `rate_limit_exceeded`, `insufficient_quota`, or `context_length_exceeded`.
+- A refresh is permanent (sign in again) on HTTP 401, on 400 `invalid_grant`, or on `refresh_token_expired`, `refresh_token_reused`, or `refresh_token_invalidated`.
 
 ## Goals / Non-Goals
 
@@ -86,11 +97,11 @@ The descriptor gains `isUnofficial`. The provider list, menu, and sheet use it t
 | Signal | Result |
 |---|---|
 | 401, or a terminal refresh error | Sign out locally, then `codexSignInRequired` |
-| 429, or code `usage_limit_reached` | `codexUsageLimitReached`, provider unavailable for 15 minutes (the same cooldown as the official provider) |
-| 403 with a plan or usage code | `codexPlanNotAllowed` |
+| 429, or type/code `usage_limit_reached` or `rate_limit_exceeded` | `codexUsageLimitReached`, provider unavailable for 15 minutes (the same cooldown as the official provider) |
+| Type/code `usage_not_included` (429 or stream event) | `codexPlanNotAllowed` |
 | `invalid_client` / `unauthorized_client` at authorize or token, or 403 without a known code | `codexClientRejected`: "The unofficial ChatGPT (Codex) connection is not working. OpenAI may have blocked it." |
 
-No case falls back to another provider. The exact backend error codes are confirmed during implementation (task 1.1); any code not in the table is shown as `providerRequestFailed` with the backend message.
+No case falls back to another provider. The codes were confirmed against the Codex CLI source in task 1.1; any code not in the table is shown as `providerRequestFailed` with the backend message.
 
 ### Acknowledgment state
 A local `UserDefaults` flag (`ai.chatgptCodex.riskAcknowledged`) records the acknowledgment. It is local per Mac and not added to `CloudSettingsDocument`, so there is no Firebase impact. Removing the provider does not clear it.
@@ -114,4 +125,4 @@ Additive. There is no data migration, and rolling back removes the provider. Sto
 
 ## Open Questions
 
-- The exact Codex backend error codes for the usage limit and for plans that are not allowed. This affects only the message mapping, which task 1.1 confirms against real responses.
+- None. The error codes were confirmed from the Codex CLI source (task 1.1); the manual review (task 5.2) checks them against real responses.

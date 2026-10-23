@@ -4,6 +4,8 @@ import Foundation
 
 struct ChatGPTAccountSummary: Equatable, Sendable {
     var email: String?
+    /// The ChatGPT plan type, known only for the Codex flow (for example "free" or "plus").
+    var planType: String?
 }
 
 /// A previously registered ChatGPT account that a plain sign-in returns to.
@@ -14,6 +16,8 @@ struct ChatGPTReturningAccount: Equatable, Sendable {
 enum ChatGPTPlanIssue: Equatable, Sendable {
     case usageLimitReached
     case notEligible
+    /// OpenAI refused the unofficial Codex client; retried after the usage-limit cooldown.
+    case clientRejected
 }
 
 enum ChatGPTAuthError: LocalizedError, Equatable {
@@ -24,6 +28,8 @@ enum ChatGPTAuthError: LocalizedError, Equatable {
     case tokenRequestFailed(String)
     case noPendingSignIn
     case timedOut
+    case clientRejected
+    case loopbackPortInUse(UInt16)
 
     var errorDescription: String? {
         switch self {
@@ -41,6 +47,10 @@ enum ChatGPTAuthError: LocalizedError, Equatable {
             "No ChatGPT sign-in is in progress."
         case .timedOut:
             "ChatGPT sign-in timed out. Try again."
+        case .clientRejected:
+            CommitMessageGenerationError.codexClientRejected.localizedDescription
+        case .loopbackPortInUse(let port):
+            "Port \(port) is in use. Close other ChatGPT sign-ins and try again."
         }
     }
 }
@@ -89,21 +99,44 @@ actor ChatGPTAccountSession {
 
     func account() -> ChatGPTAccountSummary? {
         guard let tokens = try? tokens() else { return nil }
-        return ChatGPTAccountSummary(email: tokens.email)
+        return ChatGPTAccountSummary(email: tokens.email, planType: tokens.planType)
+    }
+
+    /// The ChatGPT account ID the Codex backend expects in `ChatGPT-Account-ID`.
+    func chatGPTAccountID() -> String? {
+        (try? tokens())??.accountID
     }
 
     func availability() -> AIProviderAvailability {
         guard (try? tokens()) != nil else {
-            return .unavailable("Sign in to ChatGPT in Settings → AI.")
+            return .unavailable(
+                configuration.flow == .codex
+                    ? "Sign in to ChatGPT (Codex) in Settings → AI."
+                    : "Sign in to ChatGPT in Settings → AI."
+            )
         }
         switch planIssue {
         case (.notEligible, _)?:
-            return .unavailable(CommitMessageGenerationError.chatGPTPlanNotEligible.localizedDescription)
+            return .unavailable(planNotEligibleError.localizedDescription)
         case (.usageLimitReached, let date)? where now().timeIntervalSince(date) < Self.usageLimitCooldown:
-            return .unavailable(CommitMessageGenerationError.chatGPTUsageLimitReached.localizedDescription)
+            return .unavailable(usageLimitError.localizedDescription)
+        case (.clientRejected, let date)? where now().timeIntervalSince(date) < Self.usageLimitCooldown:
+            return .unavailable(CommitMessageGenerationError.codexClientRejected.localizedDescription)
         default:
             return .available
         }
+    }
+
+    private var signInRequiredError: CommitMessageGenerationError {
+        configuration.flow == .codex ? .codexSignInRequired : .chatGPTSignInRequired
+    }
+
+    private var usageLimitError: CommitMessageGenerationError {
+        configuration.flow == .codex ? .codexUsageLimitReached : .chatGPTUsageLimitReached
+    }
+
+    private var planNotEligibleError: CommitMessageGenerationError {
+        configuration.flow == .codex ? .codexPlanNotAllowed : .chatGPTPlanNotEligible
     }
 
     func recordPlanIssue(_ issue: ChatGPTPlanIssue) {
@@ -130,13 +163,35 @@ actor ChatGPTAccountSession {
 
     /// The account whose issued client ID a plain sign-in reuses, if one was registered.
     func returningAccount() -> ChatGPTReturningAccount? {
-        guard let registration = try? store.loadRegistration(), registration.clientID != nil else { return nil }
+        guard configuration.usesDynamicRegistration,
+              let registration = try? store.loadRegistration(), registration.clientID != nil else { return nil }
         return ChatGPTReturningAccount(email: registration.email)
     }
 
     /// Starts a sign-in. An issued client ID is bound to the account and workspace that
     /// registered it, so `newAccount` registers a fresh client for a different account.
     func beginAuthorization(redirectURI: URL, newAccount: Bool = false) throws -> URL {
+        if !configuration.usesDynamicRegistration {
+            // A fixed client: no registration, and the Codex flow sends no nonce.
+            let verifier = GitProviderPKCE.generateVerifier()
+            let request = PendingAuthorization(
+                state: GitProviderPKCE.generateVerifier(),
+                nonce: "",
+                codeVerifier: verifier,
+                redirectURI: redirectURI,
+                clientID: configuration.fixedClientID
+            )
+            pending = request
+            return configuration.authorizationURL(
+                clientID: request.clientID,
+                hostID: "",
+                loginHint: nil,
+                redirectURI: redirectURI,
+                state: request.state,
+                nonce: request.nonce,
+                codeChallenge: GitProviderPKCE.challenge(for: verifier)
+            )
+        }
         var registration: ChatGPTRegistration
         if let saved = try store.loadRegistration() {
             registration = saved
@@ -196,6 +251,9 @@ actor ChatGPTAccountSession {
                 }
                 pending = nil
                 let code = Self.queryValue("error", in: callbackURL)
+                if configuration.flow == .codex, let code, Self.rejectedClientErrors.contains(code) {
+                    throw ChatGPTAuthError.clientRejected
+                }
                 throw code == "access_denied" ? ChatGPTAuthError.consentDenied : error
             case .missingCode:
                 pending = nil
@@ -203,6 +261,10 @@ actor ChatGPTAccountSession {
             }
         }
         pending = nil
+
+        if !configuration.usesDynamicRegistration {
+            return try await completeFixedClientAuthorization(request: request, code: callback.code)
+        }
 
         let callbackClientID = Self.queryValue("client_id", in: callbackURL)
         if let saved = request.clientID, let callbackClientID, callbackClientID != saved {
@@ -282,13 +344,74 @@ actor ChatGPTAccountSession {
         return ChatGPTAccountSummary(email: tokens.email)
     }
 
+    /// Exchanges the code for the Codex flow: a fixed client, no `resource`, and the
+    /// account ID and plan type read from the ID token's OpenAI claims.
+    private func completeFixedClientAuthorization(
+        request: PendingAuthorization,
+        code: String
+    ) async throws -> ChatGPTAccountSummary {
+        guard let clientID = request.clientID else { throw ChatGPTAuthError.missingClientID }
+        let response = try await tokenRequest([
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("redirect_uri", request.redirectURI.absoluteString),
+            ("client_id", clientID),
+            ("code_verifier", request.codeVerifier),
+        ])
+        if case .failure(let code, let message, let status) = response {
+            if let code, Self.rejectedClientErrors.contains(code) {
+                throw ChatGPTAuthError.clientRejected
+            }
+            throw ChatGPTAuthError.tokenRequestFailed(
+                message ?? "ChatGPT sign-in failed (\(code ?? "HTTP \(status)")). Try again."
+            )
+        }
+        guard case .success(let payload) = response,
+              let refreshToken = payload.refreshToken else {
+            throw ChatGPTAuthError.tokenRequestFailed("ChatGPT did not return a renewable sign-in.")
+        }
+        guard let idToken = payload.idToken,
+              let claims = Self.validatedClaims(
+                idToken: idToken,
+                issuer: configuration.issuer,
+                clientID: clientID,
+                nonce: nil,
+                now: now()
+              ),
+              let auth = claims[ChatGPTAuthConfiguration.codexAuthClaimsKey] as? [String: Any],
+              let accountID = auth["chatgpt_account_id"] as? String,
+              !accountID.isEmpty else {
+            throw ChatGPTAuthError.invalidIDToken
+        }
+        let profile = claims[ChatGPTAuthConfiguration.codexProfileClaimsKey] as? [String: Any]
+        let tokens = ChatGPTTokenSet(
+            clientID: clientID,
+            accessToken: payload.accessToken,
+            refreshToken: refreshToken,
+            idToken: idToken,
+            expiresAt: now().addingTimeInterval(payload.expiresIn ?? 3_600),
+            scopes: payload.scope?.split(separator: " ").map(String.init) ?? configuration.scopes,
+            email: (profile?["email"] as? String) ?? (claims["email"] as? String),
+            accountID: accountID,
+            planType: auth["chatgpt_plan_type"] as? String
+        )
+        credentialGeneration += 1
+        try store.saveTokens(tokens)
+        cachedTokens = .some(tokens)
+        refreshTask = nil
+        planIssue = nil
+        return ChatGPTAccountSummary(email: tokens.email, planType: tokens.planType)
+    }
+
+    private static let rejectedClientErrors: Set<String> = ["invalid_client", "unauthorized_client"]
+
     // MARK: Tokens
 
     /// A valid access token, refreshed when it is about to expire. Concurrent
     /// callers share one refresh because refresh tokens rotate.
     func accessToken() async throws -> String {
         guard let tokens = try tokens() else {
-            throw CommitMessageGenerationError.chatGPTSignInRequired
+            throw signInRequiredError
         }
         if tokens.expiresAt.timeIntervalSince(now()) > Self.refreshLeeway {
             return tokens.accessToken
@@ -308,14 +431,19 @@ actor ChatGPTAccountSession {
             ("grant_type", "refresh_token"),
             ("client_id", tokens.clientID),
             ("refresh_token", tokens.refreshToken),
-            ("resource", configuration.resource),
+            configuration.flow == .codex
+                ? ("scope", configuration.scopes.joined(separator: " "))
+                : ("resource", configuration.resource),
         ])
         let isCurrent = generation == credentialGeneration
         switch response {
-        case .failure(let code, let message, _):
-            if let code, Self.terminalRefreshErrors.contains(code) {
+        case .failure(let code, let message, let status):
+            // The Codex CLI also treats any 401 from the token endpoint as permanent.
+            let isTerminal = code.map(Self.terminalRefreshErrors.contains) ?? false
+                || (configuration.flow == .codex && status == 401)
+            if isTerminal {
                 if isCurrent { signOutLocally() }
-                throw CommitMessageGenerationError.chatGPTSignInRequired
+                throw signInRequiredError
             }
             throw CommitMessageGenerationError.providerRequestFailed(
                 message ?? "ChatGPT sign-in could not be renewed. Try again."
@@ -332,7 +460,7 @@ actor ChatGPTAccountSession {
             guard isCurrent else {
                 // Signed out or signed in again while this refresh was in flight.
                 if case .some(nil) = cachedTokens { await revoke(updated) }
-                throw CommitMessageGenerationError.chatGPTSignInRequired
+                throw signInRequiredError
             }
             try store.saveTokens(updated)
             cachedTokens = .some(updated)
@@ -366,14 +494,7 @@ actor ChatGPTAccountSession {
     }
 
     private func revoke(_ tokens: ChatGPTTokenSet) async {
-        var discovery = URLRequest(url: configuration.discoveryURL, timeoutInterval: 10)
-        discovery.httpMethod = "GET"
-        guard let (data, response) = try? await httpClient.data(for: discovery),
-              (200..<300).contains(response.statusCode),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let endpoint = (object["revocation_endpoint"] as? String).flatMap(URL.init(string:)) else {
-            return
-        }
+        guard let endpoint = await revocationEndpoint() else { return }
         var request = URLRequest(url: endpoint, timeoutInterval: 10)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -383,6 +504,18 @@ actor ChatGPTAccountSession {
             ("client_id", tokens.clientID),
         ])
         _ = try? await httpClient.data(for: request)
+    }
+
+    private func revocationEndpoint() async -> URL? {
+        if let revocationURL = configuration.revocationURL { return revocationURL }
+        var discovery = URLRequest(url: configuration.discoveryURL, timeoutInterval: 10)
+        discovery.httpMethod = "GET"
+        guard let (data, response) = try? await httpClient.data(for: discovery),
+              (200..<300).contains(response.statusCode),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return (object["revocation_endpoint"] as? String).flatMap(URL.init(string:))
     }
 
     // MARK: Token endpoint
@@ -439,14 +572,14 @@ actor ChatGPTAccountSession {
             .queryItems?.first { $0.name == name }?.value
     }
 
-    /// Checks the ID token's issuer, audience, expiry, and nonce. The token comes
-    /// directly from the token endpoint over TLS, which OIDC Core §3.1.3.7 accepts
-    /// in place of a signature check.
+    /// Checks the ID token's issuer, audience, expiry, and nonce (when one was sent).
+    /// The token comes directly from the token endpoint over TLS, which OIDC Core
+    /// §3.1.3.7 accepts in place of a signature check.
     static func validatedClaims(
         idToken: String,
         issuer: String,
         clientID: String,
-        nonce: String,
+        nonce: String?,
         now: Date
     ) -> [String: Any]? {
         let parts = idToken.split(separator: ".")
@@ -458,7 +591,7 @@ actor ChatGPTAccountSession {
         guard let data = Data(base64Encoded: payload),
               let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               claims["iss"] as? String == issuer,
-              claims["nonce"] as? String == nonce,
+              nonce == nil || claims["nonce"] as? String == nonce,
               let exp = claims["exp"] as? TimeInterval,
               Date(timeIntervalSince1970: exp) > now else {
             return nil

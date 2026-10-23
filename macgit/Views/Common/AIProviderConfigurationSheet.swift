@@ -62,8 +62,9 @@ struct AIProviderConfigurationSheet: View {
     }
 
     private var modelGroups: [(group: String, options: [AIProviderModelOption])] {
-        if isConnectedAccount, !controller.chatGPTModels.isEmpty {
-            return [("Available Models", controller.chatGPTModels)]
+        let accountModels = controller.models(forConnectedAccount: descriptor.id)
+        if isConnectedAccount, !accountModels.isEmpty {
+            return [("Available Models", accountModels)]
         }
         return AIProviderModelCatalog.groupedSuggestions(for: descriptor.id)
     }
@@ -105,6 +106,9 @@ struct AIProviderConfigurationSheet: View {
                 AIProviderLogo(descriptor: descriptor, size: 22)
                 Text(isConfigured ? "Edit \(descriptor.displayName)" : "Add \(descriptor.displayName)")
                     .font(.headline)
+                if descriptor.isUnofficial {
+                    UnofficialProviderBadge()
+                }
                 Spacer()
             }
             .padding(.horizontal, 20)
@@ -231,24 +235,24 @@ struct AIProviderConfigurationSheet: View {
             .padding(.vertical, 14)
         }
         .frame(width: 540, height: 460)
-        .task(id: controller.chatGPTAccount) {
+        .task(id: controller.connectedAccount(for: descriptor.id)) {
             guard isConnectedAccount else { return }
             guard isConfigured else {
-                await controller.refreshChatGPTReturningAccount()
+                await controller.refreshReturningAccount(for: descriptor.id)
                 return
             }
-            await controller.refreshChatGPTModels()
+            await controller.refreshConnectedAccountModels(for: descriptor.id)
             isUsingCustomModel = !modelGroups.flatMap(\.options).contains { $0.id == normalizedModel }
         }
         .onDisappear {
-            if isConnectedAccount { controller.cancelChatGPTSignIn() }
+            if isConnectedAccount { controller.cancelSignIn(to: descriptor.id) }
         }
         .confirmationDialog(
             "Disconnect \(descriptor.displayName)?",
             isPresented: $isConfirmingDisconnect
         ) {
             Button("Disconnect", role: .destructive) {
-                Task { await controller.disconnectChatGPT() }
+                Task { await controller.disconnect(descriptor.id) }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -256,30 +260,58 @@ struct AIProviderConfigurationSheet: View {
         }
     }
 
+    private var needsRiskAcknowledgment: Bool {
+        descriptor.isUnofficial && !controller.isUnofficialProviderRiskAcknowledged
+    }
+
     @ViewBuilder
     private var connectedAccountContent: some View {
+        let account = controller.connectedAccount(for: descriptor.id)
         if isConfigured {
             LabeledContent("Account") {
-                Text(controller.chatGPTAccount?.email ?? "Connected")
+                Text(account?.email ?? "Connected")
                     .textSelection(.enabled)
             }
+            if let planType = account?.planType, !planType.isEmpty {
+                LabeledContent("ChatGPT Plan") {
+                    Text(planType.capitalized)
+                }
+            }
             HStack {
-                Label("Uses your ChatGPT plan", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                Label(
+                    descriptor.isUnofficial ? "Uses your ChatGPT Codex usage" : "Uses your ChatGPT plan",
+                    systemImage: "checkmark.circle.fill"
+                )
+                .foregroundStyle(.green)
                 Spacer()
                 Button("Disconnect…") { isConfirmingDisconnect = true }
             }
         } else if canConfigureKey {
-            if controller.chatGPTSignInState == .waitingForBrowser {
+            if needsRiskAcknowledgment {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("This connection signs in through the Codex CLI’s client and identifies its requests as the Codex CLI. OpenAI does not support this interface: it may stop working at any time, and you use it at your own risk under OpenAI’s terms.")
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Toggle(
+                        "I understand the risks",
+                        isOn: Binding(
+                            get: { controller.isUnofficialProviderRiskAcknowledged },
+                            set: { if $0 { controller.acknowledgeUnofficialProviderRisk() } }
+                        )
+                    )
+                    .toggleStyle(.checkbox)
+                }
+            }
+            if controller.signInState(for: descriptor.id) == .waitingForBrowser {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
                     Text("Finish signing in in your browser…")
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("Cancel") { controller.cancelChatGPTSignIn() }
+                    Button("Cancel") { controller.cancelSignIn(to: descriptor.id) }
                 }
-                if let url = controller.chatGPTAuthorizationURL {
+                if let url = controller.authorizationURL(for: descriptor.id) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Wrong browser profile? Copy this link and open it in the right one.")
                             .font(.callout)
@@ -293,7 +325,7 @@ struct AIProviderConfigurationSheet: View {
                                 .textSelection(.enabled)
                             Spacer()
                             Button(didCopySignInLink ? "Copied" : "Copy Link", systemImage: didCopySignInLink ? "checkmark" : "doc.on.doc") {
-                                controller.copyChatGPTAuthorizationURL()
+                                controller.copyAuthorizationURL(for: descriptor.id)
                                 didCopySignInLink = true
                             }
                         }
@@ -306,21 +338,27 @@ struct AIProviderConfigurationSheet: View {
                 }
             } else {
                 HStack {
-                    Text("Sign in to use your ChatGPT Plus or Pro plan instead of an API key.")
-                        .foregroundStyle(.secondary)
+                    Text(
+                        descriptor.isUnofficial
+                            ? "Sign in with any ChatGPT account, including Free, to use its Codex usage."
+                            : "Sign in to use your ChatGPT Plus or Pro plan instead of an API key."
+                    )
+                    .foregroundStyle(.secondary)
                     Spacer()
                     Button("Continue with ChatGPT") {
-                        controller.signInToChatGPT(restrictedProviderAccess: restrictedProviderAccess)
+                        controller.signIn(to: descriptor.id, restrictedProviderAccess: restrictedProviderAccess)
                     }
+                    .disabled(needsRiskAcknowledgment)
                 }
-                if let returning = controller.chatGPTReturningAccount {
+                if let returning = controller.returningAccount(for: descriptor.id) {
                     HStack {
                         Text(returning.email.map { "Continues as \($0)." } ?? "Continues with the previously registered account.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                         Spacer()
                         Button("Use Another Account") {
-                            controller.signInToChatGPT(
+                            controller.signIn(
+                                to: descriptor.id,
                                 restrictedProviderAccess: restrictedProviderAccess,
                                 newAccount: true
                             )
@@ -329,7 +367,7 @@ struct AIProviderConfigurationSheet: View {
                 }
             }
         }
-        if let message = controller.chatGPTSignInErrorMessage, !isConfigured {
+        if let message = controller.signInErrorMessage(for: descriptor.id), !isConfigured {
             Text(message)
                 .foregroundStyle(.red)
                 .fixedSize(horizontal: false, vertical: true)
@@ -365,6 +403,9 @@ struct AIProviderConfigurationSheet: View {
             if !canConfigureKey, isConfigured {
                 return "This ChatGPT connection requires Commit+ Pro to use. You can still disconnect it."
             }
+            if descriptor.isUnofficial {
+                return "Unofficial. Uses your ChatGPT account’s Codex usage, never API billing. OpenAI does not support this connection and may block it at any time. Sign-in tokens are stored in this Mac’s Keychain and are never synced."
+            }
             return "Uses your ChatGPT plan allowance, never API billing. Sign-in tokens are stored in this Mac’s Keychain and are never synced."
         }
         if !canConfigureKey, isConfigured {
@@ -391,6 +432,19 @@ struct AIProviderConfigurationSheet: View {
         } catch {
             saveErrorMessage = error.localizedDescription
         }
+    }
+}
+
+/// Marks a provider that uses an interface its vendor does not support.
+struct UnofficialProviderBadge: View {
+    var body: some View {
+        Text("Unofficial")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.orange)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(.orange.opacity(0.15), in: Capsule())
+            .help("OpenAI does not support this connection. It may stop working at any time.")
     }
 }
 
