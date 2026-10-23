@@ -266,6 +266,7 @@ struct ContentView: View {
             allowing: [
                 "macgit://session",
                 "macgit://open-repository",
+                GitProviderOAuthSession.externalEventIdentifier,
                 PullRequestUserNotification.externalEventIdentifier
             ]
         )

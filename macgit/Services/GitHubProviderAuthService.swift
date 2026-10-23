@@ -21,6 +21,13 @@ import Foundation
 protocol GitProviderAuthenticating {
     func requestDeviceAuthorization() async throws -> GitProviderDeviceAuthorization
     func pollDeviceAuthorization(_ authorization: GitProviderDeviceAuthorization) async throws -> GitProviderToken
+    /// Starts the browser flow: a new session and the provider page that authorizes it.
+    func makeOAuthSession() -> GitProviderOAuthSession
+    func authorizationURL(for session: GitProviderOAuthSession) throws -> URL
+    func exchangeCallback(
+        _ callback: GitProviderOAuthCallback,
+        session: GitProviderOAuthSession
+    ) async throws -> GitProviderToken
     func fetchAccount(
         token: GitProviderToken,
         macgitUID: String,
@@ -49,6 +56,11 @@ struct URLSessionGitProviderHTTPClient: GitProviderHTTPClient {
 struct GitHubProviderAuthConfiguration: Equatable {
     var clientID: String
     var scopes: [String]
+    /// The callback registered on the OAuth app. Its page forwards the result to `appCallbackURL`.
+    var webRedirectURI = URL(string: "https://commitplus.app/oauth/github/callback")!
+    var appCallbackURL = URL(string: "macgit://git-provider/oauth/github/callback")!
+    /// Exchanges a code with the OAuth app's client secret, which the app never holds.
+    var tokenExchangeURL = URL(string: "https://commitplus.app/api/git-providers/github/token")!
 
     static func appConfiguration(bundle: Bundle = .main) -> GitHubProviderAuthConfiguration {
         let configuredClientID = (bundle.object(forInfoDictionaryKey: "GitHubOAuthClientID") as? String)?
@@ -80,6 +92,9 @@ enum GitProviderAuthError: LocalizedError, Equatable {
     case accessDenied
     case slowDown(Int)
     case reauthorizationRequired
+    case connectionServiceUnavailable
+    case connectionRateLimited
+    case connectionRejected
     case providerMessage(String)
 
     static func connectionMessage(_ error: Error) -> String {
@@ -110,6 +125,12 @@ enum GitProviderAuthError: LocalizedError, Equatable {
             "GitHub asked Commit+ to slow down authorization polling."
         case .reauthorizationRequired:
             "The Git provider account needs to be connected again."
+        case .connectionServiceUnavailable:
+            "GitHub connection is temporarily unavailable. Try again later or use a device code."
+        case .connectionRateLimited:
+            "Too many GitHub connection attempts. Try again in a few minutes or use a device code."
+        case .connectionRejected:
+            "GitHub could not complete the connection. Try connecting again or use a device code."
         case .providerMessage(let message):
             message
         }
@@ -120,6 +141,7 @@ struct GitHubProviderAuthService: GitProviderAuthenticating {
     private let configuration: GitHubProviderAuthConfiguration
     private let httpClient: GitProviderHTTPClient
     private let deviceEndpoint: URL
+    private let authorizeEndpoint: URL
     private let tokenEndpoint: URL
     private let apiBaseURL: URL
     private let now: () -> Date
@@ -128,6 +150,7 @@ struct GitHubProviderAuthService: GitProviderAuthenticating {
         configuration: GitHubProviderAuthConfiguration,
         httpClient: GitProviderHTTPClient = URLSessionGitProviderHTTPClient(),
         deviceEndpoint: URL = URL(string: "https://github.com/login/device/code")!,
+        authorizeEndpoint: URL = URL(string: "https://github.com/login/oauth/authorize")!,
         tokenEndpoint: URL = URL(string: "https://github.com/login/oauth/access_token")!,
         apiBaseURL: URL = URL(string: "https://api.github.com")!,
         now: @escaping () -> Date = Date.init
@@ -135,9 +158,87 @@ struct GitHubProviderAuthService: GitProviderAuthenticating {
         self.configuration = configuration
         self.httpClient = httpClient
         self.deviceEndpoint = deviceEndpoint
+        self.authorizeEndpoint = authorizeEndpoint
         self.tokenEndpoint = tokenEndpoint
         self.apiBaseURL = apiBaseURL
         self.now = now
+    }
+
+    func makeOAuthSession() -> GitProviderOAuthSession {
+        GitProviderOAuthSession(
+            provider: .github,
+            host: .githubDotCom,
+            state: UUID().uuidString,
+            codeVerifier: GitProviderPKCE.generateVerifier(),
+            redirectURI: configuration.webRedirectURI,
+            appCallbackURL: configuration.appCallbackURL,
+            startedAt: now()
+        )
+    }
+
+    func authorizationURL(for session: GitProviderOAuthSession) throws -> URL {
+        guard !configuration.clientID.isEmpty,
+              var components = URLComponents(url: authorizeEndpoint, resolvingAgainstBaseURL: false) else {
+            throw GitProviderAuthError.invalidConfiguration
+        }
+        components.queryItems = [
+            URLQueryItem(name: "client_id", value: configuration.clientID),
+            URLQueryItem(name: "redirect_uri", value: session.redirectURI.absoluteString),
+            URLQueryItem(name: "scope", value: configuration.scopes.joined(separator: " ")),
+            URLQueryItem(name: "state", value: session.state),
+            URLQueryItem(name: "code_challenge", value: GitProviderPKCE.challenge(for: session.codeVerifier)),
+            URLQueryItem(name: "code_challenge_method", value: "S256")
+        ]
+        guard let url = components.url else {
+            throw GitProviderAuthError.invalidConfiguration
+        }
+        return url
+    }
+
+    /// Sends only the code and PKCE verifier; commitplus.app adds the client secret.
+    func exchangeCallback(
+        _ callback: GitProviderOAuthCallback,
+        session: GitProviderOAuthSession
+    ) async throws -> GitProviderToken {
+        guard callback.state == session.state else {
+            throw GitProviderOAuthError.stateMismatch
+        }
+
+        var request = URLRequest(url: configuration.tokenExchangeURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(
+            ["code": callback.code, "code_verifier": session.codeVerifier]
+        )
+
+        let data: Data
+        let response: HTTPURLResponse
+        do {
+            (data, response) = try await httpClient.data(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw GitProviderAuthError.connectionServiceUnavailable
+        }
+
+        switch response.statusCode {
+        case 200..<300:
+            break
+        case 429:
+            throw GitProviderAuthError.connectionRateLimited
+        case 400..<500:
+            throw GitProviderAuthError.connectionRejected
+        default:
+            throw GitProviderAuthError.connectionServiceUnavailable
+        }
+        let payload = try decode(TokenResponse.self, from: data)
+        return GitProviderToken(
+            accessToken: payload.accessToken,
+            refreshToken: payload.refreshToken,
+            expiresAt: payload.expiresIn.map { now().addingTimeInterval(TimeInterval($0)) },
+            tokenType: payload.tokenType
+        )
     }
 
     func requestDeviceAuthorization() async throws -> GitProviderDeviceAuthorization {

@@ -268,7 +268,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
         await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
 
         let connectionTask = Task {
-            await controller.connectGitHub()
+            await controller.connectGitHubWithDeviceCode()
         }
         await Task.yield()
 
@@ -293,7 +293,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
         await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
 
         let connectionTask = Task {
-            await controller.connectGitHub()
+            await controller.connectGitHubWithDeviceCode()
         }
         while controller.pendingDeviceAuthorization == nil {
             await Task.yield()
@@ -323,7 +323,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
         await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
         events.values.removeAll()
 
-        await controller.connectGitHub()
+        await controller.connectGitHubWithDeviceCode()
 
         XCTAssertEqual(events.values, ["save-token", "save-metadata"])
         XCTAssertEqual(controller.accounts, [providerAccount])
@@ -523,6 +523,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
         await controller.updateMacgitAccount(nil, cloudSyncEnabled: true)
 
         await controller.connectGitHub()
+        _ = await controller.handleProviderOAuthCallback(gitHubCallback())
 
         XCTAssertEqual(Set(controller.accounts.map(\.id)), Set([existingAccount.id, newAccount.id]))
         XCTAssertEqual(events.values, ["save-token", "save-metadata"])
@@ -548,6 +549,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
         await controller.updateMacgitAccount(nil, cloudSyncEnabled: true)
 
         await controller.connectGitHub()
+        _ = await controller.handleProviderOAuthCallback(gitHubCallback())
 
         XCTAssertEqual(controller.accounts.map(\.id), [existingAccount.id])
         XCTAssertTrue(events.values.isEmpty)
@@ -571,10 +573,174 @@ final class GitProviderAccountControllerTests: XCTestCase {
         await controller.updateMacgitAccount(nil, cloudSyncEnabled: true)
 
         await controller.reconnect(existingAccount)
+        _ = await controller.handleProviderOAuthCallback(gitHubCallback())
 
         XCTAssertEqual(controller.accounts.map(\.id), [existingAccount.id])
         XCTAssertEqual(events.values, ["save-token", "save-metadata"])
         XCTAssertNil(controller.errorMessage)
+    }
+
+    // MARK: GitHub browser authorization
+
+    func testConnectGitHubOpensBrowserAndCompletesFromCallback() async throws {
+        let events = EventRecorder()
+        let providerAccount = makeProviderAccount(macgitUID: "macgit-user-1")
+        let authService = FakeGitProviderAuthService(account: providerAccount)
+        var openedURLs: [URL] = []
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(events: events),
+            tokenVault: FakeGitProviderTokenVault(events: events),
+            authService: authService,
+            configuration: makeConfiguration(),
+            openURL: { openedURLs.append($0); return true }
+        )
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
+        events.values.removeAll()
+
+        await controller.connectGitHub()
+
+        XCTAssertEqual(openedURLs.map(\.host), ["github.com"])
+        XCTAssertTrue(controller.isAwaitingGitHubBrowserAuthorization)
+        XCTAssertNil(controller.pendingDeviceAuthorization)
+
+        let handled = await controller.handleProviderOAuthCallback(gitHubCallback())
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(authService.exchangedCodes, ["web-code"])
+        XCTAssertEqual(events.values, ["save-token", "save-metadata"])
+        XCTAssertEqual(controller.accounts, [providerAccount])
+        XCTAssertFalse(controller.isAwaitingGitHubBrowserAuthorization)
+        XCTAssertNil(controller.errorMessage)
+    }
+
+    func testRepeatedCallbackDeliveryExchangesOnce() async {
+        let authService = FakeGitProviderAuthService(account: makeProviderAccount(macgitUID: "macgit-user-1"))
+        let controller = makeWebFlowController(authService: authService)
+        await controller.connectGitHub()
+
+        async let first = controller.handleProviderOAuthCallback(gitHubCallback())
+        async let second = controller.handleProviderOAuthCallback(gitHubCallback())
+        _ = await (first, second)
+
+        XCTAssertEqual(authService.exchangedCodes, ["web-code"])
+    }
+
+    func testDeniedOnGitHubEndsSilently() async {
+        let authService = FakeGitProviderAuthService(account: makeProviderAccount(macgitUID: "macgit-user-1"))
+        let controller = makeWebFlowController(authService: authService)
+        await controller.connectGitHub()
+
+        let handled = await controller.handleProviderOAuthCallback(
+            URL(string: "macgit://git-provider/oauth/github/callback?error=access_denied&state=web-state")!
+        )
+
+        XCTAssertTrue(handled)
+        XCTAssertFalse(controller.isAwaitingGitHubBrowserAuthorization)
+        XCTAssertNil(controller.errorMessage)
+        XCTAssertTrue(authService.exchangedCodes.isEmpty)
+        XCTAssertTrue(controller.accounts.isEmpty)
+    }
+
+    func testCallbackAfterCancelIsIgnored() async {
+        let authService = FakeGitProviderAuthService(account: makeProviderAccount(macgitUID: "macgit-user-1"))
+        let controller = makeWebFlowController(authService: authService)
+        await controller.connectGitHub()
+
+        controller.cancelGitHubAuthorization()
+        let handled = await controller.handleProviderOAuthCallback(gitHubCallback())
+
+        XCTAssertFalse(handled)
+        XCTAssertFalse(controller.isAwaitingGitHubBrowserAuthorization)
+        XCTAssertTrue(authService.exchangedCodes.isEmpty)
+        XCTAssertTrue(controller.accounts.isEmpty)
+    }
+
+    func testForgedStateIsIgnoredAndKeepsWaiting() async {
+        let authService = FakeGitProviderAuthService(account: makeProviderAccount(macgitUID: "macgit-user-1"))
+        let controller = makeWebFlowController(authService: authService)
+        await controller.connectGitHub()
+
+        let handled = await controller.handleProviderOAuthCallback(gitHubCallback(state: "forged"))
+
+        XCTAssertTrue(handled)
+        XCTAssertTrue(authService.exchangedCodes.isEmpty)
+        XCTAssertTrue(controller.isAwaitingGitHubBrowserAuthorization)
+        XCTAssertNil(controller.errorMessage)
+
+        _ = await controller.handleProviderOAuthCallback(gitHubCallback())
+        XCTAssertEqual(authService.exchangedCodes, ["web-code"])
+    }
+
+    func testStaleCallbackIsRejectedWithoutExchange() async {
+        let authService = FakeGitProviderAuthService(account: makeProviderAccount(macgitUID: "macgit-user-1"))
+        authService.sessionStartedAt = Date().addingTimeInterval(-601)
+        let controller = makeWebFlowController(authService: authService)
+        await controller.connectGitHub()
+
+        _ = await controller.handleProviderOAuthCallback(gitHubCallback())
+
+        XCTAssertTrue(authService.exchangedCodes.isEmpty)
+        XCTAssertEqual(controller.errorMessage, "The authorization expired. Try connecting again.")
+        XCTAssertTrue(controller.accounts.isEmpty)
+    }
+
+    func testPendingAuthorizationExpiresWithoutCallback() async throws {
+        let authService = FakeGitProviderAuthService(account: makeProviderAccount(macgitUID: "macgit-user-1"))
+        let controller = makeWebFlowController(authService: authService)
+        controller.oauthAuthorizationLifetime = 0.05
+        await controller.connectGitHub()
+
+        try await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertFalse(controller.isAwaitingGitHubBrowserAuthorization)
+        XCTAssertEqual(controller.errorMessage, "The authorization expired. Try connecting again.")
+    }
+
+    func testExchangeFailureSavesNothingAndOffersDeviceCode() async {
+        let events = EventRecorder()
+        let authService = FakeGitProviderAuthService(account: makeProviderAccount(macgitUID: "macgit-user-1"))
+        authService.exchangeError = GitProviderAuthError.connectionServiceUnavailable
+        let controller = makeWebFlowController(authService: authService, events: events)
+        await controller.connectGitHub()
+
+        _ = await controller.handleProviderOAuthCallback(gitHubCallback())
+
+        XCTAssertTrue(events.values.isEmpty)
+        XCTAssertTrue(controller.accounts.isEmpty)
+        XCTAssertEqual(controller.errorMessage, GitProviderAuthError.connectionServiceUnavailable.localizedDescription)
+        XCTAssertTrue(controller.errorMessage?.contains("device code") == true)
+    }
+
+    func testDeviceCodeFallbackCancelsBrowserAuthorization() async {
+        let authService = FakeGitProviderAuthService(account: makeProviderAccount(macgitUID: "macgit-user-1"))
+        let controller = makeWebFlowController(authService: authService)
+        await controller.connectGitHub()
+
+        await controller.connectGitHubWithDeviceCode()
+        let lateCallback = await controller.handleProviderOAuthCallback(gitHubCallback())
+
+        XCTAssertFalse(controller.isAwaitingGitHubBrowserAuthorization)
+        XCTAssertEqual(controller.accounts.map(\.id), ["connection-1"])
+        XCTAssertFalse(lateCallback)
+        XCTAssertTrue(authService.exchangedCodes.isEmpty)
+    }
+
+    private func makeWebFlowController(
+        authService: FakeGitProviderAuthService,
+        events: EventRecorder? = nil
+    ) -> GitProviderAccountController {
+        let events = events ?? EventRecorder()
+        return GitProviderAccountController(
+            store: FakeGitProviderAccountStore(events: events),
+            tokenVault: FakeGitProviderTokenVault(events: events),
+            authService: authService,
+            configuration: makeConfiguration(),
+            openURL: { _ in true }
+        )
+    }
+
+    private func gitHubCallback(code: String = "web-code", state: String = "web-state") -> URL {
+        URL(string: "macgit://git-provider/oauth/github/callback?code=\(code)&state=\(state)")!
     }
 
     func testFreePlanBlocksSSHBeforeAuthentication() async {
@@ -877,6 +1043,35 @@ private final class FakeGitProviderAuthService: GitProviderAuthenticating {
             expiresAt: nil,
             tokenType: "bearer"
         )
+    }
+
+    var sessionStartedAt = Date()
+    var exchangeError: Error?
+    private(set) var exchangedCodes: [String] = []
+
+    func makeOAuthSession() -> GitProviderOAuthSession {
+        GitProviderOAuthSession(
+            provider: .github,
+            host: .githubDotCom,
+            state: "web-state",
+            codeVerifier: "web-verifier",
+            redirectURI: URL(string: "https://commitplus.app/oauth/github/callback")!,
+            appCallbackURL: URL(string: "macgit://git-provider/oauth/github/callback")!,
+            startedAt: sessionStartedAt
+        )
+    }
+
+    func authorizationURL(for session: GitProviderOAuthSession) throws -> URL {
+        URL(string: "https://github.com/login/oauth/authorize?state=\(session.state)")!
+    }
+
+    func exchangeCallback(
+        _ callback: GitProviderOAuthCallback,
+        session: GitProviderOAuthSession
+    ) async throws -> GitProviderToken {
+        exchangedCodes.append(callback.code)
+        if let exchangeError { throw exchangeError }
+        return GitProviderToken(accessToken: "web-token", refreshToken: nil, expiresAt: nil, tokenType: "bearer")
     }
 
     func fetchAccount(
