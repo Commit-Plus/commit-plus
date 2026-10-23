@@ -53,6 +53,19 @@ enum GitProviderAccountDocument {
         return data
     }
 
+    /// Skips accounts for providers added by a newer app version instead of failing the whole list.
+    static func decodeSupported(
+        _ documents: [(id: String, data: [String: Any])],
+        macgitUID: String
+    ) throws -> [GitProviderAccount] {
+        try documents.compactMap { document in
+            if let provider = document.data["provider"] as? String, GitProviderKind(rawValue: provider) == nil {
+                return nil
+            }
+            return try decode(document.data, id: document.id, macgitUID: macgitUID)
+        }
+    }
+
     static func decode(
         _ data: [String: Any],
         id: String,
@@ -116,13 +129,10 @@ final class FirestoreGitProviderAccountStore: GitProviderAccountCloudStore {
 
     func accounts(forMacgitUID uid: String) async throws -> [GitProviderAccount] {
         let snapshot = try await collection(uid: uid).getDocuments()
-        return try snapshot.documents.map { document in
-            try GitProviderAccountDocument.decode(
-                document.data(),
-                id: document.documentID,
-                macgitUID: uid
-            )
-        }
+        return try GitProviderAccountDocument.decodeSupported(
+            snapshot.documents.map { (id: $0.documentID, data: $0.data()) },
+            macgitUID: uid
+        )
     }
 
     func save(_ account: GitProviderAccount) async throws {

@@ -357,6 +357,56 @@ final class RepositoryBookmarkTests: XCTestCase {
         XCTAssertEqual(bitbucket.provider, .bitbucket)
     }
 
+    func testIdentityNormalizesAzureReposRemoteForms() throws {
+        let identities = try [
+            "https://Trantienthanh1998@dev.azure.com/Trantienthanh1998/ChatApp/_git/ChatApp",
+            "git@ssh.dev.azure.com:v3/Trantienthanh1998/ChatApp/ChatApp",
+            "https://trantienthanh1998.visualstudio.com/DefaultCollection/ChatApp/_git/ChatApp",
+        ].map { try XCTUnwrap(RepositoryBookmarkIdentity.resolve(remoteURLString: $0), $0) }
+        let identity = identities[0]
+
+        XCTAssertEqual(Set(identities.map(\.canonicalKey)), ["dev.azure.com/trantienthanh1998/chatapp/chatapp"])
+        XCTAssertEqual(Set(identities.map(\.documentID)).count, 1)
+        XCTAssertEqual(identity.provider, .azureDevOps)
+        XCTAssertEqual(identity.host, "dev.azure.com")
+        XCTAssertEqual(identity.ownerPath, "Trantienthanh1998/ChatApp")
+        XCTAssertEqual(identity.repositoryName, "ChatApp")
+        XCTAssertEqual(
+            identity.canonicalRemoteURL.absoluteString,
+            "https://dev.azure.com/Trantienthanh1998/ChatApp/_git/ChatApp"
+        )
+
+        let remote = RepositoryBookmarkRemote(name: "origin", identity: identity)
+        XCTAssertEqual(
+            remote.pullRequestsURL?.absoluteString,
+            "https://dev.azure.com/Trantienthanh1998/ChatApp/_git/ChatApp/pullrequests"
+        )
+        XCTAssertNil(remote.issuesURL)
+    }
+
+    func testDocumentListSkipsBookmarksForUnknownProviders() throws {
+        let identity = try XCTUnwrap(
+            RepositoryBookmarkIdentity.resolve(remoteURLString: "https://dev.azure.com/Contoso/Web/_git/Site")
+        )
+        let bookmark = RepositoryBookmark(
+            identity: identity,
+            createdAt: Date(timeIntervalSince1970: 100),
+            updatedAt: Date(timeIntervalSince1970: 200)
+        )
+        var encoded = RepositoryBookmarkDocument.encode(bookmark)
+        encoded["updatedAt"] = Timestamp(date: bookmark.updatedAt)
+        var future = encoded
+        future["provider"] = "provider-from-a-newer-version"
+
+        let decoded = try RepositoryBookmarkDocument.decodeSupported([
+            (id: "future", data: future),
+            (id: bookmark.id, data: encoded),
+        ])
+
+        XCTAssertEqual(decoded, [bookmark])
+        XCTAssertEqual(encoded["provider"] as? String, "azure")
+    }
+
     func testIdentityRejectsLocalAndHostOnlyURLs() {
         XCTAssertNil(
             RepositoryBookmarkIdentity.resolve(remoteURLString: "file:///tmp/repository")

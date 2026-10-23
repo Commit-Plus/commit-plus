@@ -63,7 +63,7 @@ extension MainWindowView {
         let remoteURL = await GitStatusService.shared.remoteURL(remote: remoteName, in: repositoryURL)
         guard let url = PullRequestURLBuilder.build(remoteURL: remoteURL, branch: remoteBranch) else {
             await MainActor.run {
-                syncState.showError("Remote '\(remoteName)' is not a recognized pull request host (GitHub, GitLab, or Bitbucket).")
+                syncState.showError("Remote '\(remoteName)' is not a recognized pull request host (GitHub, GitLab, Bitbucket, or Azure Repos).")
             }
             return
         }
@@ -396,7 +396,7 @@ extension MainWindowView {
         let remoteURL = await GitStatusService.shared.remoteURL(remote: remote, in: repositoryURL)
         guard let url = PullRequestURLBuilder.build(remoteURL: remoteURL, branch: branch) else {
             await MainActor.run {
-                syncState.showError("Remote '\(remote)' is not a recognized pull request host (GitHub, GitLab, or Bitbucket).")
+                syncState.showError("Remote '\(remote)' is not a recognized pull request host (GitHub, GitLab, Bitbucket, or Azure Repos).")
             }
             return
         }
@@ -406,6 +406,9 @@ extension MainWindowView {
     }
 
     func browserURL(from remoteURLString: String) -> URL? {
+        if let azure = AzureReposRemote.parse(remoteURLString) {
+            return azure.canonicalURL
+        }
         var cleaned = remoteURLString.trimmingCharacters(in: .whitespacesAndNewlines)
         if cleaned.hasPrefix("git@") {
             let withoutPrefix = cleaned.dropFirst("git@".count)

@@ -33,6 +33,7 @@ final class GitProviderAccountController: ObservableObject {
     private let authService: GitProviderAuthenticating?
     private let configuration: GitHubProviderAuthConfiguration?
     private let gitLabAuthService: (any GitLabProviderOAuthAuthenticating)?
+    private let azureDevOpsAuthService: AzureDevOpsProviderAuthService
     private let openURL: (URL) -> Bool
     private let hasProAccess: () -> Bool
     private let multipleAccountAccess: () -> FeatureAccessDecision
@@ -64,6 +65,7 @@ final class GitProviderAccountController: ObservableObject {
         authService: GitProviderAuthenticating? = nil,
         configuration: GitHubProviderAuthConfiguration? = nil,
         gitLabAuthService: (any GitLabProviderOAuthAuthenticating)? = nil,
+        azureDevOpsAuthService: AzureDevOpsProviderAuthService = AzureDevOpsProviderAuthService(),
         openURL: @escaping (URL) -> Bool = { _ in false },
         hasProAccess: @escaping () -> Bool = { false },
         multipleAccountAccess: @escaping () -> FeatureAccessDecision = {
@@ -77,6 +79,7 @@ final class GitProviderAccountController: ObservableObject {
         self.authService = authService
         self.configuration = configuration
         self.gitLabAuthService = gitLabAuthService
+        self.azureDevOpsAuthService = azureDevOpsAuthService
         self.openURL = openURL
         self.multipleAccountAccess = multipleAccountAccess
         self.hasProAccess = hasProAccess
@@ -163,7 +166,7 @@ final class GitProviderAccountController: ObservableObject {
         errorMessage = nil
         let accessToken = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let validatedHost = GitProviderHost.configured(kind: host.kind, value: host.baseURL.absoluteString),
-              validatedHost.kind != .bitbucket, !accessToken.isEmpty else {
+              validatedHost.kind != .bitbucket, validatedHost.kind != .azureDevOps, !accessToken.isEmpty else {
             errorMessage = "Enter a valid HTTPS server URL and personal access token."
             return
         }
@@ -178,7 +181,7 @@ final class GitProviderAccountController: ObservableObject {
                 account = try await GitHubProviderAuthService(configuration: .appConfiguration()).fetchAccount(token: token, macgitUID: accountOwnerID, host: validatedHost)
             case .gitlab:
                 account = try await GitLabProviderAuthService(configuration: .appConfiguration()).fetchAccount(token: token, macgitUID: accountOwnerID, host: validatedHost)
-            case .bitbucket: return
+            case .bitbucket, .azureDevOps: return
             }
             try Task.checkCancellation()
             // PAT scope validation happens on each Git/API operation; OAuth scopes are not applicable.
@@ -249,9 +252,51 @@ final class GitProviderAccountController: ObservableObject {
         }
     }
 
+    /// Connects one Azure DevOps organization with a personal access token.
+    func connectAzureDevOps(
+        organization organizationInput: String,
+        accessToken: String,
+        replacing existingAccount: GitProviderAccount? = nil
+    ) async {
+        errorMessage = nil
+        let accessToken = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let organization = AzureReposRemote.organization(fromInput: organizationInput) else {
+            errorMessage = "Enter an Azure DevOps organization name or URL."
+            return
+        }
+        guard !accessToken.isEmpty else {
+            errorMessage = "Enter an Azure DevOps personal access token."
+            return
+        }
+        if let existingAccount,
+           GitProviderHost.identityKey(existingAccount.hostURL) != GitProviderHost.identityKey(AzureReposRemote.organizationURL(organization)) {
+            errorMessage = GitProviderAccountAccessError.differentAccount.localizedDescription
+            return
+        }
+        guard existingAccount != nil || authorizeNewAccountCreation() else { return }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let token = GitProviderToken(accessToken: accessToken, tokenType: "Basic")
+            var account = try await azureDevOpsAuthService.fetchAccount(
+                organization: organization,
+                token: token,
+                macgitUID: accountOwnerID
+            )
+            try Task.checkCancellation()
+            if let existingAccount {
+                account.id = existingAccount.id
+                account.connectedAt = existingAccount.connectedAt
+            }
+            try await saveAuthorizedAccount(account, token: token, replacing: existingAccount)
+        } catch {
+            errorMessage = GitProviderAuthError.connectionMessage(error)
+        }
+    }
+
     func reconnect(_ account: GitProviderAccount) async {
         guard authorizeConnection(to: GitProviderHost(kind: account.provider, baseURL: account.hostURL)) else { return }
-        if account.provider != .bitbucket {
+        if account.provider != .bitbucket, account.provider != .azureDevOps {
             let publicHost = account.provider == .github ? GitProviderHost.githubDotCom : GitProviderHost.gitlabDotCom
             if GitProviderHost(kind: account.provider, baseURL: account.hostURL).normalized != publicHost {
                 errorMessage = "Edit this self-hosted account and enter a new personal access token or test its SSH key."
@@ -266,6 +311,8 @@ final class GitProviderAccountController: ObservableObject {
             startGitLabBrowserAuthorization()
         case .bitbucket:
             errorMessage = "Enter a new Bitbucket API token to reconnect this account."
+        case .azureDevOps:
+            errorMessage = "Enter a new Azure DevOps personal access token to reconnect this account."
         }
     }
 
@@ -368,7 +415,7 @@ final class GitProviderAccountController: ObservableObject {
                 guard let gitLabAuthService else { throw GitProviderAuthError.invalidConfiguration }
                 token = try await gitLabAuthService.exchangeCallback(callback, session: session)
                 account = try await gitLabAuthService.fetchAccount(token: token, macgitUID: accountOwnerID, host: session.host)
-            case .bitbucket:
+            case .bitbucket, .azureDevOps:
                 throw GitProviderAuthError.invalidConfiguration
             }
             try await saveAuthorizedAccount(account, token: token, replacing: authorizationReplacingAccount)
@@ -820,6 +867,8 @@ final class GitProviderAccountController: ObservableObject {
               lhs.transportProtocol == .ssh || rhs.transportProtocol == .ssh else {
             return false
         }
+        // Azure DevOps SSH never names the user, so the organization is the only identity it has.
+        if lhs.provider == .azureDevOps { return true }
         return lhs.username.caseInsensitiveCompare(rhs.username) == .orderedSame
     }
 

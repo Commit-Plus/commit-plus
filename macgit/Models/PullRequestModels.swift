@@ -264,6 +264,11 @@ extension GitRepositoryIdentity {
             hostURL
                 .appendingPathComponent(owner)
                 .appendingPathComponent(name)
+        case .azureDevOps:
+            hostURL
+                .appendingPathComponent(owner)
+                .appendingPathComponent("_git")
+                .appendingPathComponent(name)
         }
     }
 }

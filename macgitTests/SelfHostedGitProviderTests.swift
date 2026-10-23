@@ -100,6 +100,14 @@ final class SelfHostedGitProviderTests: XCTestCase {
         } catch { XCTAssertTrue(error.localizedDescription.contains("invalid or expired")) }
     }
 
+    func testAzureDevOpsSSHOutputAcceptsShellNotSupportedOnly() {
+        XCTAssertEqual(
+            GitProviderSSHAuthService.username(from: "remote: Shell access is not supported.\nshell request failed on channel 0", provider: .azureDevOps),
+            "git"
+        )
+        XCTAssertNil(GitProviderSSHAuthService.username(from: "git@ssh.dev.azure.com: Permission denied (publickey).", provider: .azureDevOps))
+    }
+
     private var token: GitProviderToken { GitProviderToken(accessToken: "test-token", tokenType: "Bearer") }
     private func account(_ provider: GitProviderKind, _ url: String) -> GitProviderAccount {
         GitProviderAccount(id: url, macgitUID: "local", provider: provider, hostURL: URL(string: url)!, providerUserID: "42", username: "user", displayName: nil, avatarURL: nil, scopes: [], permissions: ["authentication": "personalAccessToken"], tokenStatus: .valid, connectedAt: Date(), lastValidatedAt: nil)

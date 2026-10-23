@@ -42,6 +42,16 @@ enum RepositoryBookmarkDocument {
         ]
     }
 
+    /// Skips bookmarks for providers added by a newer app version instead of failing the whole list.
+    static func decodeSupported(_ documents: [(id: String, data: [String: Any])]) throws -> [RepositoryBookmark] {
+        try documents.compactMap { document in
+            if let provider = document.data["provider"] as? String, RepositoryBookmarkProvider(rawValue: provider) == nil {
+                return nil
+            }
+            return try decode(document.data, id: document.id)
+        }
+    }
+
     static func decode(_ data: [String: Any], id: String) throws -> RepositoryBookmark {
         guard let schemaVersion = data["schemaVersion"] as? Int,
               schemaVersion == RepositoryBookmark.schemaVersion,
@@ -86,12 +96,9 @@ final class FirestoreRepositoryBookmarkStore: RepositoryBookmarkCloudStore {
 
     func bookmarks(uid: String) async throws -> [RepositoryBookmark] {
         let snapshot = try await collection(uid: uid).getDocuments()
-        return try snapshot.documents.map {
-            try RepositoryBookmarkDocument.decode(
-                $0.data(with: .estimate),
-                id: $0.documentID
-            )
-        }
+        return try RepositoryBookmarkDocument.decodeSupported(
+            snapshot.documents.map { (id: $0.documentID, data: $0.data(with: .estimate)) }
+        )
     }
 
     func save(_ bookmark: RepositoryBookmark, uid: String) async throws {
