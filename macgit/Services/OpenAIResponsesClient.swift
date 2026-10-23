@@ -294,18 +294,31 @@ struct OpenAIResponsesClient: Sendable {
     private func adaptToDialect(_ body: inout [String: Any]) {
         guard transport == .codexBackend else { return }
         body.removeValue(forKey: "max_output_tokens")
-        // The Codex backend accepts only a list of input items, not a plain string.
+        // The Codex backend accepts only a list of typed input items whose message
+        // content is a list of typed parts, not a plain string.
         if let text = body["input"] as? String {
-            body["input"] = [[
-                "type": "message",
-                "role": "user",
-                "content": [["type": "input_text", "text": text]],
-            ]]
+            body["input"] = [Self.codexMessage(role: "user", text: text)]
+        } else if let items = body["input"] as? [[String: Any]] {
+            body["input"] = items.map { item in
+                guard item["type"] == nil,
+                      let role = item["role"] as? String,
+                      let text = item["content"] as? String
+                else { return item }
+                return Self.codexMessage(role: role, text: text)
+            }
         }
         if var reasoning = body["reasoning"] as? [String: Any] {
             reasoning["summary"] = "auto"
             body["reasoning"] = reasoning
         }
+    }
+
+    private static func codexMessage(role: String, text: String) -> [String: Any] {
+        [
+            "type": "message",
+            "role": role,
+            "content": [["type": "input_text", "text": text]],
+        ]
     }
 
     /// Sends one request and returns the Responses API response object as JSON.

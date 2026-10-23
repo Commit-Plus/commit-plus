@@ -82,9 +82,49 @@ final class ChatGPTCodexProviderTests: XCTestCase {
         let body = try XCTUnwrap(JSONSerialization.jsonObject(
             with: try XCTUnwrap(sent.first?.httpBody)
         ) as? [String: Any])
-        // Agent input is already a list of items and is sent unchanged.
+        // The plain agent message is sent as a typed message with typed content.
         let input = try XCTUnwrap(body["input"] as? [[String: Any]])
+        XCTAssertEqual(input.first?["type"] as? String, "message")
         XCTAssertEqual(input.first?["role"] as? String, "user")
+        let content = try XCTUnwrap(input.first?["content"] as? [[String: Any]])
+        XCTAssertEqual(content.first?["type"] as? String, "input_text")
+        XCTAssertFalse((content.first?["text"] as? String ?? "").isEmpty)
+    }
+
+    func testAgentFollowUpTurnKeepsToolItemsAndTypesTheMessage() async throws {
+        let (provider, http, _) = await makeProvider()
+        await http.respond(to: responsesPath, body: sse([
+            completedEvent(text: "Done."),
+        ]))
+
+        _ = try await provider.generateRepositoryAgentTurn(request: RepositoryAIAgentRequest(
+            repositoryName: "macgit",
+            branchName: "main",
+            question: "Review staged files",
+            conversation: [],
+            previousToolResults: [
+                RepositoryAIAgentToolResult(
+                    toolCall: .init(id: "call_1", name: "execute_git", arguments: ["status"]),
+                    commandResult: RepositoryAIGitCommandResult(
+                        displayCommand: "git status",
+                        output: "clean",
+                        succeeded: true,
+                        isTruncated: false
+                    )
+                ),
+            ],
+            isFirstTurn: false
+        ))
+
+        let sent = await http.requests(path: responsesPath)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: try XCTUnwrap(sent.first?.httpBody)
+        ) as? [String: Any])
+        let input = try XCTUnwrap(body["input"] as? [[String: Any]])
+        XCTAssertEqual(input.map { $0["type"] as? String }, ["message", "function_call", "function_call_output"])
+        XCTAssertNotNil(input.first?["content"] as? [[String: Any]])
+        XCTAssertEqual(input[1]["call_id"] as? String, "call_1")
+        XCTAssertEqual(input[2]["output"] as? String, "clean")
     }
 
     func testRejectedAccessTokenClearsSignIn() async throws {
