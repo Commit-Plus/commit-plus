@@ -612,26 +612,26 @@ struct SidebarNativeList: NSViewRepresentable {
         override func layout() {
             super.layout()
             guard let appearance = rowAppearance else { return }
-            let sectionChildInset: CGFloat = appearance.header ? 0 : 10 * scale
-            let start = 8 + sectionChildInset + CGFloat(appearance.indent) * 16 * scale
+            let sectionChildInset: CGFloat = appearance.header ? 0 : 6 * scale
+            let start = 4 + sectionChildInset + CGFloat(appearance.indent) * 16 * scale
             let iconSize = 14 * scale
             let glyphSize = appearance.icon == "circle.fill" ? 7 * scale : iconSize
             icon.frame = NSRect(x: start + (iconSize - glyphSize) / 2, y: (bounds.height - glyphSize) / 2, width: glyphSize, height: glyphSize)
             let progressWidth: CGFloat = appearance.spinning ? 18 : 0
             let accessoryWidth: CGFloat = (button.isHidden ? 0 : 24) + progressWidth
             button.frame = NSRect(x: bounds.width - 28, y: (bounds.height - 22) / 2, width: 22, height: 22)
-            progress.frame = NSRect(x: bounds.width - 8 - accessoryWidth, y: (bounds.height - 16) / 2, width: 16, height: 16)
+            progress.frame = NSRect(x: bounds.width - 4 - accessoryWidth, y: (bounds.height - 16) / 2, width: 16, height: 16)
             // Leave room for glyph edges when AppKit rounds the label's drawing rect.
             let badgeSize = badge.intrinsicContentSize
             let badgeWidth = appearance.badge.isEmpty ? 0 : min(ceil(badgeSize.width) + 2, floor(bounds.width * 0.45))
             let badgeHeight = ceil(max(badgeSize.height, 16 * scale))
             let pillWidth = rolePill.isHidden ? 0 : rolePill.intrinsicContentSize.width
-            let pillGap: CGFloat = pillWidth > 0 ? 6 * scale : 0
-            let statusGap: CGFloat = badgeWidth > 0 && pillWidth > 0 ? 6 * scale : 0
-            let pillRight = bounds.width - 8 - accessoryWidth
+            let pillGap: CGFloat = pillWidth > 0 ? 4 * scale : 0
+            let statusGap: CGFloat = badgeWidth > 0 && pillWidth > 0 ? 4 * scale : 0
+            let pillRight = bounds.width - 4 - accessoryWidth
             let mergedWidth = mergedPill.isHidden ? 0 : mergedPill.intrinsicContentSize.width
-            let mergedGap: CGFloat = mergedWidth > 0 ? 6 * scale : 0
-            let statusRight = pillRight - pillWidth - (pillWidth > 0 ? 6 * scale : 0)
+            let mergedGap: CGFloat = mergedWidth > 0 ? 4 * scale : 0
+            let statusRight = pillRight - pillWidth - (pillWidth > 0 ? 4 * scale : 0)
             mergedPill.frame = NSRect(x: statusRight - mergedWidth,
                                      y: (bounds.height - mergedPill.intrinsicContentSize.height) / 2,
                                      width: mergedWidth, height: mergedPill.intrinsicContentSize.height)
@@ -642,7 +642,7 @@ struct SidebarNativeList: NSViewRepresentable {
                                     y: (bounds.height - rolePill.intrinsicContentSize.height) / 2,
                                     width: pillWidth, height: rolePill.intrinsicContentSize.height)
             let x = start + iconSize + 6
-            let width = max(0, bounds.width - x - badgeWidth - accessoryWidth - pillWidth - pillGap - statusGap - mergedWidth - mergedGap - 14)
+            let width = max(0, bounds.width - x - badgeWidth - accessoryWidth - pillWidth - pillGap - statusGap - mergedWidth - mergedGap - 8)
             title.frame = NSRect(x: x, y: appearance.subtitle.isEmpty ? (bounds.height - 18 * scale) / 2 : bounds.height / 2, width: width, height: 18 * scale)
             subtitle.frame = NSRect(x: x, y: bounds.height / 2 - 15 * scale, width: width, height: 15 * scale)
         }

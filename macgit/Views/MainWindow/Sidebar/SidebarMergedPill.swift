@@ -38,7 +38,7 @@ final class SidebarMergedPill: NSView {
 
     override var intrinsicContentSize: NSSize {
         let textWidth = (label.stringValue as NSString).size(withAttributes: [.font: font]).width
-        return NSSize(width: ceil(textWidth) + 14 * scale, height: 19 * scale)
+        return NSSize(width: ceil(textWidth) + 10 * scale, height: 19 * scale)
     }
 
     override func layout() {
