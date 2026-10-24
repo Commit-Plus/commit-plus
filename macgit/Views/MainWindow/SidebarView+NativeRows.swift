@@ -53,10 +53,7 @@ extension SidebarView {
         header(.workspace, expanded: true, accessory: "line.3.horizontal.decrease.circle", label: "Customize Workspace") { view in
             SidebarNativePopover.show(WorkspaceVisibilityPopover(appState: appState), from: view)
         }
-        for item in SidebarSection.workspace.items + (appState.showGitFlow ? [.gitFlow] : []) {
-            if item == .reflog && !appState.showWorkspaceReflog { continue }
-            if item == .pullRequests && !appState.showWorkspacePullRequests { continue }
-            if item == .gitLFS && !appState.showWorkspaceGitLFS { continue }
+        for item in SidebarSection.visibleWorkspaceItems(appState: appState) {
             var row = SidebarNativeRow(id: .init(section: .workspace, kind: "item", key: item.rawValue),
                 appearance: .init(title: item.rawValue, icon: item.icon))
             if item == .fileStatus && (stagedFileCount > 0 || changedFileCount > 0) {

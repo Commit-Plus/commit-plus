@@ -50,7 +50,7 @@ struct AppSettingsDetailView: View {
                 providerAccountController: providerAccountController
             )
         case .integrations:
-            IntegrationsSettingsView(appState: appState)
+            IntegrationsSettingsView(appState: appState, accountController: accountController)
         case .customActions:
             CustomActionsSettingsView(store: customActionStore)
         case .aiProviders:

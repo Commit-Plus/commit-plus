@@ -106,6 +106,7 @@ struct MainWindowView: View {
 
     let repositoryURL: URL
     @ObservedObject var providerAccountController: GitProviderAccountController
+    @ObservedObject var jiraConnectionController: JiraConnectionController
     @ObservedObject var aiProviderController: AIProviderController
     let onOpenConnections: () -> Void
     let windowContext: RepositoryWindowContext
@@ -165,9 +166,11 @@ struct MainWindowView: View {
     @State private var lfsTrackingPath: String?
     @State private var hasOpenedPullRequests = false
     @State private var hasOpenedGitLFS = false
+    @State private var hasOpenedJira = false
     @StateObject var syncState = SyncState()
     @StateObject var undoManager = GitUndoManager()
     @StateObject var pullRequestController: PullRequestController
+    @StateObject var jiraIssueListController: JiraIssueListController
     @StateObject var branchMergeDetectionController: BranchMergeDetectionController
     @State var pullRequestAccessDecision: FeatureAccessDecision?
     @State var featureAccessNotice: FeatureAccessNotice?
@@ -205,6 +208,7 @@ struct MainWindowView: View {
     @State var gitFlowConfigurationIssue: GitFlowLocalStateIssue?
     @State var didPerformInitialLoad = false
     @State var pendingGitFlowTopicKind: GitFlowTopicKind?
+    @State var pendingGitFlowInitialTopicName: String?
     @State var pendingGitFlowFinishPlan: RepositorySheetRequest<GitFlowTopicKind>?
     @State var gitFlowCurrentBranch = ""
     @State var gitFlowWorktreeRootURL: URL?
@@ -237,6 +241,7 @@ struct MainWindowView: View {
         initialShowsHistory: Bool? = nil,
         initialShowsPullRequests: Bool = false,
         providerAccountController: GitProviderAccountController,
+        jiraConnectionController: JiraConnectionController,
         aiProviderController: AIProviderController,
         onOpenConnections: @escaping () -> Void = {},
         windowContext: RepositoryWindowContext,
@@ -247,6 +252,7 @@ struct MainWindowView: View {
             : initialShowsHistory == true ? .item(.history) : .item(.fileStatus))
         self.repositoryURL = repositoryURL
         self.providerAccountController = providerAccountController
+        self.jiraConnectionController = jiraConnectionController
         self.aiProviderController = aiProviderController
         self.onOpenConnections = onOpenConnections
         self.windowContext = windowContext
@@ -277,6 +283,10 @@ struct MainWindowView: View {
         _syncState = StateObject(wrappedValue: syncState)
         _undoManager = StateObject(wrappedValue: undoManager)
         _pullRequestController = StateObject(wrappedValue: pullRequestController)
+        _jiraIssueListController = StateObject(wrappedValue: JiraIssueListController(
+            repositoryURL: repositoryURL,
+            connectionController: jiraConnectionController
+        ))
         _branchMergeDetectionController = StateObject(wrappedValue: BranchMergeDetectionController(
             providerAccountController: providerAccountController
         ))
@@ -466,7 +476,7 @@ struct MainWindowView: View {
             .replacingSheet(isPresented: $showingAddSubmoduleSheet) { addSubmoduleSheet }
             .replacingSheet(isPresented: $showingAddLinkSubtreeSheet) { addLinkSubtreeSheet }
             .replacingSheet(item: $branchSheetPresentation) { presentation in
-                branchSheet(startPoint: presentation.startPoint)
+                branchSheet(startPoint: presentation.startPoint, initialBranchName: presentation.initialBranchName)
             }
             .replacingSheet(isPresented: $showingTagSheet, onDismiss: resetTagSheet) { tagSheet }
             .replacingSheet(isPresented: $showingNewTagSheet) { newTagSheet }
@@ -490,7 +500,7 @@ struct MainWindowView: View {
                 }
             }
             .replacingSheet(item: $pendingGitFlowTopicKind) { kind in
-                startGitFlowSheet(for: kind)
+                startGitFlowSheet(for: kind, initialTopicName: pendingGitFlowInitialTopicName)
             }
             .replacingSheet(item: $pendingGitFlowFinishPlan) { request in
                 RepositorySheetLoadingView(title: "Finish \(request.input.displayName)", load: {
@@ -805,6 +815,10 @@ struct MainWindowView: View {
         }
         .onChange(of: appState.autoFetchEnabled) { _, globalAutoFetchEnabled in
             startBackgroundSyncIfLoaded(globalAutoFetchEnabled: globalAutoFetchEnabled)
+        }
+        .onChange(of: appState.showWorkspaceJira) { _, isVisible in
+            // A hidden sidebar row cannot stay selected.
+            if !isVisible, selectedItem == .item(.jira) { selectedItem = .item(.fileStatus) }
         }
         .onChange(of: selectedItem) { _, newItem in
             if newItem != .item(.gitLFS) { lfsTrackingPath = nil }
@@ -1462,7 +1476,7 @@ struct MainWindowView: View {
                 }
             case .item(.reflog):
                 EmptyView()
-            case .item(.pullRequests):
+            case .item(.pullRequests), .item(.jira):
                 EmptyView()
             case .stash(let ref):
                 StashView(
@@ -1524,7 +1538,7 @@ struct MainWindowView: View {
                     FeatureAccessUnavailableView(
                         notice: FeatureAccessNotice(feature: .pullRequests, denial: denial),
                         isSignedIn: accountController.account != nil,
-                        onAccountAction: presentFeatureAccessAccountAction,
+                        onAccountAction: { presentFeatureAccessAccountAction() },
                         onRetry: {
                             Task {
                                 _ = await authorizePullRequestAccess(
@@ -1541,6 +1555,32 @@ struct MainWindowView: View {
             }
             .onAppear { hasOpenedPullRequests = true }
             .repositoryScreenVisibility(isActive: selectedItem == .item(.pullRequests))
+        }
+
+        if selectedItem == .item(.jira) || hasOpenedJira {
+            Group {
+                switch jiraAccessDecision {
+                case .allowed:
+                    JiraIssueListView(
+                        controller: jiraIssueListController,
+                        connectionController: jiraConnectionController,
+                        isActive: selectedItem == .item(.jira),
+                        onOpenJiraSettings: accountController.presentIntegrations,
+                        gitFlowEnabled: gitFlowConfiguration.isEnabled,
+                        onCreateBranch: prepareCreateBranch(from:target:)
+                    )
+                case .denied(let denial):
+                    FeatureAccessUnavailableView(
+                        notice: FeatureAccessNotice(feature: .jiraIssues, denial: denial),
+                        isSignedIn: accountController.account != nil,
+                        onAccountAction: { presentFeatureAccessAccountAction(for: .jiraIssues) },
+                        onRetry: {}
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear { hasOpenedJira = true }
+            .repositoryScreenVisibility(isActive: selectedItem == .item(.jira))
         }
 
         if selectedItem == .item(.gitLFS) || hasOpenedGitLFS {
@@ -1680,12 +1720,17 @@ struct MainWindowView: View {
         ].joined(separator: "|")
     }
 
-    private func presentFeatureAccessAccountAction() {
+    /// Jira is not repository-scoped, so its decision is immediate and follows policy and entitlement changes.
+    private var jiraAccessDecision: FeatureAccessDecision {
+        featureAccessController.decision(for: .jiraIssues, entitlement: accountController.entitlement)
+    }
+
+    private func presentFeatureAccessAccountAction(for feature: PlanFeature = .pullRequests) {
         if accountController.account == nil {
             accountController.presentAuthentication(.signIn)
         } else {
             proUpgradeErrorMessage = nil
-            proUpgradePresentation = ProUpgradePresentation(feature: .pullRequests)
+            proUpgradePresentation = ProUpgradePresentation(feature: feature)
         }
     }
 
@@ -1699,7 +1744,7 @@ struct MainWindowView: View {
                 message: message,
                 primaryButton: .default(
                     Text(isSignedIn ? "View Pricing" : "Sign In"),
-                    action: presentFeatureAccessAccountAction
+                    action: { presentFeatureAccessAccountAction() }
                 ),
                 secondaryButton: .cancel()
             )
@@ -1728,7 +1773,8 @@ struct MainWindowView: View {
                 _ = await authorizeGitFlowAccess(forceRefresh: true)
             }
         case .privateRepositories, .gitLFS, .aiCommitMessage, .repositoryChat, .repositoryAIActions,
-             .aiConflictResolution, .aiBringYourOwnKey, .multipleProviderAccounts, .branchMergeDetection:
+             .aiConflictResolution, .aiBringYourOwnKey, .multipleProviderAccounts, .branchMergeDetection,
+             .jiraIssues:
             break
         }
     }

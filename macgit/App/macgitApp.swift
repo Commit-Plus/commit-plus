@@ -28,6 +28,7 @@ struct macgitApp: App {
     @StateObject private var notificationController: GitHubNotificationController
     @StateObject private var appNotificationController: AppNotificationController
     @StateObject private var providerAccountController: GitProviderAccountController
+    @StateObject private var jiraConnectionController: JiraConnectionController
     @StateObject private var aiProviderController: AIProviderController
     @StateObject private var featureAccessController: FeatureAccessController
     @StateObject private var repositoryVisibilityController: RepositoryVisibilityController
@@ -106,6 +107,8 @@ struct macgitApp: App {
             }
         )
         _providerAccountController = StateObject(wrappedValue: providerAccountController)
+        let jiraConnectionController = JiraConnectionController()
+        _jiraConnectionController = StateObject(wrappedValue: jiraConnectionController)
         let notificationController = GitHubNotificationController(tokenVault: providerTokenVault)
         _notificationController = StateObject(wrappedValue: notificationController)
         _appNotificationController = StateObject(wrappedValue: AppNotificationController())
@@ -176,7 +179,8 @@ struct macgitApp: App {
                     async let bookmarks: Void = repositoryBookmarkController.updateAccount(
                         cloudSyncEnabled ? account : nil
                     )
-                    _ = await (providerAccounts, bookmarks)
+                    async let jira: Void = jiraConnectionController.updateMacgitAccount(uid: account?.uid)
+                    _ = await (providerAccounts, bookmarks, jira)
                 }
             )
         )
@@ -266,6 +270,7 @@ struct macgitApp: App {
                 .environmentObject(repositoryBookmarkController)
                 .environmentObject(customActionStore)
                 .environmentObject(gitFlowConfigurationSyncController)
+                .environmentObject(jiraConnectionController)
                 .preferredColorScheme(appState.appearance.colorScheme)
                 .onChange(of: appState.appearance, initial: true) { _, appearance in
                     NSApp.appearance = appearance.nsAppearance
@@ -622,6 +627,7 @@ struct macgitApp: App {
                 selectedSection: $selectedAppSettingsSection
             )
             .environmentObject(featureAccessController)
+            .environmentObject(jiraConnectionController)
             .preferredColorScheme(appState.appearance.colorScheme)
             .onChange(of: appState.appearance, initial: true) { _, appearance in
                 NSApp.appearance = appearance.nsAppearance

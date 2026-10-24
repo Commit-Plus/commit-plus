@@ -598,7 +598,9 @@ struct SidebarNativeList: NSViewRepresentable {
                 }
             }
             badge.toolTip = value.badgeToolTip.isEmpty ? nil : value.badgeToolTip
-            icon.image = value.icon.isEmpty ? nil : NSImage(systemSymbolName: value.icon, accessibilityDescription: nil)
+            // Brand icons (e.g. Jira) live in the asset catalog; everything else is an SF Symbol.
+            icon.image = value.icon.isEmpty ? nil
+                : NSImage(systemSymbolName: value.icon, accessibilityDescription: nil) ?? NSImage(named: value.icon)
             icon.contentTintColor = value.emphasized ? .controlAccentColor : tint(value.tint)
             if value.spinning { progress.startAnimation(nil) } else { progress.stopAnimation(nil) }
             button.image = value.accessory.isEmpty ? nil : NSImage(systemSymbolName: value.accessory, accessibilityDescription: value.accessoryLabel)

@@ -29,6 +29,7 @@ final class AppSettingsSnapshotTests: XCTestCase {
             showWorkspaceReflog: false,
             showWorkspacePullRequests: true,
             showWorkspaceGitLFS: false,
+            showWorkspaceJira: false,
             showTags: false,
             showWorktrees: true,
             showSubmodules: true,
@@ -63,6 +64,7 @@ final class AppSettingsSnapshotTests: XCTestCase {
                 "showWorkspaceReflog",
                 "showWorkspacePullRequests",
                 "showWorkspaceGitLFS",
+                "showWorkspaceJira",
                 "showTags",
                 "showWorktrees",
                 "showSubmodules",
@@ -118,6 +120,7 @@ final class AppSettingsSnapshotTests: XCTestCase {
             showWorkspaceReflog: false,
             showWorkspacePullRequests: false,
             showWorkspaceGitLFS: false,
+            showWorkspaceJira: false,
             showSubmodules: false,
             showSubtrees: false
         )
@@ -126,6 +129,7 @@ final class AppSettingsSnapshotTests: XCTestCase {
         object.removeValue(forKey: "showWorkspaceReflog")
         object.removeValue(forKey: "showWorkspacePullRequests")
         object.removeValue(forKey: "showWorkspaceGitLFS")
+        object.removeValue(forKey: "showWorkspaceJira")
 
         let decoded = try JSONDecoder().decode(
             AppSettingsSnapshot.self,
@@ -135,6 +139,7 @@ final class AppSettingsSnapshotTests: XCTestCase {
         XCTAssertTrue(decoded.showWorkspaceReflog)
         XCTAssertTrue(decoded.showWorkspacePullRequests)
         XCTAssertTrue(decoded.showWorkspaceGitLFS)
+        XCTAssertTrue(decoded.showWorkspaceJira)
     }
 
     func testSnapshotDecodingDefaultsMissingTagsAndWorktreesVisibilityToTrue() throws {
@@ -255,10 +260,12 @@ final class AppSettingsSnapshotTests: XCTestCase {
         XCTAssertTrue(state.showWorkspaceReflog)
         XCTAssertTrue(state.showWorkspacePullRequests)
         XCTAssertTrue(state.showWorkspaceGitLFS)
+        XCTAssertTrue(state.showWorkspaceJira)
 
         state.showWorkspaceReflog = false
         state.showWorkspacePullRequests = false
         state.showWorkspaceGitLFS = false
+        state.showWorkspaceJira = false
 
         let reloaded = AppState(userDefaults: defaults)
         XCTAssertFalse(reloaded.showWorkspaceReflog)
@@ -267,6 +274,8 @@ final class AppSettingsSnapshotTests: XCTestCase {
         XCTAssertFalse(reloaded.snapshot.showWorkspaceReflog)
         XCTAssertFalse(reloaded.snapshot.showWorkspacePullRequests)
         XCTAssertFalse(reloaded.snapshot.showWorkspaceGitLFS)
+        XCTAssertFalse(reloaded.showWorkspaceJira)
+        XCTAssertFalse(reloaded.snapshot.showWorkspaceJira)
     }
 
     func testTagsAndWorktreesVisibilityDefaultsOnAndPersistsLocally() {

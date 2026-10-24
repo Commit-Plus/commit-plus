@@ -142,11 +142,12 @@ extension MainWindowView {
     }
 
     @ViewBuilder
-    func branchSheet(startPoint: GitBranchStartPoint?) -> some View {
+    func branchSheet(startPoint: GitBranchStartPoint?, initialBranchName: String? = nil) -> some View {
         BranchSheetView(
             repositoryURL: repositoryURL,
             undoManager: undoManager,
             initialStartPoint: startPoint,
+            initialBranchName: initialBranchName,
             onRunBackgroundRemoteBranchDeletion: runBackgroundRemoteBranchDeletion,
             onCommitAllChangesRequested: {
                 commitSheetCommitsAllChanges = true
@@ -406,11 +407,12 @@ extension MainWindowView {
     }
 
     @ViewBuilder
-    func startGitFlowSheet(for kind: GitFlowTopicKind) -> some View {
+    func startGitFlowSheet(for kind: GitFlowTopicKind, initialTopicName: String? = nil) -> some View {
         StartGitFlowSheet(
             kind: kind,
             configuration: gitFlowConfiguration,
             worktreeRootURL: gitFlowWorktreeRootURL ?? repositoryURL,
+            initialTopicName: initialTopicName,
             onRunRepositoryOperation: runRepositoryOperation,
             onStart: startGitFlow
         )

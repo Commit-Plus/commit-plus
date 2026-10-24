@@ -28,6 +28,7 @@ final class CloudSettingsDocumentTests: XCTestCase {
         showWorkspaceReflog: false,
         showWorkspacePullRequests: true,
         showWorkspaceGitLFS: false,
+        showWorkspaceJira: false,
         showTags: false,
         showWorktrees: true,
         showSubmodules: true,
@@ -71,6 +72,7 @@ final class CloudSettingsDocumentTests: XCTestCase {
                 "showWorkspaceReflog",
                 "showWorkspacePullRequests",
                 "showWorkspaceGitLFS",
+                "showWorkspaceJira",
                 "showTags",
                 "showWorktrees",
                 "showSubmodules",
@@ -107,6 +109,7 @@ final class CloudSettingsDocumentTests: XCTestCase {
         XCTAssertEqual(document["showWorkspaceReflog"] as? Bool, false)
         XCTAssertEqual(document["showWorkspacePullRequests"] as? Bool, true)
         XCTAssertEqual(document["showWorkspaceGitLFS"] as? Bool, false)
+        XCTAssertEqual(document["showWorkspaceJira"] as? Bool, false)
         XCTAssertEqual(document["showTags"] as? Bool, false)
         XCTAssertEqual(document["showWorktrees"] as? Bool, true)
         XCTAssertEqual(document["showSubmodules"] as? Bool, true)
@@ -169,12 +172,14 @@ final class CloudSettingsDocumentTests: XCTestCase {
         document.removeValue(forKey: "showWorkspaceReflog")
         document.removeValue(forKey: "showWorkspacePullRequests")
         document.removeValue(forKey: "showWorkspaceGitLFS")
+        document.removeValue(forKey: "showWorkspaceJira")
 
         let decoded = try CloudSettingsDocument.decode(document)
 
         XCTAssertTrue(decoded.showWorkspaceReflog)
         XCTAssertTrue(decoded.showWorkspacePullRequests)
         XCTAssertTrue(decoded.showWorkspaceGitLFS)
+        XCTAssertTrue(decoded.showWorkspaceJira)
     }
 
     func testDecodingDefaultsMissingTagsAndWorktreesVisibilityToTrue() throws {

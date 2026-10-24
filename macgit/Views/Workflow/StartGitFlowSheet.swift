@@ -40,10 +40,12 @@ struct StartGitFlowSheet: View {
         kind: GitFlowTopicKind,
         configuration: GitFlowConfiguration,
         worktreeRootURL: URL,
+        initialTopicName: String? = nil,
         onRunRepositoryOperation: @escaping RepositoryOperationRunner,
         onStart: @escaping @MainActor (GitFlowStartPlan, Bool) async -> Bool
     ) {
         self.kind = kind
+        _topicName = State(initialValue: initialTopicName ?? "")
         self.configuration = configuration
         self.worktreeRootURL = worktreeRootURL
         self.onRunRepositoryOperation = onRunRepositoryOperation
