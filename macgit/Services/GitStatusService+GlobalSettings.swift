@@ -37,8 +37,12 @@ extension GitStatusService {
         )
     }
 
+    /// Writes the fields that differ from `previous` (all fields when it is nil). Each field is
+    /// validated and written independently, so one invalid value does not block the others;
+    /// the first failure is thrown after the remaining fields are written.
     func updateGlobalGitSettings(
         _ settings: GlobalGitSettings,
+        previous: GlobalGitSettings? = nil,
         credentialHelperMode: GitCredentialHelperMode? = nil
     ) async throws {
         let directory = FileManager.default.homeDirectoryForCurrentUser
@@ -46,39 +50,76 @@ extension GitStatusService {
         let email = settings.userEmail.trimmingCharacters(in: .whitespacesAndNewlines)
         let branch = settings.defaultBranchName.trimmingCharacters(in: .whitespacesAndNewlines)
         let excludesFile = settings.excludesFilePath.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !name.isEmpty else {
-            throw GitError.commandFailed("Global Git author name is required.")
+        func changed<Value: Equatable>(_ keyPath: KeyPath<GlobalGitSettings, Value>) -> Bool {
+            previous.map { $0[keyPath: keyPath] != settings[keyPath: keyPath] } ?? true
         }
-        guard email.contains("@"), !email.contains(where: \.isWhitespace) else {
-            throw GitError.commandFailed("Enter a valid email address for your global Git author.")
-        }
-        guard !branch.isEmpty else {
-            throw GitError.commandFailed("Default branch name is required.")
+        var firstError: Error?
+        func record(_ error: Error) {
+            if firstError == nil { firstError = error }
         }
 
-        _ = try await runGit(arguments: ["check-ref-format", "--branch", branch], in: directory)
+        var writesName = changed(\.userName)
+        if writesName, name.isEmpty {
+            record(GitError.commandFailed("Global Git author name is required."))
+            writesName = false
+        }
+        var writesEmail = changed(\.userEmail)
+        if writesEmail, !email.contains("@") || email.contains(where: \.isWhitespace) {
+            record(GitError.commandFailed("Enter a valid email address for your global Git author."))
+            writesEmail = false
+        }
+        var writesBranch = changed(\.defaultBranchName)
+        if writesBranch {
+            if branch.isEmpty {
+                record(GitError.commandFailed("Default branch name is required."))
+                writesBranch = false
+            } else {
+                do {
+                    _ = try await runGit(arguments: ["check-ref-format", "--branch", branch], in: directory)
+                } catch {
+                    record(error)
+                    writesBranch = false
+                }
+            }
+        }
+
         if let credentialHelperMode {
-            try await updateGlobalCredentialHelper(credentialHelperMode, in: directory)
+            do {
+                try await updateGlobalCredentialHelper(credentialHelperMode, in: directory)
+            } catch {
+                record(error)
+            }
         }
-        try await setGlobalConfig("user.name", value: name, in: directory)
-        try await setGlobalConfig("user.email", value: email, in: directory)
-        try await setGlobalConfig("init.defaultBranch", value: branch, in: directory)
-        try await setGlobalConfig("fetch.prune", value: settings.pruneOnFetch ? "true" : "false", in: directory)
-        try await setGlobalConfig(
-            "push.autoSetupRemote",
-            value: settings.autoSetupRemote ? "true" : "false",
-            in: directory
-        )
 
-        if excludesFile.isEmpty {
+        var writes: [(key: String, value: String)] = []
+        if writesName { writes.append(("user.name", name)) }
+        if writesEmail { writes.append(("user.email", email)) }
+        if writesBranch { writes.append(("init.defaultBranch", branch)) }
+        if changed(\.pruneOnFetch) {
+            writes.append(("fetch.prune", settings.pruneOnFetch ? "true" : "false"))
+        }
+        if changed(\.autoSetupRemote) {
+            writes.append(("push.autoSetupRemote", settings.autoSetupRemote ? "true" : "false"))
+        }
+        if changed(\.excludesFilePath), !excludesFile.isEmpty {
+            writes.append(("core.excludesFile", excludesFile))
+        }
+        for write in writes {
+            do {
+                try await setGlobalConfig(write.key, value: write.value, in: directory)
+            } catch {
+                record(error)
+            }
+        }
+
+        if changed(\.excludesFilePath), excludesFile.isEmpty {
             _ = try? await runGit(
                 arguments: ["config", "--global", "--unset-all", "core.excludesFile"],
                 in: directory
             )
-        } else {
-            try await setGlobalConfig("core.excludesFile", value: excludesFile, in: directory)
         }
+
+        if let firstError { throw firstError }
     }
 
     func availableCredentialHelpers() async -> [String] {

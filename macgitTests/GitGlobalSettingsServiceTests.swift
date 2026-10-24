@@ -203,11 +203,10 @@ final class GitGlobalSettingsServiceTests: XCTestCase {
         )
     }
 
-    func testUpdateRejectsInvalidIdentityBeforeRunningGit() async {
+    func testUpdateRejectsInvalidEmailButWritesOtherFields() async {
         let runner = GlobalSettingsRecordingRunner()
         let service = GitStatusService(runner: runner)
-        var settings = GlobalGitSettings.empty
-        settings.userName = "Ada Lovelace"
+        var settings = makeValidSettings()
         settings.userEmail = "invalid email"
 
         do {
@@ -218,7 +217,24 @@ final class GitGlobalSettingsServiceTests: XCTestCase {
         }
 
         let calls = await runner.recordedArguments()
-        XCTAssertTrue(calls.isEmpty)
+        XCTAssertFalse(calls.contains { $0.contains("user.email") })
+        XCTAssertTrue(calls.contains(["config", "--global", "user.name", "Ada Lovelace"]))
+        XCTAssertTrue(calls.contains(["config", "--global", "fetch.prune", "true"]))
+    }
+
+    func testUpdateWritesOnlyFieldsChangedFromPrevious() async throws {
+        let runner = GlobalSettingsRecordingRunner()
+        let service = GitStatusService(runner: runner)
+        var previous = makeValidSettings()
+        previous.userName = ""
+        previous.userEmail = ""
+        var settings = previous
+        settings.autoSetupRemote = true
+
+        try await service.updateGlobalGitSettings(settings, previous: previous)
+
+        let calls = await runner.recordedArguments()
+        XCTAssertEqual(calls, [["config", "--global", "push.autoSetupRemote", "true"]])
     }
 
     private func makeValidSettings() -> GlobalGitSettings {

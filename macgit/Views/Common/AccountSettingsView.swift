@@ -95,21 +95,17 @@ struct AccountSettingsView: View {
                     }
 
                     SettingsActionRow {
-                        Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", action: signOut)
-
-                        if accountController.requiresRecentAuthentication {
-                            Button("Sign In Again…", action: presentSignIn)
+                        if accountController.isRefreshingProfile || accountController.isOpeningAccountOnWeb {
+                            ProgressView().controlSize(.small)
                         }
-
-                        Button("Delete Account…", systemImage: "trash", role: .destructive) {
-                            confirmsAccountDeletion = true
+                        Button("Refresh", systemImage: "arrow.clockwise") {
+                            Task { await accountController.refreshProfile() }
                         }
-                        .disabled(accountController.isDeletingAccount)
-                    }
-
-                    if accountController.isDeletingAccount {
-                        ProgressView("Deleting Commit+ account…")
-                            .controlSize(.small)
+                        .disabled(accountController.isRefreshingProfile)
+                        Button("Manage Account & Subscription", systemImage: "arrow.up.right.square") {
+                            Task { await accountController.openAccountOnWeb() }
+                        }
+                        .disabled(accountController.isOpeningAccountOnWeb)
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 10) {
@@ -152,17 +148,21 @@ struct AccountSettingsView: View {
                     Text("Your Commit+ account is used for cloud settings, plan access, and securely associating provider connections.")
                     if accountController.account != nil {
                         SettingsActionRow {
-                            if accountController.isRefreshingProfile || accountController.isOpeningAccountOnWeb {
-                                ProgressView().controlSize(.small)
+                            if accountController.isDeletingAccount {
+                                ProgressView("Deleting Commit+ account…")
+                                    .controlSize(.small)
                             }
-                            Button("Refresh", systemImage: "arrow.clockwise") {
-                                Task { await accountController.refreshProfile() }
+
+                            Button("Sign Out", systemImage: "rectangle.portrait.and.arrow.right", action: signOut)
+
+                            if accountController.requiresRecentAuthentication {
+                                Button("Sign In Again…", action: presentSignIn)
                             }
-                            .disabled(accountController.isRefreshingProfile)
-                            Button("Manage Account & Subscription", systemImage: "arrow.up.right.square") {
-                                Task { await accountController.openAccountOnWeb() }
+
+                            Button("Delete Account…", systemImage: "trash", role: .destructive) {
+                                confirmsAccountDeletion = true
                             }
-                            .disabled(accountController.isOpeningAccountOnWeb)
+                            .disabled(accountController.isDeletingAccount)
                         }
                         .font(.body)
                         .foregroundStyle(.primary)

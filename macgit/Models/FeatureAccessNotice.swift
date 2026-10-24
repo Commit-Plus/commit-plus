@@ -73,6 +73,11 @@ struct FeatureAccessNotice: Identifiable, Equatable {
     }
 }
 
+/// Lets a denial be thrown to a sheet that shows errors inline.
+extension FeatureAccessNotice: LocalizedError {
+    var errorDescription: String? { message }
+}
+
 extension PlanFeature {
     var displayName: String {
         switch self {

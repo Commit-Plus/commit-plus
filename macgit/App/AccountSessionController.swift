@@ -230,7 +230,7 @@ final class AccountSessionController: ObservableObject {
     }
 
     func presentConnections() {
-        openSettings(.connections)
+        openSettings(.git)
     }
 
     func presentIntegrations() {

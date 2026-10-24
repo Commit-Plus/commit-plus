@@ -278,14 +278,14 @@ final class AccountSessionControllerTests: XCTestCase {
         XCTAssertNil(controller.welcomeState)
     }
 
-    func testPresentConnectionsRequestsConnectionsSettings() {
+    func testPresentConnectionsRequestsGitSettings() {
         let controller = AccountSessionController(
             auth: FakeAccountAuth(current: nil),
             bootstrapStatus: .configured
         )
 
         let navigation = expectation(forNotification: .showAppSettings, object: nil) { notification in
-            notification.userInfo?["section"] as? String == AppSettingsSection.connections.rawValue
+            notification.userInfo?["section"] as? String == AppSettingsSection.git.rawValue
         }
         controller.presentConnections()
         wait(for: [navigation], timeout: 1)

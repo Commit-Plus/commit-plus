@@ -30,6 +30,7 @@ final class GitSettingsViewModel {
     private(set) var isDownloadingEmbeddedGit = false
     private(set) var savedSettings = GlobalGitSettings.empty
     private(set) var statusMessage: String?
+    private(set) var saveErrorMessage: String?
     private(set) var systemRuntime: GitRuntimeInstallation?
     private(set) var embeddedRuntime: GitRuntimeInstallation?
     private(set) var activeRuntime: GitRuntimeInstallation?
@@ -41,6 +42,10 @@ final class GitSettingsViewModel {
     var showingError = false
     var showingCredentialHelperReplacementConfirmation = false
 
+    /// The text field being edited; its value is not saved until editing ends.
+    @ObservationIgnored var editingTextField: WritableKeyPath<GlobalGitSettings, String>?
+    @ObservationIgnored private var credentialHelperModeAwaitingConfirmation: GitCredentialHelperMode?
+    private static var latestSave: Task<Void, Never>?
     @ObservationIgnored private let service: GitStatusService
     @ObservationIgnored private let runtimeManager: GitRuntimeManager
     @ObservationIgnored private let fileManager: FileManager
@@ -53,10 +58,6 @@ final class GitSettingsViewModel {
         self.service = service
         self.runtimeManager = runtimeManager
         self.fileManager = fileManager
-    }
-
-    var canSave: Bool {
-        (settings != savedSettings || credentialHelperMode != savedCredentialHelperMode) && !isBusy
     }
 
     var isBusy: Bool {
@@ -144,6 +145,7 @@ final class GitSettingsViewModel {
     }
 
     func load() async {
+        await Self.latestSave?.value
         isLoading = true
         statusMessage = nil
         defer { isLoading = false }
@@ -164,39 +166,110 @@ final class GitSettingsViewModel {
         }
     }
 
-    func save(allowCredentialHelperReplacement: Bool = false) async {
-        guard canSave else { return }
-        if hasMultipleCredentialHelpers,
-           credentialHelperMode != .preserveExisting,
+    /// Queues a save after any save already requested, from this or an earlier instance of the pane.
+    /// `committing` names a text field whose current value should be saved even while it is being edited.
+    func requestSave(
+        committing committedField: WritableKeyPath<GlobalGitSettings, String>? = nil,
+        allowCredentialHelperReplacement: Bool = false
+    ) {
+        let previous = Self.latestSave
+        // Holds the view model strongly so a save requested as the pane closes still finishes.
+        Self.latestSave = Task {
+            await previous?.value
+            await self.save(
+                committing: committedField,
+                allowCredentialHelperReplacement: allowCredentialHelperReplacement
+            )
+        }
+    }
+
+    /// Writes committed changes to the global Git config. The text field being edited is left out
+    /// until editing ends, a credential helper replacement waits for confirmation without blocking
+    /// other fields, and validation failures are shown inline rather than as alerts.
+    func save(
+        committing committedField: WritableKeyPath<GlobalGitSettings, String>? = nil,
+        allowCredentialHelperReplacement: Bool = false
+    ) async {
+        guard !isLoading, !isSaving else { return }
+
+        var submittedSettings = settings
+        if let editingTextField, editingTextField != committedField {
+            submittedSettings[keyPath: editingTextField] = savedSettings[keyPath: editingTextField]
+        }
+        let previousSavedCredentialHelperMode = savedCredentialHelperMode
+        var submittedCredentialHelperMode = credentialHelperMode == savedCredentialHelperMode
+            ? nil
+            : credentialHelperMode
+        if let mode = submittedCredentialHelperMode,
+           hasMultipleCredentialHelpers,
+           mode != .preserveExisting,
            !allowCredentialHelperReplacement {
-            showingCredentialHelperReplacementConfirmation = true
+            submittedCredentialHelperMode = nil
+            if credentialHelperModeAwaitingConfirmation != mode {
+                credentialHelperModeAwaitingConfirmation = mode
+                showingCredentialHelperReplacementConfirmation = true
+            }
+        }
+        guard submittedSettings != savedSettings || submittedCredentialHelperMode != nil else {
+            // Nothing committed differs from the config, so an earlier failure no longer applies.
+            saveErrorMessage = nil
             return
         }
         isSaving = true
         statusMessage = nil
         defer { isSaving = false }
 
+        var saveError: Error?
         do {
-            let changedCredentialHelperMode = credentialHelperMode == savedCredentialHelperMode
-                ? nil
-                : credentialHelperMode
             try await service.updateGlobalGitSettings(
-                settings,
-                credentialHelperMode: changedCredentialHelperMode
+                submittedSettings,
+                previous: savedSettings,
+                credentialHelperMode: submittedCredentialHelperMode
             )
-            let loaded = try await service.loadGlobalGitSettings()
-            settings = loaded
-            savedSettings = loaded
-            credentialHelperMode = GitCredentialHelperMode.resolve(
-                configuredValues: loaded.credentialHelperValues
-            )
-            savedCredentialHelperMode = credentialHelperMode
-            availableCredentialHelpers = await service.availableCredentialHelpers()
-            showingCredentialHelperReplacementConfirmation = false
-            statusMessage = "Global Git settings saved."
         } catch {
-            present(error)
+            saveError = error
         }
+
+        // Reload even after a failure, since fields that passed validation were still written.
+        let loaded: GlobalGitSettings
+        do {
+            loaded = try await service.loadGlobalGitSettings()
+        } catch {
+            saveErrorMessage = (saveError ?? error).localizedDescription
+            return
+        }
+        savedSettings = loaded
+        savedCredentialHelperMode = GitCredentialHelperMode.resolve(
+            configuredValues: loaded.credentialHelperValues
+        )
+        // Keep edits made during the save and values that failed validation, so they can be corrected.
+        if saveError == nil {
+            settings = mergingLoadedSettings(loaded, submitted: submittedSettings)
+        } else {
+            settings.credentialHelperValues = loaded.credentialHelperValues
+        }
+        if credentialHelperMode == (submittedCredentialHelperMode ?? previousSavedCredentialHelperMode) {
+            credentialHelperMode = savedCredentialHelperMode
+        }
+        if submittedCredentialHelperMode != nil {
+            credentialHelperModeAwaitingConfirmation = nil
+            showingCredentialHelperReplacementConfirmation = false
+        }
+        availableCredentialHelpers = await service.availableCredentialHelpers()
+
+        if let saveError {
+            saveErrorMessage = saveError.localizedDescription
+        } else {
+            saveErrorMessage = nil
+            statusMessage = "Saved to global Git config."
+        }
+    }
+
+    /// Resetting the mode triggers the view's credential helper autosave, which saves anything else pending.
+    func cancelCredentialHelperReplacement() {
+        credentialHelperModeAwaitingConfirmation = nil
+        showingCredentialHelperReplacementConfirmation = false
+        credentialHelperMode = savedCredentialHelperMode
     }
 
     func selectRuntimePreference(_ preference: GitRuntimePreference) async {
@@ -309,6 +382,25 @@ final class GitSettingsViewModel {
         helper.split(whereSeparator: \Character.isWhitespace).first == "store"
     }
 
+    /// Takes the loaded value for each field the user has not changed since the save was submitted.
+    private func mergingLoadedSettings(
+        _ loaded: GlobalGitSettings,
+        submitted: GlobalGitSettings
+    ) -> GlobalGitSettings {
+        var merged = loaded
+        let textFields: [WritableKeyPath<GlobalGitSettings, String>] = [
+            \.userName, \.userEmail, \.defaultBranchName, \.excludesFilePath
+        ]
+        for field in textFields where settings[keyPath: field] != submitted[keyPath: field] {
+            merged[keyPath: field] = settings[keyPath: field]
+        }
+        let toggles: [WritableKeyPath<GlobalGitSettings, Bool>] = [\.pruneOnFetch, \.autoSetupRemote]
+        for field in toggles where settings[keyPath: field] != submitted[keyPath: field] {
+            merged[keyPath: field] = settings[keyPath: field]
+        }
+        return merged
+    }
+
     private func refreshRuntimeStatus() async {
         let status = await runtimeManager.status()
         selectedRuntimePreference = status.preference
@@ -319,8 +411,11 @@ final class GitSettingsViewModel {
         embeddedDownloadSize = status.embeddedDownloadSize
     }
 
+    /// The runtime fields are informational and not written to the Git config, so they never count as unsaved.
     private func applyActiveRuntimeToSettings() {
         settings.executablePath = activeRuntime?.executableURL.path ?? ""
         settings.version = activeRuntime?.version ?? ""
+        savedSettings.executablePath = settings.executablePath
+        savedSettings.version = settings.version
     }
 }

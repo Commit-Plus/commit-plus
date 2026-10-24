@@ -37,6 +37,36 @@ extension MainWindowView {
         forceRefresh: Bool = false,
         presentNotice: Bool = true
     ) async -> Bool {
+        guard let decision = await gitFlowAccessDecision(forceRefresh: forceRefresh) else { return false }
+        if case .denied(let denial) = decision, presentNotice {
+            if denial == .requiresPro {
+                presentGitFlowUpgrade()
+            } else {
+                featureAccessNotice = FeatureAccessNotice(feature: .gitFlow, denial: denial)
+            }
+        }
+        return decision.isAllowed
+    }
+
+    /// Like `authorizeGitFlowAccess`, but throws non-upgrade denials so a presenting sheet can show them;
+    /// a window alert would be hidden behind the sheet. The upgrade sheet replaces the presenting sheet.
+    @MainActor
+    func authorizeGitFlowAccessFromSheet(forceRefresh: Bool = false) async throws -> Bool {
+        guard let decision = await gitFlowAccessDecision(forceRefresh: forceRefresh) else { return false }
+        switch decision {
+        case .allowed:
+            return true
+        case .denied(.requiresPro):
+            presentGitFlowUpgrade()
+            return false
+        case .denied(let denial):
+            throw FeatureAccessNotice(feature: .gitFlow, denial: denial)
+        }
+    }
+
+    /// Returns nil when the task was cancelled while the decision was resolved.
+    @MainActor
+    private func gitFlowAccessDecision(forceRefresh: Bool) async -> FeatureAccessDecision? {
         let decision = await repositoryVisibilityController.accessDecision(
             for: .gitFlow,
             repositoryURL: repositoryURL,
@@ -45,16 +75,13 @@ extension MainWindowView {
             policy: featureAccessController.policy,
             forceRefresh: forceRefresh
         )
-        guard !Task.isCancelled else { return false }
-        if case .denied(let denial) = decision, presentNotice {
-            if denial == .requiresPro {
-                proUpgradeErrorMessage = nil
-                proUpgradePresentation = ProUpgradePresentation(feature: .gitFlow)
-            } else {
-                featureAccessNotice = FeatureAccessNotice(feature: .gitFlow, denial: denial)
-            }
-        }
-        return decision.isAllowed
+        return Task.isCancelled ? nil : decision
+    }
+
+    @MainActor
+    private func presentGitFlowUpgrade() {
+        proUpgradeErrorMessage = nil
+        proUpgradePresentation = ProUpgradePresentation(feature: .gitFlow)
     }
 
     func handleGitFlowMenuAction(_ action: GitFlowMenuAction) {
@@ -88,9 +115,10 @@ extension MainWindowView {
         }
     }
 
-    /// Returns false when access is denied; Git failures are thrown so the start sheet can show them.
+    /// Returns false when the upgrade sheet takes over; Git failures and other access denials
+    /// are thrown so the start sheet can show them.
     func startGitFlow(_ plan: GitFlowStartPlan, openAfterCreate: Bool) async throws -> Bool {
-        guard await authorizeGitFlowAccess(presentNotice: true) else {
+        guard try await authorizeGitFlowAccessFromSheet() else {
             return false
         }
         do {

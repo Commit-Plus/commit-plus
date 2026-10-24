@@ -343,7 +343,7 @@ struct macgitApp: App {
                 appNotificationController: appNotificationController,
                 onConnect: {
                     NSApp.activate()
-                    selectedAppSettingsSection = .connections
+                    selectedAppSettingsSection = .git
                     openWindow(id: "settings")
                 },
                 onAppNotification: { notification in

@@ -23,7 +23,6 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
     case diff
     case git
     case accounts
-    case connections
     case integrations
     case customActions
     case aiProviders
@@ -39,7 +38,6 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         case .diff: "Diff"
         case .git: "Git"
         case .accounts: "Account"
-        case .connections: "Connections"
         case .integrations: "Integrations"
         case .customActions: "Custom Actions"
         case .aiProviders: "AI"
@@ -55,7 +53,6 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         case .diff: "plusminus"
         case .git: "point.3.connected.trianglepath.dotted"
         case .accounts: "person.crop.circle"
-        case .connections: "network"
         case .integrations: "puzzlepiece.extension"
         case .customActions: "terminal"
         case .aiProviders: "sparkles"
@@ -73,11 +70,9 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         case .diff:
             "Customize the font and colors used to display code changes."
         case .git:
-            "Manage global Git behavior and command preferences."
+            "Manage Git provider connections and global Git behavior."
         case .accounts:
             "Manage your Commit+ account."
-        case .connections:
-            "Manage Git provider connections."
         case .integrations:
             "Connect Commit+ with external tools and services."
         case .customActions:

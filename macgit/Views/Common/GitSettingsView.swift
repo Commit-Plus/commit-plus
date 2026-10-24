@@ -18,7 +18,25 @@
 import SwiftUI
 
 struct GitSettingsView: View {
+    @ObservedObject var accountController: AccountSessionController
+    @ObservedObject var providerAccountController: GitProviderAccountController
     @State private var viewModel = GitSettingsViewModel()
+    @State private var providerPresentation = GitProviderSettingsPresentation()
+    @FocusState private var focusedField: Field?
+
+    /// Text fields save when editing ends, since Git rejects partial values such as an incomplete email.
+    private enum Field: Hashable {
+        case userName, userEmail, defaultBranchName, excludesFilePath
+
+        var keyPath: WritableKeyPath<GlobalGitSettings, String> {
+            switch self {
+            case .userName: \.userName
+            case .userEmail: \.userEmail
+            case .defaultBranchName: \.defaultBranchName
+            case .excludesFilePath: \.excludesFilePath
+            }
+        }
+    }
 
     var body: some View {
         @Bindable var viewModel = viewModel
@@ -26,11 +44,20 @@ struct GitSettingsView: View {
         Form {
             GitRuntimeSettingsSection(viewModel: viewModel)
             GitLFSRuntimeSection()
+            GitProviderSettingsSection(
+                accountController: accountController,
+                providerAccountController: providerAccountController,
+                presentation: $providerPresentation
+            )
             GitCredentialHelperSettingsSection(viewModel: viewModel)
 
             Section {
                 TextField("Full Name", text: $viewModel.settings.userName)
+                    .focused($focusedField, equals: .userName)
+                    .onSubmit { save(committing: \.userName) }
                 TextField("Email Address", text: $viewModel.settings.userEmail)
+                    .focused($focusedField, equals: .userEmail)
+                    .onSubmit { save(committing: \.userEmail) }
             } header: {
                 Label("Global Author", systemImage: "person.text.rectangle")
             } footer: {
@@ -39,6 +66,8 @@ struct GitSettingsView: View {
 
             Section {
                 TextField("Default Branch Name", text: $viewModel.settings.defaultBranchName)
+                    .focused($focusedField, equals: .defaultBranchName)
+                    .onSubmit { save(committing: \.defaultBranchName) }
 
                 SettingsToggleRow(
                     title: "Prune deleted remote branches",
@@ -57,10 +86,18 @@ struct GitSettingsView: View {
 
             Section {
                 TextField("Ignore File Path", text: $viewModel.settings.excludesFilePath)
+                    .focused($focusedField, equals: .excludesFilePath)
+                    .onSubmit { save(committing: \.excludesFilePath) }
 
                 SettingsActionRow {
-                    Button("Choose…", action: viewModel.chooseGlobalIgnoreFile)
-                    Button("Use Default", action: viewModel.useDefaultGlobalIgnoreFile)
+                    Button("Choose…") {
+                        viewModel.chooseGlobalIgnoreFile()
+                        save(committing: \.excludesFilePath)
+                    }
+                    Button("Use Default") {
+                        viewModel.useDefaultGlobalIgnoreFile()
+                        save(committing: \.excludesFilePath)
+                    }
                     Button("Open Ignore File…", action: viewModel.openGlobalIgnoreFile)
                 }
             } header: {
@@ -72,7 +109,17 @@ struct GitSettingsView: View {
             Section {
             } footer: {
                 HStack {
-                    if let statusMessage = viewModel.statusMessage {
+                    if viewModel.isSaving {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Saving…")
+                            .foregroundStyle(.secondary)
+                    } else if let saveErrorMessage = viewModel.saveErrorMessage {
+                        Label(saveErrorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    } else if let statusMessage = viewModel.statusMessage {
                         Label(statusMessage, systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                     }
@@ -80,15 +127,6 @@ struct GitSettingsView: View {
                     Spacer(minLength: 0)
 
                     Button("Open Global Git Config…", action: viewModel.openGlobalGitConfig)
-
-                    if viewModel.isSaving {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-
-                    Button("Save Git Settings", action: save)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!viewModel.canSave)
                 }
                 .font(.body)
                 .foregroundStyle(.primary)
@@ -106,8 +144,24 @@ struct GitSettingsView: View {
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
             }
         }
+        .gitProviderSettingsPresentations(
+            accountController: accountController,
+            providerAccountController: providerAccountController,
+            presentation: $providerPresentation
+        )
         .task {
             await viewModel.load()
+        }
+        .onChange(of: focusedField) { previous, current in
+            viewModel.editingTextField = current?.keyPath
+            if previous != nil { save() }
+        }
+        .onChange(of: viewModel.settings.pruneOnFetch) { save() }
+        .onChange(of: viewModel.settings.autoSetupRemote) { save() }
+        .onChange(of: viewModel.credentialHelperMode) { save() }
+        .onDisappear {
+            viewModel.editingTextField = nil
+            save()
         }
         .alert("Git Settings Error", isPresented: $viewModel.showingError) {
             Button("OK", role: .cancel) {}
@@ -120,7 +174,7 @@ struct GitSettingsView: View {
             titleVisibility: .visible
         ) {
             Button("Replace Helpers", role: .destructive, action: replaceCredentialHelpers)
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel, action: viewModel.cancelCredentialHelperReplacement)
         } message: {
             Text(
                 "This global Git configuration contains multiple credential helpers. Commit+ will replace the helper chain, but it will not delete credentials stored by those helpers."
@@ -128,11 +182,11 @@ struct GitSettingsView: View {
         }
     }
 
-    private func save() {
-        Task { await viewModel.save() }
+    private func save(committing field: WritableKeyPath<GlobalGitSettings, String>? = nil) {
+        viewModel.requestSave(committing: field)
     }
 
     private func replaceCredentialHelpers() {
-        Task { await viewModel.save(allowCredentialHelperReplacement: true) }
+        viewModel.requestSave(allowCredentialHelperReplacement: true)
     }
 }

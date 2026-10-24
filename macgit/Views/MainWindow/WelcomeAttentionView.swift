@@ -54,7 +54,7 @@ struct WelcomeAttentionView: View {
                     Button("Review Connection") {
                         NotificationCenter.default.post(
                             name: .showAppSettings, object: nil,
-                            userInfo: ["section": AppSettingsSection.connections.rawValue]
+                            userInfo: ["section": AppSettingsSection.git.rawValue]
                         )
                     }
                     .font(.body.scaled(by: textScale))

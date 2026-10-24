@@ -18,234 +18,187 @@
 
 import SwiftUI
 
+/// Sheet and dialog state for `GitProviderAccountsSection`. The presentations are attached to the
+/// enclosing Form with `gitProviderAccountsPresentations`, because presentation modifiers on a Section
+/// in a Form are attached to its lazily hosted rows.
+struct GitProviderAccountsPresentation {
+    var showingAddAccountSheet = false
+    var editingAccount: GitProviderAccount?
+    var removingAccount: GitProviderAccount?
+}
+
+/// Git provider accounts as a grouped settings section: one row per account with Edit and Remove,
+/// matching the AI provider list.
 struct GitProviderAccountsSection: View {
     @ObservedObject var controller: GitProviderAccountController
     let isSignedIn: Bool
     let onSignIn: () -> Void
     let onUpgrade: () -> Void
     let multipleAccountAccess: FeatureAccessDecision
-    @State private var connectionTask: Task<Void, Never>?
-    @State private var showingAddAccountSheet = false
-    @State private var selectedAccountID: GitProviderAccount.ID?
-    @State private var removingAccount: GitProviderAccount?
-    @State private var saveAction: GitProviderAccountSaveAction?
+    @Binding var presentation: GitProviderAccountsPresentation
 
     private var accountCreationDecision: GitProviderAccountCreationDecision {
-        GitProviderAccountAccessPolicy().creationDecision(
-            existingAccountCount: controller.accounts.count,
-            multipleAccountAccess: multipleAccountAccess
-        )
-    }
-
-    private var selectedAccount: GitProviderAccount? {
-        controller.accounts.first { $0.id == selectedAccountID }
+        controller.accountCreationDecision(multipleAccountAccess: multipleAccountAccess)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Connect Git provider accounts to use private repositories and pull request workflows. GitHub and GitLab use OAuth or a personal access token, Bitbucket Cloud uses an API token, Azure Repos uses a personal access token per organization, and every provider supports HTTPS or SSH.")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 16) {
-                accountList
-                    .frame(width: Self.listWidth)
-
-                detailPanel
-            }
-            .frame(maxHeight: .infinity)
-
-            HStack(spacing: 16) {
-                ControlGroup {
-                    Button("Add Account", systemImage: "plus") {
-                        showingAddAccountSheet = true
-                    }
-                    .disabled(controller.isLoading || !accountCreationDecision.isAllowed)
-                    .help("Add a Git provider account")
-
-                    Button("Remove Account", systemImage: "minus") {
-                        removingAccount = selectedAccount
-                    }
-                    .disabled(selectedAccount == nil || controller.isLoading)
-                    .help("Remove the selected account")
-                }
-                .labelStyle(.iconOnly)
-                .fixedSize()
-                .frame(width: Self.listWidth, alignment: .leading)
-
-                if let selectedAccount, let saveAction {
-                    Button("Need help logging into your account?", action: saveAction.openHelp)
-                        .buttonStyle(.link)
-
-                    Spacer()
-
-                    Button("Save", action: saveAction.save)
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(!saveAction.canSave || controller.isLoading)
-                        .help("Save connection settings for \(selectedAccount.username)")
-                } else {
-                    Spacer()
+        Section {
+            if controller.accounts.isEmpty {
+                Text("No accounts connected")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+            } else {
+                ForEach(controller.accounts) { account in
+                    accountRow(account)
                 }
             }
 
+            Button {
+                presentation.showingAddAccountSheet = true
+            } label: {
+                Label("Add Account…", systemImage: "plus")
+            }
+            .buttonStyle(.borderless)
+            .fixedSize()
+            .disabled(controller.isLoading || !accountCreationDecision.isAllowed)
+        } header: {
+            Text("Providers")
+        } footer: {
             footer
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onDisappear(perform: cancelConnection)
-        .onChange(of: controller.accounts.map(\.id), initial: true) { _, ids in
-            if let selectedAccountID, ids.contains(selectedAccountID) { return }
-            selectedAccountID = ids.first
-        }
-        // The sheet's connection error is about the account being added; once the sheet
-        // closes, do not leave it under the selected account's editor.
-        .onChange(of: showingAddAccountSheet) { _, isShowing in
-            if !isShowing { controller.errorMessage = nil }
-        }
-        .replacingSheet(isPresented: $showingAddAccountSheet) {
-            GitProviderAddAccountSheet(
-                controller: controller,
-                accountCreationDecision: accountCreationDecision
-            )
-        }
-        .alert(
-            "Remove Git Provider Account?",
-            isPresented: Binding(
-                get: { removingAccount != nil },
-                set: { if !$0 { removingAccount = nil } }
-            ),
-            presenting: removingAccount
-        ) { account in
-            Button("Cancel", role: .cancel) {}
-            Button("Remove", role: .destructive) {
-                Task { await controller.disconnect(account) }
-            }
-        } message: { account in
-            Text("This disconnects \(account.provider.displayName) account \(account.username) from Commit+. Local repositories and Git data will not be changed.")
-        }
     }
 
-    private static let listWidth: CGFloat = 240
-
-    private var accountList: some View {
-        List(controller.accounts, selection: $selectedAccountID) { account in
+    private func accountRow(_ account: GitProviderAccount) -> some View {
+        HStack(spacing: 10) {
             GitProviderAccountRow(account: account)
-                .tag(account.id)
-        }
-        .settingsTableStyle()
-        .contextMenu(forSelectionType: GitProviderAccount.ID.self) { ids in
-            if let account = account(for: ids) {
-                Button("Remove…", role: .destructive) { removingAccount = account }
-                    .disabled(controller.isLoading)
-            }
-        }
-        .onDeleteCommand {
-            guard !controller.isLoading else { return }
-            removingAccount = selectedAccount
-        }
-        .overlay {
-            if controller.accounts.isEmpty {
-                Text("No Accounts")
-                    .font(.title3)
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .frame(maxHeight: .infinity)
-    }
 
-    private var detailPanel: some View {
-        Group {
-            if let selectedAccount {
-                GitProviderAddAccountSheet(
-                    controller: controller,
-                    editingAccount: selectedAccount,
-                    accountCreationDecision: .allowed,
-                    presentation: .inline(saveAction: $saveAction),
-                    showsControllerActivity: !showingAddAccountSheet
-                )
-                // Reset the editor's draft whenever a different account is selected.
-                .id(selectedAccount.id)
-            } else {
-                ContentUnavailableView(
-                    "No Account Selected",
-                    systemImage: "person.crop.circle.badge.questionmark",
-                    description: Text("Select an account to edit its connection, or add a new one.")
-                )
+            Button("Edit…") {
+                presentation.editingAccount = account
             }
+
+            Button("Remove", systemImage: "minus.circle") {
+                presentation.removingAccount = account
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .help("Remove \(account.username)")
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .settingsDetailPanelStyle()
+        .contextMenu {
+            Button("Edit…") { presentation.editingAccount = account }
+            Button("Remove…", role: .destructive) { presentation.removingAccount = account }
+        }
+        .disabled(controller.isLoading)
     }
 
     @ViewBuilder
     private var footer: some View {
-        if let message = GitProviderAccountsPresentationPolicy.accountCreationMessage(
-            for: accountCreationDecision
-        ) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(message)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Connect Git provider accounts to use private repositories and pull request workflows. GitHub and GitLab use OAuth or a personal access token, Bitbucket Cloud uses an API token, Azure Repos uses a personal access token per organization, and every provider supports HTTPS or SSH.")
 
-                if let actionTitle = GitProviderAccountsPresentationPolicy.accountCreationActionTitle(
-                    for: accountCreationDecision,
-                    isSignedIn: isSignedIn
-                ) {
-                    Spacer(minLength: 0)
-                    Button(actionTitle, action: isSignedIn ? onUpgrade : onSignIn)
+            if let message = GitProviderAccountsPresentationPolicy.accountCreationMessage(
+                for: accountCreationDecision
+            ) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(message)
+
+                    if let actionTitle = GitProviderAccountsPresentationPolicy.accountCreationActionTitle(
+                        for: accountCreationDecision,
+                        isSignedIn: isSignedIn
+                    ) {
+                        Button(actionTitle, action: isSignedIn ? onUpgrade : onSignIn)
+                            .buttonStyle(.link)
+                    }
+                }
+            }
+
+            if !isSignedIn, accountCreationDecision.isAllowed {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("Connections are stored on this Mac.")
+                    Button("Sign in to sync", action: onSignIn)
                         .buttonStyle(.link)
                 }
             }
-            .font(.callout)
-            .fixedSize(horizontal: false, vertical: true)
-        }
 
-        if !isSignedIn, accountCreationDecision.isAllowed {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("Connections are stored on this Mac.")
-                    .foregroundStyle(.secondary)
-
-                Spacer(minLength: 0)
-
-                Button("Sign in to sync", action: onSignIn)
-                    .buttonStyle(.link)
-            }
-            .font(.callout)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-
-        // The inline editor shows progress and errors for the selected account.
-        if selectedAccount == nil {
-            if controller.isLoading {
-                HStack {
-                    Spacer()
-                    ProgressView("Updating Git provider accounts...")
-                        .controlSize(.small)
-                    Spacer()
-                }
+            if controller.isLoading, !presentation.showingAddAccountSheet, presentation.editingAccount == nil {
+                ProgressView("Updating Git provider accounts...")
+                    .controlSize(.small)
             }
 
-            if let errorMessage = controller.errorMessage {
+            if let errorMessage = controller.errorMessage, !presentation.showingAddAccountSheet, presentation.editingAccount == nil {
                 Text(errorMessage)
                     .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
+}
 
-    private func account(for ids: Set<GitProviderAccount.ID>) -> GitProviderAccount? {
-        guard ids.count == 1, let id = ids.first else { return nil }
-        return controller.accounts.first { $0.id == id }
+extension GitProviderAccountController {
+    func accountCreationDecision(
+        multipleAccountAccess: FeatureAccessDecision
+    ) -> GitProviderAccountCreationDecision {
+        GitProviderAccountAccessPolicy().creationDecision(
+            existingAccountCount: accounts.count,
+            multipleAccountAccess: multipleAccountAccess
+        )
     }
+}
 
-    private func startConnection(_ operation: @escaping @MainActor () async -> Void) {
-        connectionTask?.cancel()
-        connectionTask = Task { @MainActor in
-            await operation()
-            connectionTask = nil
-        }
+extension View {
+    func gitProviderAccountsPresentations(
+        controller: GitProviderAccountController,
+        multipleAccountAccess: FeatureAccessDecision,
+        presentation: Binding<GitProviderAccountsPresentation>
+    ) -> some View {
+        modifier(GitProviderAccountsPresentationModifier(
+            controller: controller,
+            multipleAccountAccess: multipleAccountAccess,
+            presentation: presentation
+        ))
     }
+}
 
-    private func cancelConnection() {
-        connectionTask?.cancel()
-        connectionTask = nil
+private struct GitProviderAccountsPresentationModifier: ViewModifier {
+    @ObservedObject var controller: GitProviderAccountController
+    let multipleAccountAccess: FeatureAccessDecision
+    @Binding var presentation: GitProviderAccountsPresentation
+
+    func body(content: Content) -> some View {
+        content
+            // A sheet's connection error is about the account it edited or added; once the sheet
+            // closes, do not leave it under the list.
+            .onChange(of: presentation.showingAddAccountSheet) { _, isShowing in
+                if !isShowing { controller.errorMessage = nil }
+            }
+            .replacingSheet(isPresented: $presentation.showingAddAccountSheet) {
+                GitProviderAddAccountSheet(
+                    controller: controller,
+                    accountCreationDecision: controller.accountCreationDecision(
+                        multipleAccountAccess: multipleAccountAccess
+                    )
+                )
+            }
+            .replacingSheet(
+                item: $presentation.editingAccount,
+                onDismiss: { controller.errorMessage = nil }
+            ) { account in
+                GitProviderAddAccountSheet(controller: controller, editingAccount: account)
+            }
+            .confirmationDialog(
+                "Remove \(presentation.removingAccount?.provider.displayName ?? "Git Provider") Account?",
+                isPresented: Binding(
+                    get: { presentation.removingAccount != nil },
+                    set: { if !$0 { presentation.removingAccount = nil } }
+                ),
+                presenting: presentation.removingAccount
+            ) { account in
+                Button("Remove", role: .destructive) {
+                    Task { await controller.disconnect(account) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { account in
+                Text("This disconnects \(account.provider.displayName) account \(account.username) from Commit+. Local repositories and Git data will not be changed.")
+            }
     }
 }
