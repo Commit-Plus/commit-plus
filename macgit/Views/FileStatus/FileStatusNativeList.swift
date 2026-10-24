@@ -95,7 +95,7 @@ struct FileStatusNativeList: NSViewRepresentable {
             let scaleChanged = appliedScale != model.textScale
             if scaleChanged {
                 appliedScale = model.textScale
-                tableView.rowHeight = 48 * model.textScale
+                tableView.rowHeight = 40 * model.textScale
             }
 
             let oldRows = rows
@@ -316,7 +316,7 @@ private final class FileStatusNativeRowView: NSTableRowView {
 private final class FileStatusNativeCell: NSTableCellView {
     let moreButton = FileStatusPointingButton()
     private let checkbox = FileStatusPointingButton(checkboxWithTitle: "", target: nil, action: nil)
-    private let icon = NSImageView()
+    private let icon = FileTypeIconView()
     private let nameLabel = NSTextField(labelWithString: "")
     private let pathLabel = NSTextField(labelWithString: "")
     private let addedCountLabel = NSTextField(labelWithString: "")
@@ -342,7 +342,6 @@ private final class FileStatusNativeCell: NSTableCellView {
         checkbox.controlSize = .small
         checkbox.target = self
         checkbox.action = #selector(toggleSelection)
-        icon.imageScaling = .scaleProportionallyDown
         nameLabel.lineBreakMode = .byTruncatingMiddle
         pathLabel.lineBreakMode = .byTruncatingMiddle
         pathLabel.textColor = .tertiaryLabelColor
@@ -389,11 +388,8 @@ private final class FileStatusNativeCell: NSTableCellView {
         pathLabel.stringValue = row.file.originalPath.map { "\($0) → \(row.file.path)" } ?? row.file.directory
         pathLabel.font = .systemFont(ofSize: 10 * textScale)
         pathLabel.textColor = row.file.originalPath == nil ? .tertiaryLabelColor : .secondaryLabelColor
-        icon.image = NSImage(
-            systemSymbolName: Self.iconName(for: row.file),
-            accessibilityDescription: row.file.status.rawValue.capitalized
-        )
-        icon.contentTintColor = Self.color(for: row.file)
+        icon.configure(path: row.file.path, isDirectory: false, statusSymbol: Self.iconName(for: row.file),
+                       statusColor: Self.color(for: row.file), statusLabel: row.file.status.rawValue.capitalized)
         if let count = row.count {
             let font = NSFont.monospacedSystemFont(ofSize: 10 * textScale, weight: .medium)
             addedCountLabel.font = font
@@ -433,7 +429,7 @@ private final class FileStatusNativeCell: NSTableCellView {
         super.layout()
         let midY = bounds.midY
         checkbox.frame = NSRect(x: 5, y: midY - 9, width: 18, height: 18)
-        icon.frame = NSRect(x: 29, y: midY - 9, width: 18, height: 18)
+        icon.frame = NSRect(x: 27, y: midY - 8, width: 16, height: 16)
         moreButton.frame = NSRect(x: bounds.maxX - 24, y: midY - 11, width: 22, height: 22)
         quickButton.frame = NSRect(x: moreButton.frame.minX - 22, y: midY - 11, width: 22, height: 22)
         var accessoryX = quickButton.frame.minX
@@ -445,9 +441,9 @@ private final class FileStatusNativeCell: NSTableCellView {
             accessoryX -= 34
             lfsLabel.frame = NSRect(x: accessoryX, y: midY - 9, width: 30, height: 18)
         }
-        let textX: CGFloat = 53
-        let textWidth = max(20, accessoryX - textX - 6)
-        nameLabel.frame = NSRect(x: textX, y: midY + 1, width: textWidth, height: 18)
+        let textX: CGFloat = 48
+        let textWidth = max(20, accessoryX - textX - 4)
+        nameLabel.frame = NSRect(x: textX, y: midY, width: textWidth, height: 18)
         let countWidth = addedCountWidth + removedCountWidth + (addedCountWidth > 0 ? 4 : 0)
         pathLabel.frame = NSRect(x: textX, y: midY - 17, width: max(20, textWidth - countWidth - 6), height: 16)
         addedCountLabel.frame = NSRect(

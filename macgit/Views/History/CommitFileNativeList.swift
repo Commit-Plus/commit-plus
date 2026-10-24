@@ -110,7 +110,7 @@ struct CommitFileNativeList: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             guard rows.indices.contains(row), let model else { return 48 }
-            return (rows[row].change.oldPath == nil ? 48 : 62) * model.textScale
+            return (rows[row].change.oldPath == nil ? 40 : 62) * model.textScale
         }
 
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -194,7 +194,7 @@ private final class CommitFileTableView: NSTableView {
 }
 
 private final class CommitFileNativeCell: NSTableCellView {
-    private let icon = NSImageView()
+    private let icon = FileTypeIconView()
     private let nameLabel = NSTextField(labelWithString: "")
     private let pathLabel = NSTextField(labelWithString: "")
     private let oldPathLabel = NSTextField(labelWithString: "")
@@ -211,7 +211,6 @@ private final class CommitFileNativeCell: NSTableCellView {
         for view in [icon, nameLabel, pathLabel, oldPathLabel, addedLabel, removedLabel, statusLabel, openButton] {
             addSubview(view)
         }
-        icon.imageScaling = .scaleProportionallyDown
         nameLabel.lineBreakMode = .byTruncatingMiddle
         pathLabel.lineBreakMode = .byTruncatingMiddle
         pathLabel.textColor = .tertiaryLabelColor
@@ -245,8 +244,8 @@ private final class CommitFileNativeCell: NSTableCellView {
         oldPathLabel.font = .systemFont(ofSize: 9 * textScale)
         oldPathLabel.isHidden = change.oldPath == nil
 
-        icon.image = NSImage(systemSymbolName: Self.symbol(for: change.status), accessibilityDescription: change.status.displayText)
-        icon.contentTintColor = Self.color(for: change.status)
+        icon.configure(path: change.path, isDirectory: false, statusSymbol: Self.symbol(for: change.status),
+                       statusColor: Self.color(for: change.status), statusLabel: change.status.displayText)
 
         let countFont = NSFont.monospacedSystemFont(ofSize: 10 * textScale, weight: .medium)
         if let count = row.count {
@@ -280,7 +279,7 @@ private final class CommitFileNativeCell: NSTableCellView {
     override func layout() {
         super.layout()
         let midY = bounds.midY
-        icon.frame = NSRect(x: 6, y: midY - 9, width: 18, height: 18)
+        icon.frame = NSRect(x: 4, y: midY - 8, width: 16, height: 16)
         let trailingWidth: CGFloat
         if !openButton.isHidden {
             openButton.frame = NSRect(x: bounds.maxX - 28, y: midY - 11, width: 24, height: 22)
@@ -288,12 +287,12 @@ private final class CommitFileNativeCell: NSTableCellView {
         } else {
             let width = min(70, statusLabel.intrinsicContentSize.width + 12)
             statusLabel.frame = NSRect(x: bounds.maxX - width - 4, y: midY - 10, width: width, height: 20)
-            trailingWidth = width + 6
+            trailingWidth = width + 4
         }
-        let textX: CGFloat = 30
+        let textX: CGFloat = 25
         let textRight = bounds.maxX - trailingWidth
         let countWidth = addedWidth + removedWidth + (addedWidth > 0 ? 4 : 0)
-        nameLabel.frame = NSRect(x: textX, y: midY + 2, width: max(20, textRight - textX), height: 18)
+        nameLabel.frame = NSRect(x: textX, y: midY + 1, width: max(20, textRight - textX), height: 18)
         pathLabel.frame = NSRect(x: textX, y: midY - 16,
                                  width: max(20, textRight - textX - countWidth - 6), height: 16)
         addedLabel.frame = NSRect(x: pathLabel.frame.maxX + 6, y: midY - 16, width: addedWidth, height: 16)
