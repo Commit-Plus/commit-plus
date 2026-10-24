@@ -107,6 +107,11 @@ enum CommitMessageGenerationError: LocalizedError, Equatable {
     case codexUsageLimitReached
     case codexPlanNotAllowed
     case codexClientRejected
+    case copilotSignInRequired
+    case copilotNoAccess
+    case copilotQuotaExhausted
+    case copilotRateLimited
+    case copilotServerUnavailable(String)
 
     var errorDescription: String? {
         switch self {
@@ -140,6 +145,16 @@ enum CommitMessageGenerationError: LocalizedError, Equatable {
             "This ChatGPT account’s plan does not include Codex. Choose another provider."
         case .codexClientRejected:
             "The unofficial ChatGPT (Codex) connection is not working. OpenAI may have blocked it."
+        case .copilotSignInRequired:
+            "Sign in required. Sign in to GitHub Copilot again in Settings → AI."
+        case .copilotNoAccess:
+            "This GitHub account does not have GitHub Copilot access. Sign in with an account that has Copilot, or choose another provider."
+        case .copilotQuotaExhausted:
+            "Your GitHub Copilot chat quota is used up. Try again after it resets, or choose another provider."
+        case .copilotRateLimited:
+            "GitHub Copilot is limiting requests right now. Wait a moment and try again."
+        case .copilotServerUnavailable(let message):
+            message
         }
     }
 }

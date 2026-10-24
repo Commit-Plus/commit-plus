@@ -18,27 +18,9 @@
 import SwiftUI
 
 struct AIProviderMenu: View {
-    enum LabelMode {
-        case provider
-        case model
-    }
-
     @ObservedObject var controller: AIProviderController
     let restrictedProviderAccess: FeatureAccessDecision
     let showsConfigureAction: Bool
-    let labelMode: LabelMode
-
-    init(
-        controller: AIProviderController,
-        restrictedProviderAccess: FeatureAccessDecision,
-        showsConfigureAction: Bool,
-        labelMode: LabelMode = .provider
-    ) {
-        self.controller = controller
-        self.restrictedProviderAccess = restrictedProviderAccess
-        self.showsConfigureAction = showsConfigureAction
-        self.labelMode = labelMode
-    }
 
     var body: some View {
         Menu {
@@ -74,7 +56,7 @@ struct AIProviderMenu: View {
                     ? "sparkles"
                     : "exclamationmark.triangle")
                     .font(.system(size: 10, weight: .medium))
-                Text(labelTitle)
+                Text(controller.selectedDescriptor.displayName)
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
@@ -86,16 +68,6 @@ struct AIProviderMenu: View {
         .help(providerHelp)
         .task(id: controller.availabilityRevision) {
             await controller.refreshAvailability()
-        }
-    }
-
-    private var labelTitle: String {
-        switch labelMode {
-        case .provider:
-            controller.selectedDescriptor.displayName
-        case .model:
-            controller.model(for: controller.selectedDescriptor)
-                ?? controller.selectedDescriptor.displayName
         }
     }
 

@@ -445,7 +445,7 @@ final class ChatGPTAccountSessionTests: XCTestCase {
             callbackURL: codexCallback(state: try XCTUnwrap(items["state"]))
         )
 
-        XCTAssertEqual(account, ChatGPTAccountSummary(email: "dev@example.com", planType: "free"))
+        XCTAssertEqual(account, ConnectedAIAccountSummary(email: "dev@example.com", planType: "free"))
         let tokens = try XCTUnwrap(try store.loadTokens())
         XCTAssertEqual(tokens.clientID, "app_EMoamEEZ73f0CkXaXp7hrann")
         XCTAssertEqual(tokens.accountID, "acct-1")

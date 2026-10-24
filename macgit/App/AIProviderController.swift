@@ -19,9 +19,12 @@ import AppKit
 import Combine
 import Foundation
 
-enum ChatGPTSignInState: Equatable {
+enum AIProviderSignInState: Equatable {
     case idle
     case waitingForBrowser
+    /// Preparing a device-code sign-in, which can include downloading the provider's runtime.
+    case preparingDeviceCode
+    case waitingForDeviceCode(GitProviderDeviceAuthorization)
 }
 
 @MainActor
@@ -34,14 +37,16 @@ final class AIProviderController: ObservableObject {
     @Published private(set) var selectedProviderID: AIProviderID
     @Published private(set) var isThinkingEnabled: Bool
     // Connected-account (ChatGPT sign-in) state, keyed by provider so each sign-in stays separate.
-    @Published private(set) var connectedAccounts: [AIProviderID: ChatGPTAccountSummary] = [:]
-    @Published private(set) var signInStates: [AIProviderID: ChatGPTSignInState] = [:]
+    @Published private(set) var connectedAccounts: [AIProviderID: ConnectedAIAccountSummary] = [:]
+    @Published private(set) var signInStates: [AIProviderID: AIProviderSignInState] = [:]
     /// The browser link for a pending sign-in, shown so it can be opened in another browser profile.
     @Published private(set) var authorizationURLs: [AIProviderID: URL] = [:]
     /// The previously registered account a plain sign-in returns to; absent before the first registration.
     @Published private(set) var returningAccounts: [AIProviderID: ChatGPTReturningAccount] = [:]
     @Published private(set) var signInErrorMessages: [AIProviderID: String] = [:]
     @Published private(set) var connectedAccountModels: [AIProviderID: [AIProviderModelOption]] = [:]
+    /// Local-only telemetry choices for providers that run a vendor process (GitHub Copilot).
+    @Published private(set) var telemetryEnabledByProviderID: [AIProviderID: Bool] = [:]
     /// Whether the unofficial-provider notice was acknowledged on this Mac. Local only; never synced.
     @Published private(set) var isUnofficialProviderRiskAcknowledged: Bool
     private var signInTasks: [AIProviderID: Task<Void, Never>] = [:]
@@ -290,11 +295,39 @@ final class AIProviderController: ObservableObject {
         registry.provider(for: id) as? any ConnectedAccountAIProvider
     }
 
-    func connectedAccount(for id: AIProviderID) -> ChatGPTAccountSummary? {
+    private func deviceCodeProvider(_ id: AIProviderID) -> (any DeviceCodeAccountAIProvider)? {
+        registry.provider(for: id) as? any DeviceCodeAccountAIProvider
+    }
+
+    /// Whether the provider signs in with a GitHub device code (GitHub Copilot) rather than the browser.
+    func usesDeviceCodeSignIn(_ id: AIProviderID) -> Bool {
+        deviceCodeProvider(id) != nil
+    }
+
+    func isProviderTelemetryEnabled(for id: AIProviderID) -> Bool {
+        telemetryEnabledByProviderID[id] ?? deviceCodeProvider(id)?.isTelemetryEnabled ?? false
+    }
+
+    func setProviderTelemetryEnabled(_ isEnabled: Bool, for id: AIProviderID) {
+        guard let provider = deviceCodeProvider(id) else { return }
+        telemetryEnabledByProviderID[id] = isEnabled
+        Task { await provider.setTelemetryEnabled(isEnabled) }
+    }
+
+    /// Clears a runtime or server failure so the next availability check tries again.
+    func retryProvider(_ id: AIProviderID) {
+        guard let provider = deviceCodeProvider(id) else { return }
+        Task {
+            await provider.resetAfterFailure()
+            invalidateAvailability()
+        }
+    }
+
+    func connectedAccount(for id: AIProviderID) -> ConnectedAIAccountSummary? {
         connectedAccounts[id]
     }
 
-    func signInState(for id: AIProviderID) -> ChatGPTSignInState {
+    func signInState(for id: AIProviderID) -> AIProviderSignInState {
         signInStates[id] ?? .idle
     }
 
@@ -320,7 +353,7 @@ final class AIProviderController: ObservableObject {
         isUnofficialProviderRiskAcknowledged = true
     }
 
-    private func updateConnectedAccount(_ account: ChatGPTAccountSummary?, for id: AIProviderID) {
+    private func updateConnectedAccount(_ account: ConnectedAIAccountSummary?, for id: AIProviderID) {
         connectedAccounts[id] = account
         if account != nil {
             configuredProviderIDs.insert(id)
@@ -338,7 +371,12 @@ final class AIProviderController: ObservableObject {
         restrictedProviderAccess: FeatureAccessDecision,
         newAccount: Bool = false
     ) {
-        guard signInTasks[id] == nil, let provider = connectedAccountProvider(id) else { return }
+        guard signInTasks[id] == nil else { return }
+        if let provider = deviceCodeProvider(id) {
+            signInWithDeviceCode(provider)
+            return
+        }
+        guard let provider = connectedAccountProvider(id) else { return }
         let descriptor = provider.descriptor
         guard restrictedProviderAccess.isAllowed else {
             signInErrorMessages[id] = AIProviderConfigurationError
@@ -369,7 +407,7 @@ final class AIProviderController: ObservableObject {
                     server.stop()
                 }
                 defer { timer.cancel() }
-                var account: ChatGPTAccountSummary?
+                var account: ConnectedAIAccountSummary?
                 for await callbackURL in server.callbacks {
                     do {
                         account = try await session.completeAuthorization(callbackURL: callbackURL)
@@ -399,6 +437,49 @@ final class AIProviderController: ObservableObject {
         }
     }
 
+    /// Shows a GitHub device code and waits for the user to approve it. Copilot is not
+    /// Pro-gated, so no Commit+ access check applies.
+    private func signInWithDeviceCode(_ provider: any DeviceCodeAccountAIProvider) {
+        let id = provider.descriptor.id
+        signInErrorMessages[id] = nil
+        signInStates[id] = .preparingDeviceCode
+        signInTasks[id] = Task { [weak self] in
+            var didComplete = false
+            do {
+                let account: ConnectedAIAccountSummary
+                switch try await provider.beginSignIn() {
+                case .signedIn(let signedIn):
+                    account = signedIn
+                case .deviceCode(let authorization):
+                    try Task.checkCancellation()
+                    self?.signInStates[id] = .waitingForDeviceCode(authorization)
+                    account = try await provider.completeSignIn()
+                }
+                try Task.checkCancellation()
+                didComplete = true
+                if let self {
+                    self.updateConnectedAccount(account, for: id)
+                    self.invalidateAvailability()
+                    await self.refreshConnectedAccountModels(for: id)
+                }
+            } catch is CancellationError {
+            } catch {
+                self?.signInErrorMessages[id] = error.localizedDescription
+            }
+            if !didComplete {
+                // Runs outside this cancelled task so its server requests are not cancelled too.
+                await Task { await provider.cancelSignIn() }.value
+            }
+            self?.signInStates[id] = .idle
+            self?.signInTasks[id] = nil
+        }
+    }
+
+    func openDeviceVerificationPage(for id: AIProviderID) {
+        guard case .waitingForDeviceCode(let authorization) = signInState(for: id) else { return }
+        openURL(authorization.verificationURI)
+    }
+
     func cancelSignIn(to id: AIProviderID) {
         signInTasks[id]?.cancel()
     }
@@ -413,8 +494,13 @@ final class AIProviderController: ObservableObject {
     /// subscriber can still remove the connection.
     func disconnect(_ id: AIProviderID) async {
         cancelSignIn(to: id)
-        guard let session = connectedAccountProvider(id)?.session else { return }
-        await session.disconnect()
+        if let provider = deviceCodeProvider(id) {
+            await provider.signOut()
+        } else if let session = connectedAccountProvider(id)?.session {
+            await session.disconnect()
+        } else {
+            return
+        }
         updateConnectedAccount(nil, for: id)
         invalidateAvailability()
         if selectedProviderID == id {
@@ -428,8 +514,16 @@ final class AIProviderController: ObservableObject {
     }
 
     func refreshConnectedAccountModels(for id: AIProviderID) async {
-        guard let provider = connectedAccountProvider(id), connectedAccounts[id] != nil else { return }
-        if let models = try? await provider.availableModels(), !models.isEmpty {
+        guard connectedAccounts[id] != nil else { return }
+        let models: [AIProviderModelOption]?
+        if let provider = deviceCodeProvider(id) {
+            models = try? await provider.availableModels()
+        } else if let provider = connectedAccountProvider(id) {
+            models = try? await provider.availableModels()
+        } else {
+            return
+        }
+        if let models, !models.isEmpty {
             connectedAccountModels[id] = models
         }
     }
@@ -490,6 +584,8 @@ final class AIProviderController: ObservableObject {
             if let session = connectedAccountProvider(id)?.session {
                 updateConnectedAccount(await session.account(), for: id)
                 returningAccounts[id] = await session.returningAccount()
+            } else if let deviceCodeProvider = deviceCodeProvider(id) {
+                updateConnectedAccount(await deviceCodeProvider.connectedAccount(), for: id)
             }
             request = (UUID(), Task { await provider.availability() })
             availabilityTasks[id] = request
@@ -499,6 +595,10 @@ final class AIProviderController: ObservableObject {
         guard availabilityTasks[id]?.id == request.id else { return }
         availabilityTasks[id] = nil
         availabilityByProviderID[id] = value
+        // Checking availability is what learns that a device-code sign-in expired.
+        if let deviceCodeProvider = deviceCodeProvider(id), signInTasks[id] == nil {
+            updateConnectedAccount(await deviceCodeProvider.connectedAccount(), for: id)
+        }
     }
 
     func generateCommitMessage(

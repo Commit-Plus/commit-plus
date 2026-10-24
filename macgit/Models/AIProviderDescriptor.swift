@@ -25,7 +25,7 @@ enum AIDataProcessing: Sendable {
 enum AIProviderBilling: Equatable, Sendable {
     case none
     case bringYourOwnKey
-    /// Signs in to a third-party account (for example a ChatGPT plan) instead of storing an API key.
+    /// Signs in to a third-party account (a ChatGPT plan or GitHub Copilot) instead of storing an API key.
     case connectedAccount
     case commitPlus
 
@@ -67,6 +67,8 @@ struct AIProviderDescriptor: Identifiable, Sendable {
             "deepseek"
         case .openRouter:
             "openrouter"
+        case .githubCopilot:
+            "github-copilot"
         default:
             nil
         }

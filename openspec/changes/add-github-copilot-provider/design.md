@@ -32,6 +32,47 @@ A new `CopilotLanguageServerRuntime` handles locating, downloading, verifying, a
 - **Rejected alternative:** bundling the npm package. That would ship a Node runtime and an npm tree inside the app and require an app release for every server update.
 - **To resolve in task 1:** whether the distribution provides a standalone macOS executable. If it requires Node, the runtime manager uses a Node binary from a pinned download instead.
 
+### Pinned server: 1.560.0, standalone executable (task 1.2)
+Pin `@github/copilot-language-server` **1.560.0**. Download the per-architecture npm package rather than the meta package:
+- `https://registry.npmjs.org/@github/copilot-language-server-darwin-arm64/-/copilot-language-server-darwin-arm64-1.560.0.tgz`, SHA-256 `f4a08df17fb007ee396ab173ba220c970ed304460328fc039835dd88ff8928c2`, ~96 MB.
+- `https://registry.npmjs.org/@github/copilot-language-server-darwin-x64/-/copilot-language-server-darwin-x64-1.560.0.tgz`, SHA-256 `dbf386b5d3ba5155924e329dcc11deb4c9edb470e6a0e47cd897660dcbe1f630`, ~104 MB.
+
+Each tarball contains `package/copilot-language-server`: a thin Mach-O executable for its architecture, signed with Developer ID team `VEKTX9H2N7` (GitHub) and hardened runtime, with Node 22 embedded. It ran from `env -i PATH=/usr/bin:/bin` with no Node installed in that path (`--version` prints `1.560.0`). No Node download is needed. Launch it with `--stdio`.
+
+### Isolated auth store
+The server keeps sign-in state in `$XDG_CONFIG_HOME/github-copilot/auth.db`, defaulting to `~/.config/github-copilot`, which other Copilot clients on the Mac share. The client sets `XDG_CONFIG_HOME` to a Commit+ Application Support directory. Commit+ sign-in and sign-out then never affect other Copilot clients, and removing the provider can delete that directory. Verified: with an isolated `XDG_CONFIG_HOME`, the server reported `NotSignedIn` even though the default store held a session.
+
+### JSON-RPC methods (task 1.1)
+Framing is LSP `Content-Length` headers over stdio. Confirmed against 1.560.0:
+- `initialize` with `initializationOptions.editorInfo` / `editorPluginInfo` (`{name, version}`), then the `initialized` notification. The result's `serverInfo.version` is `1.560.0`.
+All shapes below were observed against a Copilot Free account in an isolated `XDG_CONFIG_HOME`.
+
+**Sign-in**
+- `checkStatus {}` → `{"status": "NotSignedIn"}`, or `{"status": "OK", "user": "<github login>"}` when signed in.
+- `signInInitiate {}` → `{"status": "PromptUserDeviceFlow", "userCode", "verificationUri", "expiresIn": 899, "interval": 5, "command": {"command": "github.copilot.finishDeviceFlow", "title", "arguments": []}}`.
+- Confirm: `workspace/executeCommand` with that `command` object. The request stays pending until GitHub approves the code, then returns `{"status": "OK", "user"}`. Cancelling a pending sign-in means cancelling this request (`$/cancelRequest`) or terminating the server.
+- `signOut {}` → `{"status": "NotSignedIn"}`.
+- Not observed: an account without Copilot entitlement. Expected `checkStatus` status `NotAuthorized`; the client treats any status other than `OK`/`MaybeOK` (and `NotSignedIn`) as "no Copilot access".
+
+**Models**
+- `copilot/models {}` → an array of `{id, modelName, modelFamily, vendor, scopes, preview, isChatDefault, isChatFallback, capabilities, billing?}`.
+- Only models whose `scopes` contain `"chat-panel"` can serve chat. Using a model without it fails the turn with `No model configuration found for id '…'`. On Copilot Free the chat list was just `{"id": "auto", "modelName": "Auto"}`; `gpt-41-copilot` was `completion`-only. Neither model had `isChatDefault`, so the default is the first chat model, else `auto`.
+- Signed out → error `{"code": 1000, "message": "Not authenticated: NotSignedIn"}`.
+
+**Single-turn chat**
+- `conversation/create {"workDoneToken": "<uuid>", "turns": [{"request": "<prompt>"}], "capabilities": {"skills": [], "allSkills": false}, "source": "panel", "chatMode": "Ask", "needToolCallConfirmation": false, "modelInfo": {"id": "<model id>"}}`. `modelInfo.id` is required.
+- The request result arrives after streaming: `{"conversationId", "turnId", "modelName", "modelInfo", "billingMultiplier", "credits"}`. It contains no reply text.
+- Reply text streams as `$/progress` notifications whose `token` is the `workDoneToken`: `kind: "begin"`, then `kind: "report"` with `editAgentRounds: [{"roundId", "reply": "<delta>"}]` (concatenate the deltas in order; later reports may carry empty deltas or only `tokenUsage`), then `kind: "end"`.
+- A turn failure arrives on `kind: "end"` as `error: {"message", "code", "responseIsIncomplete"}`, while the request itself still resolves successfully. The client must treat an `end` error as a failed generation.
+- The server adds its own system prompt and tool definitions (~2.5k tokens) even in Ask mode. Context limit reported for `auto`: 128k tokens.
+
+**Notifications**
+- `copilot/quotaChange` arrives after sign-in and with each turn: `{"chat": {"quota", "used", "percentRemaining", "unlimited", "resetDate", "overageEnabled"}, "completions": {…}, "premium_interactions": {…}, "copilotPlan": "free"}`. It drives the quota-exhausted message and the plan label.
+- `didChangeStatus/v2` (`category: "auth"`, `result.status`) and `statusNotification` report auth changes, such as an expired sign-in.
+- `conversation/preconditionsNotification` reports `token` and `chat_enabled` checks.
+- The server may send `workspace/configuration` requests. The client answers with one settings object per item. Telemetry is set through `workspace/didChangeConfiguration` (`telemetry.telemetryLevel`).
+- Side effect: the server extracts a bundled ripgrep into `~/.cache/pkg/`. Copilot chat does not need it, and it needs no handling.
+
 ### Process lifecycle owned by an actor
 An `actor CopilotLanguageServerClient` owns the server process, the JSON-RPC framing, and request correlation. Like `GitStatusService`, it starts the server lazily on first use and restarts it once after an unexpected exit. All `Process()` work stays off the main actor. The provider type (`GitHubCopilotProvider`, in `macgit/Services/`) adapts `CommitMessageAIProvider` calls onto this client. `AIProviderController` remains the owner of selection and availability; no parallel controller is added.
 
@@ -40,6 +81,8 @@ An `actor CopilotLanguageServerClient` owns the server process, the JSON-RPC fra
 - **Settings → AI:** includes these providers in the Providers table and the "Add Provider…" menu.
 - **`AIProviderConfigurationSheet`:** renders an Account section with sign-in, the device code, and sign-out instead of the API key field.
 - **Gating:** `requiresProToConfigureAPIKey` stays `false` for Copilot, so no `FeatureAccessResolver` gate applies, per the proposal.
+- **Shared with ChatGPT:** the ChatGPT change landed `.connectedAccount` with browser-only, ChatGPT-typed state. Copilot reuses that state instead of adding a parallel path. The account summary and sign-in state are now `ConnectedAIAccountSummary` (adds `username` and `requiresSignIn`) and `AIProviderSignInState` (adds the device-code states). `DeviceCodeAccountAIProvider` is the seam `AIProviderController` dispatches to, beside the ChatGPT `ConnectedAccountAIProvider`.
+- **Connected marker:** Commit+ stores only the GitHub login (`ai.githubCopilot.connectedLogin`, local `UserDefaults`, never synced) to remember that Copilot was connected. Settings can then show "Sign in required" when the server's sign-in expires, and an unconnected Copilot never starts the server. Sign-out also deletes the server's isolated auth store.
 
 ### Prompting
 Copilot gets the existing prompt builders (commit message, repository chat, conflict resolution) as single-turn conversations. `supportsRepositoryAgent` is `false`, so agent features use the app's existing "provider does not support the agent" path. `inputCharacterBudget` is set conservatively, because Copilot model context differs by plan.

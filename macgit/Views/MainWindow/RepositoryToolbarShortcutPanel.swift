@@ -86,18 +86,10 @@ struct RepositoryToolbarShortcutPanel: View {
             Button("Close AI Chat", systemImage: "xmark", action: onDismiss)
                 .labelStyle(.iconOnly)
                 .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
                 .pointingHandCursor()
-                .controlSize(.small)
-                .frame(width: 44, height: 32)
-                .background(controlBackground(cornerRadius: 11))
                 .help("Close")
         }
         .padding(16)
-    }
-
-    private func controlBackground(cornerRadius: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: cornerRadius)
-            .fill(.primary.opacity(0.075))
-            .stroke(.primary.opacity(0.1), lineWidth: 1)
     }
 }
