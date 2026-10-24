@@ -120,6 +120,7 @@ struct BranchSheetView: View {
         repositoryURL: URL,
         undoManager: GitUndoManager? = nil,
         initialStartPoint: GitBranchStartPoint? = nil,
+        initialBranchName: String? = nil,
         initialTab: BranchTab = .create,
         initiallySelectedLocalBranches: Set<String> = [],
         initialForceDelete: Bool = false,
@@ -144,6 +145,15 @@ struct BranchSheetView: View {
         self.onCommitAllChangesRequested = onCommitAllChangesRequested
         self._selectedTab = State(initialValue: initialTab)
         self._forceDelete = State(initialValue: initialForceDelete)
+        let nameState = Self.initialNameState(initialBranchName)
+        self._branchNameInput = State(initialValue: nameState.input)
+        self._sanitizedName = State(initialValue: nameState.sanitized)
+    }
+
+    /// onChange does not fire for the initial value, so the sanitized name is derived up front too.
+    static func initialNameState(_ initialBranchName: String?) -> (input: String, sanitized: String) {
+        let input = initialBranchName ?? ""
+        return (input, GitBranchNameSanitizer.sanitize(input))
     }
 
     private var canCreate: Bool {

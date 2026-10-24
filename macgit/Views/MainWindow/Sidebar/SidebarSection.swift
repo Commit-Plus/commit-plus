@@ -78,9 +78,22 @@ enum SidebarSection: String, CaseIterable {
     var items: [SidebarItem] {
         switch self {
         case .workspace:
-            return [.fileStatus, .history, .reflog, .pullRequests, .gitLFS, .search]
+            return [.fileStatus, .history, .reflog, .pullRequests, .jira, .gitLFS, .search]
         default:
             return []
+        }
+    }
+
+    /// Workspace rows after applying the "Customize Workspace" toggles.
+    static func visibleWorkspaceItems(appState: AppState) -> [SidebarItem] {
+        (workspace.items + (appState.showGitFlow ? [.gitFlow] : [])).filter { item in
+            switch item {
+            case .reflog: appState.showWorkspaceReflog
+            case .pullRequests: appState.showWorkspacePullRequests
+            case .jira: appState.showWorkspaceJira
+            case .gitLFS: appState.showWorkspaceGitLFS
+            default: true
+            }
         }
     }
 }

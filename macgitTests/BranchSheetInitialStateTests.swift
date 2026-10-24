@@ -20,6 +20,16 @@ import XCTest
 
 @MainActor
 final class BranchSheetInitialStateTests: XCTestCase {
+    func testInitialBranchNameIsPrefilledAndAlreadySanitized() {
+        let suggested = JiraBranchNameSuggester.name(key: "PROJ-123", summary: "Fix login crash")
+        let state = BranchSheetView.initialNameState(suggested)
+
+        XCTAssertEqual(state.input, "PROJ-123-fix-login-crash")
+        XCTAssertEqual(state.sanitized, "PROJ-123-fix-login-crash")
+        XCTAssertEqual(BranchSheetView.initialNameState(nil).input, "")
+        XCTAssertEqual(BranchSheetView.initialNameState(nil).sanitized, "")
+    }
+
     func testDefaultInitialStatePrefersWorkingCopyParentWhenNoStartPointIsInjected() {
         let state = BranchSheetView.initialCreateState(
             initialStartPoint: nil,

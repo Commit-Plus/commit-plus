@@ -24,6 +24,7 @@ struct ContentView: View {
     @EnvironmentObject private var appUpdateController: AppUpdateController
     @EnvironmentObject private var featureAccessController: FeatureAccessController
     @EnvironmentObject private var repositoryBookmarkController: RepositoryBookmarkController
+    @EnvironmentObject private var jiraConnectionController: JiraConnectionController
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     @ObservedObject var accountController: AccountSessionController
@@ -98,6 +99,7 @@ struct ContentView: View {
                     initialShowsHistory: initialShowsHistory,
                     initialShowsPullRequests: initialShowsPullRequests,
                     providerAccountController: providerAccountController,
+                    jiraConnectionController: jiraConnectionController,
                     aiProviderController: aiProviderController,
                     onOpenConnections: accountController.presentConnections,
                     windowContext: windowContext,

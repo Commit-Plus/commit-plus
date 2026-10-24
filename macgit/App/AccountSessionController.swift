@@ -233,6 +233,10 @@ final class AccountSessionController: ObservableObject {
         openSettings(.connections)
     }
 
+    func presentIntegrations() {
+        openSettings(.integrations)
+    }
+
     private func openSettings(_ section: AppSettingsSection) {
         // Route through a repository/welcome host even when an auxiliary window is key.
         let sourceWindow = NSApp.orderedWindows.first { window in

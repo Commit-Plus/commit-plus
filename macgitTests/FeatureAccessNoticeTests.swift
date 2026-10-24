@@ -57,6 +57,16 @@ final class FeatureAccessNoticeTests: XCTestCase {
         XCTAssertTrue(notice.message.contains("try again"))
     }
 
+    func testJiraNoticeRequestsSignInOrUpgradeWithoutRepositoryWording() {
+        let notice = FeatureAccessNotice(feature: .jiraIssues, denial: .requiresPro)
+
+        XCTAssertEqual(notice.title(isSignedIn: false), "Sign In Required")
+        XCTAssertEqual(notice.message(isSignedIn: false), "Sign in to Commit+ to use Jira Issues.")
+        XCTAssertEqual(notice.title(isSignedIn: true), "Commit+ Pro Required")
+        XCTAssertTrue(notice.message(isSignedIn: true).contains("Jira Issues"))
+        XCTAssertFalse(notice.message(isSignedIn: true).contains("repository"))
+    }
+
     func testDisabledNoticeDoesNotSuggestUpgrade() {
         let notice = FeatureAccessNotice(feature: .pullRequests, denial: .featureDisabled)
 

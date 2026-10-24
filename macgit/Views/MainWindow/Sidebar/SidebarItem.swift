@@ -21,6 +21,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case history = "History"
     case reflog = "Reflog"
     case pullRequests = "Pull Requests"
+    case jira = "Jira"
     case search = "Search"
     case gitLFS = "Git LFS"
     case gitFlow = "Git Flow"
@@ -33,6 +34,8 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .history: return "clock.arrow.circlepath"
         case .reflog: return "list.bullet.rectangle"
         case .pullRequests: return "arrow.triangle.pull"
+        // An asset-catalog image, not an SF Symbol.
+        case .jira: return "jira"
         case .search: return "magnifyingglass"
         case .gitLFS: return "externaldrive"
         case .gitFlow: return "point.3.connected.trianglepath.dotted"

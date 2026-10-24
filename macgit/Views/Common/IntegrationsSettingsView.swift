@@ -21,6 +21,9 @@ import SwiftUI
 
 struct IntegrationsSettingsView: View {
     @ObservedObject var appState: AppState
+    @ObservedObject var accountController: AccountSessionController
+    @EnvironmentObject private var jiraConnectionController: JiraConnectionController
+    @State private var authenticationMode: AuthenticationMode?
     @ObservedObject private var integrationSettings = IntegrationSettingsStore.shared
 
     @State private var statusMessage: String?
@@ -29,6 +32,11 @@ struct IntegrationsSettingsView: View {
 
     var body: some View {
         Form {
+            JiraIntegrationSection(controller: jiraConnectionController) {
+                accountController.errorMessage = nil
+                authenticationMode = .signIn
+            }
+
             Section {
                 Picker(
                     "Preferred editor",
@@ -158,6 +166,9 @@ struct IntegrationsSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .replacingSheet(item: $authenticationMode) { mode in
+            AuthenticationSheet(controller: accountController, mode: mode)
+        }
         .navigationTitle("Integrations")
         .onAppear(perform: refreshApplications)
     }

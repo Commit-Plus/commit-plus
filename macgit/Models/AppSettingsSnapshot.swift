@@ -40,6 +40,7 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
     var showWorkspaceReflog: Bool
     var showWorkspacePullRequests: Bool
     var showWorkspaceGitLFS: Bool
+    var showWorkspaceJira: Bool
     var showTags: Bool
     var showWorktrees: Bool
     var showSubmodules: Bool
@@ -74,6 +75,7 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         showWorkspaceReflog: Bool = true,
         showWorkspacePullRequests: Bool = true,
         showWorkspaceGitLFS: Bool = true,
+        showWorkspaceJira: Bool = true,
         showTags: Bool = true,
         showWorktrees: Bool = true,
         showSubmodules: Bool,
@@ -108,6 +110,7 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         self.showWorkspaceReflog = showWorkspaceReflog
         self.showWorkspacePullRequests = showWorkspacePullRequests
         self.showWorkspaceGitLFS = showWorkspaceGitLFS
+        self.showWorkspaceJira = showWorkspaceJira
         self.showTags = showTags
         self.showWorktrees = showWorktrees
         self.showSubmodules = showSubmodules
@@ -145,6 +148,7 @@ struct AppSettingsSnapshot: Codable, Equatable, Sendable {
         showWorkspaceReflog = try container.decodeIfPresent(Bool.self, forKey: .showWorkspaceReflog) ?? true
         showWorkspacePullRequests = try container.decodeIfPresent(Bool.self, forKey: .showWorkspacePullRequests) ?? true
         showWorkspaceGitLFS = try container.decodeIfPresent(Bool.self, forKey: .showWorkspaceGitLFS) ?? true
+        showWorkspaceJira = try container.decodeIfPresent(Bool.self, forKey: .showWorkspaceJira) ?? true
         showTags = try container.decodeIfPresent(Bool.self, forKey: .showTags) ?? true
         showWorktrees = try container.decodeIfPresent(Bool.self, forKey: .showWorktrees) ?? true
         showSubmodules = try container.decode(Bool.self, forKey: .showSubmodules)

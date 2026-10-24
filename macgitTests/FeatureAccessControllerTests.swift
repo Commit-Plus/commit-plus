@@ -55,6 +55,14 @@ final class FeatureAccessControllerTests: XCTestCase {
         XCTAssertTrue(controller.isUsingCachedPolicy)
     }
 
+    func testJiraIssuesDecisionFollowsEntitlementWithoutRemotePolicy() {
+        let controller = FeatureAccessController(provider: nil, cache: FakeFeaturePolicyCache())
+        let activePro = AccountEntitlement(plan: .pro, access: .active, billingStatus: .active)
+
+        XCTAssertEqual(controller.decision(for: .jiraIssues, entitlement: .free), .denied(.requiresPro))
+        XCTAssertEqual(controller.decision(for: .jiraIssues, entitlement: activePro), .allowed)
+    }
+
     func testValidRemotePolicyReplacesAndPersistsCache() {
         let provider = FakeFeaturePolicyProvider()
         let cache = FakeFeaturePolicyCache()

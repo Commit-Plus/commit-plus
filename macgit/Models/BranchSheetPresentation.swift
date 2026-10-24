@@ -21,4 +21,5 @@ import Foundation
 struct BranchSheetPresentation: Identifiable {
     let id = UUID()
     let startPoint: GitBranchStartPoint?
+    var initialBranchName: String? = nil
 }

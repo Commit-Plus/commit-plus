@@ -30,6 +30,7 @@ enum PlanFeature: String, CaseIterable, Codable, Hashable {
     case aiBringYourOwnKey
     case multipleProviderAccounts
     case branchMergeDetection
+    case jiraIssues
 }
 
 enum FeatureRepositoryScope: String, Codable, Equatable {
@@ -78,7 +79,7 @@ struct FeatureAccessPolicy: Codable, Equatable {
 
     static let bundled = FeatureAccessPolicy(
         schemaVersion: supportedSchemaVersion,
-        revision: 7,
+        revision: 8,
         features: [
             .privateRepositories: FeaturePolicyRule(
                 enabled: true,
@@ -106,7 +107,8 @@ struct FeatureAccessPolicy: Codable, Equatable {
             .aiConflictResolution: proOnlyRule,
             .aiBringYourOwnKey: proOnlyRule,
             .multipleProviderAccounts: proOnlyRule,
-            .branchMergeDetection: proOnlyRule
+            .branchMergeDetection: proOnlyRule,
+            .jiraIssues: proOnlyRule
         ]
     )
 

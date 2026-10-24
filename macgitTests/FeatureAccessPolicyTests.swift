@@ -299,6 +299,35 @@ final class FeatureAccessPolicyTests: XCTestCase {
         )
     }
 
+    func testJiraIssuesIsProOnly() {
+        let resolver = FeatureAccessResolver(policy: .bundled)
+        XCTAssertEqual(resolver.decision(for: .jiraIssues, entitlement: .free), .denied(.requiresPro))
+        XCTAssertEqual(resolver.decision(for: .jiraIssues, entitlement: inactivePro), .denied(.requiresPro))
+        XCTAssertEqual(resolver.decision(for: .jiraIssues, entitlement: activePro), .allowed)
+    }
+
+    func testRemotePolicyWithoutJiraIssuesUsesBundledProOnlyRule() {
+        var diagnostics: [String] = []
+        let policy = FeaturePolicyDocumentDecoder.decode(document(), onDiagnostic: { diagnostics.append($0) })
+
+        XCTAssertEqual(policy?.rule(for: .jiraIssues), FeatureAccessPolicy.bundled.rule(for: .jiraIssues))
+        XCTAssertTrue(diagnostics.contains { $0.contains("jiraIssues") })
+        let resolver = FeatureAccessResolver(policy: policy!)
+        XCTAssertEqual(resolver.decision(for: .jiraIssues, entitlement: .free), .denied(.requiresPro))
+        XCTAssertEqual(resolver.decision(for: .jiraIssues, entitlement: activePro), .allowed)
+    }
+
+    func testJiraIssuesRemoteKillSwitchDisablesEveryPlan() {
+        let policy = FeaturePolicyDocumentDecoder.decode(document(overrides: ["jiraIssues": [
+            "enabled": false,
+            "plans": ["free": ["enabled": false], "pro": ["enabled": true]]
+        ]]))
+        let resolver = FeatureAccessResolver(policy: policy!)
+
+        XCTAssertEqual(resolver.decision(for: .jiraIssues, entitlement: .free), .denied(.featureDisabled))
+        XCTAssertEqual(resolver.decision(for: .jiraIssues, entitlement: activePro), .denied(.featureDisabled))
+    }
+
     private var inactivePro: AccountEntitlement {
         AccountEntitlement(plan: .pro, access: .inactive, billingStatus: .canceled)
     }

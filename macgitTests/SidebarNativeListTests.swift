@@ -46,6 +46,20 @@ final class SidebarNativeListTests: XCTestCase {
         return (owner, table)
     }
 
+    func testJiraWorkspaceRowIsVisibleByDefaultAndFollowsItsToggle() {
+        let suiteName = "SidebarNativeListTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let state = AppState(userDefaults: defaults)
+
+        let items = SidebarSection.visibleWorkspaceItems(appState: state)
+        XCTAssertEqual(items.firstIndex(of: .jira), items.firstIndex(of: .pullRequests).map { $0 + 1 })
+
+        state.showWorkspaceJira = false
+        XCTAssertFalse(SidebarSection.visibleWorkspaceItems(appState: state).contains(.jira))
+        XCTAssertTrue(SidebarSection.visibleWorkspaceItems(appState: state).contains(.pullRequests))
+    }
+
     func testSelectionDoesNotRebuildTenThousandRows() {
         var builds = 0
         let rows = (0..<10_000).map { row("branch-\($0)") }

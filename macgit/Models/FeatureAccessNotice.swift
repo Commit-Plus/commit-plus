@@ -41,6 +41,8 @@ struct FeatureAccessNotice: Identifiable, Equatable {
 
     var message: String {
         switch denial {
+        case .requiresPro where feature == .jiraIssues:
+            "\(feature.displayName) is available on Commit+ Pro. Upgrade to see your Jira issues in Commit+."
         case .requiresPro:
             "\(feature.displayName) is not available for this repository on the Free plan. Upgrade to Commit+ Pro to continue."
         case .repositoryVisibilityUnavailable:
@@ -62,7 +64,9 @@ struct FeatureAccessNotice: Identifiable, Equatable {
     func message(isSignedIn: Bool) -> String {
         guard denial == .requiresPro else { return message }
         guard isSignedIn else {
-            return "Sign in to Commit+ to use \(feature.displayName.lowercased())."
+            // Jira is a product name, so it keeps its capitalization.
+            let name = feature == .jiraIssues ? feature.displayName : feature.displayName.lowercased()
+            return "Sign in to Commit+ to use \(name)."
         }
         guard feature == .privateRepositories else { return message }
         return "Upgrade to Commit+ Pro from $3.25/month (billed annually) to use private repositories."
@@ -94,6 +98,8 @@ extension PlanFeature {
             "Multiple Git provider accounts"
         case .branchMergeDetection:
             "PR-based merge detection"
+        case .jiraIssues:
+            "Jira Issues"
         }
     }
 }

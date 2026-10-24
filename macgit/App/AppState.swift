@@ -27,6 +27,7 @@ final class AppState: ObservableObject {
     private static let showWorkspaceReflogKey = "showWorkspaceReflog"
     private static let showWorkspacePullRequestsKey = "showWorkspacePullRequests"
     private static let showWorkspaceGitLFSKey = "showWorkspaceGitLFS"
+    private static let showWorkspaceJiraKey = "showWorkspaceJira"
     private static let showTagsKey = "showTags"
     private static let showWorktreesKey = "showWorktrees"
     private static let showSubmodulesKey = "showSubmodules"
@@ -106,6 +107,14 @@ final class AppState: ObservableObject {
     @Published var showWorkspaceGitLFS: Bool {
         didSet {
             userDefaults.set(showWorkspaceGitLFS, forKey: Self.showWorkspaceGitLFSKey)
+            if !isApplyingSnapshot {
+                currentSettingsSnapshot = snapshot
+            }
+        }
+    }
+    @Published var showWorkspaceJira: Bool {
+        didSet {
+            userDefaults.set(showWorkspaceJira, forKey: Self.showWorkspaceJiraKey)
             if !isApplyingSnapshot {
                 currentSettingsSnapshot = snapshot
             }
@@ -320,6 +329,7 @@ final class AppState: ObservableObject {
         let showWorkspaceReflog = userDefaults.object(forKey: Self.showWorkspaceReflogKey) as? Bool ?? true
         let showWorkspacePullRequests = userDefaults.object(forKey: Self.showWorkspacePullRequestsKey) as? Bool ?? true
         let showWorkspaceGitLFS = userDefaults.object(forKey: Self.showWorkspaceGitLFSKey) as? Bool ?? true
+        let showWorkspaceJira = userDefaults.object(forKey: Self.showWorkspaceJiraKey) as? Bool ?? true
         let showTags = userDefaults.object(forKey: Self.showTagsKey) as? Bool ?? true
         let showWorktrees = userDefaults.object(forKey: Self.showWorktreesKey) as? Bool ?? true
         let showSubmodules = userDefaults.object(forKey: Self.showSubmodulesKey) as? Bool ?? false
@@ -358,6 +368,7 @@ final class AppState: ObservableObject {
             showWorkspaceReflog: showWorkspaceReflog,
             showWorkspacePullRequests: showWorkspacePullRequests,
             showWorkspaceGitLFS: showWorkspaceGitLFS,
+            showWorkspaceJira: showWorkspaceJira,
             showTags: showTags,
             showWorktrees: showWorktrees,
             showSubmodules: showSubmodules,
@@ -393,6 +404,7 @@ final class AppState: ObservableObject {
         self.showWorkspaceReflog = showWorkspaceReflog
         self.showWorkspacePullRequests = showWorkspacePullRequests
         self.showWorkspaceGitLFS = showWorkspaceGitLFS
+        self.showWorkspaceJira = showWorkspaceJira
         self.showTags = showTags
         self.showWorktrees = showWorktrees
         self.showSubmodules = showSubmodules
@@ -428,6 +440,7 @@ final class AppState: ObservableObject {
             showWorkspaceReflog: showWorkspaceReflog,
             showWorkspacePullRequests: showWorkspacePullRequests,
             showWorkspaceGitLFS: showWorkspaceGitLFS,
+            showWorkspaceJira: showWorkspaceJira,
             showTags: showTags,
             showWorktrees: showWorktrees,
             showSubmodules: showSubmodules,
@@ -477,6 +490,7 @@ final class AppState: ObservableObject {
         showWorkspaceReflog = snapshot.showWorkspaceReflog
         showWorkspacePullRequests = snapshot.showWorkspacePullRequests
         showWorkspaceGitLFS = snapshot.showWorkspaceGitLFS
+        showWorkspaceJira = snapshot.showWorkspaceJira
         showTags = snapshot.showTags
         showWorktrees = snapshot.showWorktrees
         showSubmodules = snapshot.showSubmodules

@@ -23,12 +23,17 @@ struct RepositoryAIChatResizeHandle: NSViewRepresentable {
     @Binding var panelWidth: CGFloat
     let minimumWidth: CGFloat
     let maximumWidth: CGFloat
+    var accessibilityLabel = "Resize AI Chat"
+    /// Vertical inset of the drawn line, so it stops short of the panel's rounded corners.
+    var lineInset = RepositoryToolbarShortcutPanel.cornerRadius
 
     func makeNSView(context: Context) -> ResizeHandleView {
         ResizeHandleView(
             panelWidth: panelWidth,
             minimumWidth: minimumWidth,
             maximumWidth: maximumWidth,
+            accessibilityLabel: accessibilityLabel,
+            lineInset: lineInset,
             onWidthChange: { panelWidth = $0 }
         )
     }
@@ -37,6 +42,7 @@ struct RepositoryAIChatResizeHandle: NSViewRepresentable {
         nsView.panelWidth = panelWidth
         nsView.minimumWidth = minimumWidth
         nsView.maximumWidth = maximumWidth
+        nsView.lineInset = lineInset
         nsView.onWidthChange = { panelWidth = $0 }
     }
 
@@ -44,6 +50,7 @@ struct RepositoryAIChatResizeHandle: NSViewRepresentable {
         var panelWidth: CGFloat
         var minimumWidth: CGFloat
         var maximumWidth: CGFloat
+        var lineInset: CGFloat
         var onWidthChange: (CGFloat) -> Void
 
         private var dragStartScreenX: CGFloat?
@@ -55,15 +62,18 @@ struct RepositoryAIChatResizeHandle: NSViewRepresentable {
             panelWidth: CGFloat,
             minimumWidth: CGFloat,
             maximumWidth: CGFloat,
+            accessibilityLabel: String,
+            lineInset: CGFloat,
             onWidthChange: @escaping (CGFloat) -> Void
         ) {
             self.panelWidth = panelWidth
             self.minimumWidth = minimumWidth
             self.maximumWidth = maximumWidth
+            self.lineInset = lineInset
             self.onWidthChange = onWidthChange
             super.init(frame: .zero)
             setAccessibilityRole(.splitter)
-            setAccessibilityLabel("Resize AI Chat")
+            setAccessibilityLabel(accessibilityLabel)
             setAccessibilityOrientation(.vertical)
         }
 
@@ -137,9 +147,9 @@ struct RepositoryAIChatResizeHandle: NSViewRepresentable {
             )
             let lineRect = NSRect(
                 x: 0,
-                y: RepositoryToolbarShortcutPanel.cornerRadius,
+                y: lineInset,
                 width: lineWidth,
-                height: max(0, bounds.height - RepositoryToolbarShortcutPanel.cornerRadius * 2)
+                height: max(0, bounds.height - lineInset * 2)
             )
             lineColor.setFill()
             lineRect.fill()
