@@ -23,6 +23,7 @@
 import SwiftUI
 
 struct GlassButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
     var tint: Color = .accentColor
     var fontSize: CGFloat = 11
 
@@ -40,12 +41,13 @@ struct GlassButtonStyle: ButtonStyle {
                             .stroke(tint.opacity(0.18), lineWidth: 0.5)
                     )
             )
-            .opacity(configuration.isPressed ? 0.7 : 1.0)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1.0) : 0.45)
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
 struct GlassProminentButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
     var tint: Color = .accentColor
     var fontSize: CGFloat = 12
 
@@ -59,12 +61,13 @@ struct GlassProminentButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(tint)
             )
-            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.85 : 1.0) : 0.45)
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
 struct ProminentButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
     var tint: Color = .accentColor
 
     func makeBody(configuration: Configuration) -> some View {
@@ -77,7 +80,7 @@ struct ProminentButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(tint)
             )
-            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.85 : 1.0) : 0.45)
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 }

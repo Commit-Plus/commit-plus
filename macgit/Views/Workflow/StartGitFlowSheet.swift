@@ -25,10 +25,11 @@ struct StartGitFlowSheet: View {
     let configuration: GitFlowConfiguration
     let worktreeRootURL: URL
     let onRunRepositoryOperation: RepositoryOperationRunner
-    let onStart: @MainActor (GitFlowStartPlan, Bool) async -> Bool
+    let onStart: @MainActor (GitFlowStartPlan, Bool) async throws -> Bool
 
     @State private var topicName = ""
     @State private var isStarting = false
+    @State private var errorMessage: String?
     @State private var destination: GitFlowStartDestination
     @State private var worktreePath = ""
     @State private var worktreeLabel = ""
@@ -42,7 +43,7 @@ struct StartGitFlowSheet: View {
         worktreeRootURL: URL,
         initialTopicName: String? = nil,
         onRunRepositoryOperation: @escaping RepositoryOperationRunner,
-        onStart: @escaping @MainActor (GitFlowStartPlan, Bool) async -> Bool
+        onStart: @escaping @MainActor (GitFlowStartPlan, Bool) async throws -> Bool
     ) {
         self.kind = kind
         _topicName = State(initialValue: initialTopicName ?? "")
@@ -201,6 +202,15 @@ struct StartGitFlowSheet: View {
                     .foregroundStyle(.secondary)
             }
 
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .accessibilityLabel("Start failed: \(errorMessage)")
+            }
+
             HStack(spacing: 12) {
                 Spacer()
 
@@ -211,14 +221,22 @@ struct StartGitFlowSheet: View {
                 .disabled(isStarting)
                 if isStarting { ProgressView().controlSize(.small) }
 
-                Button("Start \(kind.displayName)") {
+                Button(isStarting ? "Starting…" : "Start \(kind.displayName)") {
                     guard let plan, !isStarting else { return }
                     isStarting = true
+                    errorMessage = nil
                     onRunRepositoryOperation("Starting \(plan.branchName)...") {
-                        let succeeded = await onStart(plan, destination == .newWorktree && openAfterCreate)
-                        await MainActor.run {
-                            isStarting = false
-                            if succeeded { dismiss() }
+                        do {
+                            let succeeded = try await onStart(plan, destination == .newWorktree && openAfterCreate)
+                            await MainActor.run {
+                                isStarting = false
+                                if succeeded { dismiss() }
+                            }
+                        } catch {
+                            await MainActor.run {
+                                isStarting = false
+                                errorMessage = error.localizedDescription
+                            }
                         }
                     }
                 }

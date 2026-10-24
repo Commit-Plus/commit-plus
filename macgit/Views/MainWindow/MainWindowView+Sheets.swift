@@ -413,7 +413,8 @@ extension MainWindowView {
             configuration: gitFlowConfiguration,
             worktreeRootURL: gitFlowWorktreeRootURL ?? repositoryURL,
             initialTopicName: initialTopicName,
-            onRunRepositoryOperation: runRepositoryOperation,
+            // The sheet shows its own progress, so skip the window overlay.
+            onRunRepositoryOperation: { operationProgress.run(message: $0, showsOverlay: false, operation: $1) },
             onStart: startGitFlow
         )
     }

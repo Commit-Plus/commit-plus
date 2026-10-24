@@ -88,7 +88,8 @@ extension MainWindowView {
         }
     }
 
-    func startGitFlow(_ plan: GitFlowStartPlan, openAfterCreate: Bool) async -> Bool {
+    /// Returns false when access is denied; Git failures are thrown so the start sheet can show them.
+    func startGitFlow(_ plan: GitFlowStartPlan, openAfterCreate: Bool) async throws -> Bool {
         guard await authorizeGitFlowAccess(presentNotice: true) else {
             return false
         }
@@ -152,11 +153,8 @@ extension MainWindowView {
             )
             return true
         } catch {
-            await MainActor.run {
-                syncState.showError(error.localizedDescription)
-            }
             await refreshAfterGitFlowMutation()
-            return false
+            throw error
         }
     }
 
