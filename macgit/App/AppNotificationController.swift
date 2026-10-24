@@ -117,6 +117,21 @@ final class AppNotificationController: ObservableObject {
         Task { await markRead(notification) }
     }
 
+    /// Unread notifications shown as window banners for a repository, newest first.
+    /// Only the newest notification of each kind is kept: older daily checks are superseded.
+    func bannerNotifications(for repositoryURL: URL) -> [AppNotification] {
+        let repositoryPath = repositoryURL.resolvingSymlinksInPath().standardizedFileURL.path
+        var seenKinds: Set<AppNotification.Kind> = []
+        return notifications.filter {
+            $0.kind == .fullyMergedBranches && $0.readAt == nil && $0.repositoryPath == repositoryPath
+                && seenKinds.insert($0.kind).inserted
+        }
+    }
+
+    func dismiss(_ notification: AppNotification) {
+        Task { await markRead(notification) }
+    }
+
     func consumePendingBranchCleanup(id: String) {
         guard pendingBranchCleanup?.id == id else { return }
         pendingBranchCleanup = nil

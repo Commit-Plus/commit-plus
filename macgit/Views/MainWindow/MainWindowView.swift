@@ -1431,6 +1431,14 @@ struct MainWindowView: View {
                         .frame(height: 0.5)
                 }
 
+            RepositoryBannerStack(items: appNotificationController.bannerNotifications(for: repositoryURL)) { notification in
+                BranchCleanupBanner(
+                    branchCount: notification.branchNames.count,
+                    onDelete: { appNotificationController.activate(notification) },
+                    onClose: { appNotificationController.dismiss(notification) }
+                )
+            }
+
             ZStack {
                 cachedRepositoryScreens
 
