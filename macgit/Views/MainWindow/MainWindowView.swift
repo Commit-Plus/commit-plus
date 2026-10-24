@@ -129,6 +129,7 @@ struct MainWindowView: View {
     @State private var cloudSyncRegistrationID = UUID()
     private static let appActivationSyncDebounce: Duration = .milliseconds(1500)
     @State var showingCommitSheet = false
+    @State var commitSheetCommitsAllChanges = false
     @State var showingPullSheet = false
     @State var showingPushSheet = false
     @State var pushSheetSelection: (branch: String, remote: String, remoteBranch: String)?
@@ -428,7 +429,7 @@ struct MainWindowView: View {
                     Text("Replace tag '\(confirmation.tag)' on '\(confirmation.remote)' with the local tag target? This rewrites the published tag and may retrigger release automation.")
                 }
             }
-            .replacingSheet(isPresented: $showingCommitSheet) { commitSheet }
+            .replacingSheet(isPresented: $showingCommitSheet, onDismiss: { commitSheetCommitsAllChanges = false }) { commitSheet }
             .replacingSheet(item: $customActionOutput) { presentation in
                 CustomActionOutputSheet(
                     result: presentation.result,

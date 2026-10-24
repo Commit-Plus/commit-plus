@@ -36,6 +36,8 @@ struct CommitSheetView: View {
     @State private var aiGenerationTask: Task<Void, Never>?
     let repositoryURL: URL
     let hasStagedChanges: Bool
+    /// Forces all-changes mode, e.g. after creating a branch with "Commit all changes".
+    let commitsAllChanges: Bool
     let onCommit: @MainActor (String, Bool) async throws -> Bool
     @State private var isCommitting = false
     @State private var commitErrorMessage: String?
@@ -45,6 +47,7 @@ struct CommitSheetView: View {
         message: Binding<String>,
         repositoryURL: URL,
         hasStagedChanges: Bool,
+        commitsAllChanges: Bool = false,
         onCommit: @escaping @MainActor (String, Bool) async throws -> Bool
     ) {
         self.aiProviderController = aiProviderController
@@ -54,7 +57,12 @@ struct CommitSheetView: View {
         _descriptionText = State(initialValue: draft.body)
         self.repositoryURL = repositoryURL
         self.hasStagedChanges = hasStagedChanges
+        self.commitsAllChanges = commitsAllChanges
         self.onCommit = onCommit
+    }
+
+    private var willCommitAllChanges: Bool {
+        commitsAllChanges || (!hasStagedChanges && commitAllChanges)
     }
 
     var body: some View {
@@ -91,7 +99,12 @@ struct CommitSheetView: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 440)
                 .disabled(aiProviderController.isGenerating || isCommitting)
-                if !hasStagedChanges {
+                if commitsAllChanges {
+                    Label("All changes will be staged and committed", systemImage: "checkmark.circle")
+                        .font(.caption.scaled(by: textScale))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 440, alignment: .leading)
+                } else if !hasStagedChanges {
                     HStack(spacing: 8) {
                         Label("No files staged", systemImage: "exclamationmark.triangle")
                             .font(.caption.scaled(by: textScale))
@@ -122,7 +135,7 @@ struct CommitSheetView: View {
                 Button(isCommitting ? "Committing..." : (commitMessage.isEmpty ? "Commit Without Message" : "Commit")) {
                     guard !isCommitting else { return }
                     let requestedMessage = commitMessage
-                    let requestedAllChanges = !hasStagedChanges && commitAllChanges
+                    let requestedAllChanges = willCommitAllChanges
                     isCommitting = true
                     commitErrorMessage = nil
                     Task {
@@ -134,7 +147,7 @@ struct CommitSheetView: View {
                 }
                 .font(.body.scaled(by: textScale))
                 .keyboardShortcut(.defaultAction)
-                .disabled(isCommitting || (!hasStagedChanges && !commitAllChanges))
+                .disabled(isCommitting || (!hasStagedChanges && !willCommitAllChanges))
             }
         }
         .padding(.horizontal, 20)

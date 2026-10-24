@@ -79,6 +79,7 @@ struct BranchSheetView: View {
     let localBranchFilter: Set<String>?
     let validateLocalBranchDeletion: (@MainActor (String) async throws -> String)?
     let onRunBackgroundRemoteBranchDeletion: RemoteBranchDeletionRunner
+    let onCommitAllChangesRequested: (() -> Void)?
 
     @State private var selectedTab: BranchTab = .create
 
@@ -97,6 +98,7 @@ struct BranchSheetView: View {
     @State private var startPointCommitValidationTask: Task<Void, Never>?
     @State private var recentCommits: [BranchCommitInfo] = []
     @State private var checkoutNewBranch = true
+    @State private var commitAllChanges = false
     @State private var hasAppliedInitialCreateState = false
 
     // Delete tab state
@@ -124,6 +126,7 @@ struct BranchSheetView: View {
         localBranchFilter: Set<String>? = nil,
         validateLocalBranchDeletion: (@MainActor (String) async throws -> String)? = nil,
         onRunBackgroundRemoteBranchDeletion: @escaping RemoteBranchDeletionRunner,
+        onCommitAllChangesRequested: (() -> Void)? = nil,
         onRunRepositoryOperation: @escaping RepositoryOperationRunner = { _, operation in
             Task { await operation() }
         },
@@ -138,6 +141,7 @@ struct BranchSheetView: View {
         self.localBranchFilter = localBranchFilter
         self.validateLocalBranchDeletion = validateLocalBranchDeletion
         self.onRunBackgroundRemoteBranchDeletion = onRunBackgroundRemoteBranchDeletion
+        self.onCommitAllChangesRequested = onCommitAllChangesRequested
         self._selectedTab = State(initialValue: initialTab)
         self._forceDelete = State(initialValue: initialForceDelete)
     }
@@ -510,6 +514,16 @@ struct BranchSheetView: View {
             Toggle("Checkout new branch", isOn: $checkoutNewBranch)
                 .toggleStyle(.checkbox)
                 .font(.system(size: 12))
+                .onChange(of: checkoutNewBranch) { _, isOn in
+                    if !isOn { commitAllChanges = false }
+                }
+
+            if onCommitAllChangesRequested != nil {
+                Toggle("Commit all changes", isOn: $commitAllChanges)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 12))
+                    .disabled(!checkoutNewBranch)
+            }
         }
     }
 
@@ -595,6 +609,9 @@ struct BranchSheetView: View {
                 )
                 onCompleted()
                 dismiss()
+                if checkoutNewBranch && commitAllChanges {
+                    onCommitAllChangesRequested?()
+                }
             }
         } catch {
             await MainActor.run {

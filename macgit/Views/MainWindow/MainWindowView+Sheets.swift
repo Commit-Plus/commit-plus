@@ -23,7 +23,8 @@ extension MainWindowView {
             aiProviderController: aiProviderController,
             message: $toolbarCommitMessage,
             repositoryURL: repositoryURL,
-            hasStagedChanges: syncState.stagedBadgeCount > 0
+            hasStagedChanges: syncState.stagedBadgeCount > 0,
+            commitsAllChanges: commitSheetCommitsAllChanges
         ) { message, commitAllChanges in
             try await commitFromToolbar(message: message, commitAllChanges: commitAllChanges)
         }
@@ -147,6 +148,10 @@ extension MainWindowView {
             undoManager: undoManager,
             initialStartPoint: startPoint,
             onRunBackgroundRemoteBranchDeletion: runBackgroundRemoteBranchDeletion,
+            onCommitAllChangesRequested: {
+                commitSheetCommitsAllChanges = true
+                showCommitSheetIfNoConflicts()
+            },
             onRunRepositoryOperation: runRepositoryOperation,
             onCompleted: {
                 Task {
