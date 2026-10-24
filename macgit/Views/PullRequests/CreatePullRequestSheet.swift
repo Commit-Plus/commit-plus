@@ -318,19 +318,21 @@ struct CreatePullRequestView: View {
                         .foregroundStyle(.red)
                 }
 
-                PullRequestParticipantPicker(
-                    title: "Reviewers",
-                    participants: participants,
-                    selectedIDs: $selectedReviewerIDs,
-                    isLoading: isLoadingParticipants
-                )
+                if seed.repository.provider.supportsPullRequestParticipants {
+                    PullRequestParticipantPicker(
+                        title: "Reviewers",
+                        participants: participants,
+                        selectedIDs: $selectedReviewerIDs,
+                        isLoading: isLoadingParticipants
+                    )
 
-                PullRequestParticipantPicker(
-                    title: "Assignees",
-                    participants: participants,
-                    selectedIDs: $selectedAssigneeIDs,
-                    isLoading: isLoadingParticipants
-                )
+                    PullRequestParticipantPicker(
+                        title: "Assignees",
+                        participants: participants,
+                        selectedIDs: $selectedAssigneeIDs,
+                        isLoading: isLoadingParticipants
+                    )
+                }
 
                 if let participantsErrorMessage {
                     Label(participantsErrorMessage, systemImage: "exclamationmark.triangle")

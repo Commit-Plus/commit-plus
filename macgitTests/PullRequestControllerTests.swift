@@ -524,6 +524,47 @@ final class PullRequestControllerTests: XCTestCase {
         XCTAssertEqual(controller.selectedDetail, detail)
     }
 
+    func testHasCachedPullRequestDetailReflectsDiskCache() async throws {
+        let account = makeAccount()
+        let token = makeToken()
+        let detail = PullRequestDetail(
+            summary: makeSummary(),
+            body: "Cached detail.",
+            assignees: [],
+            comments: [],
+            changesURL: URL(string: "https://github.com/octocat/Hello-World/pull/12/files")!
+        )
+        let service = FakePullRequestProvider(
+            result: .success([makeSummary()]),
+            detailResult: .success(detail)
+        )
+        let accountController = GitProviderAccountController(
+            store: FakePullRequestAccountStore(accounts: [account]),
+            tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token])
+        )
+        await accountController.updateMacgitAccount(AccountSnapshot(
+            uid: "macgit-user-1",
+            email: "user@example.com",
+            displayName: nil,
+            providerIDs: []
+        ), cloudSyncEnabled: true)
+        let controller = PullRequestController(
+            providerAccountController: accountController,
+            tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
+            services: [.github: service]
+        )
+
+        await controller.loadPullRequests(remoteURLString: "https://github.com/octocat/Hello-World.git")
+        let cachedBeforeLoad = await controller.hasCachedPullRequestDetail(makeSummary())
+        await controller.loadPullRequestDetail(makeSummary())
+        let cachedAfterLoad = await controller.hasCachedPullRequestDetail(makeSummary())
+        let otherPullRequestCached = await controller.hasCachedPullRequestDetail(makeSummary(number: 13))
+
+        XCTAssertFalse(cachedBeforeLoad)
+        XCTAssertTrue(cachedAfterLoad)
+        XCTAssertFalse(otherPullRequestCached)
+    }
+
     func testLoadPullRequestChangesPublishesAndCachesFiles() async throws {
         let account = makeAccount()
         let token = makeToken()
@@ -1313,6 +1354,103 @@ final class PullRequestControllerTests: XCTestCase {
         XCTAssertEqual(controller.items.count, 1)
     }
 
+    func testLoadPullRequestsUsesAzureAccountForAzureRemote() async throws {
+        let account = makeAzureAccount()
+        let token = makeToken()
+        let service = FakePullRequestProvider(result: .success([makeSummary()]))
+        let controller = await makeAzureController(account: account, token: token, service: service)
+
+        await controller.loadPullRequests(
+            remoteURLString: "https://Trantienthanh1998@dev.azure.com/Trantienthanh1998/ChatApp/_git/ChatApp"
+        )
+
+        XCTAssertEqual(controller.items, [makeSummary()])
+        XCTAssertNil(controller.errorMessage)
+        XCTAssertEqual(controller.selectedProviderAccountID, account.id)
+        XCTAssertEqual(service.receivedRepository?.provider, .azureDevOps)
+        XCTAssertEqual(service.receivedRepository?.hostURL, AzureReposRemote.organizationURL("Trantienthanh1998"))
+        XCTAssertEqual(service.receivedRepository?.owner, "ChatApp")
+        XCTAssertEqual(service.receivedRepository?.name, "ChatApp")
+        XCTAssertEqual(service.receivedToken, token)
+    }
+
+    func testLoadPullRequestsUsesKeptTokenOfAzureSSHAccount() async throws {
+        let account = makeAzureAccount(transportProtocol: .ssh)
+        let token = makeToken()
+        let service = FakePullRequestProvider(result: .success([makeSummary()]))
+        let controller = await makeAzureController(account: account, token: token, service: service)
+
+        await controller.loadPullRequests(remoteURLString: "git@ssh.dev.azure.com:v3/Trantienthanh1998/ChatApp/ChatApp")
+
+        XCTAssertEqual(controller.items, [makeSummary()])
+        XCTAssertNil(controller.errorMessage)
+        XCTAssertEqual(service.receivedToken, token)
+    }
+
+    func testPresentCreatePullRequestSkipsParticipantsForAzure() async throws {
+        let account = makeAzureAccount()
+        let token = makeToken()
+        let service = FakePullRequestProvider(
+            result: .success([makeSummary()]),
+            participantsResult: .success([PullRequestParticipant(id: "a", username: "a", avatarURL: nil)])
+        )
+        let controller = await makeAzureController(account: account, token: token, service: service)
+
+        await controller.loadPullRequests(repositoryURL: URL(fileURLWithPath: "/tmp/macgit-azure-participants"))
+        await controller.presentCreatePullRequest()
+
+        XCTAssertNotNil(controller.createDraftSeed)
+        XCTAssertEqual(service.participantsCallCount, 0)
+        XCTAssertTrue(controller.createDraftParticipants.isEmpty)
+        XCTAssertFalse(controller.isLoadingCreateDraftParticipants)
+    }
+
+    private func makeAzureAccount(transportProtocol: GitProviderTransportProtocol = .https) -> GitProviderAccount {
+        GitProviderAccount(
+            id: "macgit-user-1:azure:dev.azure.com/trantienthanh1998:azure-user",
+            macgitUID: "macgit-user-1",
+            provider: .azureDevOps,
+            hostURL: AzureReposRemote.organizationURL("Trantienthanh1998"),
+            providerUserID: "azure-user",
+            username: "user@example.com",
+            displayName: "User",
+            avatarURL: nil,
+            scopes: [],
+            permissions: ["authentication": "personalAccessToken"],
+            tokenStatus: .valid,
+            transportProtocol: transportProtocol,
+            connectedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            lastValidatedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+    }
+
+    private func makeAzureController(
+        account: GitProviderAccount,
+        token: GitProviderToken,
+        service: FakePullRequestProvider
+    ) async -> PullRequestController {
+        let accountController = GitProviderAccountController(
+            store: FakePullRequestAccountStore(accounts: [account]),
+            tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token])
+        )
+        await accountController.updateMacgitAccount(AccountSnapshot(
+            uid: "macgit-user-1",
+            email: "user@example.com",
+            displayName: nil,
+            providerIDs: []
+        ), cloudSyncEnabled: true)
+        return PullRequestController(
+            providerAccountController: accountController,
+            tokenVault: FakePullRequestTokenVault(tokensByAccountID: [account.id: token]),
+            services: [.azureDevOps: service],
+            remoteNameProvider: { _ in "origin" },
+            remoteURLProvider: { _, _ in "https://dev.azure.com/Trantienthanh1998/ChatApp/_git/ChatApp" },
+            currentBranchProvider: { _ in "feature/login" },
+            localBranchesProvider: { _ in ["main", "feature/login"] },
+            changedFileCountProvider: { _, _, _, _ in 1 }
+        )
+    }
+
     private func makeAccount(
         id: String = "macgit-user-1:github:github.com:583231",
         scopes: [String] = ["repo", "read:user"],
@@ -1432,6 +1570,7 @@ private final class FakePullRequestProvider: PullRequestProviding {
     private(set) var listCallCount = 0
     private(set) var detailCallCount = 0
     private(set) var changesCallCount = 0
+    private(set) var participantsCallCount = 0
     private(set) var createdDraft: PullRequestDraft?
     private(set) var createdCommentBody: String?
     private(set) var mergedPullRequestNumber: Int?
@@ -1488,6 +1627,7 @@ private final class FakePullRequestProvider: PullRequestProviding {
         repository: GitRepositoryIdentity,
         token: GitProviderToken
     ) async throws -> [PullRequestParticipant] {
+        participantsCallCount += 1
         receivedRepository = repository
         receivedToken = token
         return try participantsResult.get()

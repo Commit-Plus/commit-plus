@@ -277,6 +277,43 @@ extension GitStatusService {
         return DiffParser.parse(output)
     }
 
+    /// Unified diff of two file versions that exist only in memory (Azure Repos returns no
+    /// patches). Runs outside any repository; `--no-index` exits 1 when the files differ.
+    func unifiedDiff(original: Data, modified: Data, path: String) async throws -> String {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "commitplus-diff-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try original.write(to: directory.appending(path: "a"))
+        try modified.write(to: directory.appending(path: "b"))
+
+        let output = try await runGitRaw(
+            arguments: ["diff", "--no-index", "--no-color", "--no-ext-diff", "-U3", "--", "a", "b"],
+            in: directory,
+            environment: ProcessInfo.processInfo.environment,
+            successExitCodes: [0, 1]
+        )
+        return Self.relabeledNoIndexDiff(String(decoding: output, as: UTF8.self), path: path)
+    }
+
+    /// Replaces the temporary `a`/`b` file names in the diff header with the repository path.
+    nonisolated static func relabeledNoIndexDiff(_ diff: String, path: String) -> String {
+        guard !diff.isEmpty else { return "" }
+        var lines = diff.components(separatedBy: "\n")
+        for index in lines.indices {
+            let line = lines[index]
+            if line.hasPrefix("@@") { break }
+            if line.hasPrefix("diff --git ") {
+                lines[index] = "diff --git a/\(path) b/\(path)"
+            } else if line.hasPrefix("--- ") {
+                lines[index] = line == "--- /dev/null" ? line : "--- a/\(path)"
+            } else if line.hasPrefix("+++ ") {
+                lines[index] = line == "+++ /dev/null" ? line : "+++ b/\(path)"
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
     private func pullRequestComparisonReferences(
         sourceBranch: String,
         targetBranch: String,

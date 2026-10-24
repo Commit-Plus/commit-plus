@@ -96,21 +96,38 @@ extension MainWindowView {
         _ pullRequest: PullRequestSummary,
         remoteName: String? = nil
     ) async {
-        // Opening from the sidebar may need access checks and a list load for another remote
-        // before the window appears, so show progress instead of a silent delay.
-        let progressID = remoteName.map { _ in
-            operationProgress.begin(message: "Opening Pull Request #\(pullRequest.number)...", canCancel: false)
+        // Opening from the sidebar may need access checks and a list load for another remote, and
+        // uncached detail needs a provider request, so show window progress instead of a silent
+        // delay or an empty detail window.
+        let progressMessage = "Opening Pull Request #\(pullRequest.number)..."
+        var progressID = remoteName.map { _ in
+            operationProgress.begin(message: progressMessage, canCancel: false)
+        }
+        func endProgress() {
+            if let progressID { operationProgress.end(progressID) }
+            progressID = nil
         }
         let switchedRemote = await preparePullRequestDetail(remoteName: remoteName)
-        if let progressID { operationProgress.end(progressID) }
-        guard let switchedRemote else { return }
+        guard let switchedRemote else { endProgress(); return }
         if !switchedRemote,
            selectedPullRequestID == pullRequest.id,
-           pullRequestDetailWindow.activateIfPresented() { return }
+           pullRequestDetailWindow.activateIfPresented() { endProgress(); return }
+
+        let isCached = await pullRequestController.hasCachedPullRequestDetail(pullRequest)
+        if isCached {
+            endProgress()
+        } else if progressID == nil {
+            progressID = operationProgress.begin(message: progressMessage, canCancel: false)
+        }
 
         pullRequestDetailWindow.close()
         pullRequestController.clearSelectedDetail()
         selectedPullRequestID = pullRequest.id
+        if !isCached {
+            await pullRequestController.loadPullRequestDetail(pullRequest)
+            endProgress()
+            guard selectedPullRequestID == pullRequest.id, !Task.isCancelled else { return }
+        }
         pullRequestDetailWindow.show(
             title: "Pull Request #\(pullRequest.number) — \(repositoryURL.lastPathComponent)",
             content: PullRequestDetailWindowContent(
@@ -124,7 +141,8 @@ extension MainWindowView {
             .sheetPresentationScope(),
             onClose: closePullRequestDetail
         )
-        await pullRequestController.loadPullRequestDetail(pullRequest)
+        // Cached detail shows at once; this refreshes it when stale.
+        if isCached { await pullRequestController.loadPullRequestDetail(pullRequest) }
     }
 
     /// Authorizes access and, when opened for a specific remote, switches the list to it so the list,

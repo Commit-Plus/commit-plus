@@ -253,7 +253,11 @@ struct MainWindowView: View {
         let pullRequestController = PullRequestController(
             providerAccountController: providerAccountController,
             tokenVault: KeychainGitProviderTokenVault(),
-            services: [.github: GitHubPullRequestService(), .gitlab: GitLabPullRequestService()],
+            services: [
+                .github: GitHubPullRequestService(),
+                .gitlab: GitLabPullRequestService(),
+                .azureDevOps: AzureReposPullRequestService(),
+            ],
             openURL: NSWorkspace.shared.open
         )
         let syncState = SyncState()

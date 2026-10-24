@@ -54,6 +54,7 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
     private let environment: [String: String]
     private let outputByteLimit: Int?
     private let inputData: Data?
+    private let successExitCodes: Set<Int32>
     private let lock = NSLock()
     private let outputLock = NSLock()
     private let outputGroup = DispatchGroup()
@@ -74,8 +75,10 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
         directory: URL,
         environment: [String: String],
         outputByteLimit: Int? = nil,
-        inputData: Data? = nil
+        inputData: Data? = nil,
+        successExitCodes: Set<Int32> = [0]
     ) {
+        self.successExitCodes = successExitCodes
         self.executable = executable
         self.arguments = arguments
         self.directory = directory
@@ -200,7 +203,7 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
         lock.unlock()
         if cancelled {
             resume(throwing: CancellationError())
-        } else if process.terminationStatus != 0 {
+        } else if !successExitCodes.contains(process.terminationStatus) {
             let output = String(decoding: outData, as: UTF8.self)
             // Git can write progress to stderr and the actual failure (such as merge conflicts) to stdout.
             let message = [errorOutput, output]
@@ -483,7 +486,7 @@ actor GitStatusService {
         )
     }
 
-    func runGitRaw(arguments: [String], in directory: URL, environment: [String: String], outputByteLimit: Int? = nil, inputData: Data? = nil) async throws -> Data {
+    func runGitRaw(arguments: [String], in directory: URL, environment: [String: String], outputByteLimit: Int? = nil, inputData: Data? = nil, successExitCodes: Set<Int32> = [0]) async throws -> Data {
         let startedAt = Date()
         do {
             let context = try await gitExecutionContext(
@@ -495,7 +498,8 @@ actor GitStatusService {
                 directory: directory,
                 environment: context.environment,
                 outputByteLimit: outputByteLimit,
-                inputData: inputData
+                inputData: inputData,
+                successExitCodes: successExitCodes
             ).run()
             guard !result.isTruncated else {
                 throw GitError.commandFailed("Git object exceeds the preview limit.")
