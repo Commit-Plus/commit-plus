@@ -167,7 +167,8 @@ actor CopilotLanguageServerClient {
 
     func setTelemetryEnabled(_ enabled: Bool) {
         telemetryEnabled = enabled
-        guard let transport else { return }
+        // While starting, `start()` sends the current setting after the handshake.
+        guard startTask == nil, let transport else { return }
         try? send(Self.configurationNotification(telemetryEnabled: enabled), over: transport)
     }
 
@@ -201,8 +202,8 @@ actor CopilotLanguageServerClient {
     // MARK: - Lifecycle
 
     private func startIfNeeded() async throws -> any CopilotLanguageServerTransport {
-        if let transport { return transport }
         if let startTask { return try await startTask.value }
+        if let transport { return transport }
         guard restartsRemaining >= 0 else {
             throw CopilotLanguageServerError.serverUnavailable(
                 "The GitHub Copilot language server keeps stopping. Try again."

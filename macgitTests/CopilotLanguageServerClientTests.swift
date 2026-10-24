@@ -52,6 +52,31 @@ final class CopilotLanguageServerClientTests: XCTestCase {
         XCTAssertEqual(initialize["params"]?["clientInfo"]?["version"], .string("9.9"))
     }
 
+    func testConcurrentCallsWaitForTheHandshakeToFinish() async throws {
+        let launcher = FakeCopilotLauncher { method, _ in
+            method == "initialize" ? .hold : .result(.object([:]))
+        }
+        let client = CopilotLanguageServerClient(launcher: launcher)
+
+        let first = Task { try await client.request("checkStatus") }
+        try await waitUntil { launcher.launchCount == 1 }
+        let transport = launcher.transports[0]
+        try await transport.waitForHeld(count: 1)
+        let second = Task { try await client.request("copilot/models") }
+        await client.setTelemetryEnabled(false)
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(transport.receivedMethods, ["initialize"])
+        transport.reply(to: "initialize", with: .object([:]))
+        _ = try await (first.value, second.value)
+
+        let methods = transport.receivedMethods
+        XCTAssertEqual(Array(methods.prefix(3)), ["initialize", "initialized", "workspace/didChangeConfiguration"])
+        XCTAssertEqual(methods.filter { $0 == "workspace/didChangeConfiguration" }.count, 1)
+        let configuration = try XCTUnwrap(transport.received.first { $0["method"]?.stringValue == "workspace/didChangeConfiguration" })
+        XCTAssertEqual(configuration["params"]?["settings"]?["telemetry"]?["telemetryLevel"], .string("off"))
+    }
+
     func testResponsesAreMatchedToRequestsOutOfOrder() async throws {
         let launcher = FakeCopilotLauncher { method, _ in
             method == "slow" || method == "fast" ? .hold : .result(.object([:]))
