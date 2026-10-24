@@ -117,6 +117,24 @@ final class JiraIssueListControllerTests: XCTestCase {
         XCTAssertEqual(connectionController.connection?.needsReconnect, true)
     }
 
+    func testReconnectReloadsList() async throws {
+        client.searchHandler = { _, _ in throw JiraError.needsReconnect }
+        let controller = makeController()
+        await controller.activate()
+        try await waitForIdle(controller)
+        XCTAssertEqual(controller.error, .needsReconnect)
+
+        client.searchHandler = { _, _ in JiraIssuePage(issues: [.stub("PROJ-1")], nextPageToken: nil) }
+        client.validateResults = [.success(JiraValidatedAccount(accountID: "acc-1", displayName: "Dev", email: "dev@example.com", apiBase: .site))]
+        let reconnected = await connectionController.reconnect(token: "t2")
+        XCTAssertTrue(reconnected)
+        try await Task.sleep(for: .milliseconds(50))
+        try await waitForIdle(controller)
+
+        XCTAssertNil(controller.error)
+        XCTAssertEqual(controller.items.map(\.key), ["PROJ-1"])
+    }
+
     func testEmptyStateDistinguishesNoMatchFromNoIssues() async throws {
         client.searchHandler = { jql, _ in
             jql.contains("openSprints")

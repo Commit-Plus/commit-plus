@@ -76,6 +76,11 @@ final class JiraIssueListController: ObservableObject {
     private var knownIssueTypes: Set<String> = []
     private var connectionObservation: AnyCancellable?
 
+    private struct ConnectionState: Equatable {
+        let id: String
+        let needsReconnect: Bool
+    }
+
     init(
         repositoryURL: URL,
         connectionController: JiraConnectionController,
@@ -86,11 +91,14 @@ final class JiraIssueListController: ObservableObject {
         self.filterStore = filterStore
         self.repositoryKey = repositoryURL.standardizedFileURL.path
         self.searchDebounce = searchDebounce
+        // Reconnecting keeps the connection id and only clears `needsReconnect`, so observe both.
+        // A transition to `needsReconnect` is already handled by `handle(_:)`.
         connectionObservation = connectionController.$connection
-            .map { $0?.id }
+            .map { $0.map { ConnectionState(id: $0.id, needsReconnect: $0.needsReconnect) } }
             .removeDuplicates()
             .dropFirst()
-            .sink { [weak self] _ in
+            .sink { [weak self] state in
+                guard state?.needsReconnect != true else { return }
                 Task { @MainActor in self?.connectionDidChange() }
             }
     }

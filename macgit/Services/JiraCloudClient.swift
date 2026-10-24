@@ -87,7 +87,7 @@ struct JiraCloudClient: JiraIssueServing {
             throw JiraError.invalidResponse
         }
         let issues = rawIssues.compactMap { Self.issue(from: $0, sprintFieldID: sprintFieldID) }
-        let isLast = payload["isLast"] as? Bool ?? true
+        let isLast = payload["isLast"] as? Bool == true
         let nextPageToken = isLast ? nil : payload["nextPageToken"] as? String
         return JiraIssuePage(issues: issues, nextPageToken: nextPageToken)
     }

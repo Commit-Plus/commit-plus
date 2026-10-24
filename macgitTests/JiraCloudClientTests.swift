@@ -131,6 +131,14 @@ final class JiraCloudClientTests: XCTestCase {
         XCTAssertNil(page.nextPageToken)
     }
 
+    func testMissingIsLastKeepsNextPageToken() async throws {
+        let http = StubJiraHTTPClient([.init(path: "/rest/api/3/search/jql", status: 200, body: #"{"nextPageToken":"page-2","issues":[]}"#)])
+        let page = try await JiraCloudClient(httpClient: http).searchIssues(
+            baseURL: site, credential: credential, jql: "x", sprintFieldID: nil, pageToken: nil
+        )
+        XCTAssertEqual(page.nextPageToken, "page-2")
+    }
+
     private func assertThrows(
         _ expected: JiraError,
         file: StaticString = #filePath,
