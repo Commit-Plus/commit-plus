@@ -134,6 +134,42 @@ final class RepositoryVisibilityControllerTests: XCTestCase {
         XCTAssertNil(expired)
     }
 
+    func testAzureRepositoryResolvesPrivateWithConnectedAccountToken() async {
+        let client = StubAzureHTTPClient { request in
+            request.value(forHTTPHeaderField: "Authorization") == nil
+                ? .init(statusCode: 203, data: Data("<html>".utf8), contentType: "text/html")
+                : .json(#"{"id":"repo","name":"ChatApp","project":{"name":"ChatApp","visibility":"private"}}"#)
+        }
+        let account = GitProviderAccount(
+            id: "connection-azure",
+            macgitUID: "user-1",
+            provider: .azureDevOps,
+            hostURL: AzureReposRemote.organizationURL("Trantienthanh1998"),
+            providerUserID: "azure-user",
+            username: "user@example.com",
+            displayName: nil,
+            avatarURL: nil,
+            scopes: [],
+            permissions: ["authentication": "personalAccessToken"],
+            tokenStatus: .valid,
+            connectedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            lastValidatedAt: nil
+        )
+        let controller = RepositoryVisibilityController(
+            services: [.azureDevOps: AzureReposRepositoryVisibilityService(httpClient: client)],
+            tokenVault: FakeRepositoryVisibilityTokenVault(tokens: [account.id: token]),
+            cache: FakeRepositoryVisibilityCache(),
+            remotesProvider: { _ in ["origin"] },
+            remoteURLProvider: { _, _ in "https://Trantienthanh1998@dev.azure.com/Trantienthanh1998/ChatApp/_git/ChatApp" }
+        )
+
+        let visibility = await controller.resolve(repositoryURL: repositoryURL, accounts: [account])
+
+        XCTAssertEqual(visibility, .private)
+        XCTAssertEqual(client.requests.count, 2)
+        XCTAssertNil(client.requests.first?.value(forHTTPHeaderField: "Authorization"))
+    }
+
     private let repositoryURL = URL(fileURLWithPath: "/tmp/repository")
 
     private func makeController(

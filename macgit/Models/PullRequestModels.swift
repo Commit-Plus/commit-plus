@@ -272,3 +272,10 @@ extension GitRepositoryIdentity {
         }
     }
 }
+
+extension GitProviderKind {
+    /// Azure Repos has no assignees, and listing its reviewers needs a broader token scope.
+    var supportsPullRequestParticipants: Bool {
+        self != .azureDevOps
+    }
+}

@@ -672,6 +672,19 @@ final class PullRequestController: ObservableObject {
         }
     }
 
+    /// Whether opening this pull request can show cached detail right away, even if stale.
+    func hasCachedPullRequestDetail(_ summary: PullRequestSummary) async -> Bool {
+        guard let repository = activeRepository else { return false }
+        await cacheMaintenance?.value
+        let cacheGeneration = await diskCache.generation()
+        let cacheKey = PullRequestDetailCacheKey(
+            repository: GitRepositoryIdentityKey(repository),
+            accountID: selectedProviderAccountID ?? "",
+            number: summary.number
+        )
+        return await diskCache.entry(PullRequestDetail.self, key: cacheKey.diskKey, generation: cacheGeneration) != nil
+    }
+
     func clearSelectedDetail() {
         detailLoadID = UUID()
         isLoadingDetail = false
@@ -831,7 +844,8 @@ final class PullRequestController: ObservableObject {
         createDraftParticipantsErrorMessage = nil
         guard let repository = activeRepository,
               let token = activeToken,
-              let service = services[repository.provider] else {
+              let service = services[repository.provider],
+              repository.provider.supportsPullRequestParticipants else {
             isLoadingCreateDraftParticipants = false
             return
         }

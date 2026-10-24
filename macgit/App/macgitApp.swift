@@ -139,6 +139,7 @@ struct macgitApp: App {
                 services: [
                     .github: GitHubRepositoryVisibilityService(),
                     .gitlab: GitLabRepositoryVisibilityService(),
+                    .azureDevOps: AzureReposRepositoryVisibilityService(),
                 ],
                 tokenVault: providerTokenVault,
                 cache: SQLiteRepositoryVisibilityCache()

@@ -190,6 +190,7 @@ struct MainWindowView: View {
     @State var createPullRequestWindow = CreatePullRequestWindowController()
     @State var pullRequestDetailWindow = PullRequestDetailWindowController()
     @State var selectedPullRequestID: Int?
+    @State var pullRequestDetailOpenRequestID = 0
     @State var showingRepositorySettings = false
     @State var initiallySelectGitFlowSettings = false
     @State var pendingSearchFileOpenRequest: SearchFileOpenRequest?
@@ -253,7 +254,11 @@ struct MainWindowView: View {
         let pullRequestController = PullRequestController(
             providerAccountController: providerAccountController,
             tokenVault: KeychainGitProviderTokenVault(),
-            services: [.github: GitHubPullRequestService(), .gitlab: GitLabPullRequestService()],
+            services: [
+                .github: GitHubPullRequestService(),
+                .gitlab: GitLabPullRequestService(),
+                .azureDevOps: AzureReposPullRequestService(),
+            ],
             openURL: NSWorkspace.shared.open
         )
         let syncState = SyncState()
