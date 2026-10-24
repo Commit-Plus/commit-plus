@@ -248,8 +248,7 @@ struct RepositoryAIChatView: View {
                 AIProviderMenu(
                     controller: providerController,
                     restrictedProviderAccess: providerAccess,
-                    showsConfigureAction: true,
-                    labelMode: .model
+                    showsConfigureAction: true
                 )
                 .pointingHandCursor()
 

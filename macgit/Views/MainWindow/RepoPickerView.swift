@@ -1491,7 +1491,7 @@ struct CloneSheetView: View {
 
     private static let labelWidth: CGFloat = 120
     private static let controlHeight: CGFloat = 30
-    private static let trailingControlWidth: CGFloat = 52
+    private static let trailingControlWidth: CGFloat = 80
 
     var onClone: (URL) -> Void
 
@@ -1553,13 +1553,10 @@ struct CloneSheetView: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(height: Self.controlHeight)
 
-                    Button("Choose destination folder", systemImage: "ellipsis") {
+                    Button("Choose…") {
                         showingDestinationPicker = true
                     }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.bordered)
-                    .controlSize(.regular)
-                    .frame(width: Self.trailingControlWidth, height: Self.controlHeight)
+                    .frame(width: Self.trailingControlWidth)
                     .help("Choose destination folder")
                     .disabled(isCloning)
                 }
