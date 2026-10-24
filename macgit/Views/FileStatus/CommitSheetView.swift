@@ -145,6 +145,9 @@ struct CommitSheetView: View {
         .interactiveDismissDisabled(isCommitting)
         .onDisappear { cancelCommitMessageGeneration() }
         .task {
+            await prefillMergeCommitMessage()
+        }
+        .task {
             await aiProviderController.refreshAvailability(selectedOnly: true)
         }
         .alert("Unable to Generate Commit Message", isPresented: $showingError) {
@@ -211,6 +214,18 @@ struct CommitSheetView: View {
 
     private func updateMessageBinding() {
         message = commitMessage
+    }
+
+    /// Starts an empty draft from git's default merge message while a merge is in progress.
+    private func prefillMergeCommitMessage() async {
+        guard commitMessage.isEmpty,
+              await GitStatusService.shared.isMergeInProgress(in: repositoryURL)
+        else { return }
+        let mergeMessage = await GitStatusService.shared.mergeCommitMessage(in: repositoryURL)
+        guard !Task.isCancelled, !mergeMessage.isEmpty, commitMessage.isEmpty else { return }
+        let draft = CommitMessageDraft(message: mergeMessage)
+        subject = draft.subject
+        descriptionText = draft.body
     }
 
     private func insertNewlineInMessage() {

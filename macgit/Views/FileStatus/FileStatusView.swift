@@ -85,6 +85,7 @@ struct FileStatusView: View {
     @State private var isCommitting = false
     @State private var commitSubject = ""
     @State private var commitDescription = ""
+    @State private var prefilledMergeCommitMessage: String?
     @FocusState private var isCommitSubjectFocused: Bool
     @State private var showingCommitConfirmation = false
     @State private var emptyCommitAction: EmptyCommitAction?
@@ -468,6 +469,29 @@ struct FileStatusView: View {
             guard active else { return }
             requestRefresh()
         }
+        .task(id: syncState.inProgressOperation) {
+            await syncMergeCommitMessageDraft(for: syncState.inProgressOperation)
+        }
+    }
+
+    /// Prefills git's default merge message while a merge is in progress, and clears it
+    /// once the merge ends if the user left it unchanged.
+    private func syncMergeCommitMessageDraft(for operation: GitInProgressOperation?) async {
+        guard case .merge = operation else {
+            if let prefilledMergeCommitMessage, commitMessage == prefilledMergeCommitMessage {
+                commitSubject = ""
+                commitDescription = ""
+            }
+            prefilledMergeCommitMessage = nil
+            return
+        }
+        guard isCommitMessageEmpty else { return }
+        let message = await GitStatusService.shared.mergeCommitMessage(in: repositoryURL)
+        guard !Task.isCancelled, !message.isEmpty, isCommitMessageEmpty else { return }
+        let draft = CommitMessageDraft(message: message)
+        commitSubject = draft.subject
+        commitDescription = draft.body
+        prefilledMergeCommitMessage = commitMessage
     }
 
     private var fileListPanel: some View {

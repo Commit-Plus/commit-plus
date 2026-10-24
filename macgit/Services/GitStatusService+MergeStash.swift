@@ -46,8 +46,19 @@ extension GitStatusService {
         let messageURL = trimmedPath.hasPrefix("/")
             ? URL(fileURLWithPath: trimmedPath)
             : repositoryURL.appendingPathComponent(trimmedPath)
-        return (try? String(contentsOf: messageURL, encoding: .utf8))?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let rawMessage = (try? String(contentsOf: messageURL, encoding: .utf8)) ?? ""
+        return Self.cleanedMergeCommitMessage(rawMessage)
+    }
+
+    /// Drops git's `#` comment lines (such as the `# Conflicts:` list), which `git commit -m` would keep.
+    nonisolated static func cleanedMergeCommitMessage(_ rawMessage: String) -> String {
+        var lines: [String] = []
+        for line in rawMessage.components(separatedBy: .newlines) where !line.hasPrefix("#") {
+            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+            if trimmedLine.isEmpty, lines.last?.isEmpty ?? true { continue }
+            lines.append(trimmedLine.isEmpty ? "" : line)
+        }
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func abortMerge(in repositoryURL: URL) async throws {
