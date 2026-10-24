@@ -48,7 +48,7 @@ struct FileStatusTreeNativeList: NSViewRepresentable {
             scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.drawsBackground = false
             let column = NSTableColumn(identifier: .init("status-tree")); column.resizingMask = .autoresizingMask
             table.addTableColumn(column); table.headerView = nil; table.backgroundColor = .clear
-            table.rowHeight = 36; table.intercellSpacing = .zero; table.selectionHighlightStyle = .none
+            table.style = .plain; table.rowHeight = 28; table.intercellSpacing = .zero; table.selectionHighlightStyle = .none
             table.dataSource = self; table.delegate = self; table.target = self; table.action = #selector(clickedRow)
             table.doubleAction = #selector(doubleClickedRow)
             table.contextMenuProvider = { [weak self] row in self?.contextMenu(row) }
@@ -203,18 +203,16 @@ private final class StatusTreeTableView: NSTableView {
 private final class StatusTreeCell: NSTableCellView {
     let moreButton = NSButton()
     private let checkbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
-    private let chevron = NSImageView(), icon = NSImageView()
-    private let name = NSTextField(labelWithString: ""), added = NSTextField(labelWithString: ""), removed = NSTextField(labelWithString: "")
+    private let chevron = NSImageView(), content = FileChangeRowContentView()
     private let lfs = NSTextField(labelWithString: "LFS"), conflict = NSButton(), quick = NSButton()
     private var onToggle: ((Bool) -> Void)?, onQuick: (() -> Void)?, onMore: (() -> Void)?, onConflict: (() -> Void)?
     private var depth = 0
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        [checkbox, chevron, icon, name, added, removed, lfs, conflict, quick, moreButton].forEach(addSubview)
+        [checkbox, chevron, content, lfs, conflict, quick, moreButton].forEach(addSubview)
         checkbox.setButtonType(.switch); checkbox.isBordered = false; checkbox.controlSize = .small; checkbox.target = self; checkbox.action = #selector(toggle)
-        chevron.imageScaling = .scaleProportionallyDown; icon.imageScaling = .scaleProportionallyDown
-        name.lineBreakMode = .byTruncatingMiddle; added.textColor = .systemGreen; removed.textColor = .systemRed
+        chevron.imageScaling = .scaleProportionallyDown
         lfs.textColor = .secondaryLabelColor; lfs.alignment = .center; lfs.wantsLayer = true; lfs.layer?.borderWidth = 1; lfs.layer?.cornerRadius = 3
         [conflict, quick, moreButton].forEach { $0.isBordered = false }
         conflict.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: "Potential conflict"); conflict.contentTintColor = .systemOrange
@@ -229,10 +227,9 @@ private final class StatusTreeCell: NSTableCellView {
         self.depth = depth; self.onToggle = onToggleSelection; self.onQuick = onQuick
         checkbox.state = checkState; checkbox.allowsMixedState = true
         chevron.image = NSImage(systemSymbolName: expanded ? "chevron.down" : "chevron.right", accessibilityDescription: nil)
-        icon.image = NSImage(systemSymbolName: expanded ? "folder.fill.badge.minus" : "folder.fill", accessibilityDescription: "Folder"); icon.contentTintColor = .systemBlue
-        name.stringValue = title; name.font = .systemFont(ofSize: 13 * textScale, weight: .medium)
+        content.configure(.init(path: title, name: title, isDirectory: true, isExpanded: expanded, nameFontSize: 13, textScale: textScale))
         quick.image = NSImage(systemSymbolName: isStaged ? "minus" : "plus", accessibilityDescription: isStaged ? "Unstage folder" : "Stage folder")
-        chevron.isHidden = false; added.isHidden = true; removed.isHidden = true; lfs.isHidden = true; conflict.isHidden = true; moreButton.isHidden = true; quick.isHidden = false
+        chevron.isHidden = false; lfs.isHidden = true; conflict.isHidden = true; moreButton.isHidden = true; quick.isHidden = false
         needsLayout = true
     }
 
@@ -241,10 +238,7 @@ private final class StatusTreeCell: NSTableCellView {
                        onMore: @escaping () -> Void, onConflict: @escaping () -> Void) {
         self.depth = depth; self.onToggle = onToggleSelection; self.onQuick = onQuick; self.onMore = onMore; self.onConflict = onConflict
         checkbox.state = row.isActionSelected ? .on : .off; checkbox.allowsMixedState = false; chevron.isHidden = true
-        icon.image = NSImage(systemSymbolName: Self.symbol(row.file.status), accessibilityDescription: nil); icon.contentTintColor = Self.color(row.file.status)
-        name.stringValue = title; name.font = .systemFont(ofSize: 13 * textScale, weight: .medium)
-        if let count = row.count { added.stringValue = "+\(count.added)"; removed.stringValue = "−\(count.removed)"; added.isHidden = false; removed.isHidden = false } else { added.isHidden = true; removed.isHidden = true }
-        let countFont = NSFont.monospacedSystemFont(ofSize: 10 * textScale, weight: .medium); added.font = countFont; removed.font = countFont
+        content.configure(.init(path: row.file.path, name: title, status: row.file.status.changeStyle, count: row.count, nameFontSize: 13, textScale: textScale))
         lfs.isHidden = !row.isLFS; lfs.font = .systemFont(ofSize: 9 * textScale); conflict.isHidden = !row.isPotentialConflict; moreButton.isHidden = false
         quick.isHidden = false; quick.image = NSImage(systemSymbolName: isStaged ? "minus" : "plus", accessibilityDescription: isStaged ? "Unstage" : "Stage")
         layer?.backgroundColor = row.isActionSelected ? NSColor.controlAccentColor.withAlphaComponent(0.16).cgColor : NSColor.clear.cgColor
@@ -252,23 +246,19 @@ private final class StatusTreeCell: NSTableCellView {
     }
 
     override func layout() {
-        super.layout(); let y = bounds.midY; let x = CGFloat(depth) * 14 + 6
+        super.layout(); let y = bounds.midY; let x = CGFloat(depth) * 12 + 6
         checkbox.frame = .init(x: x, y: y - 9, width: 18, height: 18)
-        chevron.frame = .init(x: x + 22, y: y - 6, width: 10, height: 12)
-        icon.frame = .init(x: x + (chevron.isHidden ? 22 : 36), y: y - 9, width: 18, height: 18)
-        var right = bounds.maxX - 6
+        chevron.frame = .init(x: x + 20, y: y - 6, width: 10, height: 12)
+        var right = bounds.maxX - 4
         moreButton.frame = .init(x: right - 22, y: y - 11, width: 22, height: 22); if !moreButton.isHidden { right -= 24 }
         quick.frame = .init(x: right - 22, y: y - 11, width: 22, height: 22); right -= 24
         conflict.frame = .init(x: right - 22, y: y - 11, width: 22, height: 22); if !conflict.isHidden { right -= 24 }
         if !lfs.isHidden { lfs.frame = .init(x: right - 30, y: y - 9, width: 28, height: 18); right -= 34 }
-        if !removed.isHidden { let w = ceil(removed.intrinsicContentSize.width) + 4; removed.frame = .init(x: right - w, y: y - 8, width: w, height: 16); right -= w + 4 }
-        if !added.isHidden { let w = ceil(added.intrinsicContentSize.width) + 4; added.frame = .init(x: right - w, y: y - 8, width: w, height: 16); right -= w + 6 }
-        name.frame = .init(x: icon.frame.maxX + 7, y: y - 9, width: max(20, right - icon.frame.maxX - 9), height: 18)
+        let contentX = x + (chevron.isHidden ? 20 : 33)
+        content.frame = .init(x: contentX, y: 0, width: max(0, right - 2 - contentX), height: bounds.height)
     }
     @objc private func toggle() { onToggle?(checkbox.state == .on) }
     @objc private func runQuick() { onQuick?() }
     @objc private func openMore() { onMore?() }
     @objc private func openConflict() { onConflict?() }
-    private static func symbol(_ status: FileStatus) -> String { switch status { case .added: "plus.circle.fill"; case .staged, .modified: "pencil.circle.fill"; case .deleted: "minus.circle.fill"; case .renamed: "arrow.right.circle.fill"; case .untracked: "questionmark.circle.fill"; case .conflict: "exclamationmark.triangle.fill" } }
-    private static func color(_ status: FileStatus) -> NSColor { switch status { case .added: .systemGreen; case .staged, .modified: .systemOrange; case .deleted: .systemRed; case .renamed: .systemBlue; case .untracked: .systemGray; case .conflict: .systemPurple } }
 }
