@@ -132,15 +132,22 @@ final class FileChangeRowContentView: NSView {
         let countWidth = addedWidth + removedWidth + (addedWidth > 0 ? 4 : 0)
         let countGap: CGFloat = countWidth > 0 ? 6 : 0
 
-        // Stack the visible text lines and center the block vertically.
-        let nameHeight: CGFloat = 18, subtitleHeight: CGFloat = 16, detailHeight: CGFloat = 14
+        // Stack the visible text lines and center the block vertically. Line
+        // heights follow the scaled fonts so larger text sizes are not clipped.
+        func lineHeight(_ label: NSTextField, minimum: CGFloat) -> CGFloat {
+            max(minimum, ceil(label.intrinsicContentSize.height))
+        }
+        let nameHeight = lineHeight(nameLabel, minimum: 18)
+        let subtitleHeight = lineHeight(subtitleLabel, minimum: 16)
+        let detailHeight = lineHeight(detailLabel, minimum: 14)
+        let countHeight = lineHeight(addedLabel, minimum: 16)
         let blockHeight = nameHeight + (subtitleLabel.isHidden ? 0 : subtitleHeight)
             + (detailLabel.isHidden ? 0 : detailHeight)
         let nameY = floor(midY + blockHeight / 2 - nameHeight)
         let countsY: CGFloat
         if subtitleLabel.isHidden {
             nameLabel.frame = NSRect(x: textX, y: nameY, width: max(20, textWidth - countWidth - countGap), height: nameHeight)
-            countsY = nameY + 1
+            countsY = nameY + floor((nameHeight - countHeight) / 2)
         } else {
             nameLabel.frame = NSRect(x: textX, y: nameY, width: textWidth, height: nameHeight)
             countsY = nameY - subtitleHeight
@@ -148,7 +155,7 @@ final class FileChangeRowContentView: NSView {
                                          width: max(20, textWidth - countWidth - countGap), height: subtitleHeight)
         }
         detailLabel.frame = NSRect(x: textX, y: countsY - detailHeight, width: textWidth, height: detailHeight)
-        removedLabel.frame = NSRect(x: bounds.maxX - removedWidth, y: countsY, width: removedWidth, height: 16)
-        addedLabel.frame = NSRect(x: removedLabel.frame.minX - 4 - addedWidth, y: countsY, width: addedWidth, height: 16)
+        removedLabel.frame = NSRect(x: bounds.maxX - removedWidth, y: countsY, width: removedWidth, height: countHeight)
+        addedLabel.frame = NSRect(x: removedLabel.frame.minX - 4 - addedWidth, y: countsY, width: addedWidth, height: countHeight)
     }
 }
