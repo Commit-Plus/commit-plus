@@ -110,7 +110,7 @@ struct CommitFileNativeList: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             guard rows.indices.contains(row), let model else { return 48 }
-            return (rows[row].change.oldPath == nil ? 40 : 62) * model.textScale
+            return (rows[row].change.oldPath == nil ? 40 : 56) * model.textScale
         }
 
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -194,33 +194,14 @@ private final class CommitFileTableView: NSTableView {
 }
 
 private final class CommitFileNativeCell: NSTableCellView {
-    private let icon = FileTypeIconView()
-    private let nameLabel = NSTextField(labelWithString: "")
-    private let pathLabel = NSTextField(labelWithString: "")
-    private let oldPathLabel = NSTextField(labelWithString: "")
-    private let addedLabel = NSTextField(labelWithString: "")
-    private let removedLabel = NSTextField(labelWithString: "")
-    private let statusLabel = NSTextField(labelWithString: "")
+    private let content = FileChangeRowContentView()
     private let openButton = CommitFilePointingButton()
-    private var addedWidth: CGFloat = 0
-    private var removedWidth: CGFloat = 0
     private var onOpen: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        for view in [icon, nameLabel, pathLabel, oldPathLabel, addedLabel, removedLabel, statusLabel, openButton] {
-            addSubview(view)
-        }
-        nameLabel.lineBreakMode = .byTruncatingMiddle
-        pathLabel.lineBreakMode = .byTruncatingMiddle
-        pathLabel.textColor = .tertiaryLabelColor
-        oldPathLabel.lineBreakMode = .byTruncatingMiddle
-        oldPathLabel.textColor = .secondaryLabelColor
-        addedLabel.textColor = .systemGreen
-        removedLabel.textColor = .systemRed
-        statusLabel.alignment = .center
-        statusLabel.wantsLayer = true
-        statusLabel.layer?.cornerRadius = 4
+        addSubview(content)
+        addSubview(openButton)
         openButton.isBordered = false
         openButton.image = NSImage(systemSymbolName: "arrow.up.forward.app", accessibilityDescription: "Open with application")
         openButton.target = self
@@ -235,92 +216,25 @@ private final class CommitFileNativeCell: NSTableCellView {
         self.onOpen = onOpen
         let change = row.change
         let name = URL(fileURLWithPath: change.path).lastPathComponent
-        let directory = URL(fileURLWithPath: change.path).deletingLastPathComponent().path
-        nameLabel.stringValue = name
-        nameLabel.font = .systemFont(ofSize: 12 * textScale, weight: .medium)
-        pathLabel.stringValue = directory
-        pathLabel.font = .systemFont(ofSize: 10 * textScale)
-        oldPathLabel.stringValue = change.oldPath.map { "From: \($0)" } ?? ""
-        oldPathLabel.font = .systemFont(ofSize: 9 * textScale)
-        oldPathLabel.isHidden = change.oldPath == nil
-
-        icon.configure(path: change.path, isDirectory: false, statusSymbol: Self.symbol(for: change.status),
-                       statusColor: Self.color(for: change.status), statusLabel: change.status.displayText)
-
-        let countFont = NSFont.monospacedSystemFont(ofSize: 10 * textScale, weight: .medium)
-        if let count = row.count {
-            addedLabel.font = countFont
-            removedLabel.font = countFont
-            addedLabel.stringValue = "+\(count.added)"
-            removedLabel.stringValue = "-\(count.removed)"
-            addedLabel.setAccessibilityLabel("\(count.added) lines added")
-            removedLabel.setAccessibilityLabel("\(count.removed) lines removed")
-            addedWidth = ceil(addedLabel.intrinsicContentSize.width) + 3
-            removedWidth = ceil(removedLabel.intrinsicContentSize.width) + 3
-            addedLabel.isHidden = false
-            removedLabel.isHidden = false
-        } else {
-            addedWidth = 0
-            removedWidth = 0
-            addedLabel.isHidden = true
-            removedLabel.isHidden = true
-        }
-
+        content.configure(.init(
+            path: change.path, name: name, status: change.status.changeStyle,
+            subtitle: URL(fileURLWithPath: change.path).deletingLastPathComponent().path,
+            detail: change.oldPath.map { "From: \($0)" },
+            count: row.count, textScale: textScale
+        ))
         openButton.isHidden = !showsOpenButton
         openButton.setAccessibilityLabel("Open \(name) with an application")
-        statusLabel.isHidden = showsOpenButton
-        statusLabel.stringValue = change.status.displayText
-        statusLabel.font = .systemFont(ofSize: 10 * textScale, weight: .medium)
-        statusLabel.textColor = .secondaryLabelColor
-        statusLabel.layer?.backgroundColor = Self.color(for: change.status).withAlphaComponent(0.12).cgColor
         needsLayout = true
     }
 
     override func layout() {
         super.layout()
-        let midY = bounds.midY
-        icon.frame = NSRect(x: 4, y: midY - 8, width: 16, height: 16)
-        let trailingWidth: CGFloat
-        if !openButton.isHidden {
-            openButton.frame = NSRect(x: bounds.maxX - 28, y: midY - 11, width: 24, height: 22)
-            trailingWidth = 30
-        } else {
-            let width = min(70, statusLabel.intrinsicContentSize.width + 12)
-            statusLabel.frame = NSRect(x: bounds.maxX - width - 4, y: midY - 10, width: width, height: 20)
-            trailingWidth = width + 4
-        }
-        let textX: CGFloat = 25
-        let textRight = bounds.maxX - trailingWidth
-        let countWidth = addedWidth + removedWidth + (addedWidth > 0 ? 4 : 0)
-        nameLabel.frame = NSRect(x: textX, y: midY + 1, width: max(20, textRight - textX), height: 18)
-        pathLabel.frame = NSRect(x: textX, y: midY - 16,
-                                 width: max(20, textRight - textX - countWidth - 6), height: 16)
-        addedLabel.frame = NSRect(x: pathLabel.frame.maxX + 6, y: midY - 16, width: addedWidth, height: 16)
-        removedLabel.frame = NSRect(x: addedLabel.frame.maxX + 4, y: midY - 16, width: removedWidth, height: 16)
-        oldPathLabel.frame = NSRect(x: textX, y: midY - 31, width: max(20, textRight - textX), height: 14)
+        openButton.frame = NSRect(x: bounds.maxX - 28, y: bounds.midY - 11, width: 24, height: 22)
+        let trailingWidth: CGFloat = openButton.isHidden ? 4 : 30
+        content.frame = NSRect(x: 4, y: 0, width: max(0, bounds.maxX - trailingWidth - 4), height: bounds.height)
     }
 
     @objc private func openFile() { onOpen?() }
-
-    private static func symbol(for status: CommitFileStatus) -> String {
-        switch status {
-        case .added: "plus.circle.fill"
-        case .modified: "pencil.circle.fill"
-        case .deleted: "minus.circle.fill"
-        case .renamed: "arrow.right.circle.fill"
-        case .copied: "doc.on.doc.fill"
-        }
-    }
-
-    private static func color(for status: CommitFileStatus) -> NSColor {
-        switch status {
-        case .added: .systemGreen
-        case .modified: .systemOrange
-        case .deleted: .systemRed
-        case .renamed: .systemBlue
-        case .copied: .systemPurple
-        }
-    }
 }
 
 private final class CommitFilePointingButton: NSButton {

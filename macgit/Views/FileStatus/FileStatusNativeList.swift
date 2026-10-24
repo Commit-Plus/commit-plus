@@ -316,16 +316,10 @@ private final class FileStatusNativeRowView: NSTableRowView {
 private final class FileStatusNativeCell: NSTableCellView {
     let moreButton = FileStatusPointingButton()
     private let checkbox = FileStatusPointingButton(checkboxWithTitle: "", target: nil, action: nil)
-    private let icon = FileTypeIconView()
-    private let nameLabel = NSTextField(labelWithString: "")
-    private let pathLabel = NSTextField(labelWithString: "")
-    private let addedCountLabel = NSTextField(labelWithString: "")
-    private let removedCountLabel = NSTextField(labelWithString: "")
+    private let content = FileChangeRowContentView()
     private let lfsLabel = NSTextField(labelWithString: "LFS")
     private let conflictButton = FileStatusPointingButton()
     private let quickButton = FileStatusPointingButton()
-    private var addedCountWidth: CGFloat = 0
-    private var removedCountWidth: CGFloat = 0
     private var onToggle: ((Bool) -> Void)?
     private var onQuick: (() -> Void)?
     private var onMore: (() -> Void)?
@@ -333,8 +327,7 @@ private final class FileStatusNativeCell: NSTableCellView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        for view in [checkbox, icon, nameLabel, pathLabel, addedCountLabel, removedCountLabel,
-                     lfsLabel, conflictButton, quickButton, moreButton] {
+        for view in [checkbox, content, lfsLabel, conflictButton, quickButton, moreButton] {
             addSubview(view)
         }
         checkbox.setButtonType(.switch)
@@ -342,15 +335,6 @@ private final class FileStatusNativeCell: NSTableCellView {
         checkbox.controlSize = .small
         checkbox.target = self
         checkbox.action = #selector(toggleSelection)
-        nameLabel.lineBreakMode = .byTruncatingMiddle
-        pathLabel.lineBreakMode = .byTruncatingMiddle
-        pathLabel.textColor = .tertiaryLabelColor
-        for label in [addedCountLabel, removedCountLabel] {
-            label.lineBreakMode = .byClipping
-            label.maximumNumberOfLines = 1
-        }
-        addedCountLabel.textColor = .systemGreen
-        removedCountLabel.textColor = .systemRed
         lfsLabel.alignment = .center
         lfsLabel.textColor = .secondaryLabelColor
         lfsLabel.wantsLayer = true
@@ -383,33 +367,12 @@ private final class FileStatusNativeCell: NSTableCellView {
         self.onPotentialConflict = onPotentialConflict
         checkbox.state = row.isActionSelected ? .on : .off
         checkbox.setAccessibilityLabel("Select \(row.file.displayName)")
-        nameLabel.stringValue = row.file.displayName
-        nameLabel.font = .systemFont(ofSize: 13 * textScale, weight: .medium)
-        pathLabel.stringValue = row.file.originalPath.map { "\($0) → \(row.file.path)" } ?? row.file.directory
-        pathLabel.font = .systemFont(ofSize: 10 * textScale)
-        pathLabel.textColor = row.file.originalPath == nil ? .tertiaryLabelColor : .secondaryLabelColor
-        icon.configure(path: row.file.path, isDirectory: false, statusSymbol: Self.iconName(for: row.file),
-                       statusColor: Self.color(for: row.file), statusLabel: row.file.status.rawValue.capitalized)
-        if let count = row.count {
-            let font = NSFont.monospacedSystemFont(ofSize: 10 * textScale, weight: .medium)
-            addedCountLabel.font = font
-            removedCountLabel.font = font
-            addedCountLabel.stringValue = "+\(count.added)"
-            removedCountLabel.stringValue = "-\(count.removed)"
-            // AppKit's intrinsic width can end on the final glyph's antialiased edge.
-            // Keep a small trailing allowance so the last digit is never clipped.
-            addedCountWidth = ceil(addedCountLabel.intrinsicContentSize.width) + 3
-            removedCountWidth = ceil(removedCountLabel.intrinsicContentSize.width) + 3
-            addedCountLabel.setAccessibilityLabel("\(count.added) lines added")
-            removedCountLabel.setAccessibilityLabel("\(count.removed) lines removed")
-            addedCountLabel.isHidden = false
-            removedCountLabel.isHidden = false
-        } else {
-            addedCountWidth = 0
-            removedCountWidth = 0
-            addedCountLabel.isHidden = true
-            removedCountLabel.isHidden = true
-        }
+        content.configure(.init(
+            path: row.file.path, name: row.file.displayName, status: row.file.status.changeStyle,
+            subtitle: row.file.originalPath.map { "\($0) → \(row.file.path)" } ?? row.file.directory,
+            subtitleEmphasized: row.file.originalPath != nil,
+            count: row.count, nameFontSize: 13, textScale: textScale
+        ))
         lfsLabel.isHidden = !row.isLFS
         lfsLabel.layer?.borderColor = NSColor.separatorColor.cgColor
         conflictButton.isHidden = !row.isPotentialConflict
@@ -421,7 +384,6 @@ private final class FileStatusNativeCell: NSTableCellView {
         )
         quickButton.toolTip = isStaged ? "Unstage" : "Stage"
         quickButton.setAccessibilityLabel(isStaged ? "Unstage" : "Stage")
-        // Counts arrive asynchronously and change the manually laid out widths.
         needsLayout = true
     }
 
@@ -429,7 +391,6 @@ private final class FileStatusNativeCell: NSTableCellView {
         super.layout()
         let midY = bounds.midY
         checkbox.frame = NSRect(x: 5, y: midY - 9, width: 18, height: 18)
-        icon.frame = NSRect(x: 27, y: midY - 8, width: 16, height: 16)
         moreButton.frame = NSRect(x: bounds.maxX - 24, y: midY - 11, width: 22, height: 22)
         quickButton.frame = NSRect(x: moreButton.frame.minX - 22, y: midY - 11, width: 22, height: 22)
         var accessoryX = quickButton.frame.minX
@@ -441,52 +402,13 @@ private final class FileStatusNativeCell: NSTableCellView {
             accessoryX -= 34
             lfsLabel.frame = NSRect(x: accessoryX, y: midY - 9, width: 30, height: 18)
         }
-        let textX: CGFloat = 48
-        let textWidth = max(20, accessoryX - textX - 4)
-        nameLabel.frame = NSRect(x: textX, y: midY, width: textWidth, height: 18)
-        let countWidth = addedCountWidth + removedCountWidth + (addedCountWidth > 0 ? 4 : 0)
-        pathLabel.frame = NSRect(x: textX, y: midY - 17, width: max(20, textWidth - countWidth - 6), height: 16)
-        addedCountLabel.frame = NSRect(
-            x: pathLabel.frame.maxX + 6,
-            y: midY - 17,
-            width: addedCountWidth,
-            height: 16
-        )
-        removedCountLabel.frame = NSRect(
-            x: addedCountLabel.frame.maxX + 4,
-            y: midY - 17,
-            width: removedCountWidth,
-            height: 16
-        )
+        content.frame = NSRect(x: 27, y: 0, width: max(0, accessoryX - 4 - 27), height: bounds.height)
     }
 
     @objc private func toggleSelection() { onToggle?(checkbox.state == .on) }
     @objc private func runQuickAction() { onQuick?() }
     @objc private func openMoreMenu() { onMore?() }
     @objc private func openPotentialConflict() { onPotentialConflict?() }
-
-    private static func iconName(for file: StatusFile) -> String {
-        switch file.status {
-        case .added: "plus.circle.fill"
-        case .modified: "pencil.circle.fill"
-        case .deleted: "minus.circle.fill"
-        case .renamed: "arrow.right.circle.fill"
-        case .untracked: "questionmark.circle.fill"
-        case .conflict: "exclamationmark.triangle.fill"
-        case .staged: "pencil.circle.fill"
-        }
-    }
-
-    private static func color(for file: StatusFile) -> NSColor {
-        switch file.status {
-        case .added: .systemGreen
-        case .staged, .modified: .systemOrange
-        case .deleted: .systemRed
-        case .renamed: .systemBlue
-        case .untracked: .systemGray
-        case .conflict: .systemPurple
-        }
-    }
 }
 
 private final class FileStatusPointingButton: NSButton {
