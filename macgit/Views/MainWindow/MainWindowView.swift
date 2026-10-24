@@ -190,6 +190,7 @@ struct MainWindowView: View {
     @State var createPullRequestWindow = CreatePullRequestWindowController()
     @State var pullRequestDetailWindow = PullRequestDetailWindowController()
     @State var selectedPullRequestID: Int?
+    @State var pullRequestDetailOpenRequestID = 0
     @State var showingRepositorySettings = false
     @State var initiallySelectGitFlowSettings = false
     @State var pendingSearchFileOpenRequest: SearchFileOpenRequest?

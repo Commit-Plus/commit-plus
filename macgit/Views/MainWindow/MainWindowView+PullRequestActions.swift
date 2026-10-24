@@ -107,13 +107,20 @@ extension MainWindowView {
             if let progressID { operationProgress.end(progressID) }
             progressID = nil
         }
+        // A newer open supersedes this one; it must not touch the window or the remote afterward.
+        pullRequestDetailOpenRequestID += 1
+        let requestID = pullRequestDetailOpenRequestID
+        func isCurrentRequest() -> Bool {
+            requestID == pullRequestDetailOpenRequestID && !Task.isCancelled
+        }
         let switchedRemote = await preparePullRequestDetail(remoteName: remoteName)
-        guard let switchedRemote else { endProgress(); return }
+        guard let switchedRemote, isCurrentRequest() else { endProgress(); return }
         if !switchedRemote,
            selectedPullRequestID == pullRequest.id,
            pullRequestDetailWindow.activateIfPresented() { endProgress(); return }
 
         let isCached = await pullRequestController.hasCachedPullRequestDetail(pullRequest)
+        guard isCurrentRequest() else { endProgress(); return }
         if isCached {
             endProgress()
         } else if progressID == nil {
@@ -126,7 +133,7 @@ extension MainWindowView {
         if !isCached {
             await pullRequestController.loadPullRequestDetail(pullRequest)
             endProgress()
-            guard selectedPullRequestID == pullRequest.id, !Task.isCancelled else { return }
+            guard isCurrentRequest(), selectedPullRequestID == pullRequest.id else { return }
         }
         pullRequestDetailWindow.show(
             title: "Pull Request #\(pullRequest.number) — \(repositoryURL.lastPathComponent)",
