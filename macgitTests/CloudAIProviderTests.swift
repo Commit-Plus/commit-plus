@@ -1239,7 +1239,7 @@ extension CloudAIProviderTests {
 
         XCTAssertEqual(
             providers.controller.connectedAccount(for: .chatGPTCodex),
-            ChatGPTAccountSummary(email: "dev@example.com", planType: "free")
+            ConnectedAIAccountSummary(email: "dev@example.com", planType: "free")
         )
         XCTAssertNil(providers.controller.connectedAccount(for: .chatGPTSubscription))
     }
@@ -1408,5 +1408,99 @@ private actor StubCloudCommitChangeSnapshotLoader: CommitChangeSnapshotLoading {
         source: CommitChangeSource
     ) async throws -> String {
         "tree-1"
+    }
+}
+
+extension CloudAIProviderTests {
+    @MainActor
+    func testCopilotIsSelectableOnlyWhenConnectedAndAvailableWithoutPro() async throws {
+        let notConnected = makeCopilotController(connectedLogin: nil)
+        await notConnected.controller.refreshAvailability()
+        let descriptor = try XCTUnwrap(notConnected.controller.descriptors.first { $0.id == .githubCopilot })
+        XCTAssertEqual(descriptor.billing, .connectedAccount)
+        XCTAssertFalse(notConnected.controller.isAPIKeyConfigured(for: .githubCopilot))
+        XCTAssertFalse(notConnected.controller.canSelect(descriptor, restrictedProviderAccess: .allowed))
+        let notConnectedMethods = await notConnected.server.methods
+        XCTAssertTrue(notConnectedMethods.isEmpty)
+
+        let connected = makeCopilotController(connectedLogin: "octocat")
+        await connected.controller.refreshAvailability()
+        XCTAssertTrue(connected.controller.isAPIKeyConfigured(for: .githubCopilot))
+        XCTAssertEqual(connected.controller.connectedAccount(for: .githubCopilot)?.username, "octocat")
+        XCTAssertTrue(connected.controller.canSelect(descriptor, restrictedProviderAccess: .denied(.requiresPro)))
+
+        await connected.server.setStatus("NotSignedIn")
+        connected.controller.invalidateAvailability()
+        await connected.controller.refreshAvailability()
+        XCTAssertTrue(connected.controller.isAPIKeyConfigured(for: .githubCopilot))
+        XCTAssertEqual(connected.controller.connectedAccount(for: .githubCopilot)?.requiresSignIn, true)
+        XCTAssertFalse(connected.controller.canSelect(descriptor, restrictedProviderAccess: .allowed))
+    }
+
+    @MainActor
+    func testCopilotDeviceCodeSignInConnectsWithoutPro() async throws {
+        let copilot = makeCopilotController(connectedLogin: nil, status: "NotSignedIn")
+
+        // The fake approves the device code as soon as the confirm request arrives.
+        copilot.controller.signIn(to: .githubCopilot, restrictedProviderAccess: .denied(.requiresPro))
+        for _ in 0..<200 where copilot.controller.signInState(for: .githubCopilot) != .idle {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertNil(copilot.controller.signInErrorMessage(for: .githubCopilot))
+        XCTAssertTrue(copilot.controller.isAPIKeyConfigured(for: .githubCopilot))
+        XCTAssertEqual(copilot.controller.connectedAccount(for: .githubCopilot)?.username, "octocat")
+        XCTAssertEqual(copilot.controller.models(forConnectedAccount: .githubCopilot).map(\.id), ["auto"])
+        let methods = await copilot.server.methods
+        XCTAssertTrue(methods.contains("signInInitiate"))
+        XCTAssertTrue(methods.contains("workspace/executeCommand"))
+    }
+
+    @MainActor
+    func testRemovingDefaultCopilotSignsOutAndFallsBackToAppleIntelligence() async throws {
+        let copilot = makeCopilotController(connectedLogin: "octocat")
+        await copilot.controller.refreshAvailability()
+        copilot.controller.selectProvider(.githubCopilot)
+        XCTAssertEqual(copilot.controller.selectedProviderID, .githubCopilot)
+
+        await copilot.controller.disconnect(.githubCopilot)
+
+        let methods = await copilot.server.methods
+        XCTAssertEqual(methods.last, "signOut")
+        XCTAssertNil(copilot.defaults.string(forKey: GitHubCopilotAccountSession.connectedLoginDefaultsKey))
+        XCTAssertNil(copilot.controller.connectedAccount(for: .githubCopilot))
+        XCTAssertFalse(copilot.controller.isAPIKeyConfigured(for: .githubCopilot))
+        XCTAssertEqual(copilot.controller.selectedProviderID, .appleIntelligence)
+    }
+
+    @MainActor
+    private func makeCopilotController(
+        connectedLogin: String?,
+        status: String = "OK"
+    ) -> (controller: AIProviderController, server: FakeCopilotServer, defaults: UserDefaults) {
+        let defaults = makeDefaults()
+        if let connectedLogin {
+            defaults.set(connectedLogin, forKey: GitHubCopilotAccountSession.connectedLoginDefaultsKey)
+        }
+        let server = FakeCopilotServer(status: status)
+        let http = ChatGPTStubHTTPClient()
+        let controller = AIProviderController(
+            registry: .live(
+                credentialStore: InMemoryAIProviderCredentialStore(),
+                modelStore: InMemoryAIProviderModelStore(),
+                httpClient: http,
+                chatGPTSession: ChatGPTAccountSession(store: InMemoryChatGPTCredentialStore(tokens: nil), httpClient: http),
+                chatGPTCodexSession: ChatGPTAccountSession(
+                    store: InMemoryChatGPTCredentialStore(tokens: nil),
+                    httpClient: http,
+                    configuration: .codex
+                ),
+                copilotSession: GitHubCopilotAccountSession(client: server, defaults: defaults)
+            ),
+            snapshotLoader: StubCloudCommitChangeSnapshotLoader(),
+            defaults: defaults,
+            restrictedProviderAccess: { .denied(.requiresPro) }
+        )
+        return (controller, server, defaults)
     }
 }

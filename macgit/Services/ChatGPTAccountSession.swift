@@ -2,10 +2,19 @@
 
 import Foundation
 
-struct ChatGPTAccountSummary: Equatable, Sendable {
+/// The signed-in account of a connected-account provider (ChatGPT or GitHub Copilot).
+struct ConnectedAIAccountSummary: Equatable, Sendable {
     var email: String?
-    /// The ChatGPT plan type, known only for the Codex flow (for example "free" or "plus").
+    /// The plan type, such as ChatGPT's "free" or "plus" (Codex flow) or Copilot's "free".
     var planType: String?
+    /// The account login when the provider has no email, such as a GitHub username.
+    var username: String?
+    /// The provider was connected on this Mac but reports that its sign-in has expired.
+    var requiresSignIn = false
+
+    var displayName: String? {
+        username ?? email
+    }
 }
 
 /// A previously registered ChatGPT account that a plain sign-in returns to.
@@ -97,9 +106,9 @@ actor ChatGPTAccountSession {
 
     // MARK: Account state
 
-    func account() -> ChatGPTAccountSummary? {
+    func account() -> ConnectedAIAccountSummary? {
         guard let tokens = try? tokens() else { return nil }
-        return ChatGPTAccountSummary(email: tokens.email, planType: tokens.planType)
+        return ConnectedAIAccountSummary(email: tokens.email, planType: tokens.planType)
     }
 
     /// The ChatGPT account ID the Codex backend expects in `ChatGPT-Account-ID`.
@@ -230,7 +239,7 @@ actor ChatGPTAccountSession {
     /// Completes the pending sign-in from the loopback callback. A callback that
     /// does not match the pending state throws `GitProviderOAuthError` and leaves
     /// the sign-in pending, so unsolicited requests are ignored.
-    func completeAuthorization(callbackURL: URL) async throws -> ChatGPTAccountSummary {
+    func completeAuthorization(callbackURL: URL) async throws -> ConnectedAIAccountSummary {
         guard let request = pending else { throw ChatGPTAuthError.noPendingSignIn }
         let callback: GitProviderOAuthCallback
         do {
@@ -344,7 +353,7 @@ actor ChatGPTAccountSession {
         planIssue = nil
         registration.email = tokens.email
         try? store.saveRegistration(registration)
-        return ChatGPTAccountSummary(email: tokens.email)
+        return ConnectedAIAccountSummary(email: tokens.email)
     }
 
     /// Exchanges the code for the Codex flow: a fixed client, no `resource`, and the
@@ -352,7 +361,7 @@ actor ChatGPTAccountSession {
     private func completeFixedClientAuthorization(
         request: PendingAuthorization,
         code: String
-    ) async throws -> ChatGPTAccountSummary {
+    ) async throws -> ConnectedAIAccountSummary {
         guard let clientID = request.clientID else { throw ChatGPTAuthError.missingClientID }
         let response = try await tokenRequest([
             ("grant_type", "authorization_code"),
@@ -403,7 +412,7 @@ actor ChatGPTAccountSession {
         cachedTokens = .some(tokens)
         refreshTask = nil
         planIssue = nil
-        return ChatGPTAccountSummary(email: tokens.email, planType: tokens.planType)
+        return ConnectedAIAccountSummary(email: tokens.email, planType: tokens.planType)
     }
 
     private static let rejectedClientErrors: Set<String> = ["invalid_client", "unauthorized_client"]

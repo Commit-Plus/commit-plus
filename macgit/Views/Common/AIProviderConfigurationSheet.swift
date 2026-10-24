@@ -2,7 +2,7 @@
 
 import SwiftUI
 
-/// Adds or edits one personal AI provider: its API key (or ChatGPT sign-in) and model.
+/// Adds or edits one personal AI provider: its API key (or ChatGPT/GitHub Copilot sign-in) and model.
 struct AIProviderConfigurationSheet: View {
     @Environment(\.dismiss) private var dismiss
     let descriptor: AIProviderDescriptor
@@ -16,6 +16,7 @@ struct AIProviderConfigurationSheet: View {
     @State private var isUsingCustomModel: Bool
     @State private var isConfirmingDisconnect = false
     @State private var didCopySignInLink = false
+    @State private var modelFallbackMessage: String?
 
     private static let customModelTag = "\u{0}custom"
 
@@ -36,7 +37,10 @@ struct AIProviderConfigurationSheet: View {
         let model = controller.model(for: descriptor) ?? ""
         _draft = State(initialValue: AIProviderConfigurationDraft(id: descriptor.id, model: model))
         let suggestions = AIProviderModelCatalog.suggestions(for: descriptor.id)
-        _isUsingCustomModel = State(initialValue: !suggestions.contains { $0.id == model })
+        // Copilot offers only the models its account lists, so it has no custom model ID.
+        _isUsingCustomModel = State(
+            initialValue: !controller.usesDeviceCodeSignIn(descriptor.id) && !suggestions.contains { $0.id == model }
+        )
     }
 
     private var modelSelection: Binding<String> {
@@ -59,6 +63,10 @@ struct AIProviderConfigurationSheet: View {
 
     private var isConnectedAccount: Bool {
         descriptor.billing == .connectedAccount
+    }
+
+    private var usesDeviceCode: Bool {
+        controller.usesDeviceCodeSignIn(descriptor.id)
     }
 
     private var modelGroups: [(group: String, options: [AIProviderModelOption])] {
@@ -118,7 +126,9 @@ struct AIProviderConfigurationSheet: View {
 
             Form {
                 Section {
-                    if isConnectedAccount {
+                    if usesDeviceCode {
+                        deviceCodeAccountContent
+                    } else if isConnectedAccount {
                         connectedAccountContent
                     } else if canConfigureKey {
                         LabeledContent("API Key") {
@@ -167,8 +177,10 @@ struct AIProviderConfigurationSheet: View {
                                     }
                                 }
                             }
-                            Divider()
-                            Text("Other…").tag(Self.customModelTag)
+                            if !usesDeviceCode {
+                                Divider()
+                                Text("Other…").tag(Self.customModelTag)
+                            }
                         }
                         .disabled(!canConfigureModel)
                     }
@@ -191,7 +203,13 @@ struct AIProviderConfigurationSheet: View {
                         }
                     }
 
-                    if canConfigureModel, !isUsingDefaultModel {
+                    if let modelFallbackMessage {
+                        Label(modelFallbackMessage, systemImage: "info.circle")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if canConfigureModel, !isUsingDefaultModel, !usesDeviceCode {
                         Button("Reset to Default Model") {
                             draft.model = descriptor.defaultModel ?? ""
                             isUsingCustomModel = !modelGroups.flatMap(\.options)
@@ -203,13 +221,33 @@ struct AIProviderConfigurationSheet: View {
                     Text("Model")
                 } footer: {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Choose a suggested model, or choose Other… to enter any model ID this provider’s API supports.")
+                        if usesDeviceCode {
+                            Text("Lists the chat models your Copilot plan includes. Auto lets GitHub choose the model.")
+                        } else {
+                            Text("Choose a suggested model, or choose Other… to enter any model ID this provider’s API supports.")
+                        }
 
                         if descriptor.id == .openRouter {
                             Text("Do not use openrouter/free.")
                                 .bold()
                             + Text(" The Free Models Router can select different models that return incompatible responses.")
                         }
+                    }
+                }
+
+                if usesDeviceCode {
+                    Section {
+                        Toggle(
+                            "Send usage telemetry to GitHub",
+                            isOn: Binding(
+                                get: { controller.isProviderTelemetryEnabled(for: descriptor.id) },
+                                set: { controller.setProviderTelemetryEnabled($0, for: descriptor.id) }
+                            )
+                        )
+                    } header: {
+                        Text("Privacy")
+                    } footer: {
+                        Text("GitHub’s Copilot language server sends usage telemetry to GitHub unless you turn it off. This choice applies right away and stays on this Mac.")
                     }
                 }
 
@@ -242,7 +280,11 @@ struct AIProviderConfigurationSheet: View {
                 return
             }
             await controller.refreshConnectedAccountModels(for: descriptor.id)
-            isUsingCustomModel = !modelGroups.flatMap(\.options).contains { $0.id == normalizedModel }
+            if usesDeviceCode {
+                applyAccountModelFallback()
+            } else {
+                isUsingCustomModel = !modelGroups.flatMap(\.options).contains { $0.id == normalizedModel }
+            }
         }
         .onDisappear {
             if isConnectedAccount { controller.cancelSignIn(to: descriptor.id) }
@@ -256,7 +298,113 @@ struct AIProviderConfigurationSheet: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("You will be signed out of \(descriptor.displayName), and its sign-in will be deleted from this Mac’s Keychain.")
+            Text(disconnectMessage)
+        }
+    }
+
+    private var disconnectMessage: String {
+        usesDeviceCode
+            ? "You will be signed out of \(descriptor.displayName) on this Mac."
+            : "You will be signed out of \(descriptor.displayName), and its sign-in will be deleted from this Mac’s Keychain."
+    }
+
+    /// A saved model the account no longer offers falls back to the account's default model.
+    private func applyAccountModelFallback() {
+        let accountModels = controller.models(forConnectedAccount: descriptor.id)
+        guard let defaultModel = accountModels.first,
+              !accountModels.contains(where: { $0.id == normalizedModel }) else { return }
+        if controller.customModelsByProviderID[descriptor.id] != nil {
+            modelFallbackMessage = "\(normalizedModel) is no longer available to this account. Using \(defaultModel.name) instead."
+        }
+        draft.model = defaultModel.id
+    }
+
+    @ViewBuilder
+    private var deviceCodeAccountContent: some View {
+        let account = controller.connectedAccount(for: descriptor.id)
+        let signInState = controller.signInState(for: descriptor.id)
+        if isConfigured, signInState == .idle {
+            LabeledContent("GitHub Account") {
+                Text(account?.displayName ?? "Connected")
+                    .textSelection(.enabled)
+            }
+            if let planType = account?.planType, !planType.isEmpty {
+                LabeledContent("Copilot Plan") {
+                    Text(planType.capitalized)
+                }
+            }
+            if account?.requiresSignIn == true {
+                HStack {
+                    Label("Sign in required", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Spacer()
+                    Button("Sign In with GitHub") {
+                        controller.signIn(to: descriptor.id, restrictedProviderAccess: restrictedProviderAccess)
+                    }
+                }
+            } else {
+                HStack {
+                    Label("Uses your GitHub Copilot plan", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Spacer()
+                    Button("Disconnect…") { isConfirmingDisconnect = true }
+                }
+                if case .unavailable(let reason) = controller.availability(for: descriptor.id) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(reason)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                        Button("Retry") { controller.retryProvider(descriptor.id) }
+                    }
+                }
+            }
+        }
+        switch signInState {
+        case .preparingDeviceCode:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Preparing GitHub sign-in…")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Cancel") { controller.cancelSignIn(to: descriptor.id) }
+            }
+        case .waitingForDeviceCode(let authorization):
+            VStack(spacing: 10) {
+                GitProviderDeviceAuthorizationView(
+                    authorization: authorization,
+                    openVerification: { controller.openDeviceVerificationPage(for: descriptor.id) },
+                    copyToPasteboard: { code in
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(code, forType: .string)
+                    },
+                    cancel: { controller.cancelSignIn(to: descriptor.id) }
+                )
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Enter this code on GitHub, then return here.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 4)
+        case .idle, .waitingForBrowser:
+            if !isConfigured {
+                HStack {
+                    Text("Sign in with GitHub to use your Copilot plan, including Copilot Free.")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Sign In with GitHub") {
+                        controller.signIn(to: descriptor.id, restrictedProviderAccess: restrictedProviderAccess)
+                    }
+                }
+            }
+        }
+        if let message = controller.signInErrorMessage(for: descriptor.id) {
+            Text(message)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -399,6 +547,9 @@ struct AIProviderConfigurationSheet: View {
     }
 
     private var accountFooterText: String {
+        if usesDeviceCode {
+            return "Uses your GitHub Copilot plan, never API billing, and counts toward its quota. GitHub’s Copilot language server handles sign-in, so Commit+ never sees or stores your token. The sign-in stays on this Mac and is never synced."
+        }
         if isConnectedAccount {
             if !canConfigureKey, isConfigured {
                 return "This ChatGPT connection requires Commit+ Pro to use. You can still disconnect it."

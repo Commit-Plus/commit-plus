@@ -42,6 +42,9 @@ enum AIProviderModelCatalog {
                 AIProviderModelOption(id: "gpt-5.6-terra", name: "GPT-5.6 Terra", group: codexModels),
                 AIProviderModelOption(id: "gpt-5.5", name: "GPT-5.5", group: codexModels),
             ]
+        case .githubCopilot:
+            // Shown until the signed-in account's model list loads.
+            [AIProviderModelOption(id: "auto", name: "Auto", group: "Available Models")]
         case .anthropic:
             [
                 AIProviderModelOption(id: "claude-haiku-5-5", name: "Claude Haiku 5.5", group: lowCost),

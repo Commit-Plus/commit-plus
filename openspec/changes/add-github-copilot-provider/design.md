@@ -81,6 +81,8 @@ An `actor CopilotLanguageServerClient` owns the server process, the JSON-RPC fra
 - **Settings → AI:** includes these providers in the Providers table and the "Add Provider…" menu.
 - **`AIProviderConfigurationSheet`:** renders an Account section with sign-in, the device code, and sign-out instead of the API key field.
 - **Gating:** `requiresProToConfigureAPIKey` stays `false` for Copilot, so no `FeatureAccessResolver` gate applies, per the proposal.
+- **Shared with ChatGPT:** the ChatGPT change landed `.connectedAccount` with browser-only, ChatGPT-typed state. Copilot reuses that state instead of adding a parallel path. The account summary and sign-in state are now `ConnectedAIAccountSummary` (adds `username` and `requiresSignIn`) and `AIProviderSignInState` (adds the device-code states). `DeviceCodeAccountAIProvider` is the seam `AIProviderController` dispatches to, beside the ChatGPT `ConnectedAccountAIProvider`.
+- **Connected marker:** Commit+ stores only the GitHub login (`ai.githubCopilot.connectedLogin`, local `UserDefaults`, never synced) to remember that Copilot was connected. Settings can then show "Sign in required" when the server's sign-in expires, and an unconnected Copilot never starts the server. Sign-out also deletes the server's isolated auth store.
 
 ### Prompting
 Copilot gets the existing prompt builders (commit message, repository chat, conflict resolution) as single-turn conversations. `supportsRepositoryAgent` is `false`, so agent features use the app's existing "provider does not support the agent" path. `inputCharacterBudget` is set conservatively, because Copilot model context differs by plan.

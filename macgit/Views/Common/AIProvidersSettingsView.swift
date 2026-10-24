@@ -94,7 +94,7 @@ struct AIProvidersSettingsView: View {
             } header: {
                 Text("Providers")
             } footer: {
-                Text("Use your own API key with a supported provider, or connect your ChatGPT plan. Credentials are stored in this Mac’s Keychain.")
+                Text("Use your own API key with a supported provider, or connect your ChatGPT plan or GitHub Copilot account. Credentials stay on this Mac and are never synced.")
             }
         }
         .formStyle(.grouped)
@@ -120,7 +120,9 @@ struct AIProvidersSettingsView: View {
             Button("Remove", role: .destructive) { remove(descriptor) }
             Button("Cancel", role: .cancel) {}
         } message: { descriptor in
-            if descriptor.billing == .connectedAccount {
+            if controller.usesDeviceCodeSignIn(descriptor.id) {
+                Text("You will be signed out of \(descriptor.displayName) on this Mac.")
+            } else if descriptor.billing == .connectedAccount {
                 Text("You will be signed out of \(descriptor.displayName), and its sign-in will be deleted from this Mac’s Keychain.")
             } else {
                 Text("The \(descriptor.displayName) API key will be deleted from this Mac’s Keychain.")
@@ -156,7 +158,7 @@ struct AIProvidersSettingsView: View {
                         UnofficialProviderBadge()
                     }
                 }
-                Text(modelName(for: descriptor) ?? "")
+                Text(rowDetail(for: descriptor))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -164,7 +166,11 @@ struct AIProvidersSettingsView: View {
 
             Spacer()
 
-            if case .unavailable(let reason) = controller.availability(for: descriptor.id) {
+            if controller.connectedAccount(for: descriptor.id)?.requiresSignIn == true {
+                Text("Sign in required")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else if case .unavailable(let reason) = controller.availability(for: descriptor.id) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                     .help(reason)
@@ -189,9 +195,17 @@ struct AIProvidersSettingsView: View {
     }
 
     private func modelName(for descriptor: AIProviderDescriptor) -> String? {
-        controller.model(for: descriptor).map {
-            AIProviderModelCatalog.displayName(for: $0, provider: descriptor.id)
+        controller.model(for: descriptor).map { model in
+            controller.models(forConnectedAccount: descriptor.id).first { $0.id == model }?.name
+                ?? AIProviderModelCatalog.displayName(for: model, provider: descriptor.id)
         }
+    }
+
+    /// The model, preceded by the account's username for providers that sign in with one.
+    private func rowDetail(for descriptor: AIProviderDescriptor) -> String {
+        let model = modelName(for: descriptor) ?? ""
+        guard let username = controller.connectedAccount(for: descriptor.id)?.username else { return model }
+        return model.isEmpty ? username : "\(username) · \(model)"
     }
 
     /// Personal-key and connected-account providers that can be added or edited here.
