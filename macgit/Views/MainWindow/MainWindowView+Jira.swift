@@ -8,8 +8,7 @@ extension MainWindowView {
         let name = JiraBranchNameSuggester.name(key: issue.key, summary: issue.summary)
         switch target {
         case .gitFlow(let kind) where gitFlowConfiguration.isEnabled:
-            pendingGitFlowInitialTopicName = name
-            pendingGitFlowTopicKind = kind
+            pendingGitFlowStart = GitFlowStartPresentation(kind: kind, initialTopicName: name)
         case .gitFlow, .plainBranch:
             branchSheetPresentation = BranchSheetPresentation(startPoint: nil, initialBranchName: name)
         }

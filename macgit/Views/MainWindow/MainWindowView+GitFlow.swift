@@ -82,8 +82,7 @@ extension MainWindowView {
 
     func requestStartGitFlow(_ kind: GitFlowTopicKind) {
         if gitFlowConfiguration.isEnabled {
-            pendingGitFlowInitialTopicName = nil
-            pendingGitFlowTopicKind = kind
+            pendingGitFlowStart = GitFlowStartPresentation(kind: kind)
         } else {
             requestPresentGitFlowSettings()
         }

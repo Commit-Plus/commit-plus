@@ -23,3 +23,10 @@ struct BranchSheetPresentation: Identifiable {
     let startPoint: GitBranchStartPoint?
     var initialBranchName: String? = nil
 }
+
+/// Carries the initial topic name with the kind, so the sheet never reads a stale name from separate state.
+struct GitFlowStartPresentation: Identifiable {
+    let id = UUID()
+    let kind: GitFlowTopicKind
+    var initialTopicName: String? = nil
+}

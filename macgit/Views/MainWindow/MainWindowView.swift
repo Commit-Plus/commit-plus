@@ -207,8 +207,7 @@ struct MainWindowView: View {
     @State var gitFlowRecoveryIssue: GitFlowLocalStateIssue?
     @State var gitFlowConfigurationIssue: GitFlowLocalStateIssue?
     @State var didPerformInitialLoad = false
-    @State var pendingGitFlowTopicKind: GitFlowTopicKind?
-    @State var pendingGitFlowInitialTopicName: String?
+    @State var pendingGitFlowStart: GitFlowStartPresentation?
     @State var pendingGitFlowFinishPlan: RepositorySheetRequest<GitFlowTopicKind>?
     @State var gitFlowCurrentBranch = ""
     @State var gitFlowWorktreeRootURL: URL?
@@ -499,8 +498,8 @@ struct MainWindowView: View {
                     repositorySettingsWindow.close()
                 }
             }
-            .replacingSheet(item: $pendingGitFlowTopicKind) { kind in
-                startGitFlowSheet(for: kind, initialTopicName: pendingGitFlowInitialTopicName)
+            .replacingSheet(item: $pendingGitFlowStart) { presentation in
+                startGitFlowSheet(for: presentation.kind, initialTopicName: presentation.initialTopicName)
             }
             .replacingSheet(item: $pendingGitFlowFinishPlan) { request in
                 RepositorySheetLoadingView(title: "Finish \(request.input.displayName)", load: {
