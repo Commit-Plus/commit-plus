@@ -135,6 +135,8 @@ actor CopilotLanguageServerClient {
     private let clientVersion: String
     private var transport: (any CopilotLanguageServerTransport)?
     private var startTask: Task<any CopilotLanguageServerTransport, Error>?
+    /// Set in the same actor turn that sends the startup configuration.
+    private var handshakeComplete = false
     private var readerTask: Task<Void, Never>?
     private var nextID = 0
     private var pending: [Int: CheckedContinuation<CopilotJSON, Error>] = [:]
@@ -167,8 +169,8 @@ actor CopilotLanguageServerClient {
 
     func setTelemetryEnabled(_ enabled: Bool) {
         telemetryEnabled = enabled
-        // While starting, `start()` sends the current setting after the handshake.
-        guard startTask == nil, let transport else { return }
+        // Until the handshake completes, `start()` sends the current setting itself.
+        guard handshakeComplete, let transport else { return }
         try? send(Self.configurationNotification(telemetryEnabled: enabled), over: transport)
     }
 
@@ -233,6 +235,7 @@ actor CopilotLanguageServerClient {
             _ = try await send("initialize", params: initializeParams, over: transport)
             try send(.object(["jsonrpc": .string("2.0"), "method": .string("initialized"), "params": .object([:])]), over: transport)
             try send(Self.configurationNotification(telemetryEnabled: telemetryEnabled), over: transport)
+            handshakeComplete = true
         } catch {
             stop(error: error)
             throw error
@@ -253,6 +256,7 @@ actor CopilotLanguageServerClient {
     private func stop(error: Error) {
         let current = transport
         transport = nil
+        handshakeComplete = false
         liveTransport.withLock { $0 = nil }
         readerTask?.cancel()
         readerTask = nil

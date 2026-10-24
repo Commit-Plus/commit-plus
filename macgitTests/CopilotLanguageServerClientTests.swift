@@ -77,6 +77,20 @@ final class CopilotLanguageServerClientTests: XCTestCase {
         XCTAssertEqual(configuration["params"]?["settings"]?["telemetry"]?["telemetryLevel"], .string("off"))
     }
 
+    func testTelemetryChangeAfterStartupIsSent() async throws {
+        let launcher = FakeCopilotLauncher()
+        let client = CopilotLanguageServerClient(launcher: launcher)
+        _ = try await client.request("checkStatus")
+
+        await client.setTelemetryEnabled(false)
+
+        let configurations = launcher.transports[0].received.filter {
+            $0["method"]?.stringValue == "workspace/didChangeConfiguration"
+        }
+        XCTAssertEqual(configurations.count, 2)
+        XCTAssertEqual(configurations.last?["params"]?["settings"]?["telemetry"]?["telemetryLevel"], .string("off"))
+    }
+
     func testResponsesAreMatchedToRequestsOutOfOrder() async throws {
         let launcher = FakeCopilotLauncher { method, _ in
             method == "slow" || method == "fast" ? .hold : .result(.object([:]))
