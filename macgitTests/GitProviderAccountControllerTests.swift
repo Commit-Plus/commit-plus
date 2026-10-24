@@ -441,6 +441,220 @@ final class GitProviderAccountControllerTests: XCTestCase {
         XCTAssertTrue(events.values.isEmpty)
     }
 
+    func testConnectAzureDevOpsValidatesTokenAndSuppliesOrganizationCredential() async throws {
+        let events = EventRecorder()
+        let client = AzureConnectionHTTPClient(userIDs: ["azure-user-1"])
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(events: events),
+            tokenVault: FakeGitProviderTokenVault(events: events),
+            azureDevOpsAuthService: AzureDevOpsProviderAuthService(httpClient: client)
+        )
+
+        await controller.connectAzureDevOps(
+            organization: "https://dev.azure.com/Trantienthanh1998/ChatApp",
+            accessToken: " azure-pat "
+        )
+
+        XCTAssertNil(controller.errorMessage)
+        let account = try XCTUnwrap(controller.accounts.first)
+        XCTAssertEqual(account.provider, .azureDevOps)
+        XCTAssertEqual(account.hostURL.absoluteString, "https://dev.azure.com/trantienthanh1998")
+        XCTAssertEqual(account.username, "azure-user-1@example.com")
+        XCTAssertEqual(events.values, ["save-token", "save-metadata"])
+        XCTAssertEqual(client.requests.first?.url?.absoluteString, "https://dev.azure.com/trantienthanh1998/_apis/connectionData")
+
+        let resolver = controller.credentialResolver()
+        let expected = GitCredential(username: "azure-user-1@example.com", token: "azure-pat")
+        for remote in [
+            "https://Trantienthanh1998@dev.azure.com/Trantienthanh1998/ChatApp/_git/ChatApp",
+            "https://dev.azure.com/trantienthanh1998/Other%20Project/_git/Other",
+            "https://trantienthanh1998.visualstudio.com/DefaultCollection/ChatApp/_git/ChatApp",
+        ] {
+            let credential = try await resolver.credential(for: remote)
+            XCTAssertEqual(credential, expected, remote)
+        }
+        let otherOrganization = try await resolver.credential(for: "https://dev.azure.com/contoso/Web/_git/Site")
+        XCTAssertNil(otherOrganization)
+    }
+
+    func testConnectAzureDevOpsRejectedTokenSavesNothing() async {
+        let events = EventRecorder()
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(events: events),
+            tokenVault: FakeGitProviderTokenVault(events: events),
+            azureDevOpsAuthService: AzureDevOpsProviderAuthService(httpClient: AzureConnectionHTTPClient(status: 401))
+        )
+
+        await controller.connectAzureDevOps(organization: "contoso", accessToken: "expired")
+
+        XCTAssertEqual(controller.errorMessage, AzureDevOpsProviderAuthService.rejectedTokenMessage)
+        XCTAssertTrue(controller.accounts.isEmpty)
+        XCTAssertTrue(events.values.isEmpty)
+    }
+
+    func testConnectAzureDevOpsRejectsInvalidOrganizationWithoutRequest() async {
+        let client = AzureConnectionHTTPClient(userIDs: ["azure-user-1"])
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(),
+            tokenVault: FakeGitProviderTokenVault(),
+            azureDevOpsAuthService: AzureDevOpsProviderAuthService(httpClient: client)
+        )
+
+        await controller.connectAzureDevOps(organization: "https://github.com/octocat", accessToken: "azure-pat")
+
+        XCTAssertEqual(controller.errorMessage, "Enter an Azure DevOps organization name or URL.")
+        XCTAssertTrue(client.requests.isEmpty)
+    }
+
+    func testConnectAzureDevOpsRejectsDuplicateAndAllowsSecondOrganization() async {
+        let client = AzureConnectionHTTPClient(userIDs: ["azure-user-1", "azure-user-1", "azure-user-1"])
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(),
+            tokenVault: FakeGitProviderTokenVault(),
+            azureDevOpsAuthService: AzureDevOpsProviderAuthService(httpClient: client),
+            multipleAccountAccess: { .allowed }
+        )
+
+        await controller.connectAzureDevOps(organization: "contoso", accessToken: "first")
+        await controller.connectAzureDevOps(organization: "Contoso", accessToken: "again")
+
+        XCTAssertEqual(
+            controller.errorMessage,
+            GitProviderAccountAccessError.accountAlreadyConnected(username: "azure-user-1@example.com").localizedDescription
+        )
+        XCTAssertEqual(controller.accounts.count, 1)
+
+        await controller.connectAzureDevOps(organization: "fabrikam", accessToken: "second-org")
+
+        XCTAssertNil(controller.errorMessage)
+        XCTAssertEqual(
+            Set(controller.accounts.map(\.hostURL.absoluteString)),
+            ["https://dev.azure.com/contoso", "https://dev.azure.com/fabrikam"]
+        )
+    }
+
+    func testReconnectAzureDevOpsReplacesTokenForSameUserOnly() async throws {
+        let client = AzureConnectionHTTPClient(userIDs: ["azure-user-1", "azure-user-1", "azure-user-2"])
+        let vault = FakeGitProviderTokenVault()
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(),
+            tokenVault: vault,
+            azureDevOpsAuthService: AzureDevOpsProviderAuthService(httpClient: client)
+        )
+        await controller.connectAzureDevOps(organization: "contoso", accessToken: "old-token")
+        let account = try XCTUnwrap(controller.accounts.first)
+
+        await controller.connectAzureDevOps(organization: "contoso", accessToken: "new-token", replacing: account)
+
+        XCTAssertNil(controller.errorMessage)
+        XCTAssertEqual(controller.accounts.map(\.id), [account.id])
+        XCTAssertEqual(try vault.readToken(for: account)?.accessToken, "new-token")
+
+        await controller.connectAzureDevOps(organization: "contoso", accessToken: "someone-else", replacing: account)
+
+        XCTAssertEqual(controller.errorMessage, GitProviderAccountAccessError.differentAccount.localizedDescription)
+        XCTAssertEqual(try vault.readToken(for: account)?.accessToken, "new-token")
+    }
+
+    func testConnectAzureDevOpsRespectsFreeAccountLimitBeforeRequest() async {
+        let client = AzureConnectionHTTPClient(userIDs: ["azure-user-1"])
+        let existing = makeProviderAccount(macgitUID: "local-owner")
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(localAccounts: [existing]),
+            tokenVault: FakeGitProviderTokenVault(tokensByAccountID: [
+                existing.id: GitProviderToken(accessToken: "github-token", tokenType: "bearer")
+            ]),
+            azureDevOpsAuthService: AzureDevOpsProviderAuthService(httpClient: client)
+        )
+        await controller.reload()
+
+        await controller.connectAzureDevOps(organization: "contoso", accessToken: "azure-pat")
+
+        XCTAssertEqual(
+            controller.errorMessage,
+            GitProviderAccountAccessError.freeAccountLimitReached(limit: GitProviderAccountAccessPolicy.freeAccountLimit).localizedDescription
+        )
+        XCTAssertTrue(client.requests.isEmpty)
+    }
+
+    func testConnectAzureDevOpsSSHUsesOrganizationAndSuppliesKey() async throws {
+        let ssh = FakeGitProviderSSHAuthService(username: "git")
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(),
+            tokenVault: FakeGitProviderTokenVault(),
+            sshKeyStore: FakeGitProviderSSHKeyStore(),
+            sshAuthService: ssh
+        )
+        let host = GitProviderHost(kind: .azureDevOps, baseURL: AzureReposRemote.organizationURL("Trantienthanh1998"))
+
+        await controller.connectSSH(host: host, key: GitProviderSSHKey(path: "/test/id_rsa"), username: "Trantienthanh1998")
+
+        XCTAssertNil(controller.errorMessage)
+        let account = try XCTUnwrap(controller.accounts.first)
+        XCTAssertEqual(account.username, "Trantienthanh1998")
+        XCTAssertEqual(account.transportProtocol, .ssh)
+        XCTAssertEqual(ssh.requests.first?.host.kind, .azureDevOps)
+        let credential = try controller.credentialResolver()
+            .sshCredential(for: "git@ssh.dev.azure.com:v3/Trantienthanh1998/ChatApp/ChatApp")
+        XCTAssertEqual(credential, GitSSHCredential(username: "git", keyPath: "/test/id_rsa"))
+        let otherOrganization = try controller.credentialResolver()
+            .sshCredential(for: "git@ssh.dev.azure.com:v3/contoso/Web/Site")
+        XCTAssertNil(otherOrganization)
+    }
+
+    func testAzureDevOpsPATSurvivesSwitchingToSSHAndBack() async throws {
+        let vault = FakeGitProviderTokenVault()
+        let sshKeyStore = FakeGitProviderSSHKeyStore()
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(),
+            tokenVault: vault,
+            sshKeyStore: sshKeyStore,
+            sshAuthService: FakeGitProviderSSHAuthService(username: "git"),
+            azureDevOpsAuthService: AzureDevOpsProviderAuthService(httpClient: AzureConnectionHTTPClient(userIDs: ["azure-user-1"]))
+        )
+        await controller.connectAzureDevOps(organization: "Trantienthanh1998", accessToken: "azure-pat")
+        let httpsAccount = try XCTUnwrap(controller.accounts.first)
+        let host = GitProviderHost(kind: .azureDevOps, baseURL: httpsAccount.hostURL)
+
+        await controller.connectSSH(
+            host: host,
+            key: GitProviderSSHKey(path: "/test/id_rsa"),
+            username: "Trantienthanh1998",
+            replacing: httpsAccount
+        )
+        let sshAccount = try XCTUnwrap(controller.accounts.first)
+        await controller.saveConnectionSettings(account: sshAccount, transportProtocol: .ssh, sshKey: GitProviderSSHKey(path: "/test/id_rsa"))
+
+        XCTAssertNil(controller.errorMessage)
+        XCTAssertEqual(controller.accounts.map(\.id), [httpsAccount.id])
+        XCTAssertEqual(controller.accounts.first?.transportProtocol, .ssh)
+        XCTAssertEqual(controller.accounts.first?.username, httpsAccount.username)
+        XCTAssertTrue(controller.hasStoredToken(for: sshAccount))
+
+        await controller.saveConnectionSettings(account: sshAccount, transportProtocol: .https, sshKey: nil)
+
+        XCTAssertEqual(controller.accounts.first?.transportProtocol, .https)
+        XCTAssertEqual(try vault.readToken(for: httpsAccount)?.accessToken, "azure-pat")
+        let credential = try await controller.credentialResolver()
+            .credential(for: "https://Trantienthanh1998@dev.azure.com/Trantienthanh1998/ChatApp/_git/ChatApp")
+        XCTAssertEqual(credential, GitCredential(username: httpsAccount.username, token: "azure-pat"))
+    }
+
+    func testAzureDevOpsSSHOnlyAccountHasNoStoredToken() async throws {
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(),
+            tokenVault: FakeGitProviderTokenVault(),
+            sshKeyStore: FakeGitProviderSSHKeyStore(),
+            sshAuthService: FakeGitProviderSSHAuthService(username: "git")
+        )
+        let host = GitProviderHost(kind: .azureDevOps, baseURL: AzureReposRemote.organizationURL("contoso"))
+
+        await controller.connectSSH(host: host, key: GitProviderSSHKey(path: "/test/id_rsa"), username: "contoso")
+
+        let account = try XCTUnwrap(controller.accounts.first)
+        XCTAssertFalse(controller.hasStoredToken(for: account))
+    }
+
     func testTestingSSHKeyForHTTPSAccountKeepsItsIdentityAndToken() async throws {
         var existingAccount = makeProviderAccount(macgitUID: "local-owner")
         existingAccount.permissions["authentication"] = "personalAccessToken"
@@ -1190,6 +1404,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
         case .github: URL(string: "https://github.com")!
         case .gitlab: URL(string: "https://gitlab.com")!
         case .bitbucket: URL(string: "https://bitbucket.org")!
+        case .azureDevOps: URL(string: "https://dev.azure.com/contoso")!
         }
     }
 
@@ -1198,6 +1413,7 @@ final class GitProviderAccountControllerTests: XCTestCase {
         case .github: "octocat"
         case .gitlab: "tanuki"
         case .bitbucket: "Trantienthanh2412"
+        case .azureDevOps: "dev@contoso.com"
         }
     }
 
@@ -1487,5 +1703,29 @@ private final class FakeGitProviderAuthService: GitProviderAuthenticating {
         host: GitProviderHost
     ) async throws -> GitProviderAccount {
         account
+    }
+}
+
+private final class AzureConnectionHTTPClient: GitProviderHTTPClient {
+    private(set) var requests: [URLRequest] = []
+    private var userIDs: [String]
+    private let status: Int
+
+    init(userIDs: [String] = [], status: Int = 200) {
+        self.userIDs = userIDs
+        self.status = status
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        requests.append(request)
+        let userID = userIDs.isEmpty ? "unexpected" : userIDs.removeFirst()
+        let body = #"{"authenticatedUser":{"id":"\#(userID)","providerDisplayName":"Azure User","properties":{"Account":{"$value":"\#(userID)@example.com"}}}}"#
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: status,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        return (Data(body.utf8), response)
     }
 }

@@ -46,6 +46,7 @@ struct GitProviderAddAccountSheet: View {
     @State private var connectedUsername = ""
     @State private var bitbucketUsername = ""
     @State private var bitbucketAPIToken = ""
+    @State private var azureOrganization = ""
     @State private var sshKeyPath = ""
     @State private var savedProtocol: GitProviderAddAccountProtocol = .https
     @State private var savedSSHKeyPath = ""
@@ -67,7 +68,8 @@ struct GitProviderAddAccountSheet: View {
         self.showsControllerActivity = showsControllerActivity
         if let account = editingAccount {
             let publicHost = account.provider == .github ? GitProviderHost.githubDotCom : GitProviderHost.gitlabDotCom
-            _isSelfHosted = State(initialValue: account.provider != .bitbucket && account.hostURL != publicHost.baseURL)
+            _isSelfHosted = State(initialValue: account.provider != .bitbucket && account.provider != .azureDevOps
+                && account.hostURL != publicHost.baseURL)
             _serverURL = State(initialValue: account.hostURL.absoluteString)
         }
         _selectedHost = State(initialValue: editingAccount.map(GitProviderAddAccountPresentationPolicy.host(for:)) ?? .github)
@@ -77,6 +79,7 @@ struct GitProviderAddAccountSheet: View {
         _connectedAccountID = State(initialValue: editingAccount?.id)
         _connectedUsername = State(initialValue: editingAccount?.username ?? "")
         _bitbucketUsername = State(initialValue: editingAccount?.provider == .bitbucket ? editingAccount?.username ?? "" : "")
+        _azureOrganization = State(initialValue: editingAccount?.provider == .azureDevOps ? editingAccount?.hostURL.lastPathComponent ?? "" : "")
     }
 
     var body: some View {
@@ -104,10 +107,11 @@ struct GitProviderAddAccountSheet: View {
                     personalAccessToken = ""
                     bitbucketUsername = ""
                     bitbucketAPIToken = ""
-                    selectedAuthType = selectedHost == .bitbucket ? .personalAccessToken : .oauth
+                    azureOrganization = ""
+                    selectedAuthType = GitProviderAddAccountPresentationPolicy.usesTokenOnly(selectedHost) ? .personalAccessToken : .oauth
                 }
 
-                if selectedHost != .bitbucket {
+                if !GitProviderAddAccountPresentationPolicy.usesTokenOnly(selectedHost) {
                     Toggle("Self-hosted server (Pro)", isOn: $isSelfHosted)
                         .disabled(editingAccount != nil || !controller.canConnectSelfHosted)
                         .onChange(of: isSelfHosted) { _, _ in
@@ -175,6 +179,37 @@ struct GitProviderAddAccountSheet: View {
                         Button("Get API Token", action: openBitbucketAPITokenPage)
                             .buttonStyle(.link)
                     }
+                } else if selectedHost == .azureDevOps {
+                    TextField("Organization", text: $azureOrganization, prompt: Text(verbatim: "my-organization"))
+                        .disabled(editingAccount != nil)
+                        .onChange(of: azureOrganization) { _, _ in
+                            connectedUsername = ""
+                            connectedAccountID = nil
+                        }
+                    if !azureOrganization.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, azureOrganizationName == nil {
+                        Text("Enter an Azure DevOps organization name or URL.")
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        // Verbatim so the example URL is not rendered as a link that looks like an entered value.
+                        Text(verbatim: "Organization name, or a URL such as https://dev.azure.com/my-organization.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if selectedProtocol == .https {
+                        SecureField("Personal Access Token", text: $personalAccessToken)
+                        Text(hasStoredAzureToken
+                             ? "A personal access token is saved for this account. Enter a new one only to replace it."
+                             : "Requires Code (Read & Write) scope.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Get Personal Access Token", action: openAzureDevOpsTokenPage)
+                            .buttonStyle(.link)
+                    }
+                    LabeledContent("Username") {
+                        Text(GitProviderAddAccountPresentationPolicy.usernameDisplayText(for: connectedUsername))
+                            .foregroundStyle(connectedUsername.isEmpty ? .secondary : .primary)
+                    }
                 } else {
                     LabeledContent("Username") {
                         Text(GitProviderAddAccountPresentationPolicy.usernameDisplayText(for: connectedUsername))
@@ -205,6 +240,12 @@ struct GitProviderAddAccountSheet: View {
 
                             Button("Choose...", action: chooseSSHKey)
                         }
+                    }
+
+                    if selectedHost == .azureDevOps {
+                        Text("Azure DevOps accepts RSA SSH keys only. Your personal access token stays saved for switching back to HTTPS.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     Button(connectButtonTitle, action: connectAccount)
@@ -298,13 +339,29 @@ struct GitProviderAddAccountSheet: View {
     }
 
     private var configuredHost: GitProviderHost? {
-        let kind: GitProviderKind = selectedHost == .github ? .github : selectedHost == .gitlab ? .gitlab : .bitbucket
+        let kind: GitProviderKind = switch selectedHost {
+        case .github: .github
+        case .gitlab: .gitlab
+        case .bitbucket: .bitbucket
+        case .azureDevOps: .azureDevOps
+        }
         if isSelfHosted { return GitProviderHost.configured(kind: kind, value: serverURL) }
         switch kind {
         case .github: return .githubDotCom
         case .gitlab: return .gitlabDotCom
         case .bitbucket: return .bitbucketDotOrg
+        case .azureDevOps:
+            return azureOrganizationName.map { GitProviderHost(kind: .azureDevOps, baseURL: AzureReposRemote.organizationURL($0)) }
         }
+    }
+
+    private var hasStoredAzureToken: Bool {
+        guard selectedHost == .azureDevOps, let account = matchingAccount() ?? editingAccount else { return false }
+        return controller.hasStoredToken(for: account)
+    }
+
+    private var azureOrganizationName: String? {
+        AzureReposRemote.organization(fromInput: azureOrganization)
     }
 
     private var canConnect: Bool {
@@ -324,6 +381,12 @@ struct GitProviderAddAccountSheet: View {
         if usesPublicPersonalAccessToken {
             return !personalAccessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
+        if selectedHost == .azureDevOps {
+            guard azureOrganizationName != nil else { return false }
+            return selectedProtocol == .ssh
+                ? !sshKeyPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                : !personalAccessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
         guard selectedHost == .bitbucket else { return true }
         guard !bitbucketUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
@@ -336,7 +399,7 @@ struct GitProviderAddAccountSheet: View {
 
     /// GitHub.com or GitLab.com over HTTPS with a token instead of the OAuth flow.
     private var usesPublicPersonalAccessToken: Bool {
-        !isSelfHosted && selectedHost != .bitbucket && selectedProtocol == .https && selectedAuthType == .personalAccessToken
+        !isSelfHosted && !GitProviderAddAccountPresentationPolicy.usesTokenOnly(selectedHost) && selectedProtocol == .https && selectedAuthType == .personalAccessToken
     }
 
     private var connectButtonTitle: String {
@@ -348,6 +411,10 @@ struct GitProviderAddAccountSheet: View {
 
     private var canSave: Bool {
         guard isSheet || hasUnsavedChanges else { return false }
+        // An Azure account switched back to HTTPS needs a PAT on this Mac, kept from before or entered now.
+        if selectedHost == .azureDevOps, selectedProtocol == .https, !hasStoredAzureToken {
+            return false
+        }
         return (editingAccount != nil || matchingAccount() != nil || accountCreationDecision.isAllowed)
             && GitProviderAddAccountPresentationPolicy.canSave(
             connectedUsername: connectedUsername,
@@ -419,6 +486,23 @@ struct GitProviderAddAccountSheet: View {
                         if controller.errorMessage == nil {
                             bitbucketAPIToken = ""
                         }
+                    }
+                case .azureDevOps:
+                    guard let organization = azureOrganizationName, let host = configuredHost else { break }
+                    if selectedProtocol == .ssh {
+                        await controller.connectSSH(
+                            host: host,
+                            key: GitProviderSSHKey(path: sshKeyPath),
+                            username: organization,
+                            replacing: editingAccount
+                        )
+                    } else {
+                        await controller.connectAzureDevOps(
+                            organization: organization,
+                            accessToken: personalAccessToken,
+                            replacing: editingAccount
+                        )
+                        if controller.errorMessage == nil { personalAccessToken = "" }
                     }
                 }
             }
@@ -502,6 +586,13 @@ struct GitProviderAddAccountSheet: View {
         guard let url = URL(string: "https://id.atlassian.com/manage-profile/security/api-tokens") else {
             return
         }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func openAzureDevOpsTokenPage() {
+        let address = azureOrganizationName.map { "https://dev.azure.com/\($0)/_usersSettings/tokens" }
+            ?? "https://aex.dev.azure.com/"
+        guard let url = URL(string: address) else { return }
         NSWorkspace.shared.open(url)
     }
 

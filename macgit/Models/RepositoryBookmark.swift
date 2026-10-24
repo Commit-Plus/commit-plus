@@ -22,6 +22,7 @@ enum RepositoryBookmarkProvider: String, Codable {
     case github
     case gitlab
     case bitbucket
+    case azureDevOps = "azure"
     case generic
 }
 
@@ -44,6 +45,16 @@ struct RepositoryBookmarkIdentity: Equatable {
     static func resolve(remoteURLString: String) -> RepositoryBookmarkIdentity? {
         let trimmed = remoteURLString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+        if let azure = AzureReposRemote.parse(trimmed) {
+            return RepositoryBookmarkIdentity(
+                canonicalKey: "\(AzureReposRemote.host)/\(azure.organization)/\(azure.project)/\(azure.repository)".lowercased(),
+                provider: .azureDevOps,
+                host: AzureReposRemote.host,
+                ownerPath: "\(azure.organization)/\(azure.project)",
+                repositoryName: azure.repository,
+                canonicalRemoteURL: azure.canonicalURL
+            )
+        }
 
         let host: String
         let rawPath: String

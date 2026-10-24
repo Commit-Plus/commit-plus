@@ -52,7 +52,11 @@ struct GitProviderAccountRow: View {
     }
 
     private var detailDescription: String {
-        let host = account.hostURL.host() ?? account.hostURL.absoluteString
+        var host = account.hostURL.host() ?? account.hostURL.absoluteString
+        if account.provider == .azureDevOps {
+            // One Azure account per organization; show which one.
+            host += account.hostURL.path
+        }
         return "\(providerName) · \(host) · \(protocolDescription)"
     }
 
@@ -67,7 +71,11 @@ struct GitProviderAccountRow: View {
     private var protocolDescription: String {
         switch account.transportProtocol {
         case .https:
-            account.provider == .bitbucket ? "HTTPS (API Token)" : "HTTPS (OAuth)"
+            switch account.provider {
+            case .bitbucket: "HTTPS (API Token)"
+            case .azureDevOps: "HTTPS (Personal Access Token)"
+            case .github, .gitlab: "HTTPS (OAuth)"
+            }
         case .ssh:
             "SSH"
         }

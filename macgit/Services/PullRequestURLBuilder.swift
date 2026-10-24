@@ -26,11 +26,15 @@ enum PullRequestURLBuilder {
     static func build(remoteURL: String, branch: String) -> URL? {
         let trimmedBranch = branch.trimmingCharacters(in: .whitespaces)
         guard !trimmedBranch.isEmpty else { return nil }
+        if let azure = AzureReposRemote.parse(remoteURL) {
+            return azure.pullRequestCreateURL(sourceBranch: trimmedBranch)
+        }
         guard let base = normalize(remoteURL: remoteURL) else { return nil }
         return buildURL(base: base, branch: trimmedBranch)
     }
 
     static func canBuild(remoteURL: String) -> Bool {
+        if AzureReposRemote.parse(remoteURL) != nil { return true }
         guard let base = normalize(remoteURL: remoteURL) else { return false }
         return hostProvider(base.host) != nil
     }
