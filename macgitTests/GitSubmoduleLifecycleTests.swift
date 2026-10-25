@@ -214,7 +214,8 @@ final class GitSubmoduleLifecycleTests: XCTestCase {
             onRunRepositoryOperation: { _, operation in
                 Task { await operation() }
             },
-            onRunBackgroundRemoteBranchDeletion: { _ in }
+            onRunBackgroundRemoteBranchDeletion: { _ in },
+            onRunBackgroundBranchDeletion: { _ in }
         )
         view.runSubmoduleRemove(entry, force: true)
 

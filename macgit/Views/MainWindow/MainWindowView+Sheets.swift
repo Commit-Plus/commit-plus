@@ -148,7 +148,7 @@ extension MainWindowView {
             undoManager: undoManager,
             initialStartPoint: startPoint,
             initialBranchName: initialBranchName,
-            onRunBackgroundRemoteBranchDeletion: runBackgroundRemoteBranchDeletion,
+            onRunBackgroundBranchDeletion: runBackgroundBranchDeletion,
             onCommitAllChangesRequested: {
                 commitSheetCommitsAllChanges = true
                 showCommitSheetIfNoConflicts()

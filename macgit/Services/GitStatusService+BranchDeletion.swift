@@ -36,46 +36,125 @@ struct GitRemoteBranchDeletionResult: Equatable {
 }
 
 extension GitStatusService {
-    /// Deletes local branches only. Runs no network commands, so it stays fast under the blocking overlay.
+    /// Deletes local branches only and runs no network commands. Unvalidated branches are
+    /// deleted with one `git branch` call; validated (merged cleanup) branches keep their
+    /// per-branch tip checks.
     func deleteLocalBranches(
         _ request: GitLocalBranchDeletionRequest,
         validate: (@MainActor (String) async throws -> String)?,
         in repositoryURL: URL
     ) async -> (deleted: [GitDeletedLocalBranch], failures: [GitBranchDeletionFailure]) {
-        let support = GitBranchUndoSupport()
-        var deleted: [GitDeletedLocalBranch] = []
-        var failures: [GitBranchDeletionFailure] = []
-        for branch in request.branches {
-            do {
-                guard branch != request.currentBranch else {
-                    throw GitError.commandFailed("Cannot delete the currently checked out branch. Please switch to another branch first.")
-                }
-                let validatedTip = try await validate?(branch)
-                let tip = try await support.tip(of: "refs/heads/\(branch)", in: repositoryURL)
-                if let validatedTip, validatedTip != tip {
-                    throw GitError.commandFailed("The branch changed while its merge status was being verified. Refresh merge status and try again.")
-                }
-                let upstream = await support.upstream(of: branch, in: repositoryURL)
-                if let validatedTip {
-                    _ = try await deleteValidatedMergedBranch(name: branch, expectedTip: validatedTip, in: repositoryURL)
-                } else {
-                    _ = try await deleteBranch(name: branch, force: request.force, in: repositoryURL)
-                }
-                deleted.append(GitDeletedLocalBranch(
-                    name: branch,
-                    tip: tip,
-                    upstream: upstream,
-                    force: request.force,
-                    remoteTarget: request.remoteTargets[branch]
-                ))
-            } catch {
-                failures.append(GitBranchDeletionFailure(
-                    name: branch,
-                    message: Self.branchDeletionErrorMessage(error)
-                ))
+        var deleted: [String: GitDeletedLocalBranch] = [:]
+        var failures: [String: GitBranchDeletionFailure] = [:]
+        func fail(_ branch: String, _ error: Error) {
+            failures[branch] = GitBranchDeletionFailure(name: branch, message: Self.branchDeletionErrorMessage(error))
+        }
+
+        var candidates: [String] = []
+        for branch in request.branches where !candidates.contains(branch) {
+            if branch == request.currentBranch {
+                fail(branch, GitError.commandFailed("Cannot delete the currently checked out branch. Please switch to another branch first."))
+            } else {
+                candidates.append(branch)
             }
         }
-        return (deleted, failures)
+
+        let refs = await localBranchRefs(candidates, in: repositoryURL)
+        var batch: [String] = []
+        for branch in candidates {
+            guard let ref = refs[branch] else {
+                fail(branch, GitError.commandFailed("Branch '\(branch)' not found."))
+                continue
+            }
+            guard let validate else {
+                batch.append(branch)
+                continue
+            }
+            do {
+                let validatedTip = try await validate(branch)
+                let tip = try await GitBranchUndoSupport().tip(of: "refs/heads/\(branch)", in: repositoryURL)
+                guard validatedTip == tip else {
+                    throw GitError.commandFailed("The branch changed while its merge status was being verified. Refresh merge status and try again.")
+                }
+                _ = try await deleteValidatedMergedBranch(name: branch, expectedTip: validatedTip, in: repositoryURL)
+                deleted[branch] = GitDeletedLocalBranch(
+                    name: branch,
+                    tip: tip,
+                    upstream: ref.upstream,
+                    force: request.force,
+                    remoteTarget: request.remoteTargets[branch]
+                )
+            } catch {
+                fail(branch, error)
+            }
+        }
+
+        if !batch.isEmpty {
+            // `git branch -d` keeps going after a failed name, so the refs left behind
+            // tell which deletions failed and stderr explains why.
+            var errorOutput: String?
+            do {
+                _ = try await runGit(arguments: ["branch", request.force ? "-D" : "-d"] + batch, in: repositoryURL)
+            } catch {
+                errorOutput = error.localizedDescription
+            }
+            await invalidateBranchListCache(in: repositoryURL)
+            let remaining = errorOutput == nil ? [:] : await localBranchRefs(batch, in: repositoryURL)
+            for branch in batch {
+                if remaining[branch] != nil {
+                    fail(branch, GitError.commandFailed(Self.branchDeletionErrorLine(for: branch, in: errorOutput ?? "")))
+                } else if let ref = refs[branch] {
+                    deleted[branch] = GitDeletedLocalBranch(
+                        name: branch,
+                        tip: ref.tip,
+                        upstream: ref.upstream,
+                        force: request.force,
+                        remoteTarget: request.remoteTargets[branch]
+                    )
+                }
+            }
+        }
+
+        return (
+            candidates.compactMap { deleted[$0] },
+            request.branches.reduce(into: [GitBranchDeletionFailure]()) { result, branch in
+                if let failure = failures[branch], !result.contains(failure) { result.append(failure) }
+            }
+        )
+    }
+
+    /// Tips and upstreams of the given local branches in one `for-each-ref` call.
+    /// Branches that do not exist are missing from the result.
+    private func localBranchRefs(
+        _ branches: [String],
+        in repositoryURL: URL
+    ) async -> [String: (tip: String, upstream: String?)] {
+        guard !branches.isEmpty else { return [:] }
+        let wanted = Set(branches)
+        let output = (try? await runGit(
+            arguments: ["for-each-ref", "--format=%(refname)%00%(objectname)%00%(upstream:short)"]
+                + branches.map { "refs/heads/\($0)" },
+            in: repositoryURL
+        )) ?? ""
+        var refs: [String: (tip: String, upstream: String?)] = [:]
+        for line in output.split(separator: "\n") {
+            let fields = line.split(separator: "\0", omittingEmptySubsequences: false).map(String.init)
+            guard fields.count == 3, fields[0].hasPrefix("refs/heads/") else { continue }
+            // for-each-ref patterns also match refs nested under a selected name.
+            let name = String(fields[0].dropFirst("refs/heads/".count))
+            guard wanted.contains(name) else { continue }
+            refs[name] = (fields[1], fields[2].isEmpty ? nil : fields[2])
+        }
+        return refs
+    }
+
+    /// The `error:` line git printed for one branch of a multi-branch `git branch -d`.
+    nonisolated static func branchDeletionErrorLine(for branch: String, in output: String) -> String {
+        let lines = output.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        if let line = lines.first(where: { $0.hasPrefix("error:") && $0.contains("'\(branch)'") }) {
+            return String(line.dropFirst("error:".count)).trimmingCharacters(in: .whitespaces)
+        }
+        return output.isEmpty ? "Could not delete branch '\(branch)'." : output
     }
 
     /// Deletes each remote branch in order, continuing after failures.
@@ -138,12 +217,19 @@ extension GitStatusService {
         return description
     }
 
-    nonisolated static func branchDeletionSummary(deletedCount: Int, failures: [GitBranchDeletionFailure]) -> String {
-        let deletion = deletedCount == 1
-            ? "Deleted 1 selected branch."
-            : "Deleted \(deletedCount) selected branches."
-        let skipped = failures.map { "• \($0.name): \($0.message)" }.joined(separator: "\n")
-        return "\(deletion)\n\nCould not complete:\n\(skipped)"
+    /// Failure message for a background batch deletion. The first line counts failures so
+    /// the background activity summary reads as an error.
+    nonisolated static func branchDeletionFailureMessage(
+        localDeletedCount: Int,
+        localFailures: [GitBranchDeletionFailure],
+        remoteResults: [GitRemoteBranchDeletionResult]
+    ) -> String? {
+        let failures = localFailures + remoteResults.compactMap(\.failure)
+        guard !failures.isEmpty else { return nil }
+        let total = localDeletedCount + localFailures.count + remoteResults.count
+        let noun = total == 1 ? "branch" : "branches"
+        let lines = failures.map { "• \($0.name): \($0.message)" }.joined(separator: "\n")
+        return "Could not delete \(failures.count) of \(total) \(noun).\n\n\(lines)"
     }
 
     /// First line counts failures so the background activity summary reads as an error.

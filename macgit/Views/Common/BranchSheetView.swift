@@ -78,7 +78,7 @@ struct BranchSheetView: View {
     let initiallySelectedLocalBranches: Set<String>
     let localBranchFilter: Set<String>?
     let validateLocalBranchDeletion: (@MainActor (String) async throws -> String)?
-    let onRunBackgroundRemoteBranchDeletion: RemoteBranchDeletionRunner
+    let onRunBackgroundBranchDeletion: BranchDeletionRunner
     let onCommitAllChangesRequested: (() -> Void)?
 
     @State private var selectedTab: BranchTab = .create
@@ -109,7 +109,6 @@ struct BranchSheetView: View {
 
     // Confirmation overlay
     @State private var showingDeleteConfirmation = false
-    @State private var isDeleting = false
     @FocusState private var isStartPointCommitIDFocused: Bool
 
     // Alerts
@@ -126,7 +125,7 @@ struct BranchSheetView: View {
         initialForceDelete: Bool = false,
         localBranchFilter: Set<String>? = nil,
         validateLocalBranchDeletion: (@MainActor (String) async throws -> String)? = nil,
-        onRunBackgroundRemoteBranchDeletion: @escaping RemoteBranchDeletionRunner,
+        onRunBackgroundBranchDeletion: @escaping BranchDeletionRunner,
         onCommitAllChangesRequested: (() -> Void)? = nil,
         onRunRepositoryOperation: @escaping RepositoryOperationRunner = { _, operation in
             Task { await operation() }
@@ -141,7 +140,7 @@ struct BranchSheetView: View {
         self.initiallySelectedLocalBranches = initiallySelectedLocalBranches
         self.localBranchFilter = localBranchFilter
         self.validateLocalBranchDeletion = validateLocalBranchDeletion
-        self.onRunBackgroundRemoteBranchDeletion = onRunBackgroundRemoteBranchDeletion
+        self.onRunBackgroundBranchDeletion = onRunBackgroundBranchDeletion
         self.onCommitAllChangesRequested = onCommitAllChangesRequested
         self._selectedTab = State(initialValue: initialTab)
         self._forceDelete = State(initialValue: initialForceDelete)
@@ -343,21 +342,15 @@ struct BranchSheetView: View {
 
                     HStack(spacing: 12) {
                         Button("Cancel", role: .cancel) {
-                            if !isDeleting {
-                                showingDeleteConfirmation = false
-                            }
+                            showingDeleteConfirmation = false
                         }
                         .keyboardShortcut(.cancelAction)
-                        .disabled(isDeleting)
 
-                        Button(isDeleting ? "Deleting..." : "Delete") {
-                            onRunRepositoryOperation("Deleting branches...") {
-                                await deleteSelectedBranches()
-                            }
+                        Button("Delete") {
+                            deleteSelectedBranches()
                         }
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(GlassProminentButtonStyle(tint: .red, fontSize: 13))
-                        .disabled(isDeleting)
                     }
                 }
                 .padding(24)
@@ -631,11 +624,8 @@ struct BranchSheetView: View {
         }
     }
 
-    private func deleteSelectedBranches() async {
-        await MainActor.run {
-            isDeleting = true
-        }
-
+    /// Hands the deletion to the window's background lane so the window stays usable.
+    private func deleteSelectedBranches() {
         let selection = selectedBranches
         let remoteTargets: [String: RemoteBranchDeleteTarget] = deleteMatchingRemoteBranches
             ? Dictionary(
@@ -645,70 +635,21 @@ struct BranchSheetView: View {
                 uniquingKeysWith: { first, _ in first }
             )
             : [:]
-        let result = await GitStatusService.shared.deleteLocalBranches(
-            GitLocalBranchDeletionRequest(
+        onRunBackgroundBranchDeletion(GitBranchDeletionJob(
+            local: GitLocalBranchDeletionRequest(
                 branches: selection.filter { $0.type == .local }.map(\.name),
                 force: forceDelete,
                 currentBranch: currentBranch,
                 remoteTargets: remoteTargets
             ),
             validate: validateLocalBranchDeletion,
-            in: repositoryURL
-        )
-
-        // Remote targets of failed local deletes are skipped; directly selected remotes always run.
-        var pending = result.deleted.compactMap { local in
-            local.remoteTarget.map { GitPendingRemoteBranchDeletion(target: $0, localBranch: local) }
-        }
-        let pendingTargets = Set(pending.map(\.target))
-        for item in selection where item.type == .remote {
-            guard let target = RemoteBranchDeleteTarget(fullPath: item.name),
-                  !pendingTargets.contains(target) else { continue }
-            pending.append(GitPendingRemoteBranchDeletion(target: target, localBranch: nil))
-        }
-
-        let didDeleteBranch = !result.deleted.isEmpty || !pending.isEmpty
-        await MainActor.run {
-            for local in result.deleted where local.remoteTarget == nil {
-                undoManager?.register(
-                    GitBranchUndoSupport.deletedBranchUndoEntry(
-                        repositoryURL: repositoryURL,
-                        branch: local.name,
-                        force: local.force,
-                        tip: local.tip,
-                        upstream: local.upstream,
-                        remoteTarget: nil,
-                        remoteHash: nil
-                    )
-                )
-            }
-            if !pending.isEmpty {
-                onRunBackgroundRemoteBranchDeletion(pending)
-            }
-            if didDeleteBranch { onCompleted() }
-        }
-
-        guard !result.failures.isEmpty else {
-            await MainActor.run {
-                isDeleting = false
-                showingDeleteConfirmation = false
-                dismiss()
-            }
-            return
-        }
-
-        if didDeleteBranch {
-            await loadDeleteData()
-        }
-        await MainActor.run {
-            isDeleting = false
-            showingDeleteConfirmation = false
-            errorMessage = GitStatusService.branchDeletionSummary(
-                deletedCount: result.deleted.count,
-                failures: result.failures
-            )
-            showingError = true
-        }
+            remoteTargets: selection.filter { $0.type == .remote }.compactMap {
+                RemoteBranchDeleteTarget(fullPath: $0.name)
+            },
+            onDeleted: onCompleted
+        ))
+        showingDeleteConfirmation = false
+        dismiss()
     }
 
     // MARK: - Data Loading
@@ -885,5 +826,5 @@ struct BranchSheetView: View {
 }
 
 #Preview {
-    BranchSheetView(repositoryURL: URL(fileURLWithPath: "/tmp"), onRunBackgroundRemoteBranchDeletion: { _ in }) {}
+    BranchSheetView(repositoryURL: URL(fileURLWithPath: "/tmp"), onRunBackgroundBranchDeletion: { _ in }) {}
 }
