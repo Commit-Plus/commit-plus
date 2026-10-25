@@ -391,6 +391,8 @@ struct GitProviderAddAccountSheet: View {
     }
 
     private var canSave: Bool {
+        // A pending browser authorization has not connected the account Save would apply to.
+        guard !awaitsBrowserResult else { return false }
         // An Azure account switched back to HTTPS needs a PAT on this Mac, kept from before or entered now.
         if selectedHost == .azureDevOps, selectedProtocol == .https, !hasStoredAzureToken {
             return false
