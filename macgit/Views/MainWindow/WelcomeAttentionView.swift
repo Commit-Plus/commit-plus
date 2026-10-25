@@ -52,6 +52,7 @@ struct WelcomeAttentionView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     Button("Review Connection") {
+                        AppSettingsNavigation.shared.pendingAnchor = .gitProviderAccounts
                         NotificationCenter.default.post(
                             name: .showAppSettings, object: nil,
                             userInfo: ["section": AppSettingsSection.git.rawValue]

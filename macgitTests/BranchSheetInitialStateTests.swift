@@ -116,24 +116,29 @@ final class BranchSheetInitialStateTests: XCTestCase {
         ])
     }
 
-    func testDeletionSummaryReportsSuccessesAndEachFailure() {
-        let summary = GitStatusService.branchDeletionSummary(
-            deletedCount: 2,
-            failures: [
-                .init(name: "feature/stale", message: "Merge evidence could not be verified."),
-                .init(name: "origin/feature/remote", message: "The remote branch no longer exists.")
+    func testBatchDeletionFailureMessageCountsLocalAndRemoteFailures() {
+        let target = RemoteBranchDeleteTarget(remote: "origin", branch: "feature/remote")
+        let message = GitStatusService.branchDeletionFailureMessage(
+            localDeletedCount: 2,
+            localFailures: [.init(name: "feature/stale", message: "Merge evidence could not be verified.")],
+            remoteResults: [
+                GitRemoteBranchDeletionResult(
+                    pending: GitPendingRemoteBranchDeletion(target: target, localBranch: nil),
+                    remoteHash: nil,
+                    failure: .init(name: "origin/feature/remote", message: "The remote branch no longer exists.")
+                )
             ]
         )
 
         XCTAssertEqual(
-            summary,
+            message,
             """
-            Deleted 2 selected branches.
+            Could not delete 2 of 4 branches.
 
-            Could not complete:
             • feature/stale: Merge evidence could not be verified.
             • origin/feature/remote: The remote branch no longer exists.
             """
         )
+        XCTAssertNil(GitStatusService.branchDeletionFailureMessage(localDeletedCount: 3, localFailures: [], remoteResults: []))
     }
 }

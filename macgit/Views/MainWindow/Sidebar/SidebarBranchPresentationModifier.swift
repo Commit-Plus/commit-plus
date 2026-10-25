@@ -34,6 +34,7 @@ struct SidebarBranchPresentationModifier: ViewModifier {
     let onPrefixDeleteCompleted: () -> Void
     let onRunRepositoryOperation: RepositoryOperationRunner
     let onRunBackgroundRemoteBranchDeletion: RemoteBranchDeletionRunner
+    let onRunBackgroundBranchDeletion: BranchDeletionRunner
 
     func body(content: Content) -> some View {
         content
@@ -64,7 +65,7 @@ struct SidebarBranchPresentationModifier: ViewModifier {
                 branches: Set(branchesUnderPrefix(prefix).filter { $0 != currentBranch }),
                 undoManager: undoManager,
                 onRunRepositoryOperation: onRunRepositoryOperation,
-                onRunBackgroundRemoteBranchDeletion: onRunBackgroundRemoteBranchDeletion,
+                onRunBackgroundBranchDeletion: onRunBackgroundBranchDeletion,
                 onCompleted: onPrefixDeleteCompleted
             )
         case .merged(let branches):
@@ -76,7 +77,7 @@ struct SidebarBranchPresentationModifier: ViewModifier {
                 initialForceDelete: true,
                 localBranchFilter: branches,
                 validateLocalBranchDeletion: validateMergedBranchDeletion,
-                onRunBackgroundRemoteBranchDeletion: onRunBackgroundRemoteBranchDeletion,
+                onRunBackgroundBranchDeletion: onRunBackgroundBranchDeletion,
                 onRunRepositoryOperation: onRunRepositoryOperation,
                 onCompleted: onPrefixDeleteCompleted
             )
