@@ -230,6 +230,7 @@ final class AccountSessionController: ObservableObject {
     }
 
     func presentConnections() {
+        AppSettingsNavigation.shared.pendingAnchor = .gitProviderAccounts
         openSettings(.git)
     }
 
