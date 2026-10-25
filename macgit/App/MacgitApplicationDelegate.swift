@@ -35,15 +35,16 @@ final class MacgitApplicationDelegate: NSObject, NSApplicationDelegate, UNUserNo
         requests.forEach(opener)
     }
 
-    private var activateAppNotification: ((String) -> Void)?
-    private var pendingAppNotificationIDs: [String] = []
+    private var activateAppNotification: ((String, URL) -> Void)?
+    private var pendingAppNotifications: [(id: String, repositoryURL: URL)] = []
 
-    /// Opens the in-app notification mirrored by a clicked system notification.
-    func installAppNotificationActivator(_ activator: @escaping (String) -> Void) {
+    /// Opens the in-app notification mirrored by a clicked system notification, or its
+    /// repository when that notification no longer exists.
+    func installAppNotificationActivator(_ activator: @escaping (String, URL) -> Void) {
         activateAppNotification = activator
-        let ids = pendingAppNotificationIDs
-        pendingAppNotificationIDs.removeAll()
-        ids.forEach(activator)
+        let pending = pendingAppNotifications
+        pendingAppNotifications.removeAll()
+        pending.forEach { activator($0.id, $0.repositoryURL) }
     }
 
     private var activityTelemetry: AppActivityTelemetryController?
@@ -67,7 +68,8 @@ final class MacgitApplicationDelegate: NSObject, NSApplicationDelegate, UNUserNo
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .sound]
+        // The app may have become active after `deliver` checked this preference.
+        await MainActor.run { NotificationSettingsStore.shared.onlyWhenInactive } ? [] : [.banner, .sound]
     }
 
     nonisolated func userNotificationCenter(
@@ -80,15 +82,15 @@ final class MacgitApplicationDelegate: NSObject, NSApplicationDelegate, UNUserNo
         let appNotificationID = userInfo[SystemUserNotification.appNotificationIDKey] as? String
         await MainActor.run {
             NSApp.activate()
+            let repositoryURL = URL(fileURLWithPath: repositoryPath).standardizedFileURL
             if let appNotificationID {
                 if let activateAppNotification = self.activateAppNotification {
-                    activateAppNotification(appNotificationID)
+                    activateAppNotification(appNotificationID, repositoryURL)
                 } else {
-                    self.pendingAppNotificationIDs.append(appNotificationID)
+                    self.pendingAppNotifications.append((appNotificationID, repositoryURL))
                 }
                 return
             }
-            let repositoryURL = URL(fileURLWithPath: repositoryPath).standardizedFileURL
             if !OpenRepositoryRegistry.shared.isOpen(repositoryURL) {
                 let request = RepositoryWindowRequest.repository(
                     repositoryURL,

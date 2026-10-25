@@ -283,12 +283,15 @@ struct macgitApp: App {
                     applicationDelegate.installRepositoryWindowOpener { [openWindow] request in
                         openWindow(id: "main", value: request)
                     }
-                    applicationDelegate.installAppNotificationActivator { [appNotificationController] id in
+                    applicationDelegate.installAppNotificationActivator { [appNotificationController] id, repositoryURL in
                         Task {
                             await appNotificationController.load()
-                            guard let notification = appNotificationController.notifications
-                                .first(where: { $0.id == id }) else { return }
-                            openAppNotification(notification)
+                            if let notification = appNotificationController.notifications.first(where: { $0.id == id }) {
+                                openAppNotification(notification)
+                            } else {
+                                // The in-app notification was deleted; still bring up its repository.
+                                openRepository(repositoryURL, showsPullRequests: nil)
+                            }
                         }
                     }
                     applicationDelegate.installAppCloudSync { [
@@ -338,12 +341,19 @@ struct macgitApp: App {
 
     private func openAppNotification(_ notification: AppNotification) {
         appNotificationController.activate(notification)
-        let repositoryURL = notification.repositoryURL.resolvingSymlinksInPath().standardizedFileURL
+        openRepository(
+            notification.repositoryURL,
+            showsPullRequests: notification.kind == .pullRequestCreated ? true : nil
+        )
+    }
+
+    private func openRepository(_ url: URL, showsPullRequests: Bool?) {
+        let repositoryURL = url.resolvingSymlinksInPath().standardizedFileURL
         if !RepositoryWindowContext.focusRepository(at: repositoryURL) {
             openWindow(id: "main", value: RepositoryWindowRequest.repository(
                 repositoryURL,
                 shouldFitVisibleScreen: true,
-                showsPullRequests: notification.kind == .pullRequestCreated ? true : nil
+                showsPullRequests: showsPullRequests
             ))
         }
     }
