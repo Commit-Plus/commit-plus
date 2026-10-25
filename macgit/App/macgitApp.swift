@@ -111,7 +111,9 @@ struct macgitApp: App {
         _jiraConnectionController = StateObject(wrappedValue: jiraConnectionController)
         let notificationController = GitHubNotificationController(tokenVault: providerTokenVault)
         _notificationController = StateObject(wrappedValue: notificationController)
-        _appNotificationController = StateObject(wrappedValue: AppNotificationController())
+        _appNotificationController = StateObject(wrappedValue: AppNotificationController(
+            onNotificationAdded: SystemUserNotification.appNotificationAdded
+        ))
         if !FirebaseBootstrap.isRunningUnitTests { notificationController.start(provider: providerAccountController) }
         let managedUsage = CommitPlusAIUsageController()
         managedUsage.setSession(uid: accountController.account?.uid)
@@ -281,6 +283,14 @@ struct macgitApp: App {
                     applicationDelegate.installRepositoryWindowOpener { [openWindow] request in
                         openWindow(id: "main", value: request)
                     }
+                    applicationDelegate.installAppNotificationActivator { [appNotificationController] id in
+                        Task {
+                            await appNotificationController.load()
+                            guard let notification = appNotificationController.notifications
+                                .first(where: { $0.id == id }) else { return }
+                            openAppNotification(notification)
+                        }
+                    }
                     applicationDelegate.installAppCloudSync { [
                         accountController,
                         customActionStore,
@@ -326,6 +336,18 @@ struct macgitApp: App {
         }
     }
 
+    private func openAppNotification(_ notification: AppNotification) {
+        appNotificationController.activate(notification)
+        let repositoryURL = notification.repositoryURL.resolvingSymlinksInPath().standardizedFileURL
+        if !RepositoryWindowContext.focusRepository(at: repositoryURL) {
+            openWindow(id: "main", value: RepositoryWindowRequest.repository(
+                repositoryURL,
+                shouldFitVisibleScreen: true,
+                showsPullRequests: notification.kind == .pullRequestCreated ? true : nil
+            ))
+        }
+    }
+
     // MenuBarExtra uses the NSImage's intrinsic size, so size the template
     // before passing it to the native status item.
     private static let notificationMenuBarIcon: NSImage = {
@@ -346,17 +368,7 @@ struct macgitApp: App {
                     selectedAppSettingsSection = .git
                     openWindow(id: "settings")
                 },
-                onAppNotification: { notification in
-                    appNotificationController.activate(notification)
-                    let repositoryURL = notification.repositoryURL.resolvingSymlinksInPath().standardizedFileURL
-                    if !RepositoryWindowContext.focusRepository(at: repositoryURL) {
-                        openWindow(id: "main", value: RepositoryWindowRequest.repository(
-                            repositoryURL,
-                            shouldFitVisibleScreen: true,
-                            showsPullRequests: notification.kind == .pullRequestCreated ? true : nil
-                        ))
-                    }
-                },
+                onAppNotification: openAppNotification,
                 onReleaseNotes: { presentation in
                     NotificationCenter.default.post(
                         name: .showReleaseNotes,

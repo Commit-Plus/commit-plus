@@ -35,6 +35,17 @@ final class MacgitApplicationDelegate: NSObject, NSApplicationDelegate, UNUserNo
         requests.forEach(opener)
     }
 
+    private var activateAppNotification: ((String) -> Void)?
+    private var pendingAppNotificationIDs: [String] = []
+
+    /// Opens the in-app notification mirrored by a clicked system notification.
+    func installAppNotificationActivator(_ activator: @escaping (String) -> Void) {
+        activateAppNotification = activator
+        let ids = pendingAppNotificationIDs
+        pendingAppNotificationIDs.removeAll()
+        ids.forEach(activator)
+    }
+
     private var activityTelemetry: AppActivityTelemetryController?
     private var syncAppCloudData: (() async -> Void)?
     private var awaitingTerminationReply = false
@@ -63,12 +74,20 @@ final class MacgitApplicationDelegate: NSObject, NSApplicationDelegate, UNUserNo
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
+        let userInfo = response.notification.request.content.userInfo
         guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
-              let repositoryPath = response.notification.request.content.userInfo[
-                PullRequestUserNotification.repositoryPathKey
-              ] as? String else { return }
+              let repositoryPath = userInfo[SystemUserNotification.repositoryPathKey] as? String else { return }
+        let appNotificationID = userInfo[SystemUserNotification.appNotificationIDKey] as? String
         await MainActor.run {
             NSApp.activate()
+            if let appNotificationID {
+                if let activateAppNotification = self.activateAppNotification {
+                    activateAppNotification(appNotificationID)
+                } else {
+                    self.pendingAppNotificationIDs.append(appNotificationID)
+                }
+                return
+            }
             let repositoryURL = URL(fileURLWithPath: repositoryPath).standardizedFileURL
             if !OpenRepositoryRegistry.shared.isOpen(repositoryURL) {
                 let request = RepositoryWindowRequest.repository(
@@ -86,7 +105,7 @@ final class MacgitApplicationDelegate: NSObject, NSApplicationDelegate, UNUserNo
             NotificationCenter.default.post(
                 name: .openPullRequestsFromUserNotification,
                 object: nil,
-                userInfo: [PullRequestUserNotification.repositoryPathKey: repositoryPath]
+                userInfo: [SystemUserNotification.repositoryPathKey: repositoryPath]
             )
         }
     }

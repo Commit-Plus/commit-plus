@@ -191,7 +191,7 @@ extension MainWindowView {
         guard await authorizePullRequestAccess(presentNotice: false) else {
             let message = "Pull request access is unavailable for this repository."
             pullRequestController.detailErrorMessage = message
-            PullRequestUserNotification.creationFailed(message: message, repositoryURL: repositoryURL)
+            SystemUserNotification.creationFailed(message: message, repositoryURL: repositoryURL)
             return
         }
         let remoteName = pullRequestController.createDraftSeed?.remoteName
@@ -204,7 +204,7 @@ extension MainWindowView {
                         syncState.showError(detailErrorMessage)
                         pullRequestController.detailErrorMessage = nil
                     }
-                    PullRequestUserNotification.created(
+                    SystemUserNotification.created(
                         result.summary,
                         repositoryURL: repositoryURL,
                         warnings: result.warnings
@@ -217,13 +217,13 @@ extension MainWindowView {
                 )
             } else {
                 let message = pullRequestController.detailErrorMessage ?? "Could not create pull request."
-                PullRequestUserNotification.creationFailed(message: message, repositoryURL: repositoryURL)
+                SystemUserNotification.creationFailed(message: message, repositoryURL: repositoryURL)
             }
         } catch {
             await MainActor.run {
                 let message = error.localizedDescription
                 pullRequestController.detailErrorMessage = message
-                PullRequestUserNotification.creationFailed(message: message, repositoryURL: repositoryURL)
+                SystemUserNotification.creationFailed(message: message, repositoryURL: repositoryURL)
             }
         }
     }

@@ -24,6 +24,7 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
     case git
     case accounts
     case integrations
+    case notifications
     case customActions
     case aiProviders
     case update
@@ -39,6 +40,7 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         case .git: "Git"
         case .accounts: "Account"
         case .integrations: "Integrations"
+        case .notifications: "Notifications"
         case .customActions: "Custom Actions"
         case .aiProviders: "AI"
         case .update: "Update"
@@ -54,6 +56,7 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         case .git: "point.3.connected.trianglepath.dotted"
         case .accounts: "person.crop.circle"
         case .integrations: "puzzlepiece.extension"
+        case .notifications: "bell"
         case .customActions: "terminal"
         case .aiProviders: "sparkles"
         case .update: "arrow.triangle.2.circlepath"
@@ -75,6 +78,8 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
             "Manage your Commit+ account."
         case .integrations:
             "Connect Commit+ with external tools and services."
+        case .notifications:
+            "Choose which events show macOS notifications."
         case .customActions:
             "Configure reusable repository, file, and commit actions."
         case .aiProviders:

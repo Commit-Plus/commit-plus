@@ -10,13 +10,21 @@ final class AppNotificationController: ObservableObject {
 
     private let dataStore: LocalDataStore
     private let calendar: Calendar
+    /// Called once for each newly recorded daily check notification (not for pull requests,
+    /// whose creation flow reports itself).
+    private let onNotificationAdded: (AppNotification) -> Void
     private var hasLoaded = false
     private static let notificationCollection = "appNotifications"
     private static let dailyCheckCollection = "appNotificationDailyChecks"
 
-    init(dataStore: LocalDataStore? = nil, calendar: Calendar = .current) {
+    init(
+        dataStore: LocalDataStore? = nil,
+        calendar: Calendar = .current,
+        onNotificationAdded: @escaping (AppNotification) -> Void = { _ in }
+    ) {
         self.dataStore = dataStore ?? .shared
         self.calendar = calendar
+        self.onNotificationAdded = onNotificationAdded
     }
 
     var unreadCount: Int {
@@ -71,6 +79,7 @@ final class AppNotificationController: ObservableObject {
             if let inserted {
                 notifications.removeAll { $0.id == inserted.id }
                 notifications.insert(inserted, at: 0)
+                onNotificationAdded(inserted)
             }
         } catch {
             // A failed write must remain retryable on the next repository load.
