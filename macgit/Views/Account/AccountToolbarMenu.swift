@@ -67,7 +67,7 @@ struct AccountMenuContent: View {
                 }
                 .disabled(controller.isOpeningAccountOnWeb)
             case .connections:
-                Button("Connections...", action: controller.presentConnections)
+                Button("Git Provider Accounts...", action: controller.presentConnections)
             case .syncLocked:
                 Button("Sync Settings · Sign In Required") {}
                     .disabled(true)

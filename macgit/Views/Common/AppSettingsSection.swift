@@ -95,3 +95,18 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
 extension Notification.Name {
     static let showAppSettings = Notification.Name("showAppSettings")
 }
+
+/// A location inside a settings pane that an entry point can ask the pane to reveal.
+enum AppSettingsAnchor: Hashable {
+    case gitProviderAccounts
+}
+
+/// Keeps the requested anchor until its pane appears, since Settings may not be open yet.
+@MainActor @Observable
+final class AppSettingsNavigation {
+    static let shared = AppSettingsNavigation()
+
+    var pendingAnchor: AppSettingsAnchor?
+
+    private init() {}
+}

@@ -375,6 +375,7 @@ struct macgitApp: App {
                 appNotificationController: appNotificationController,
                 onConnect: {
                     NSApp.activate()
+                    AppSettingsNavigation.shared.pendingAnchor = .gitProviderAccounts
                     selectedAppSettingsSection = .git
                     openWindow(id: "settings")
                 },

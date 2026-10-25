@@ -112,6 +112,7 @@ struct SidebarView: View {
     let onRequestDragDrop: (GitDragDropRequest) -> Void
     let onRunRepositoryOperation: RepositoryOperationRunner
     let onRunBackgroundRemoteBranchDeletion: RemoteBranchDeletionRunner
+    let onRunBackgroundBranchDeletion: BranchDeletionRunner
 
     @State var branchNodes: [BranchNode] = []
     @State var sidebarDataRepositoryURL: URL?
@@ -296,7 +297,8 @@ struct SidebarView: View {
         onRunRepositoryOperation: @escaping RepositoryOperationRunner = { _, operation in
             Task { await operation() }
         },
-        onRunBackgroundRemoteBranchDeletion: @escaping RemoteBranchDeletionRunner
+        onRunBackgroundRemoteBranchDeletion: @escaping RemoteBranchDeletionRunner,
+        onRunBackgroundBranchDeletion: @escaping BranchDeletionRunner
     ) {
         self.repositoryURL = repositoryURL
         self._selection = selection
@@ -377,6 +379,7 @@ struct SidebarView: View {
         self.onRequestDragDrop = onRequestDragDrop
         self.onRunRepositoryOperation = onRunRepositoryOperation
         self.onRunBackgroundRemoteBranchDeletion = onRunBackgroundRemoteBranchDeletion
+        self.onRunBackgroundBranchDeletion = onRunBackgroundBranchDeletion
     }
 
     var body: some View {
@@ -635,7 +638,8 @@ struct SidebarView: View {
                     validateMergedBranchDeletion: validateMergedBranchDeletion,
                     onPrefixDeleteCompleted: refreshAfterBranchDeletion,
                     onRunRepositoryOperation: onRunRepositoryOperation,
-                    onRunBackgroundRemoteBranchDeletion: onRunBackgroundRemoteBranchDeletion
+                    onRunBackgroundRemoteBranchDeletion: onRunBackgroundRemoteBranchDeletion,
+                    onRunBackgroundBranchDeletion: onRunBackgroundBranchDeletion
                 )
             )
             .modifier(
@@ -869,7 +873,8 @@ struct SidebarView: View {
         onRequestMergeBranchIntoCurrent: { _ in },
         onRequestOpenWorktree: { _ in },
         onRequestOpenWorktreeInTerminal: { _ in },
-        onRunBackgroundRemoteBranchDeletion: { _ in }
+        onRunBackgroundRemoteBranchDeletion: { _ in },
+        onRunBackgroundBranchDeletion: { _ in }
     )
     .environmentObject(AppState.shared)
 }

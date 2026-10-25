@@ -99,6 +99,41 @@ final class GitBranchDeletionIntegrationTests: XCTestCase {
         XCTAssertTrue(result.failures.isEmpty)
     }
 
+    func testDeleteLocalBranchesBatchReportsMissingBranchesAndIgnoresNestedRefs() async throws {
+        let fixture = try makeFixture()
+        for branch in ["a", "b", "group/nested"] {
+            try runGit(["branch", branch], in: fixture.cloneURL)
+        }
+        let tip = try gitOutput(["rev-parse", "main"], in: fixture.cloneURL)
+
+        let result = await GitStatusService.shared.deleteLocalBranches(
+            GitLocalBranchDeletionRequest(branches: ["a", "group", "b"], force: false, currentBranch: "main", remoteTargets: [:]),
+            validate: nil,
+            in: fixture.cloneURL
+        )
+
+        XCTAssertEqual(result.deleted, [
+            GitDeletedLocalBranch(name: "a", tip: tip, upstream: nil, force: false, remoteTarget: nil),
+            GitDeletedLocalBranch(name: "b", tip: tip, upstream: nil, force: false, remoteTarget: nil)
+        ])
+        XCTAssertEqual(result.failures.map(\.name), ["group"])
+        XCTAssertTrue(refExists("refs/heads/group/nested", in: fixture.cloneURL))
+    }
+
+    func testBranchDeletionErrorLinePicksTheBranchLine() {
+        let output = """
+        error: the branch 'unmerged' is not fully merged
+        hint: If you are sure you want to delete it, run 'git branch -D unmerged'
+        error: branch 'gone' not found
+        """
+
+        XCTAssertEqual(
+            GitStatusService.branchDeletionErrorLine(for: "unmerged", in: output),
+            "the branch 'unmerged' is not fully merged"
+        )
+        XCTAssertEqual(GitStatusService.branchDeletionErrorLine(for: "gone", in: output), "branch 'gone' not found")
+    }
+
     func testDeleteLocalBranchesRejectsValidatedTipMismatch() async throws {
         let fixture = try makeFixture()
         try runGit(["branch", "stale"], in: fixture.cloneURL)

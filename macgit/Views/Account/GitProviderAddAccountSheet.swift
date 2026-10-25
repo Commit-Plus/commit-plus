@@ -40,6 +40,8 @@ struct GitProviderAddAccountSheet: View {
     @State private var connectionTask: Task<Void, Never>?
     /// This view started a GitHub or GitLab browser authorization whose account has not arrived yet.
     @State private var awaitsBrowserResult = false
+    /// The account the last connect in this sheet produced, so success can be confirmed after the token field clears.
+    @State private var lastConnectedAccountID: String?
 
     init(
         controller: GitProviderAccountController,
@@ -113,7 +115,7 @@ struct GitProviderAddAccountSheet: View {
                                 personalAccessToken = ""
                             }
                         if selectedProtocol == .https {
-                            SecureField("Personal Access Token", text: $personalAccessToken)
+                            SecureField("Personal Access Token", text: $personalAccessToken, prompt: savedTokenPrompt)
                             Text(selectedHost == .github
                                  ? "Use a token with access to the repository and required pull request permissions."
                                  : "Use a personal access token with api scope for API access and Git operations.")
@@ -137,7 +139,7 @@ struct GitProviderAddAccountSheet: View {
                     }
 
                     if usesPublicPersonalAccessToken {
-                        SecureField("Personal Access Token", text: $personalAccessToken)
+                        SecureField("Personal Access Token", text: $personalAccessToken, prompt: savedTokenPrompt)
                         Text(selectedHost == .github
                              ? "Use a token with repo scope, or a fine-grained token with Contents and Pull requests read and write access."
                              : "Use a personal access token with api scope for API access and Git operations.")
@@ -152,7 +154,7 @@ struct GitProviderAddAccountSheet: View {
                     TextField("Username", text: $bitbucketUsername)
                         .disabled(editingAccount != nil)
                     if selectedProtocol == .https {
-                        SecureField("API Token", text: $bitbucketAPIToken)
+                        SecureField("API Token", text: $bitbucketAPIToken, prompt: savedTokenPrompt)
                         Text("Requires read:repository:bitbucket and write:repository:bitbucket scopes.")
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -273,6 +275,14 @@ struct GitProviderAddAccountSheet: View {
                 Text(errorMessage)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
+            } else if let account = lastConnectedAccount, !controller.isLoading {
+                Label {
+                    Text("Connected as \(account.username). The account is saved.")
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                }
             }
 
             if editingAccount == nil,
@@ -381,6 +391,8 @@ struct GitProviderAddAccountSheet: View {
     }
 
     private var canSave: Bool {
+        // A pending browser authorization has not connected the account Save would apply to.
+        guard !awaitsBrowserResult else { return false }
         // An Azure account switched back to HTTPS needs a PAT on this Mac, kept from before or entered now.
         if selectedHost == .azureDevOps, selectedProtocol == .https, !hasStoredAzureToken {
             return false
@@ -391,6 +403,17 @@ struct GitProviderAddAccountSheet: View {
             protocol: selectedProtocol,
             sshKeyPath: sshKeyPath
         )
+    }
+
+    private var lastConnectedAccount: GitProviderAccount? {
+        guard let lastConnectedAccountID, let account = matchingAccount(), account.id == lastConnectedAccountID else { return nil }
+        return account
+    }
+
+    /// The token field clears after a successful connect; the prompt says the token was kept rather than lost.
+    private var savedTokenPrompt: Text? {
+        guard let account = lastConnectedAccount, controller.hasStoredToken(for: account) else { return nil }
+        return Text("Saved")
     }
 
     private var title: String {
@@ -492,6 +515,8 @@ struct GitProviderAddAccountSheet: View {
         let account = controller.accounts.last { $0.provider == host.kind && GitProviderHost.identityKey($0.hostURL) == GitProviderHost.identityKey(host.baseURL) }
         connectedAccountID = account?.id
         connectedUsername = account?.username ?? ""
+        // A browser authorization still in progress has not connected anything yet.
+        if !awaitsBrowserResult { lastConnectedAccountID = account?.id }
     }
 
     private func matchingAccount() -> GitProviderAccount? {
