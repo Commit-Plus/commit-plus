@@ -269,7 +269,7 @@ struct ContentView: View {
                 "macgit://session",
                 "macgit://open-repository",
                 GitProviderOAuthSession.externalEventIdentifier,
-                PullRequestUserNotification.externalEventIdentifier
+                SystemUserNotification.externalEventIdentifier
             ]
         )
         .windowDismissBehavior(

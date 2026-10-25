@@ -33,6 +33,27 @@ final class AppNotificationControllerTests: XCTestCase {
         XCTAssertEqual(reopened.notifications, controller.notifications)
     }
 
+    func testNotificationAddedFiresOnlyForNewNonEmptyDailyCheck() async throws {
+        let fixture = try LocalDataStoreTestFixture()
+        defer { fixture.cleanup() }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        var added: [AppNotification] = []
+        let controller = AppNotificationController(dataStore: fixture.store, calendar: calendar) {
+            added.append($0)
+        }
+        let repository = URL(fileURLWithPath: "/tmp/example", isDirectory: true)
+        let other = URL(fileURLWithPath: "/tmp/other", isDirectory: true)
+        let firstDay = Date(timeIntervalSince1970: 1_800_000_000)
+
+        await controller.recordDailyBranchCleanupCheck(repositoryURL: repository, branchNames: ["a"], now: firstDay)
+        await controller.recordDailyBranchCleanupCheck(repositoryURL: repository, branchNames: ["b"], now: firstDay)
+        await controller.recordDailyBranchCleanupCheck(repositoryURL: other, branchNames: [], now: firstDay)
+
+        XCTAssertEqual(added.map(\.id), controller.notifications.map(\.id))
+        XCTAssertEqual(added.count, 1)
+    }
+
     func testEmptyDailyCheckPreventsLaterInsertionUntilNextDay() async throws {
         let fixture = try LocalDataStoreTestFixture()
         defer { fixture.cleanup() }

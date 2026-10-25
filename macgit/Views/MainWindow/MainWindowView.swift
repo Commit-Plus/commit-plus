@@ -850,7 +850,7 @@ struct MainWindowView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openPullRequestsFromUserNotification)) { notification in
             guard let repositoryPath = notification.userInfo?[
-                PullRequestUserNotification.repositoryPathKey
+                SystemUserNotification.repositoryPathKey
             ] as? String,
                   URL(fileURLWithPath: repositoryPath).standardizedFileURL == repositoryURL.standardizedFileURL else {
                 return

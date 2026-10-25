@@ -49,6 +49,8 @@ struct AppSettingsDetailView: View {
             AccountSettingsView(accountController: accountController)
         case .integrations:
             IntegrationsSettingsView(appState: appState, accountController: accountController)
+        case .notifications:
+            NotificationSettingsView()
         case .customActions:
             CustomActionsSettingsView(store: customActionStore)
         case .aiProviders:

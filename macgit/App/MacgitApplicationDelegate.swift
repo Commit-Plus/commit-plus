@@ -35,6 +35,18 @@ final class MacgitApplicationDelegate: NSObject, NSApplicationDelegate, UNUserNo
         requests.forEach(opener)
     }
 
+    private var activateAppNotification: ((String, URL) -> Void)?
+    private var pendingAppNotifications: [(id: String, repositoryURL: URL)] = []
+
+    /// Opens the in-app notification mirrored by a clicked system notification, or its
+    /// repository when that notification no longer exists.
+    func installAppNotificationActivator(_ activator: @escaping (String, URL) -> Void) {
+        activateAppNotification = activator
+        let pending = pendingAppNotifications
+        pendingAppNotifications.removeAll()
+        pending.forEach { activator($0.id, $0.repositoryURL) }
+    }
+
     private var activityTelemetry: AppActivityTelemetryController?
     private var syncAppCloudData: (() async -> Void)?
     private var awaitingTerminationReply = false
@@ -56,20 +68,29 @@ final class MacgitApplicationDelegate: NSObject, NSApplicationDelegate, UNUserNo
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .sound]
+        // The app may have become active after `deliver` checked this preference.
+        await MainActor.run { NotificationSettingsStore.shared.onlyWhenInactive } ? [] : [.banner, .sound]
     }
 
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
+        let userInfo = response.notification.request.content.userInfo
         guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
-              let repositoryPath = response.notification.request.content.userInfo[
-                PullRequestUserNotification.repositoryPathKey
-              ] as? String else { return }
+              let repositoryPath = userInfo[SystemUserNotification.repositoryPathKey] as? String else { return }
+        let appNotificationID = userInfo[SystemUserNotification.appNotificationIDKey] as? String
         await MainActor.run {
             NSApp.activate()
             let repositoryURL = URL(fileURLWithPath: repositoryPath).standardizedFileURL
+            if let appNotificationID {
+                if let activateAppNotification = self.activateAppNotification {
+                    activateAppNotification(appNotificationID, repositoryURL)
+                } else {
+                    self.pendingAppNotifications.append((appNotificationID, repositoryURL))
+                }
+                return
+            }
             if !OpenRepositoryRegistry.shared.isOpen(repositoryURL) {
                 let request = RepositoryWindowRequest.repository(
                     repositoryURL,
@@ -86,7 +107,7 @@ final class MacgitApplicationDelegate: NSObject, NSApplicationDelegate, UNUserNo
             NotificationCenter.default.post(
                 name: .openPullRequestsFromUserNotification,
                 object: nil,
-                userInfo: [PullRequestUserNotification.repositoryPathKey: repositoryPath]
+                userInfo: [SystemUserNotification.repositoryPathKey: repositoryPath]
             )
         }
     }
