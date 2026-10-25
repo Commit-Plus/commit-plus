@@ -59,7 +59,7 @@ extension GitStatusService {
             }
         }
 
-        let refs = await localBranchRefs(candidates, in: repositoryURL)
+        let refs = (try? await localBranchRefs(candidates, in: repositoryURL)) ?? [:]
         var batch: [String] = []
         for branch in candidates {
             guard let ref = refs[branch] else {
@@ -99,9 +99,10 @@ extension GitStatusService {
                 errorOutput = error.localizedDescription
             }
             await invalidateBranchListCache(in: repositoryURL)
-            let remaining = errorOutput == nil ? [:] : await localBranchRefs(batch, in: repositoryURL)
+            // A failed lookup leaves the outcome unknown, so no branch is reported as deleted.
+            let remaining = errorOutput == nil ? [:] : try? await localBranchRefs(batch, in: repositoryURL)
             for branch in batch {
-                if remaining[branch] != nil {
+                if remaining == nil || remaining?[branch] != nil {
                     fail(branch, GitError.commandFailed(Self.branchDeletionErrorLine(for: branch, in: errorOutput ?? "")))
                 } else if let ref = refs[branch] {
                     deleted[branch] = GitDeletedLocalBranch(
@@ -128,14 +129,14 @@ extension GitStatusService {
     private func localBranchRefs(
         _ branches: [String],
         in repositoryURL: URL
-    ) async -> [String: (tip: String, upstream: String?)] {
+    ) async throws -> [String: (tip: String, upstream: String?)] {
         guard !branches.isEmpty else { return [:] }
         let wanted = Set(branches)
-        let output = (try? await runGit(
+        let output = try await runGit(
             arguments: ["for-each-ref", "--format=%(refname)%00%(objectname)%00%(upstream:short)"]
                 + branches.map { "refs/heads/\($0)" },
             in: repositoryURL
-        )) ?? ""
+        )
         var refs: [String: (tip: String, upstream: String?)] = [:]
         for line in output.split(separator: "\n") {
             let fields = line.split(separator: "\0", omittingEmptySubsequences: false).map(String.init)

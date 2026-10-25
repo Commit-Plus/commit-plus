@@ -277,9 +277,7 @@ struct GitProviderAddAccountSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             } else if let account = lastConnectedAccount, !controller.isLoading {
                 Label {
-                    Text(editingAccount == nil
-                         ? "Connected as \(account.username). Click Save to finish."
-                         : "Connected as \(account.username).")
+                    Text("Connected as \(account.username). The account is saved.")
                         .fixedSize(horizontal: false, vertical: true)
                 } icon: {
                     Image(systemName: "checkmark.circle.fill")
@@ -412,7 +410,8 @@ struct GitProviderAddAccountSheet: View {
 
     /// The token field clears after a successful connect; the prompt says the token was kept rather than lost.
     private var savedTokenPrompt: Text? {
-        lastConnectedAccount == nil ? nil : Text("Saved")
+        guard let account = lastConnectedAccount, controller.hasStoredToken(for: account) else { return nil }
+        return Text("Saved")
     }
 
     private var title: String {
