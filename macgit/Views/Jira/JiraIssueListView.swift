@@ -72,7 +72,7 @@ struct JiraIssueListView: View {
     }
 
     private var filterBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             if controller.supportsSprints {
                 sprintMenu
             }
@@ -81,15 +81,16 @@ struct JiraIssueListView: View {
             typeMenu
             Spacer(minLength: 0)
             if controller.isFiltered {
-                Button("Reset Filters", action: controller.resetFilters)
-                    .buttonStyle(.link)
+                Button("Reset Filters", systemImage: "xmark.circle.fill", action: controller.resetFilters)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
             }
         }
         .font(.callout.scaled(by: textScale))
         .menuStyle(.borderlessButton)
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, 16)
-        .padding(.vertical, 6)
+        .padding(.vertical, 7)
     }
 
     private var sprintMenu: some View {
@@ -109,9 +110,9 @@ struct JiraIssueListView: View {
             .pickerStyle(.inline)
             .labelsHidden()
         } label: {
-            filterLabel("Sprint", value: sprintScopeTitle)
+            filterLabel("Sprint", value: sprintScopeTitle, systemImage: "flag")
         }
-        .fixedSize()
+        .modifier(JiraFilterPill(isActive: controller.filter.sprintScope != .any))
     }
 
     private var statusMenu: some View {
@@ -122,9 +123,9 @@ struct JiraIssueListView: View {
         } label: {
             filterLabel("Status", value: summary(
                 JiraStatusCategory.allCases.filter(controller.filter.statusCategories.contains).map(\.title)
-            ))
+            ), systemImage: "circle.dashed")
         }
-        .fixedSize()
+        .modifier(JiraFilterPill(isActive: !controller.filter.statusCategories.isEmpty))
     }
 
     private var projectMenu: some View {
@@ -136,9 +137,9 @@ struct JiraIssueListView: View {
                 Toggle("\(project.key) – \(project.name)", isOn: membership(project.key, in: \.projectKeys))
             }
         } label: {
-            filterLabel("Project", value: summary(controller.filter.projectKeys.sorted()))
+            filterLabel("Project", value: summary(controller.filter.projectKeys.sorted()), systemImage: "folder")
         }
-        .fixedSize()
+        .modifier(JiraFilterPill(isActive: !controller.filter.projectKeys.isEmpty))
     }
 
     private var typeMenu: some View {
@@ -150,13 +151,13 @@ struct JiraIssueListView: View {
                 Toggle(type, isOn: membership(type, in: \.issueTypeNames))
             }
         } label: {
-            filterLabel("Type", value: summary(controller.filter.issueTypeNames.sorted()))
+            filterLabel("Type", value: summary(controller.filter.issueTypeNames.sorted()), systemImage: "square.stack")
         }
-        .fixedSize()
+        .modifier(JiraFilterPill(isActive: !controller.filter.issueTypeNames.isEmpty))
     }
 
-    private func filterLabel(_ title: String, value: String) -> some View {
-        Text("\(title): \(value)")
+    private func filterLabel(_ title: String, value: String, systemImage: String) -> some View {
+        Label("\(title): \(value)", systemImage: systemImage)
     }
 
     private func summary(_ values: [String]) -> String {
@@ -457,6 +458,23 @@ private struct JiraIssueRow: View {
             JiraStatusBadge(issue: issue)
         }
         .padding(.vertical, 3)
+    }
+}
+
+/// Capsule chrome around a filter menu; tinted while the filter narrows the results.
+private struct JiraFilterPill: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        let tint = isActive ? Color.accentColor : Color.primary
+        content
+            .fixedSize()
+            .padding(.leading, 9)
+            .padding(.trailing, 7)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(tint.opacity(isActive ? 0.12 : 0.05)))
+            .overlay(Capsule().strokeBorder(tint.opacity(isActive ? 0.35 : 0.12), lineWidth: 0.5))
+            .contentShape(Capsule())
     }
 }
 
