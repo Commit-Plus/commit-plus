@@ -714,6 +714,7 @@ struct RepositorySettingsSheetView: View {
         case .add:
             do {
                 try await GitStatusService.shared.addRemote(name: name, url: url, in: repositoryURL)
+                await notifyRemotesChanged()
                 await loadOptions()
                 await MainActor.run {
                     selectedRemoteName = name
@@ -724,6 +725,7 @@ struct RepositorySettingsSheetView: View {
         case .edit(let oldName, _):
             do {
                 try await GitStatusService.shared.setRemoteURL(name: oldName, url: url, in: repositoryURL)
+                await notifyRemotesChanged()
                 await loadOptions()
             } catch {
                 // Silently handle for now
@@ -735,10 +737,22 @@ struct RepositorySettingsSheetView: View {
         guard !name.isEmpty else { return }
         do {
             try await GitStatusService.shared.removeRemote(name: name, in: repositoryURL)
+            await notifyRemotesChanged()
             await loadOptions()
         } catch {
             // Silently handle for now
         }
+    }
+
+    /// Remote edits apply to the repository immediately, so the sidebar and
+    /// branch menus must reload their remote list without waiting for Save.
+    @MainActor
+    private func notifyRemotesChanged() {
+        NotificationCenter.default.post(
+            name: .repositoryRemoteRefsDidRefresh,
+            object: nil,
+            userInfo: ["repositoryURL": repositoryURL, "userInitiated": true]
+        )
     }
 
     private func binding<Value>(_ keyPath: WritableKeyPath<RepositorySettingsDraft, Value>) -> Binding<Value> {

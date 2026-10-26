@@ -109,9 +109,7 @@ struct RepositoryActivityHeaderButton: View {
     private var indicator: some View {
         switch indicatorState {
         case .idle:
-            Image(providerIconName)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
+            RepositoryProviderIcon(name: providerIconName)
         case .running:
             ProgressView()
                 .controlSize(.small)
