@@ -270,7 +270,10 @@ nonisolated private final class GitProcessExecution: @unchecked Sendable {
 actor GitStatusService {
     static let shared = GitStatusService()
 
+    static let credentialHelperFallbackKey = "git.credentialHelperFallback"
+
     private let runner: (any GitCommandRunning)?
+    let userDefaults: UserDefaults
     let runtimeManager: GitRuntimeManager
     let lfsRuntime: GitLFSRuntime
     let branchListCache = BranchListCache()
@@ -281,10 +284,12 @@ actor GitStatusService {
 
     init(
         runner: (any GitCommandRunning)? = nil,
+        userDefaults: UserDefaults = .standard,
         runtimeManager: GitRuntimeManager = .shared,
         lfsRuntime: GitLFSRuntime = .shared
     ) {
         self.runner = runner
+        self.userDefaults = userDefaults
         self.runtimeManager = runtimeManager
         self.lfsRuntime = lfsRuntime
     }

@@ -24,14 +24,69 @@ extension GitStatusService {
         in repositoryURL: URL,
         injection: GitCredentialInjection?
     ) async throws -> String {
-        if let injection {
+        guard let injection else {
+            return try await runGit(arguments: arguments, in: repositoryURL)
+        }
+        do {
             return try await runGit(
                 arguments: arguments,
                 in: repositoryURL,
                 environment: injection.environment
             )
+        } catch {
+            guard let host = injection.connectedAccountHost,
+                  Self.isRemoteAuthenticationRejection(error.localizedDescription) else {
+                throw error
+            }
+            guard userDefaults.object(forKey: Self.credentialHelperFallbackKey) as? Bool ?? true else {
+                throw GitError.commandFailed(
+                    error.localizedDescription + "\n\n" + Self.connectedAccountAccessHint(host: host, fallbackEnabled: false)
+                )
+            }
+            // Git rejects credentials before transferring anything, so retrying with the user's own helpers is safe.
+            do {
+                return try await runGit(
+                    arguments: arguments,
+                    in: repositoryURL,
+                    environment: GitCredentialInjection.configuredGitHelpers().environment
+                )
+            } catch let fallbackError {
+                guard Self.isRemoteAuthenticationRejection(fallbackError.localizedDescription) else {
+                    throw fallbackError
+                }
+                throw GitError.commandFailed(
+                    fallbackError.localizedDescription + "\n\n" + Self.connectedAccountAccessHint(host: host, fallbackEnabled: true)
+                )
+            }
         }
-        return try await runGit(arguments: arguments, in: repositoryURL)
+    }
+
+    nonisolated static func isRemoteAuthenticationRejection(_ message: String) -> Bool {
+        let lowercased = message.lowercased()
+        return [
+            "repository not found",
+            "authentication failed",
+            "invalid username or password",
+            "terminal prompts disabled",
+            "could not read username",
+            "the requested url returned error: 401",
+            "the requested url returned error: 403",
+            "permission to ",
+        ].contains { lowercased.contains($0) }
+    }
+
+    nonisolated static func connectedAccountAccessHint(host: String, fallbackEnabled: Bool) -> String {
+        var hint = fallbackEnabled
+            ? "Commit+ tried your connected \(host) account and your Git credential helpers, but neither can access this repository. "
+            : "Commit+ used your connected \(host) account, which cannot access this repository. "
+        hint += "If it is private, check that the connected account has access to it."
+        if host.lowercased() == "github.com" {
+            hint += " For organization repositories, the organization may restrict third-party apps: open GitHub Settings → Applications → Authorized OAuth Apps → Commit+, then grant or request access for the organization."
+        }
+        if !fallbackEnabled {
+            hint += "\n\nTo retry with your Git credential helpers (such as GitHub CLI or macOS Keychain), turn on “Fall back to Git credential helpers” in Settings → Git."
+        }
+        return hint
     }
 
     func credentialInjection(
@@ -62,6 +117,7 @@ extension GitStatusService {
         if case .https = credential, let url = URLComponents(string: remoteURLString), let host = url.host {
             result.environment["MACGIT_GIT_CREDENTIAL_HOST"] = host + (url.port.map { ":\($0)" } ?? "")
             result.environment["MACGIT_GIT_CREDENTIAL_SCHEME"] = url.scheme ?? "https"
+            result.connectedAccountHost = host
         }
         return result
     }

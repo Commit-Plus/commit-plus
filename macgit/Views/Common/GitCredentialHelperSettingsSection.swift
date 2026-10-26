@@ -4,6 +4,7 @@ import SwiftUI
 
 struct GitCredentialHelperSettingsSection: View {
     @Bindable var viewModel: GitSettingsViewModel
+    @AppStorage(GitStatusService.credentialHelperFallbackKey) private var fallsBackWhenAccountIsRejected = true
 
     var body: some View {
         Section {
@@ -22,6 +23,19 @@ struct GitCredentialHelperSettingsSection: View {
                 }
             }
             .disabled(viewModel.isBusy)
+
+            Toggle(isOn: $fallsBackWhenAccountIsRejected) {
+                Text("Fall back to Git credential helpers")
+                Text("Retry with your Git credential helpers when a connected account is rejected, for example when it cannot access a private repository.")
+            }
+
+            if fallsBackWhenAccountIsRejected {
+                Label(
+                    "Fallback uses whatever account your Git helpers are signed in to, such as the global GitHub CLI (gh) login. Pushes and other remote actions may then run as a different username than your Commit+ connected account.",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .foregroundStyle(.orange)
+            }
 
             if viewModel.credentialHelperMode == .preserveExisting {
                 LabeledContent("Configured Helpers") {

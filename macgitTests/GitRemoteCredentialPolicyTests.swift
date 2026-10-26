@@ -35,6 +35,146 @@ final class GitRemoteCredentialPolicyTests: XCTestCase {
         }
     }
 
+    func testRejectedConnectedAccountFallsBackToConfiguredHelpers() async throws {
+        let runner = RejectingAccountRunner(fallbackError: nil)
+        let service = GitStatusService(runner: runner, userDefaults: fallbackDefaults(enabled: true))
+        let injection = connectedAccountInjection()
+
+        let output = try await service.runRemoteGit(
+            arguments: ["fetch", "origin"],
+            in: URL(fileURLWithPath: "/tmp/credential-fallback-repository"),
+            injection: injection
+        )
+
+        XCTAssertEqual(output, "fallback")
+        let environments = await runner.recordedEnvironments()
+        XCTAssertEqual(environments.count, 2)
+        XCTAssertEqual(environments[0]["GIT_ASKPASS"], "/tmp/askpass")
+        XCTAssertEqual(environments[1]["GIT_ASKPASS"], "")
+        XCTAssertEqual(environments[1]["GIT_TERMINAL_PROMPT"], "0")
+    }
+
+    func testRejectedFallbackAddsAccessHint() async throws {
+        let runner = RejectingAccountRunner(fallbackError: "fatal: could not read Username for 'https://github.com': terminal prompts disabled")
+        let service = GitStatusService(runner: runner, userDefaults: fallbackDefaults(enabled: true))
+
+        do {
+            _ = try await service.runRemoteGit(
+                arguments: ["push", "origin", "main"],
+                in: URL(fileURLWithPath: "/tmp/credential-fallback-repository"),
+                injection: connectedAccountInjection()
+            )
+            XCTFail("Expected push to fail")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("terminal prompts disabled"))
+            XCTAssertTrue(error.localizedDescription.contains("Authorized OAuth Apps"))
+        }
+    }
+
+    func testNonAuthenticationFailureDoesNotFallBack() async throws {
+        let runner = RejectingAccountRunner(fallbackError: nil, accountError: "! [rejected] main -> main (non-fast-forward)")
+        let service = GitStatusService(runner: runner, userDefaults: fallbackDefaults(enabled: true))
+
+        do {
+            _ = try await service.runRemoteGit(
+                arguments: ["push", "origin", "main"],
+                in: URL(fileURLWithPath: "/tmp/credential-fallback-repository"),
+                injection: connectedAccountInjection()
+            )
+            XCTFail("Expected push to fail")
+        } catch {
+            let environments = await runner.recordedEnvironments()
+            XCTAssertEqual(environments.count, 1)
+        }
+    }
+
+    func testDisabledFallbackExplainsHowToEnableIt() async throws {
+        let runner = RejectingAccountRunner(fallbackError: nil)
+        let service = GitStatusService(runner: runner, userDefaults: fallbackDefaults(enabled: false))
+
+        do {
+            _ = try await service.runRemoteGit(
+                arguments: ["fetch", "origin"],
+                in: URL(fileURLWithPath: "/tmp/credential-fallback-repository"),
+                injection: connectedAccountInjection()
+            )
+            XCTFail("Expected fetch to fail")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.hasPrefix("remote: Repository not found."))
+            XCTAssertTrue(error.localizedDescription.contains("Fall back to Git credential helpers"))
+            let environments = await runner.recordedEnvironments()
+            XCTAssertEqual(environments.count, 1)
+        }
+    }
+
+    func testFallbackIsEnabledByDefault() async throws {
+        let runner = RejectingAccountRunner(fallbackError: nil)
+        let service = GitStatusService(runner: runner, userDefaults: fallbackDefaults(enabled: nil))
+
+        let output = try await service.runRemoteGit(
+            arguments: ["fetch", "origin"],
+            in: URL(fileURLWithPath: "/tmp/credential-fallback-repository"),
+            injection: connectedAccountInjection()
+        )
+
+        XCTAssertEqual(output, "fallback")
+    }
+
+    private func fallbackDefaults(enabled: Bool?) -> UserDefaults {
+        let suiteName = "GitRemoteCredentialPolicyTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        if let enabled {
+            defaults.set(enabled, forKey: GitStatusService.credentialHelperFallbackKey)
+        }
+        return defaults
+    }
+
+    private func connectedAccountInjection() -> GitCredentialInjection {
+        GitCredentialInjection(
+            environment: ["GIT_ASKPASS": "/tmp/askpass", "GIT_TERMINAL_PROMPT": "0"],
+            cleanup: {},
+            connectedAccountHost: "github.com"
+        )
+    }
+
+    private actor RejectingAccountRunner: GitCommandRunning {
+        private let fallbackError: String?
+        private let accountError: String
+        private var environments: [[String: String]] = []
+
+        init(
+            fallbackError: String?,
+            accountError: String = "remote: Repository not found.\nfatal: repository 'https://github.com/org/private.git/' not found"
+        ) {
+            self.fallbackError = fallbackError
+            self.accountError = accountError
+        }
+
+        func runGit(arguments: [String], in directory: URL) async throws -> String {
+            ""
+        }
+
+        func runGit(
+            arguments: [String],
+            in directory: URL,
+            environment: [String: String]
+        ) async throws -> String {
+            environments.append(environment)
+            if environment["GIT_ASKPASS"] == "/tmp/askpass" {
+                throw GitError.commandFailed(accountError)
+            }
+            if let fallbackError {
+                throw GitError.commandFailed(fallbackError)
+            }
+            return "fallback"
+        }
+
+        func recordedEnvironments() -> [[String: String]] {
+            environments
+        }
+    }
+
     private actor RecordingRunner: GitCommandRunning {
         struct Call: Sendable {
             let arguments: [String]

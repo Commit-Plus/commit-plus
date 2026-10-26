@@ -31,6 +31,8 @@ struct GitSSHCredential: Equatable {
 struct GitCredentialInjection {
     var environment: [String: String]
     var cleanup: () -> Void
+    /// Set when a Commit+ connected account supplies HTTPS credentials, so a rejection can fall back to the configured helpers.
+    var connectedAccountHost: String? = nil
 
     static func configuredGitHelpers(
         environment: [String: String] = ProcessInfo.processInfo.environment
