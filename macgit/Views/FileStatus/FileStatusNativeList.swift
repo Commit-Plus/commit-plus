@@ -369,7 +369,9 @@ private final class FileStatusNativeCell: NSTableCellView {
         checkbox.setAccessibilityLabel("Select \(row.file.displayName)")
         content.configure(.init(
             path: row.file.path, name: row.file.displayName, status: row.file.status.changeStyle,
-            subtitle: row.file.originalPath.map { "\($0) → \(row.file.path)" } ?? row.file.directory,
+            subtitle: row.file.originalPath.map { "\($0) → \(row.file.path)" }
+                ?? submoduleContentSubtitle(row.file)
+                ?? row.file.directory,
             subtitleEmphasized: row.file.originalPath != nil,
             count: row.count, nameFontSize: 13, textScale: textScale
         ))
@@ -383,6 +385,8 @@ private final class FileStatusNativeCell: NSTableCellView {
             accessibilityDescription: isStaged ? "Unstage" : "Stage"
         )
         quickButton.toolTip = isStaged ? "Unstage" : "Stage"
+        // Content inside a submodule is committed in the submodule itself.
+        quickButton.isHidden = !isStaged && row.file.isSubmoduleContentOnlyChange
         quickButton.setAccessibilityLabel(isStaged ? "Unstage" : "Stage")
         needsLayout = true
     }
@@ -403,6 +407,11 @@ private final class FileStatusNativeCell: NSTableCellView {
             lfsLabel.frame = NSRect(x: accessoryX, y: midY - 9, width: 30, height: 18)
         }
         content.frame = NSRect(x: 27, y: 0, width: max(0, accessoryX - 4 - 27), height: bounds.height)
+    }
+
+    private func submoduleContentSubtitle(_ file: StatusFile) -> String? {
+        guard file.isSubmoduleContentOnlyChange, let change = file.submoduleChange else { return nil }
+        return "Submodule · \(change.contentSummary)"
     }
 
     @objc private func toggleSelection() { onToggle?(checkbox.state == .on) }

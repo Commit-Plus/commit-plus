@@ -51,6 +51,7 @@ struct FileStatusView: View {
     var onCustomActionSelectionChanged: ([String]) -> Void = { _ in }
     var onRunCustomAction: (UUID, [String]) -> Void = { _, _ in }
     var onOpenFileInEditor: (String, SearchFileLineTarget?) -> Void = { _, _ in }
+    var onOpenSubmodule: (String) -> Void = { _ in }
 
     @ObservedObject private var integrationSettings = IntegrationSettingsStore.shared
     @State private var gitStatus: GitStatus = GitStatus(staged: [], unstaged: [], untracked: [])
@@ -534,7 +535,8 @@ struct FileStatusView: View {
             case .file(let file, let name):
                 let key = FileStatusSelectionKey(file: file, isStaged: isStaged)
                 return .init(id: row.id, depth: row.depth, content: .file(.init(
-                    file: file, count: counts[file.path], isLFS: sectionLFSPaths.contains(file.path),
+                    file: file, count: file.isSubmoduleContentOnlyChange ? nil : counts[file.path],
+                    isLFS: sectionLFSPaths.contains(file.path),
                     isPotentialConflict: hasPotentialConflict(file),
                     isActionSelected: selectedActionFileKeys.contains(key), isPreviewed: selectedFileKey == key
                 ), name: name))
@@ -575,7 +577,7 @@ struct FileStatusView: View {
             let key = FileStatusSelectionKey(file: file, isStaged: isStaged)
             return FileStatusNativeList.Row(
                 file: file,
-                count: lineCounts[file.path],
+                count: file.isSubmoduleContentOnlyChange ? nil : lineCounts[file.path],
                 isLFS: sectionLFSPaths.contains(file.path),
                 isPotentialConflict: hasPotentialConflict(file),
                 isActionSelected: selectedActionFileKeys.contains(key),
@@ -948,7 +950,9 @@ struct FileStatusView: View {
                             .frame(height: 0.5)
                     }
 
-                    if isLoadingDiff {
+                    if file.isSubmoduleContentOnlyChange, let change = file.submoduleChange {
+                        submoduleContentNotice(file: file, change: change)
+                    } else if isLoadingDiff {
                         if showsDiffLoadingIndicator {
                             ProgressView("Loading diff…")
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -986,6 +990,43 @@ struct FileStatusView: View {
                 )
             }
         }
+    }
+
+    private func submoduleContentNotice(file: StatusFile, change: SubmoduleStatusChange) -> some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "shippingbox")
+                .font(.system(size: 48))
+                .foregroundStyle(.secondary)
+            Text("\(change.contentSummary) in submodule")
+                .font(.title3)
+                .foregroundStyle(.primary)
+            Text("The submodule still points at the recorded commit. Commit or discard these changes inside the submodule, then stage its new commit here.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+            Button("Open Submodule") {
+                onOpenSubmodule(file.path)
+            }
+            .buttonStyle(.borderedProminent)
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Drops submodules whose changes live only inside their own checkout: the parent
+    /// repository has nothing to stage or discard for them. Explains why when nothing remains.
+    private func filesExcludingSubmoduleContent(_ files: [StatusFile]) -> [StatusFile] {
+        let actionable = files.filter { !$0.isSubmoduleContentOnlyChange }
+        if actionable.isEmpty, let file = files.first {
+            errorMessage = files.count == 1
+                ? "\"\(file.path)\" only has uncommitted changes inside the submodule. Open the submodule to commit or discard them."
+                : "These submodules only have uncommitted changes inside their own checkouts. Open each submodule to commit or discard them."
+            showingError = true
+        }
+        return actionable
     }
 
     private var commitBar: some View {
@@ -1749,6 +1790,7 @@ struct FileStatusView: View {
     }
 
     private func stage(files: [StatusFile]) async {
+        let files = filesExcludingSubmoduleContent(files)
         guard !files.isEmpty else { return }
         let paths = files.map(\.path)
         do {
@@ -1836,6 +1878,7 @@ struct FileStatusView: View {
     }
 
     private func discard(files: [StatusFile]) async {
+        let files = filesExcludingSubmoduleContent(files)
         guard !files.isEmpty else { return }
         let paths = files.map(\.path)
         let snapshotStore = GitFileUndoSnapshotStore()
@@ -1872,6 +1915,7 @@ struct FileStatusView: View {
     }
 
     private func requestDiscard(files: [StatusFile]) {
+        let files = filesExcludingSubmoduleContent(files)
         guard !files.isEmpty else { return }
         pendingDiscardFiles = files
     }

@@ -47,10 +47,44 @@ nonisolated enum FileStatus: String, CaseIterable, Sendable {
     }
 }
 
+/// Porcelain v2 `S<c><m><u>` state of a submodule's working tree against the index.
+nonisolated struct SubmoduleStatusChange: Equatable, Hashable, Sendable {
+    let commitChanged: Bool
+    let hasModifiedContent: Bool
+    let hasUntrackedContent: Bool
+
+    /// Parses the porcelain v2 `sub` field; `N...` (not a submodule) yields nil.
+    init?(porcelainField field: Substring) {
+        let flags = Array(field)
+        guard flags.count == 4, flags[0] == "S" else { return nil }
+        commitChanged = flags[1] == "C"
+        hasModifiedContent = flags[2] == "M"
+        hasUntrackedContent = flags[3] == "U"
+    }
+
+    /// Short description of changes that live only inside the submodule.
+    var contentSummary: String {
+        switch (hasModifiedContent, hasUntrackedContent) {
+        case (true, true): "Modified and untracked content"
+        case (true, false): "Modified content"
+        case (false, true): "Untracked content"
+        case (false, false): "No content changes"
+        }
+    }
+}
+
 nonisolated struct StatusFile: Identifiable, Equatable, Hashable, Sendable {
     let path: String
     let status: FileStatus
     let originalPath: String?
+    /// Set on unstaged gitlink entries from the porcelain v2 submodule field.
+    var submoduleChange: SubmoduleStatusChange? = nil
+
+    /// The submodule checkout has uncommitted content but still points at the
+    /// recorded commit, so the parent repository has nothing to stage or discard.
+    var isSubmoduleContentOnlyChange: Bool {
+        submoduleChange.map { !$0.commitChanged } ?? false
+    }
 
     // Status refreshes recreate these values. Keep identity stable so a large
     // untracked tree is diffed in place instead of being removed and rebuilt.

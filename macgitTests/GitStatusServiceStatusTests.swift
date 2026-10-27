@@ -143,6 +143,30 @@ final class GitStatusServiceStatusTests: XCTestCase {
         )
     }
 
+    func testStatusMarksSubmoduleWithOnlyContentChanges() async throws {
+        let childURL = try makeTempRepo()
+        let repoURL = try makeTempRepo()
+        defer {
+            try? FileManager.default.removeItem(at: childURL)
+            try? FileManager.default.removeItem(at: repoURL)
+        }
+        try runGit(["-c", "protocol.file.allow=always", "submodule", "add", childURL.path, "core"], in: repoURL)
+        try runGit(["commit", "-m", "Add submodule"], in: repoURL)
+        let submoduleURL = repoURL.appendingPathComponent("core")
+        try "dirty\n".write(to: submoduleURL.appendingPathComponent("tracked.txt"), atomically: true, encoding: .utf8)
+
+        let dirtyStatus = try await GitStatusService.shared.status(for: repoURL)
+        let dirty = try XCTUnwrap(dirtyStatus.unstaged.first { $0.path == "core" })
+        XCTAssertTrue(dirty.isSubmoduleContentOnlyChange)
+        XCTAssertEqual(dirty.submoduleChange?.hasModifiedContent, true)
+
+        try runGit(["commit", "-am", "Move submodule"], in: submoduleURL)
+        let movedStatus = try await GitStatusService.shared.status(for: repoURL)
+        let moved = try XCTUnwrap(movedStatus.unstaged.first { $0.path == "core" })
+        XCTAssertEqual(moved.submoduleChange?.commitChanged, true)
+        XCTAssertFalse(moved.isSubmoduleContentOnlyChange, "A new submodule commit must stay stageable")
+    }
+
     func testStatusIncludesModifiedBinaryFile() async throws {
         let repoURL = try makeTempRepo()
         let fileURL = repoURL.appendingPathComponent("clip.mp4")

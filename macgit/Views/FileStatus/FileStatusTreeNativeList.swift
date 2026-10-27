@@ -240,7 +240,7 @@ private final class StatusTreeCell: NSTableCellView {
         checkbox.state = row.isActionSelected ? .on : .off; checkbox.allowsMixedState = false; chevron.isHidden = true
         content.configure(.init(path: row.file.path, name: title, status: row.file.status.changeStyle, count: row.count, nameFontSize: 13, textScale: textScale))
         lfs.isHidden = !row.isLFS; lfs.font = .systemFont(ofSize: 9 * textScale); conflict.isHidden = !row.isPotentialConflict; moreButton.isHidden = false
-        quick.isHidden = false; quick.image = NSImage(systemSymbolName: isStaged ? "minus" : "plus", accessibilityDescription: isStaged ? "Unstage" : "Stage")
+        quick.isHidden = !isStaged && row.file.isSubmoduleContentOnlyChange; quick.image = NSImage(systemSymbolName: isStaged ? "minus" : "plus", accessibilityDescription: isStaged ? "Unstage" : "Stage")
         layer?.backgroundColor = row.isActionSelected ? NSColor.controlAccentColor.withAlphaComponent(0.16).cgColor : NSColor.clear.cgColor
         wantsLayer = true; needsLayout = true
     }

@@ -133,7 +133,12 @@ extension GitStatusService {
             switch worktreeChar {
             case "M", "D":
                 let status: FileStatus = (worktreeChar == "D") ? .deleted : .modified
-                unstaged.append(StatusFile(path: path, status: status, originalPath: originalPath))
+                unstaged.append(StatusFile(
+                    path: path,
+                    status: status,
+                    originalPath: originalPath,
+                    submoduleChange: entry.submoduleChange
+                ))
             case "?":
                 // Untracked folders that contain an embedded git repository
                 // (leftover submodule checkouts, nested clones) are hidden,
@@ -161,6 +166,7 @@ extension GitStatusService {
         let path: String
         let originalPath: String?
         let objectIDs: [Substring]
+        var submoduleChange: SubmoduleStatusChange? = nil
     }
 
     private static func parsePorcelainV2Record(
@@ -204,7 +210,8 @@ extension GitStatusService {
             worktreeStatus: statusCharacter(fields[1].last!),
             path: String(fields[fieldCount]),
             originalPath: kind == "2" ? nextRecord().map(String.init) : nil,
-            objectIDs: Array(fields[objectIDRange])
+            objectIDs: Array(fields[objectIDRange]),
+            submoduleChange: SubmoduleStatusChange(porcelainField: fields[2])
         )
     }
 

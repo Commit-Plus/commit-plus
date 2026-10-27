@@ -1629,6 +1629,9 @@ struct MainWindowView: View {
             },
             onOpenFileInEditor: { path, lineTarget in
                 prepareToOpenSearchFile(path, lineTarget: lineTarget)
+            },
+            onOpenSubmodule: { path in
+                openWorktreeInNewWindow(at: repositoryURL.appendingPathComponent(path, isDirectory: true))
             }
         )
         .repositoryScreenVisibility(isActive: isFileStatusActive)
