@@ -62,6 +62,12 @@ struct GitHubProviderAuthConfiguration: Equatable {
     /// Exchanges a code with the OAuth app's client secret, which the app never holds.
     var tokenExchangeURL = URL(string: "https://commitplus.app/api/git-providers/github/token")!
 
+    /// GitHub's page for this OAuth app, where organization access is granted or requested.
+    /// The web flow skips the authorize page once the app is authorized, so it never offers this again.
+    var organizationAccessURL: URL {
+        URL(string: "https://github.com/settings/connections/applications")!.appending(path: clientID)
+    }
+
     static func appConfiguration(bundle: Bundle = .main) -> GitHubProviderAuthConfiguration {
         let configuredClientID = (bundle.object(forInfoDictionaryKey: "GitHubOAuthClientID") as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -187,7 +193,9 @@ struct GitHubProviderAuthService: GitProviderAuthenticating {
             URLQueryItem(name: "scope", value: configuration.scopes.joined(separator: " ")),
             URLQueryItem(name: "state", value: session.state),
             URLQueryItem(name: "code_challenge", value: GitProviderPKCE.challenge(for: session.codeVerifier)),
-            URLQueryItem(name: "code_challenge_method", value: "S256")
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
+            // GitHub skips its page once the app is authorized; this keeps an account step.
+            URLQueryItem(name: "prompt", value: "select_account")
         ]
         guard let url = components.url else {
             throw GitProviderAuthError.invalidConfiguration

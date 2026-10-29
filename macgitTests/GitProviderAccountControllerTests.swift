@@ -360,6 +360,24 @@ final class GitProviderAccountControllerTests: XCTestCase {
         await connectionTask.value
     }
 
+    func testOpenGitHubOrganizationAccessOpensOAuthAppConnectionPage() {
+        var openedURLs: [URL] = []
+        let controller = GitProviderAccountController(
+            store: FakeGitProviderAccountStore(),
+            tokenVault: FakeGitProviderTokenVault(),
+            configuration: makeConfiguration(),
+            openURL: { url in
+                openedURLs.append(url)
+                return true
+            }
+        )
+
+        XCTAssertTrue(controller.canManageGitHubOrganizationAccess)
+        controller.openGitHubOrganizationAccess()
+
+        XCTAssertEqual(openedURLs, [URL(string: "https://github.com/settings/connections/applications/github-client-id")!])
+    }
+
     func testGitLabConnectWithoutConfigurationPublishesGitLabSpecificError() async {
         var openedURLs: [URL] = []
         let controller = GitProviderAccountController(

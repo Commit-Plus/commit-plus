@@ -204,6 +204,14 @@ struct GitProviderAddAccountSheet: View {
                         .disabled(!canConnect || controller.isLoading || controller.awaitingBrowserAuthorizationProvider != nil)
                 }
 
+                if managesGitHubOrganizationAccess {
+                    Button("Grant Organization Access on GitHub", action: controller.openGitHubOrganizationAccess)
+                        .buttonStyle(.link)
+                    Text("GitHub only asks about organizations the first time. Grant or request access to other organizations on GitHub.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 Picker("Protocol", selection: $selectedProtocol) {
                     ForEach(GitProviderAddAccountPresentationPolicy.protocolOptions, id: \.id) { option in
                         Text(option.title)
@@ -376,6 +384,12 @@ struct GitProviderAddAccountSheet: View {
             return !sshKeyPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         return !bitbucketAPIToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// A connected GitHub.com OAuth account, whose organization access is managed on GitHub.
+    private var managesGitHubOrganizationAccess: Bool {
+        selectedHost == .github && !isSelfHosted && selectedProtocol == .https && selectedAuthType == .oauth
+            && !connectedUsername.isEmpty && controller.canManageGitHubOrganizationAccess
     }
 
     /// GitHub.com or GitLab.com over HTTPS with a token instead of the OAuth flow.

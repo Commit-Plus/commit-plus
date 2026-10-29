@@ -191,12 +191,13 @@ extension GitStatusService {
                 "for-each-ref",
                 "--format=%(refname) %(objectname)",
                 "refs/heads",
-                "refs/remotes"
+                "refs/remotes",
+                "refs/tags"
             ],
             in: repositoryURL
         )) ?? ""
         // Include ref names and the checked-out branch so a ref moving onto an
-        // already-listed commit (fast-forward, checkout) still reloads badges and HEAD.
+        // already-listed commit (fast-forward, checkout, new tag) still reloads badges and HEAD.
         let head = await tipHash(for: "HEAD", in: repositoryURL)
         let headBranch = await currentBranch(in: repositoryURL)
         var lines = output.split(separator: "\n").map(String.init).sorted()

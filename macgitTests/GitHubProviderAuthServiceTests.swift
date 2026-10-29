@@ -177,6 +177,7 @@ final class GitHubProviderAuthServiceTests: XCTestCase {
         XCTAssertEqual(items["state"], "expected-state")
         XCTAssertEqual(items["code_challenge"], GitProviderPKCE.challenge(for: "test-verifier"))
         XCTAssertEqual(items["code_challenge_method"], "S256")
+        XCTAssertEqual(items["prompt"], "select_account")
         XCTAssertNil(items["client_secret"])
     }
 

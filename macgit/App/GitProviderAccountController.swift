@@ -372,6 +372,15 @@ final class GitProviderAccountController: ObservableObject {
         _ = openURL(pendingDeviceAuthorization.verificationURI)
     }
 
+    var canManageGitHubOrganizationAccess: Bool {
+        !(configuration?.clientID.isEmpty ?? true)
+    }
+
+    func openGitHubOrganizationAccess() {
+        guard let configuration, !configuration.clientID.isEmpty else { return }
+        _ = openURL(configuration.organizationAccessURL)
+    }
+
     func handleProviderOAuthCallback(_ url: URL) async -> Bool {
         guard let session = pendingOAuthSession else { return false }
 
