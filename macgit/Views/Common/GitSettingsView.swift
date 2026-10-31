@@ -24,6 +24,7 @@ struct GitSettingsView: View {
     @State private var providerPresentation = GitProviderSettingsPresentation()
     @State private var navigation = AppSettingsNavigation.shared
     @FocusState private var focusedField: Field?
+    @Environment(\.openWindow) private var openWindow
 
     /// Text fields save when editing ends, since Git rejects partial values such as an incomplete email.
     private enum Field: Hashable {
@@ -53,6 +54,16 @@ struct GitSettingsView: View {
                 )
                 .id(AppSettingsAnchor.gitProviderAccounts)
                 GitCredentialHelperSettingsSection(viewModel: viewModel)
+
+                Section {
+                    SettingsActionRow {
+                        Button("Configure SSH Keys…") { openWindow(id: "ssh-keys") }
+                    }
+                } header: {
+                    Label("SSH Keys", systemImage: "key.horizontal")
+                } footer: {
+                    Text("Generate a key and copy its public key to your Git provider. SSH remotes use the system ssh-agent and ~/.ssh/config unless a connected account selects its own key.")
+                }
 
                 Section {
                     TextField("Full Name", text: $viewModel.settings.userName)

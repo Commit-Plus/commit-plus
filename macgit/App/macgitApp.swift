@@ -437,6 +437,10 @@ struct macgitApp: App {
                 }
                 .keyboardShortcut(",", modifiers: .command)
 
+                Button("Configure SSH Keys…") {
+                    openWindow(id: "ssh-keys")
+                }
+
                 Button("Install Command Line Tool…") {
                     WindowScopedNotification.post(name: .installCommandLineTool)
                 }
@@ -668,6 +672,16 @@ struct macgitApp: App {
             )
         }
         .defaultSize(width: 920, height: 640)
+        .defaultLaunchBehavior(.suppressed)
+        .windowResizability(.contentMinSize)
+
+        Window("Configure SSH Keys", id: "ssh-keys") {
+            SSHKeysView()
+                .preferredColorScheme(appState.appearance.colorScheme)
+                .font(appState.textSize.font)
+                .environment(\.appTextScale, appState.textSize.scale)
+        }
+        .defaultSize(width: 780, height: 500)
         .defaultLaunchBehavior(.suppressed)
         .windowResizability(.contentMinSize)
 
