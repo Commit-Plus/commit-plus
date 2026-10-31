@@ -22,6 +22,8 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case reflog = "Reflog"
     case pullRequests = "Pull Requests"
     case jira = "Jira"
+    /// The repository's hosted tracker; its title and icon come from `HostedIssueProvider`.
+    case hostedIssues = "Issues"
     case search = "Search"
     case gitLFS = "Git LFS"
     case gitFlow = "Git Flow"
@@ -36,6 +38,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .pullRequests: return "arrow.triangle.pull"
         // An asset-catalog image, not an SF Symbol.
         case .jira: return "jira"
+        case .hostedIssues: return "checklist"
         case .search: return "magnifyingglass"
         case .gitLFS: return "externaldrive"
         case .gitFlow: return "point.3.connected.trianglepath.dotted"

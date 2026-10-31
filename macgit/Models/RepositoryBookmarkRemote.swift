@@ -16,8 +16,9 @@ struct RepositoryBookmarkRemote: Identifiable, Equatable {
         switch identity.provider {
         case .github, .bitbucket: webURL.appending(path: "issues")
         case .gitlab: webURL.appending(path: "-/issues")
-        // Azure Repos has no per-repository issues page.
-        case .azureDevOps, .generic: nil
+        // Azure tracks work items per project: `{org}/{project}/_git/{repo}` → `{org}/{project}/_workitems`.
+        case .azureDevOps: webURL.deletingLastPathComponent().deletingLastPathComponent().appending(path: "_workitems")
+        case .generic: nil
         }
     }
 

@@ -3,7 +3,7 @@
 import Foundation
 
 /// Suggests `<KEY>-<slug>` branch names for Jira issues, e.g. `PROJ-123-fix-login-crash`.
-enum JiraBranchNameSuggester {
+enum IssueBranchNameSuggester {
     static let maxLength = 60
 
     static func name(key: String, summary: String) -> String {
@@ -42,7 +42,7 @@ enum JiraBranchNameSuggester {
 }
 
 /// How a branch is started from a Jira issue: a plain branch, or a Git Flow topic.
-enum JiraBranchTarget: Hashable, Identifiable {
+enum IssueBranchTarget: Hashable, Identifiable {
     case plainBranch
     case gitFlow(GitFlowTopicKind)
 
@@ -61,12 +61,12 @@ enum JiraBranchTarget: Hashable, Identifiable {
     }
 
     /// Release topics are named after versions, not issues, so they are not offered.
-    static func options(gitFlowEnabled: Bool) -> [JiraBranchTarget] {
+    static func options(gitFlowEnabled: Bool) -> [IssueBranchTarget] {
         guard gitFlowEnabled else { return [.plainBranch] }
         return [.gitFlow(.feature), .gitFlow(.bugfix), .gitFlow(.hotfix), .plainBranch]
     }
 
-    static func suggested(forIssueType issueTypeName: String, gitFlowEnabled: Bool) -> JiraBranchTarget {
+    static func suggested(forIssueType issueTypeName: String, gitFlowEnabled: Bool) -> IssueBranchTarget {
         guard gitFlowEnabled else { return .plainBranch }
         switch issueTypeName.lowercased() {
         case "bug", "defect": return .gitFlow(.bugfix)

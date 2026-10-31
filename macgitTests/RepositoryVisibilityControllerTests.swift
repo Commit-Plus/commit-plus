@@ -32,6 +32,20 @@ final class RepositoryVisibilityControllerTests: XCTestCase {
         XCTAssertTrue(service.receivedTokens.isEmpty)
     }
 
+    func testHostedIssuesFollowRepositoryVisibility() async {
+        let publicController = makeController(service: FakeRepositoryVisibilityProvider(results: [.success(.public)]))
+        let publicDecision = await publicController.accessDecision(
+            for: .hostedIssues, repositoryURL: repositoryURL, accounts: [], entitlement: .free, policy: .bundled
+        )
+        XCTAssertEqual(publicDecision, .allowed)
+
+        let privateController = makeController(service: FakeRepositoryVisibilityProvider(results: [.success(.private)]))
+        let privateDecision = await privateController.accessDecision(
+            for: .hostedIssues, repositoryURL: repositoryURL, accounts: [], entitlement: .free, policy: .bundled
+        )
+        XCTAssertEqual(privateDecision, .denied(.requiresPro))
+    }
+
     func testAnonymousPublicResultIsCached() async {
         let service = FakeRepositoryVisibilityProvider(results: [.success(.public)])
         let cache = FakeRepositoryVisibilityCache()

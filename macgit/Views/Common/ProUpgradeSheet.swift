@@ -168,7 +168,7 @@ struct ProUpgradeSheet: View {
 
     private var upgradeDescription: String {
         switch feature {
-        case .pullRequests, .gitFlow, .gitLFS:
+        case .pullRequests, .gitFlow, .gitLFS, .hostedIssues:
             "Upgrade to Commit+ Pro to use \(feature.displayName) in private repositories, plus advanced workflows and AI tools across your Macs."
         case .aiCommitMessage, .repositoryChat, .repositoryAIActions, .aiConflictResolution, .aiBringYourOwnKey,
              .multipleProviderAccounts, .branchMergeDetection, .jiraIssues:

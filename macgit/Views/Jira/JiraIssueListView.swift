@@ -11,7 +11,7 @@ struct JiraIssueListView: View {
     let isActive: Bool
     let onOpenJiraSettings: () -> Void
     let gitFlowEnabled: Bool
-    let onCreateBranch: (JiraIssue, JiraBranchTarget) -> Void
+    let onCreateBranch: (JiraIssue, IssueBranchTarget) -> Void
     @State private var selection: JiraIssue.ID?
     @AppStorage("jira.detailPanelWidth") private var storedDetailPanelWidth = Double(JiraIssueDetailPanel.defaultWidth)
 
@@ -361,8 +361,8 @@ struct JiraIssueListView: View {
 
     @ViewBuilder
     private func createBranchMenu(for issue: JiraIssue) -> some View {
-        let suggested = JiraBranchTarget.suggested(forIssueType: issue.issueTypeName, gitFlowEnabled: gitFlowEnabled)
-        let others = JiraBranchTarget.options(gitFlowEnabled: gitFlowEnabled).filter { $0 != suggested }
+        let suggested = IssueBranchTarget.suggested(forIssueType: issue.issueTypeName, gitFlowEnabled: gitFlowEnabled)
+        let others = IssueBranchTarget.options(gitFlowEnabled: gitFlowEnabled).filter { $0 != suggested }
         if others.isEmpty {
             Button("Create Branch…") { onCreateBranch(issue, suggested) }
         } else {
@@ -508,16 +508,16 @@ private struct JiraIssueDetailPanel: View {
     let onOpen: () -> Void
     let onCopyKey: () -> Void
     let onCopyKeyAndSummary: () -> Void
-    let onCreateBranch: (JiraBranchTarget) -> Void
+    let onCreateBranch: (IssueBranchTarget) -> Void
     let onClose: () -> Void
     @State private var otherTypesAnchor: NSView?
 
-    private var suggestedTarget: JiraBranchTarget {
-        JiraBranchTarget.suggested(forIssueType: issue.issueTypeName, gitFlowEnabled: gitFlowEnabled)
+    private var suggestedTarget: IssueBranchTarget {
+        IssueBranchTarget.suggested(forIssueType: issue.issueTypeName, gitFlowEnabled: gitFlowEnabled)
     }
 
-    private var otherTargets: [JiraBranchTarget] {
-        JiraBranchTarget.options(gitFlowEnabled: gitFlowEnabled).filter { $0 != suggestedTarget }
+    private var otherTargets: [IssueBranchTarget] {
+        IssueBranchTarget.options(gitFlowEnabled: gitFlowEnabled).filter { $0 != suggestedTarget }
     }
 
     var body: some View {

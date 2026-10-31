@@ -27,6 +27,7 @@ struct SidebarNativeInput: Equatable {
     var mergeAssessments: [String: BranchMergeAssessment] = [:]
     var showMergedBranchHints = true
     var fileStatusCounts: [Int] = []
+    var hostedIssueProvider: HostedIssueProvider?
 }
 
 extension SidebarView {
@@ -58,6 +59,7 @@ extension SidebarView {
             dataRepositoryURL: sidebarDataRepositoryURL,
             mergeAssessments: branchMergeDetectionController.assessments,
             showMergedBranchHints: displaysMergedBranchHints,
-            fileStatusCounts: [stagedFileCount, changedFileCount])
+            fileStatusCounts: [stagedFileCount, changedFileCount],
+            hostedIssueProvider: hostedIssueProvider)
     }
 }

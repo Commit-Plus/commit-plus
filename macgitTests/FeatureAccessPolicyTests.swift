@@ -328,6 +328,34 @@ final class FeatureAccessPolicyTests: XCTestCase {
         XCTAssertEqual(resolver.decision(for: .jiraIssues, entitlement: activePro), .denied(.featureDisabled))
     }
 
+    func testHostedIssuesFollowsPullRequestRepositoryScope() {
+        let resolver = FeatureAccessResolver(policy: .bundled)
+        XCTAssertEqual(resolver.decision(for: .hostedIssues, entitlement: .free, repositoryVisibility: .public), .allowed)
+        XCTAssertEqual(resolver.decision(for: .hostedIssues, entitlement: .free, repositoryVisibility: .private), .denied(.requiresPro))
+        XCTAssertEqual(resolver.decision(for: .hostedIssues, entitlement: activePro, repositoryVisibility: .private), .allowed)
+        XCTAssertEqual(FeatureAccessPolicy.bundled.rule(for: .hostedIssues), FeatureAccessPolicy.bundled.rule(for: .pullRequests))
+    }
+
+    func testRemotePolicyWithoutHostedIssuesUsesBundledRule() {
+        let policy = FeaturePolicyDocumentDecoder.decode(document())
+
+        XCTAssertEqual(policy?.rule(for: .hostedIssues), FeatureAccessPolicy.bundled.rule(for: .hostedIssues))
+    }
+
+    func testHostedIssuesRemoteKillSwitchDisablesEveryPlan() {
+        let policy = FeaturePolicyDocumentDecoder.decode(document(overrides: ["hostedIssues": [
+            "enabled": false,
+            "plans": [
+                "free": ["enabled": true, "repositoryScope": "public"],
+                "pro": ["enabled": true, "repositoryScope": "all"]
+            ]
+        ]]))
+        let resolver = FeatureAccessResolver(policy: policy!)
+
+        XCTAssertEqual(resolver.decision(for: .hostedIssues, entitlement: .free, repositoryVisibility: .public), .denied(.featureDisabled))
+        XCTAssertEqual(resolver.decision(for: .hostedIssues, entitlement: activePro, repositoryVisibility: .private), .denied(.featureDisabled))
+    }
+
     private var inactivePro: AccountEntitlement {
         AccountEntitlement(plan: .pro, access: .inactive, billingStatus: .canceled)
     }

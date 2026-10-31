@@ -226,6 +226,9 @@ struct GitProviderToken: Equatable, Codable {
     var refreshToken: String?
     var expiresAt: Date?
     var tokenType: String
+    /// The Basic-auth user for REST calls when it differs from the Git username. Bitbucket API
+    /// tokens authenticate with the Atlassian account email. Kept with the token, never synced.
+    var apiUsername: String?
 }
 
 struct GitRepositoryIdentity: Equatable, Codable {

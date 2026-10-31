@@ -79,7 +79,7 @@ final class SidebarViewStashTests: XCTestCase {
 
     func testJiraMovesFromWorkspaceToIssuesSection() {
         XCTAssertFalse(SidebarSection.workspace.items.contains(.jira))
-        XCTAssertEqual(SidebarSection.issues.items, [.jira])
+        XCTAssertEqual(SidebarSection.issues.items, [.jira, .hostedIssues])
     }
 
     func testSidebarSettingsStorePersistsSubmodulesSectionToggle() {

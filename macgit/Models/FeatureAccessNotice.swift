@@ -105,6 +105,8 @@ extension PlanFeature {
             "PR-based merge detection"
         case .jiraIssues:
             "Jira Issues"
+        case .hostedIssues:
+            "Issue tracking"
         }
     }
 }

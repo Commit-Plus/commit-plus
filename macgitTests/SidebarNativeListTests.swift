@@ -46,6 +46,25 @@ final class SidebarNativeListTests: XCTestCase {
         return (owner, table)
     }
 
+    func testIssueRowsFollowHostedProvider() {
+        XCTAssertEqual(SidebarSection.issueRows(hostedProvider: nil).map(\.item), [.jira])
+        for (provider, title) in [(HostedIssueProvider.github, "GitHub Issues"), (.gitlab, "GitLab Issues"),
+                                  (.bitbucket, "Bitbucket Issues"), (.azureBoards, "Azure Boards")] {
+            let rows = SidebarSection.issueRows(hostedProvider: provider)
+            XCTAssertEqual(rows.map(\.item), [.jira, .hostedIssues])
+            XCTAssertEqual(rows.last?.title, title)
+            XCTAssertEqual(rows.last?.icon, provider.iconName)
+        }
+    }
+
+    func testHostedProviderChangeInvalidatesNativeInput() {
+        var github = input(branch: "main")
+        github.hostedIssueProvider = .github
+        var gitlab = github
+        gitlab.hostedIssueProvider = .gitlab
+        XCTAssertNotEqual(github, gitlab)
+    }
+
     func testIssuesSectionIsVisibleByDefaultAndJiraIsNotAWorkspaceRow() {
         let suiteName = "SidebarNativeListTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
