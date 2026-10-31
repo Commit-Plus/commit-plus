@@ -37,6 +37,20 @@
 
 Commit+ is a native macOS Git client built with Swift and SwiftUI — designed to be fast, lightweight, and deeply integrated with the platform. Optional account features add settings sync, provider integrations, and AI-assisted workflows.
 
+## Installation
+
+Install with [Homebrew](https://brew.sh):
+
+```bash
+brew tap commit-plus/tap
+brew trust --tap commit-plus/tap
+brew install --cask commit-plus
+```
+
+`brew trust` is required by recent Homebrew versions for third-party taps; skip it on older versions that do not have the command.
+
+Or download the signed and notarized `.dmg` from the [latest release](https://github.com/Commit-Plus/commit-plus/releases/latest). Commit+ updates itself in the app either way.
+
 ## Features
 
 ### Revision Browser & Visual Comparisons
