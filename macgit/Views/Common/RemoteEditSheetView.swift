@@ -27,6 +27,8 @@ struct RemoteEditSheetView: View {
 
     let repositoryURL: URL
     let mode: RemoteEditMode
+    /// Remote name to URL for the repository, used to reject duplicates before running Git.
+    var existingRemotes: [String: String] = [:]
     let onSave: (String, String) -> Void
 
     @State private var name: String = ""
@@ -55,6 +57,7 @@ struct RemoteEditSheetView: View {
                         TextField("origin", text: $name)
                             .textFieldStyle(.roundedBorder)
                             .disabled(mode.isNameEditable == false)
+                            .onChange(of: name) { errorMessage = nil }
                     }
 
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -64,6 +67,7 @@ struct RemoteEditSheetView: View {
 
                         TextField("https://github.com/user/repo.git", text: $url)
                             .textFieldStyle(.roundedBorder)
+                            .onChange(of: url) { errorMessage = nil }
                     }
 
                     if let errorMessage {
@@ -111,8 +115,50 @@ struct RemoteEditSheetView: View {
         guard isValid else { return }
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         let trimmedURL = url.trimmingCharacters(in: .whitespaces)
+        if let conflict = RemoteEditValidation.conflictMessage(
+            name: trimmedName, url: trimmedURL, mode: mode, existingRemotes: existingRemotes
+        ) {
+            errorMessage = conflict
+            return
+        }
         onSave(trimmedName, trimmedURL)
         dismiss()
+    }
+}
+
+enum RemoteEditValidation {
+    static func conflictMessage(
+        name: String,
+        url: String,
+        mode: RemoteEditMode,
+        existingRemotes: [String: String]
+    ) -> String? {
+        let editedName: String?
+        if case .edit(let existingName, _) = mode {
+            editedName = existingName
+        } else {
+            editedName = nil
+            if existingRemotes[name] != nil {
+                return "A remote named \"\(name)\" already exists."
+            }
+        }
+
+        let normalizedURL = normalized(url)
+        let duplicate = existingRemotes
+            .filter { $0.key != editedName && normalized($0.value) == normalizedURL }
+            .map(\.key)
+            .sorted()
+            .first
+        guard let duplicate else { return nil }
+        return "Remote \"\(duplicate)\" already uses this URL."
+    }
+
+    /// Treats `https://host/repo`, `https://host/repo/`, and `https://host/repo.git` as the same remote.
+    static func normalized(_ url: String) -> String {
+        var value = url.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        while value.hasSuffix("/") { value.removeLast() }
+        if value.hasSuffix(".git") { value.removeLast(4) }
+        return value
     }
 }
 

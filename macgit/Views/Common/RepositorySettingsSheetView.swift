@@ -131,7 +131,7 @@ struct RepositorySettingsSheetView: View {
             footer
         }
         .frame(minWidth: 600, idealWidth: 640, maxWidth: .infinity)
-        .frame(minHeight: 480, idealHeight: 540)
+        .frame(minHeight: 480, idealHeight: 600)
         .background(RepositorySettingsToolbar(selection: $selectedTab))
         .task {
             await loadOptions()
@@ -148,7 +148,8 @@ struct RepositorySettingsSheetView: View {
         .replacingSheet(isPresented: $showingRemoteEditSheet) {
             RemoteEditSheetView(
                 repositoryURL: repositoryURL,
-                mode: remoteEditMode
+                mode: remoteEditMode,
+                existingRemotes: remoteURLs
             ) { name, url in
                 Task {
                     await handleRemoteSave(name: name, url: url)
@@ -214,8 +215,16 @@ struct RepositorySettingsSheetView: View {
 
     @ViewBuilder
     private func remoteTab(_ draft: RepositorySettingsDraft) -> some View {
-        Section("Remote repository paths") {
-            remoteTable
+        // Footer-hosted so the table keeps its own border without the grouped section fill.
+        Section {
+        } footer: {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Remote repository paths")
+                    .font(.headline)
+                remoteTable
+            }
+            .font(.body)
+            .foregroundStyle(.primary)
         }
 
         Section("Defaults") {
@@ -259,8 +268,15 @@ struct RepositorySettingsSheetView: View {
         }
     }
 
+    /// Rows shown before the list scrolls, so many remotes do not stretch the sheet.
+    private static let maxVisibleRemoteRows = 5
+    private static let remoteRowHeight: CGFloat = 28
+
     private var remoteTable: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let remoteRows = remotes.map { RemoteInfo(name: $0, url: remoteURLs[$0] ?? "") }
+        let visibleRowCount = min(max(remoteRows.count, 1), Self.maxVisibleRemoteRows)
+
+        return VStack(alignment: .leading, spacing: 8) {
             VStack(spacing: 0) {
                 // Header
                 HStack(spacing: 0) {
@@ -278,40 +294,57 @@ struct RepositorySettingsSheetView: View {
 
                     Spacer()
                 }
-                .frame(height: 28)
+                .frame(height: Self.remoteRowHeight)
                 .background(.quaternary.opacity(0.2))
 
                 Divider()
 
                 // Rows
-                ForEach(remotes.map { RemoteInfo(name: $0, url: remoteURLs[$0] ?? "") }) { remote in
-                    HStack(spacing: 0) {
-                        Text(remote.name)
-                            .font(.system(size: 12))
-                            .frame(width: 100, alignment: .leading)
-                            .padding(.horizontal, 8)
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        if remoteRows.isEmpty {
+                            Text("No remotes")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 8)
+                                .frame(height: Self.remoteRowHeight)
+                        }
 
-                        Divider()
+                        ForEach(remoteRows) { remote in
+                            HStack(spacing: 0) {
+                                Text(remote.name)
+                                    .font(.system(size: 12))
+                                    .frame(width: 100, alignment: .leading)
+                                    .padding(.horizontal, 8)
 
-                        Text(remote.url)
-                            .font(.system(size: 12))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 8)
-                            .foregroundStyle(.secondary)
+                                Divider()
 
-                        Spacer()
+                                Text(remote.url)
+                                    .font(.system(size: 12))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 8)
+                                    .foregroundStyle(.secondary)
+
+                                Spacer()
+                            }
+                            .frame(height: Self.remoteRowHeight)
+                            .background(selectedRemoteName == remote.name ? Color.accentColor.opacity(0.15) : Color.clear)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectedRemoteName = remote.name
+                            }
+
+                            if remote.name != remoteRows.last?.name {
+                                Divider()
+                            }
+                        }
                     }
-                    .frame(height: 28)
-                    .background(selectedRemoteName == remote.name ? Color.accentColor.opacity(0.15) : Color.clear)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        selectedRemoteName = remote.name
-                    }
-
-                    Divider()
                 }
+                .frame(height: CGFloat(visibleRowCount) * (Self.remoteRowHeight + 1) - 1)
+                .scrollBounceBehavior(.basedOnSize)
             }
             .background(.quaternary.opacity(0.1))
             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
