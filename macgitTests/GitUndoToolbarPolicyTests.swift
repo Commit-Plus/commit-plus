@@ -25,4 +25,11 @@ final class GitUndoToolbarPolicyTests: XCTestCase {
         XCTAssertTrue(GitUndoToolbarPolicy.isUndoDisabled(isSyncing: false, canUndo: false))
         XCTAssertTrue(GitUndoToolbarPolicy.isUndoDisabled(isSyncing: true, canUndo: false))
     }
+
+    func testRedoButtonIsEnabledOnlyWhenThereIsRedoWorkAndNoSyncIsRunning() {
+        XCTAssertFalse(GitUndoToolbarPolicy.isRedoDisabled(isSyncing: false, canRedo: true))
+        XCTAssertTrue(GitUndoToolbarPolicy.isRedoDisabled(isSyncing: true, canRedo: true))
+        XCTAssertTrue(GitUndoToolbarPolicy.isRedoDisabled(isSyncing: false, canRedo: false))
+        XCTAssertTrue(GitUndoToolbarPolicy.isRedoDisabled(isSyncing: true, canRedo: false))
+    }
 }

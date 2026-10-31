@@ -25,4 +25,8 @@ enum GitUndoToolbarPolicy {
     static func isUndoDisabled(isSyncing: Bool, canUndo: Bool) -> Bool {
         isSyncing || !canUndo
     }
+
+    static func isRedoDisabled(isSyncing: Bool, canRedo: Bool) -> Bool {
+        isSyncing || !canRedo
+    }
 }

@@ -1847,6 +1847,16 @@ struct MainWindowView: View {
                     disabled: isRepositoryUndoDisabled,
                     action: performRepositoryUndo
                 )
+                .help(undoManager.undoTitle)
+
+                toolbarButton(
+                    icon: "arrow.uturn.forward",
+                    label: "Redo",
+                    showText: appState.showToolbarButtonText,
+                    disabled: isRepositoryRedoDisabled,
+                    action: performRepositoryRedo
+                )
+                .help(undoManager.redoTitle)
 
                 if windowWidth >= Self.pinnedToolbarShortcutsMinimumWindowWidth {
                     ForEach(appState.pinnedRepositoryToolbarShortcuts) { shortcut in
@@ -1981,6 +1991,18 @@ struct MainWindowView: View {
     private func performRepositoryUndo() {
         guard !isRepositoryUndoDisabled else { return }
         handleGitUndoMenuAction(.undo)
+    }
+
+    private var isRepositoryRedoDisabled: Bool {
+        operationProgress.activeOperation != nil || GitUndoToolbarPolicy.isRedoDisabled(
+            isSyncing: syncState.isAnySyncing,
+            canRedo: undoManager.canRedo
+        )
+    }
+
+    private func performRepositoryRedo() {
+        guard !isRepositoryRedoDisabled else { return }
+        handleGitUndoMenuAction(.redo)
     }
 
     private func presentRepositorySettings() {
