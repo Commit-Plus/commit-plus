@@ -483,10 +483,11 @@ final class HostedIssueController: ObservableObject {
 
     private func write<Result>(_ operation: (Context) async throws -> Result) async -> Result? {
         guard !isWriting else { return nil }
-        writeError = nil
-        guard await authorizeWrite(), let context = context() else { return nil }
+        // Claimed before the access check suspends, so a second write cannot slip in meanwhile.
         isWriting = true
         defer { isWriting = false }
+        writeError = nil
+        guard await authorizeWrite(), let context = context() else { return nil }
         do {
             return try await operation(context)
         } catch {

@@ -223,6 +223,23 @@ final class HostedIssueControllerTests: XCTestCase {
         await waitUntil { controller.items.contains { $0.number == 77 } }
     }
 
+    func testSecondWriteDuringAccessCheckIsIgnored() async {
+        let controller = makeController()
+        await controller.activate()
+        await waitUntil { controller.hasLoadedList }
+        controller.authorizeWrite = {
+            try? await Task.sleep(for: .milliseconds(50))
+            return true
+        }
+
+        async let first = controller.createIssue(HostedIssueDraft(title: "Crash", body: ""))
+        async let second = controller.createIssue(HostedIssueDraft(title: "Crash", body: ""))
+        let results = await [first, second]
+
+        XCTAssertEqual(results.filter { $0 }.count, 1)
+        XCTAssertEqual(provider.drafts.count, 1)
+    }
+
     func testBlankTitleAndDeniedAccessSendNothing() async {
         let controller = makeController()
         await controller.activate()
