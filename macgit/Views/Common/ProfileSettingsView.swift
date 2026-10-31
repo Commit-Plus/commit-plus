@@ -18,7 +18,7 @@
 
 import SwiftUI
 
-struct AccountSettingsView: View {
+struct ProfileSettingsView: View {
     @ObservedObject var accountController: AccountSessionController
 
     @State private var authenticationMode: AuthenticationMode?
@@ -145,7 +145,7 @@ struct AccountSettingsView: View {
                 Label("Commit+ Account", systemImage: "person.crop.circle")
             } footer: {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Your Commit+ account is used for cloud settings, plan access, and securely associating provider connections.")
+                    Text("Your Commit+ account is used for cloud settings, plan access, and securely associating Git provider accounts.")
                     if accountController.account != nil {
                         SettingsActionRow {
                             if accountController.isDeletingAccount {
@@ -174,7 +174,7 @@ struct AccountSettingsView: View {
 
         }
         .formStyle(.grouped)
-        .navigationTitle("Account")
+        .navigationTitle("Profile")
         .replacingSheet(item: $authenticationMode) { mode in
             AuthenticationSheet(controller: accountController, mode: mode)
         }

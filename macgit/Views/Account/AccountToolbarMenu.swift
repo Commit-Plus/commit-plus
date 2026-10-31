@@ -25,9 +25,9 @@ struct AccountToolbarMenu: View {
         Menu {
             AccountMenuContent(controller: controller)
         } label: {
-            Label("Account", systemImage: "person.crop.circle")
+            Label("Profile", systemImage: "person.crop.circle")
         }
-        .help("Commit+ Account")
+        .help("Commit+ Profile")
     }
 }
 
@@ -60,14 +60,14 @@ struct AccountMenuContent: View {
                 Button("Create Account...", action: presentCreateAccount)
                     .disabled(!controller.cloudFeaturesAvailable)
             case .manageAccount:
-                Button("Profile...", action: controller.presentManageAccount)
+                Button("Profile...", action: controller.presentProfile)
             case .manageAccountAndSubscription:
                 Button("Manage Account & Subscription") {
                     Task { await controller.openAccountOnWeb() }
                 }
                 .disabled(controller.isOpeningAccountOnWeb)
-            case .connections:
-                Button("Git Provider Accounts...", action: controller.presentConnections)
+            case .accounts:
+                Button("Git Provider Accounts...", action: controller.presentAccounts)
             case .syncLocked:
                 Button("Sync Settings · Sign In Required") {}
                     .disabled(true)

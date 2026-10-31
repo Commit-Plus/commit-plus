@@ -108,7 +108,7 @@ struct MainWindowView: View {
     @ObservedObject var providerAccountController: GitProviderAccountController
     @ObservedObject var jiraConnectionController: JiraConnectionController
     @ObservedObject var aiProviderController: AIProviderController
-    let onOpenConnections: () -> Void
+    let onOpenAccounts: () -> Void
     let windowContext: RepositoryWindowContext
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var accountController: AccountSessionController
@@ -249,7 +249,7 @@ struct MainWindowView: View {
         providerAccountController: GitProviderAccountController,
         jiraConnectionController: JiraConnectionController,
         aiProviderController: AIProviderController,
-        onOpenConnections: @escaping () -> Void = {},
+        onOpenAccounts: @escaping () -> Void = {},
         windowContext: RepositoryWindowContext,
         operationProgress: RepositoryOperationProgress
     ) {
@@ -260,7 +260,7 @@ struct MainWindowView: View {
         self.providerAccountController = providerAccountController
         self.jiraConnectionController = jiraConnectionController
         self.aiProviderController = aiProviderController
-        self.onOpenConnections = onOpenConnections
+        self.onOpenAccounts = onOpenAccounts
         self.windowContext = windowContext
         self.operationProgress = operationProgress
         let pullRequestController = PullRequestController(
@@ -1572,7 +1572,7 @@ struct MainWindowView: View {
                         controller: pullRequestController,
                         repositoryURL: repositoryURL,
                         accountConnectionErrorMessage: providerAccountController.errorMessage,
-                        onReconnectAccount: onOpenConnections,
+                        onReconnectAccount: onOpenAccounts,
                         onRequestCreatePullRequest: {
                             prepareCreatePullRequest()
                         },
@@ -1642,7 +1642,7 @@ struct MainWindowView: View {
                         controller: hostedIssueController,
                         isActive: selectedItem == .item(.hostedIssues),
                         canManageGitHubOrganizationAccess: providerAccountController.canManageGitHubOrganizationAccess,
-                        onOpenConnections: onOpenConnections,
+                        onOpenAccounts: onOpenAccounts,
                         onOpenGitHubOrganizationAccess: providerAccountController.openGitHubOrganizationAccess,
                         gitFlowEnabled: gitFlowConfiguration.isEnabled,
                         onCreateBranch: { key, summary, target in

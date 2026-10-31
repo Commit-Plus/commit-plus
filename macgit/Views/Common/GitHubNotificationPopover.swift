@@ -132,7 +132,7 @@ struct GitHubNotificationPopover: View {
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text(account.username).font(.caption.bold())
                                     Text(error).font(.caption).foregroundStyle(.secondary)
-                                    Button("Manage connections", action: onConnect).font(.caption)
+                                    Button("Manage accounts", action: onConnect).font(.caption)
                                 }.padding()
                             }
                         }

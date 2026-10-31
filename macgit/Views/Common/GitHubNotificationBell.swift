@@ -20,7 +20,7 @@ struct GitHubNotificationBell: View {
             GitHubNotificationPopover(
                 controller: controller,
                 appNotificationController: appNotificationController,
-                onConnect: accountController.presentConnections,
+                onConnect: accountController.presentAccounts,
                 onAppNotification: openAppNotification
             ) { presentation in
                 isPresented = false

@@ -101,7 +101,7 @@ struct ContentView: View {
                     providerAccountController: providerAccountController,
                     jiraConnectionController: jiraConnectionController,
                     aiProviderController: aiProviderController,
-                    onOpenConnections: accountController.presentConnections,
+                    onOpenAccounts: accountController.presentAccounts,
                     windowContext: windowContext,
                     operationProgress: operationProgress
                 )
@@ -286,7 +286,7 @@ struct ContentView: View {
 
     private func openWelcomeAccount() {
         if accountController.account != nil {
-            accountController.presentManageAccount()
+            accountController.presentProfile()
         } else {
             accountController.presentAuthentication(.signIn)
         }

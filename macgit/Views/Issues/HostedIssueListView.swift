@@ -10,7 +10,7 @@ struct HostedIssueListView: View {
     /// The screen stays mounted while hidden, so loading follows visibility rather than appearance.
     let isActive: Bool
     let canManageGitHubOrganizationAccess: Bool
-    let onOpenConnections: () -> Void
+    let onOpenAccounts: () -> Void
     let onOpenGitHubOrganizationAccess: () -> Void
     let gitFlowEnabled: Bool
     let onCreateBranch: (String, String, IssueBranchTarget) -> Void
@@ -204,8 +204,8 @@ struct HostedIssueListView: View {
             }
         } actions: {
             switch problem {
-            case .noAccount: Button("Connect \(providerName)…", action: onOpenConnections)
-            case .reconnect: Button("Open Connections…", action: onOpenConnections)
+            case .noAccount: Button("Connect \(providerName)…", action: onOpenAccounts)
+            case .reconnect: Button("Open Accounts…", action: onOpenAccounts)
             }
         }
     }
@@ -229,7 +229,7 @@ struct HostedIssueListView: View {
                 Button("Open Repository in Browser") { NSWorkspace.shared.open(url) }
             }
         case .missingScope, .reauthorizationRequired, .accountUpdateRequired:
-            Button("Open Connections…", action: onOpenConnections)
+            Button("Open Accounts…", action: onOpenAccounts)
         case .organizationAccessRequired:
             if canManageGitHubOrganizationAccess {
                 Button("Manage Organization Access…", action: onOpenGitHubOrganizationAccess)
@@ -335,7 +335,7 @@ struct HostedIssueListView: View {
                         provider: provider,
                         summary: controller.detail?.summary ?? controller.items.first { $0.number == number },
                         gitFlowEnabled: gitFlowEnabled,
-                        onOpenConnections: onOpenConnections,
+                        onOpenAccounts: onOpenAccounts,
                         onCreateBranch: { summary, target in onCreateBranch(String(summary.number), summary.title, target) },
                         onClose: { controller.select(nil) }
                     )

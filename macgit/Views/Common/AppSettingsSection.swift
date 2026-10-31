@@ -23,6 +23,7 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
     case diff
     case git
     case accounts
+    case profile
     case integrations
     case notifications
     case customActions
@@ -38,7 +39,8 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         case .appearance: "Appearance"
         case .diff: "Diff"
         case .git: "Git"
-        case .accounts: "Account"
+        case .accounts: "Accounts"
+        case .profile: "Profile"
         case .integrations: "Integrations"
         case .notifications: "Notifications"
         case .customActions: "Custom Actions"
@@ -54,7 +56,8 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         case .appearance: "paintbrush"
         case .diff: "plusminus"
         case .git: "point.3.connected.trianglepath.dotted"
-        case .accounts: "person.crop.circle"
+        case .accounts: "person.2.crop.square.stack"
+        case .profile: "person.crop.circle"
         case .integrations: "puzzlepiece.extension"
         case .notifications: "bell"
         case .customActions: "terminal"
@@ -73,9 +76,11 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
         case .diff:
             "Customize the font and colors used to display code changes."
         case .git:
-            "Manage Git provider connections and global Git behavior."
+            "Configure the Git runtime, credentials, SSH keys, and global Git behavior."
         case .accounts:
-            "Manage your Commit+ account."
+            "Connect GitHub, GitLab, Bitbucket, and other Git provider accounts."
+        case .profile:
+            "Manage your Commit+ profile, plan, and settings sync."
         case .integrations:
             "Connect Commit+ with external tools and services."
         case .notifications:
@@ -94,19 +99,4 @@ enum AppSettingsSection: String, CaseIterable, Identifiable {
 
 extension Notification.Name {
     static let showAppSettings = Notification.Name("showAppSettings")
-}
-
-/// A location inside a settings pane that an entry point can ask the pane to reveal.
-enum AppSettingsAnchor: Hashable {
-    case gitProviderAccounts
-}
-
-/// Keeps the requested anchor until its pane appears, since Settings may not be open yet.
-@MainActor @Observable
-final class AppSettingsNavigation {
-    static let shared = AppSettingsNavigation()
-
-    var pendingAnchor: AppSettingsAnchor?
-
-    private init() {}
 }

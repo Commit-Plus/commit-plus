@@ -14,7 +14,7 @@ struct HostedIssueDetailView: View {
     let provider: HostedIssueProvider
     let summary: HostedIssueSummary?
     let gitFlowEnabled: Bool
-    let onOpenConnections: () -> Void
+    let onOpenAccounts: () -> Void
     let onCreateBranch: (HostedIssueSummary, IssueBranchTarget) -> Void
     let onClose: () -> Void
     @State private var commentDraft = ""
@@ -203,7 +203,7 @@ struct HostedIssueDetailView: View {
             Spacer(minLength: 0)
             switch error {
             case .missingScope, .reauthorizationRequired, .accountUpdateRequired:
-                Button("Open Connections…", action: onOpenConnections)
+                Button("Open Accounts…", action: onOpenAccounts)
                     .buttonStyle(.link)
             default:
                 Button("Dismiss", action: controller.clearWriteError)

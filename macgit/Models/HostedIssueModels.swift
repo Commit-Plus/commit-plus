@@ -179,7 +179,7 @@ enum HostedIssueError: LocalizedError, Equatable {
     case rateLimited(retryAfter: Date?)
     case notFound
     case closeUnavailable(String)
-    /// The saved account lacks something the issue API needs, fixed by editing it in Settings → Connections.
+    /// The saved account lacks something the issue API needs, fixed by editing it in Settings → Accounts.
     case accountUpdateRequired(String)
     case providerMessage(String)
 

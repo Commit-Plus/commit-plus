@@ -18,11 +18,7 @@
 import SwiftUI
 
 struct GitSettingsView: View {
-    @ObservedObject var accountController: AccountSessionController
-    @ObservedObject var providerAccountController: GitProviderAccountController
     @State private var viewModel = GitSettingsViewModel()
-    @State private var providerPresentation = GitProviderSettingsPresentation()
-    @State private var navigation = AppSettingsNavigation.shared
     @FocusState private var focusedField: Field?
     @Environment(\.openWindow) private var openWindow
 
@@ -43,116 +39,105 @@ struct GitSettingsView: View {
     var body: some View {
         @Bindable var viewModel = viewModel
 
-        ScrollViewReader { proxy in
-            Form {
-                GitRuntimeSettingsSection(viewModel: viewModel)
-                GitLFSRuntimeSection()
-                GitProviderSettingsSection(
-                    accountController: accountController,
-                    providerAccountController: providerAccountController,
-                    presentation: $providerPresentation
-                )
-                .id(AppSettingsAnchor.gitProviderAccounts)
-                GitCredentialHelperSettingsSection(viewModel: viewModel)
+        Form {
+            GitRuntimeSettingsSection(viewModel: viewModel)
+            GitLFSRuntimeSection()
+            GitCredentialHelperSettingsSection(viewModel: viewModel)
 
-                Section {
-                    SettingsActionRow {
-                        Button("Configure SSH Keys…") { openWindow(id: "ssh-keys") }
-                    }
-                } header: {
-                    Label("SSH Keys", systemImage: "key.horizontal")
-                } footer: {
-                    Text("Generate a key and copy its public key to your Git provider. SSH remotes use the system ssh-agent and ~/.ssh/config unless a connected account selects its own key.")
+            Section {
+                SettingsActionRow {
+                    Button("Configure SSH Keys…") { openWindow(id: "ssh-keys") }
                 }
-
-                Section {
-                    TextField("Full Name", text: $viewModel.settings.userName)
-                        .focused($focusedField, equals: .userName)
-                        .onSubmit { save(committing: \.userName) }
-                    TextField("Email Address", text: $viewModel.settings.userEmail)
-                        .focused($focusedField, equals: .userEmail)
-                        .onSubmit { save(committing: \.userEmail) }
-                } header: {
-                    Label("Global Author", systemImage: "person.text.rectangle")
-                } footer: {
-                    Text("Repositories with a local author override will continue to use their repository-specific identity.")
-                }
-
-                Section {
-                    TextField("Default Branch Name", text: $viewModel.settings.defaultBranchName)
-                        .focused($focusedField, equals: .defaultBranchName)
-                        .onSubmit { save(committing: \.defaultBranchName) }
-
-                    SettingsToggleRow(
-                        title: "Prune deleted remote branches",
-                        detail: "Run future fetches with the global fetch.prune behavior enabled.",
-                        isOn: $viewModel.settings.pruneOnFetch
-                    )
-
-                    SettingsToggleRow(
-                        title: "Set upstream on first push",
-                        detail: "Automatically configure tracking when a new local branch is pushed for the first time.",
-                        isOn: $viewModel.settings.autoSetupRemote
-                    )
-                } header: {
-                    Label("Repository Defaults", systemImage: "arrow.triangle.branch")
-                }
-
-                Section {
-                    TextField("Ignore File Path", text: $viewModel.settings.excludesFilePath)
-                        .focused($focusedField, equals: .excludesFilePath)
-                        .onSubmit { save(committing: \.excludesFilePath) }
-
-                    SettingsActionRow {
-                        Button("Choose…") {
-                            viewModel.chooseGlobalIgnoreFile()
-                            save(committing: \.excludesFilePath)
-                        }
-                        Button("Use Default") {
-                            viewModel.useDefaultGlobalIgnoreFile()
-                            save(committing: \.excludesFilePath)
-                        }
-                        Button("Open Ignore File…", action: viewModel.openGlobalIgnoreFile)
-                    }
-                } header: {
-                    Label("Global Ignore File", systemImage: "doc.badge.ellipsis")
-                } footer: {
-                    Text("Patterns in this file are ignored across all repositories on this Mac.")
-                }
-
-                Section {
-                } footer: {
-                    HStack {
-                        if viewModel.isSaving {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Saving…")
-                                .foregroundStyle(.secondary)
-                        } else if let saveErrorMessage = viewModel.saveErrorMessage {
-                            Label(saveErrorMessage, systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.red)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .textSelection(.enabled)
-                        } else if let statusMessage = viewModel.statusMessage {
-                            Label(statusMessage, systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                        }
-
-                        Spacer(minLength: 0)
-
-                        Button("Open Global Git Config…", action: viewModel.openGlobalGitConfig)
-                    }
-                    .font(.body)
-                    .foregroundStyle(.primary)
-                    .buttonStyle(.bordered)
-                    .controlSize(.regular)
-                }
+            } header: {
+                Label("SSH Keys", systemImage: "key.horizontal")
+            } footer: {
+                Text("Generate a key and copy its public key to your Git provider. SSH remotes use the system ssh-agent and ~/.ssh/config unless a connected account selects its own key.")
             }
-            .formStyle(.grouped)
-            .onChange(of: navigation.pendingAnchor, initial: true) { revealPendingAnchor(using: proxy) }
-            // Loaded runtime sections change height above the anchor, so reveal it again afterward.
-            .onChange(of: viewModel.isLoading) { revealPendingAnchor(using: proxy) }
+
+            Section {
+                TextField("Full Name", text: $viewModel.settings.userName)
+                    .focused($focusedField, equals: .userName)
+                    .onSubmit { save(committing: \.userName) }
+                TextField("Email Address", text: $viewModel.settings.userEmail)
+                    .focused($focusedField, equals: .userEmail)
+                    .onSubmit { save(committing: \.userEmail) }
+            } header: {
+                Label("Global Author", systemImage: "person.text.rectangle")
+            } footer: {
+                Text("Repositories with a local author override will continue to use their repository-specific identity.")
+            }
+
+            Section {
+                TextField("Default Branch Name", text: $viewModel.settings.defaultBranchName)
+                    .focused($focusedField, equals: .defaultBranchName)
+                    .onSubmit { save(committing: \.defaultBranchName) }
+
+                SettingsToggleRow(
+                    title: "Prune deleted remote branches",
+                    detail: "Run future fetches with the global fetch.prune behavior enabled.",
+                    isOn: $viewModel.settings.pruneOnFetch
+                )
+
+                SettingsToggleRow(
+                    title: "Set upstream on first push",
+                    detail: "Automatically configure tracking when a new local branch is pushed for the first time.",
+                    isOn: $viewModel.settings.autoSetupRemote
+                )
+            } header: {
+                Label("Repository Defaults", systemImage: "arrow.triangle.branch")
+            }
+
+            Section {
+                TextField("Ignore File Path", text: $viewModel.settings.excludesFilePath)
+                    .focused($focusedField, equals: .excludesFilePath)
+                    .onSubmit { save(committing: \.excludesFilePath) }
+
+                SettingsActionRow {
+                    Button("Choose…") {
+                        viewModel.chooseGlobalIgnoreFile()
+                        save(committing: \.excludesFilePath)
+                    }
+                    Button("Use Default") {
+                        viewModel.useDefaultGlobalIgnoreFile()
+                        save(committing: \.excludesFilePath)
+                    }
+                    Button("Open Ignore File…", action: viewModel.openGlobalIgnoreFile)
+                }
+            } header: {
+                Label("Global Ignore File", systemImage: "doc.badge.ellipsis")
+            } footer: {
+                Text("Patterns in this file are ignored across all repositories on this Mac.")
+            }
+
+            Section {
+            } footer: {
+                HStack {
+                    if viewModel.isSaving {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Saving…")
+                            .foregroundStyle(.secondary)
+                    } else if let saveErrorMessage = viewModel.saveErrorMessage {
+                        Label(saveErrorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    } else if let statusMessage = viewModel.statusMessage {
+                        Label(statusMessage, systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Button("Open Global Git Config…", action: viewModel.openGlobalGitConfig)
+                }
+                .font(.body)
+                .foregroundStyle(.primary)
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+            }
         }
+        .formStyle(.grouped)
         .navigationTitle("Git")
         .disabled(viewModel.isLoading)
         .overlay {
@@ -162,11 +147,6 @@ struct GitSettingsView: View {
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
             }
         }
-        .gitProviderSettingsPresentations(
-            accountController: accountController,
-            providerAccountController: providerAccountController,
-            presentation: $providerPresentation
-        )
         .task {
             await viewModel.load()
         }
@@ -197,18 +177,6 @@ struct GitSettingsView: View {
             Text(
                 "This global Git configuration contains multiple credential helpers. Commit+ will replace the helper chain, but it will not delete credentials stored by those helpers."
             )
-        }
-    }
-
-    private func revealPendingAnchor(using proxy: ScrollViewProxy) {
-        guard let anchor = navigation.pendingAnchor else { return }
-        Task { @MainActor in
-            // Wait one turn so the Form has laid out before scrolling.
-            await Task.yield()
-            withAnimation { proxy.scrollTo(anchor, anchor: .top) }
-            if !viewModel.isLoading, navigation.pendingAnchor == anchor {
-                navigation.pendingAnchor = nil
-            }
         }
     }
 

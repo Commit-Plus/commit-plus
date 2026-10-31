@@ -278,28 +278,28 @@ final class AccountSessionControllerTests: XCTestCase {
         XCTAssertNil(controller.welcomeState)
     }
 
-    func testPresentConnectionsRequestsGitSettings() {
+    func testPresentAccountsRequestsAccountsSettings() {
         let controller = AccountSessionController(
             auth: FakeAccountAuth(current: nil),
             bootstrapStatus: .configured
         )
 
         let navigation = expectation(forNotification: .showAppSettings, object: nil) { notification in
-            notification.userInfo?["section"] as? String == AppSettingsSection.git.rawValue
+            notification.userInfo?["section"] as? String == AppSettingsSection.accounts.rawValue
         }
-        controller.presentConnections()
+        controller.presentAccounts()
         wait(for: [navigation], timeout: 1)
         XCTAssertNil(controller.presentedSheet)
     }
 
-    func testPresentProfileRequestsAccountSettings() {
+    func testPresentProfileRequestsProfileSettings() {
         let controller = AccountSessionController(
             auth: FakeAccountAuth(current: nil), bootstrapStatus: .configured
         )
         let navigation = expectation(forNotification: .showAppSettings, object: nil) { notification in
-            notification.userInfo?["section"] as? String == AppSettingsSection.accounts.rawValue
+            notification.userInfo?["section"] as? String == AppSettingsSection.profile.rawValue
         }
-        controller.presentManageAccount()
+        controller.presentProfile()
         wait(for: [navigation], timeout: 1)
         XCTAssertNil(controller.presentedSheet)
     }

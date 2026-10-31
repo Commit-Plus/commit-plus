@@ -132,7 +132,7 @@ final class SettingsSyncControllerTests: XCTestCase {
 
     func testConflictPresentsSheetAfterOpeningAccountSettings() async {
         let harness = makeHarness(cloud: cloud, enabled: true)
-        harness.controller.presentManageAccount()
+        harness.controller.presentProfile()
 
         await harness.controller.synchronizeSettingsNow()
         await Task.yield()

@@ -225,13 +225,12 @@ final class AccountSessionController: ObservableObject {
         presentSheet(.authentication(mode), in: NSApp.keyWindow ?? NSApp.mainWindow)
     }
 
-    func presentManageAccount() {
-        openSettings(.accounts)
+    func presentProfile() {
+        openSettings(.profile)
     }
 
-    func presentConnections() {
-        AppSettingsNavigation.shared.pendingAnchor = .gitProviderAccounts
-        openSettings(.git)
+    func presentAccounts() {
+        openSettings(.accounts)
     }
 
     func presentIntegrations() {

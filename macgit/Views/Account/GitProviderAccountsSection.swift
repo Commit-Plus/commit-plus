@@ -114,7 +114,7 @@ struct GitProviderAccountsSection: View {
 
             if !isSignedIn, accountCreationDecision.isAllowed {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("Connections are stored on this Mac.")
+                    Text("Accounts are stored on this Mac.")
                     Button("Sign in to sync", action: onSignIn)
                         .buttonStyle(.link)
                 }

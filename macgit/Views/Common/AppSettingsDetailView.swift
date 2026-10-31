@@ -41,12 +41,14 @@ struct AppSettingsDetailView: View {
                 syntaxHighlighting: $diffSyntaxHighlightingDraft
             )
         case .git:
-            GitSettingsView(
+            GitSettingsView()
+        case .accounts:
+            AccountsSettingsView(
                 accountController: accountController,
                 providerAccountController: providerAccountController
             )
-        case .accounts:
-            AccountSettingsView(accountController: accountController)
+        case .profile:
+            ProfileSettingsView(accountController: accountController)
         case .integrations:
             IntegrationsSettingsView(appState: appState, accountController: accountController)
         case .notifications:

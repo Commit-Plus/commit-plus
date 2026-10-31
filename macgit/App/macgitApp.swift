@@ -375,8 +375,7 @@ struct macgitApp: App {
                 appNotificationController: appNotificationController,
                 onConnect: {
                     NSApp.activate()
-                    AppSettingsNavigation.shared.pendingAnchor = .gitProviderAccounts
-                    selectedAppSettingsSection = .git
+                    selectedAppSettingsSection = .accounts
                     openWindow(id: "settings")
                 },
                 onAppNotification: openAppNotification,
@@ -577,7 +576,7 @@ struct macgitApp: App {
 
             GitFlowCommands()
 
-            CommandMenu("Accounts") {
+            CommandMenu("Profile") {
                 AccountMenuContent(controller: accountController)
             }
 

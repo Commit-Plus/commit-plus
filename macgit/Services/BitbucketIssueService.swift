@@ -6,7 +6,7 @@ struct BitbucketIssueService: HostedIssueProviding {
     static let pageSize = 30
     static let openStates = ["new", "open", "on hold"]
     static let closedStates = ["resolved", "invalid", "duplicate", "wontfix", "closed"]
-    static let missingEmailMessage = "Add your Atlassian account email to the Bitbucket account in Settings → Connections to use Bitbucket Issues."
+    static let missingEmailMessage = "Add your Atlassian account email to the Bitbucket account in Settings → Accounts to use Bitbucket Issues."
 
     private let httpClient: GitProviderHTTPClient
     private let apiBaseURL: URL
