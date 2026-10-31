@@ -52,6 +52,19 @@ extension MainWindowView {
             if !syncing && syncState.stashableCount > 0 {
                 showingStashSheet = true
             }
+        case .tag:
+            if !syncing { showingNewTagSheet = true }
+        case .createPullRequest:
+            prepareCreatePullRequest()
+        case .refresh:
+            Task {
+                await syncState.refresh(repositoryURL: repositoryURL, force: true)
+                NotificationCenter.default.post(
+                    name: .repositoryLocalStateDidRefresh,
+                    object: nil,
+                    userInfo: ["repositoryURL": repositoryURL]
+                )
+            }
         case .remote:
             openRemoteURL()
         case .finder:

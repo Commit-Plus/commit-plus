@@ -24,6 +24,7 @@ import SwiftUI
 
 enum ToolbarAction: Hashable {
     case commit, pull, push, fetch, addSubmodule, addLinkSubtree, branch, merge, stash
+    case tag, createPullRequest, refresh
     case remote, finder, editor, terminal, repositorySettings, search
 }
 

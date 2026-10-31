@@ -41,6 +41,7 @@ struct macgitApp: App {
     private let repositoryWindowLifecycleController = RepositoryWindowLifecycleController()
     @FocusedValue(\.repositoryWindowCommandState) private var repositoryWindowCommandState
     @FocusedValue(\.customActionCommandState) private var customActionCommandState
+    @FocusedValue(\.gitFlowCommandState) private var gitFlowCommandState
 
     init() {
         NSWindow.allowsAutomaticWindowTabbing = true
@@ -218,6 +219,13 @@ struct macgitApp: App {
     private func performToolbarAction(_ action: ToolbarAction) {
         WindowScopedNotification.post(
             name: .toolbarAction,
+            userInfo: ["action": action]
+        )
+    }
+
+    private func performGitFlowAction(_ action: GitFlowMenuAction) {
+        WindowScopedNotification.post(
+            name: .gitFlowMenuAction,
             userInfo: ["action": action]
         )
     }
@@ -459,30 +467,67 @@ struct macgitApp: App {
                 .keyboardShortcut("z", modifiers: [.command, .shift])
             }
 
-            CommandMenu("Actions") {
+            CommandMenu("Repository") {
                 Button("Commit...") {
                     performToolbarAction(.commit)
                 }
                 .disabled(!hasOpenRepository)
                 .keyboardShortcut("c", modifiers: [.command, .shift])
 
-                Button("Pull") {
+                Divider()
+
+                Button("Fetch...") {
+                    performToolbarAction(.fetch)
+                }
+                .disabled(!hasOpenRepository)
+                .keyboardShortcut("f", modifiers: [.command, .option])
+
+                Button("Pull...") {
                     performToolbarAction(.pull)
                 }
                 .disabled(!hasOpenRepository)
                 .keyboardShortcut("p", modifiers: [.command, .shift])
 
-                Button("Push") {
+                Button("Push...") {
                     performToolbarAction(.push)
                 }
                 .disabled(!hasOpenRepository)
                 .keyboardShortcut("p", modifiers: [.command, .option])
 
-                Button("Fetch") {
-                    performToolbarAction(.fetch)
+                Divider()
+
+                Button("Stash Changes...") {
+                    performToolbarAction(.stash)
                 }
                 .disabled(!hasOpenRepository)
-                .keyboardShortcut("f", modifiers: [.command, .option])
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+
+                Divider()
+
+                Button("New Branch...") {
+                    performToolbarAction(.branch)
+                }
+                .disabled(!hasOpenRepository)
+                .keyboardShortcut("b", modifiers: [.command, .shift])
+
+                Button("Merge...") {
+                    performToolbarAction(.merge)
+                }
+                .disabled(!hasOpenRepository)
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+
+                Button("New Tag...") {
+                    performToolbarAction(.tag)
+                }
+                .disabled(!hasOpenRepository)
+                .keyboardShortcut("t", modifiers: [.command, .shift])
+
+                Button("Create Pull Request...") {
+                    performToolbarAction(.createPullRequest)
+                }
+                .disabled(!hasOpenRepository)
+
+                Divider()
 
                 Button("Add Submodule...") {
                     performToolbarAction(.addSubmodule)
@@ -496,27 +541,25 @@ struct macgitApp: App {
 
                 Divider()
 
-                Button("Branch...") {
-                    performToolbarAction(.branch)
+                Menu("Git Flow") {
+                    GitFlowCommandMenuContent(
+                        state: gitFlowCommandState,
+                        hasOpenRepository: gitFlowCommandState != nil,
+                        perform: performGitFlowAction
+                    )
                 }
-                .disabled(!hasOpenRepository)
-                .keyboardShortcut("b", modifiers: [.command, .shift])
-
-                Button("Merge...") {
-                    performToolbarAction(.merge)
-                }
-                .disabled(!hasOpenRepository)
-                .keyboardShortcut("m", modifiers: [.command, .shift])
-
-                Button("Stash...") {
-                    performToolbarAction(.stash)
-                }
-                .disabled(!hasOpenRepository)
-                .keyboardShortcut("s", modifiers: [.command, .shift])
 
                 Divider()
 
-                Button("Remote") {
+                Button("Refresh") {
+                    performToolbarAction(.refresh)
+                }
+                .disabled(!hasOpenRepository)
+                .keyboardShortcut("r", modifiers: .command)
+
+                Divider()
+
+                Button("View Remote") {
                     performToolbarAction(.remote)
                 }
                 .disabled(!hasOpenRepository)
@@ -533,11 +576,6 @@ struct macgitApp: App {
 
                 Button("Open in Terminal") {
                     performToolbarAction(.terminal)
-                }
-                .disabled(!hasOpenRepository)
-
-                Button("Repository Settings...") {
-                    performToolbarAction(.repositorySettings)
                 }
                 .disabled(!hasOpenRepository)
 
@@ -572,9 +610,14 @@ struct macgitApp: App {
                 }
                 .disabled(!hasOpenRepository)
                 .keyboardShortcut("f", modifiers: [.command, .shift])
-            }
 
-            GitFlowCommands()
+                Divider()
+
+                Button("Repository Settings...") {
+                    performToolbarAction(.repositorySettings)
+                }
+                .disabled(!hasOpenRepository)
+            }
 
             CommandMenu("Profile") {
                 AccountMenuContent(controller: accountController)
