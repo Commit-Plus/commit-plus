@@ -22,6 +22,7 @@ extension SidebarView {
         menu.item("Show Worktrees", checked: appState.showWorktrees) { appState.showWorktrees.toggle() }
         menu.item("Show Submodules", checked: appState.showSubmodules) { appState.showSubmodules.toggle() }
         menu.item("Show Subtrees", checked: appState.showSubtrees) { appState.showSubtrees.toggle() }
+        menu.item("Show Issues", checked: appState.showIssues) { appState.showIssues.toggle() }
         return menu
     }
 

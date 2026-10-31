@@ -28,7 +28,6 @@ struct WorkspaceVisibilityPopover: View {
 
             Toggle("Reflog", isOn: $appState.showWorkspaceReflog)
             Toggle("Pull Requests", isOn: $appState.showWorkspacePullRequests)
-            Toggle("Jira", isOn: $appState.showWorkspaceJira)
             Toggle("Git LFS", isOn: $appState.showWorkspaceGitLFS)
             Toggle("Git Flow", isOn: $appState.showGitFlow)
         }

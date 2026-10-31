@@ -46,16 +46,13 @@ final class SidebarNativeListTests: XCTestCase {
         return (owner, table)
     }
 
-    func testJiraWorkspaceRowIsVisibleByDefaultAndFollowsItsToggle() {
+    func testIssuesSectionIsVisibleByDefaultAndJiraIsNotAWorkspaceRow() {
         let suiteName = "SidebarNativeListTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let state = AppState(userDefaults: defaults)
 
-        let items = SidebarSection.visibleWorkspaceItems(appState: state)
-        XCTAssertEqual(items.firstIndex(of: .jira), items.firstIndex(of: .pullRequests).map { $0 + 1 })
-
-        state.showWorkspaceJira = false
+        XCTAssertTrue(state.showIssues)
         XCTAssertFalse(SidebarSection.visibleWorkspaceItems(appState: state).contains(.jira))
         XCTAssertTrue(SidebarSection.visibleWorkspaceItems(appState: state).contains(.pullRequests))
     }

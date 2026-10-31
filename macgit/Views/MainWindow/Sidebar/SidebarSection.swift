@@ -20,6 +20,7 @@ import SwiftUI
 
 enum SidebarSection: String, CaseIterable {
     case workspace = "WORKSPACE"
+    case issues = "ISSUES"
     case gitFlow = "GIT FLOW"
     case branches = "BRANCHES"
     case worktrees = "WORKTREES"
@@ -33,6 +34,8 @@ enum SidebarSection: String, CaseIterable {
         switch self {
         case .workspace:
             return "square.grid.2x2"
+        case .issues:
+            return "checklist"
         case .gitFlow:
             return "point.3.connected.trianglepath.dotted"
         case .branches:
@@ -56,6 +59,8 @@ enum SidebarSection: String, CaseIterable {
         switch self {
         case .workspace:
             return .blue
+        case .issues:
+            return .indigo
         case .branches:
             return .purple
         case .worktrees:
@@ -78,7 +83,9 @@ enum SidebarSection: String, CaseIterable {
     var items: [SidebarItem] {
         switch self {
         case .workspace:
-            return [.fileStatus, .history, .reflog, .pullRequests, .jira, .gitLFS, .search]
+            return [.fileStatus, .history, .reflog, .pullRequests, .gitLFS, .search]
+        case .issues:
+            return [.jira]
         default:
             return []
         }
@@ -90,7 +97,6 @@ enum SidebarSection: String, CaseIterable {
             switch item {
             case .reflog: appState.showWorkspaceReflog
             case .pullRequests: appState.showWorkspacePullRequests
-            case .jira: appState.showWorkspaceJira
             case .gitLFS: appState.showWorkspaceGitLFS
             default: true
             }

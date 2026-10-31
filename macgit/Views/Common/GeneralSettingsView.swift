@@ -81,6 +81,12 @@ struct GeneralSettingsView: View {
                     detail: "Include configured Git subtrees in the repository sidebar.",
                     isOn: $appState.showSubtrees
                 )
+
+                SettingsToggleRow(
+                    title: "Show Issues",
+                    detail: "Include issue trackers such as Jira as a dedicated section in the repository sidebar.",
+                    isOn: $appState.showIssues
+                )
             } header: {
                 Label("Repository Sidebar", systemImage: "sidebar.left")
             }

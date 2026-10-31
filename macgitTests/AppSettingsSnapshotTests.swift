@@ -260,12 +260,12 @@ final class AppSettingsSnapshotTests: XCTestCase {
         XCTAssertTrue(state.showWorkspaceReflog)
         XCTAssertTrue(state.showWorkspacePullRequests)
         XCTAssertTrue(state.showWorkspaceGitLFS)
-        XCTAssertTrue(state.showWorkspaceJira)
+        XCTAssertTrue(state.showIssues)
 
         state.showWorkspaceReflog = false
         state.showWorkspacePullRequests = false
         state.showWorkspaceGitLFS = false
-        state.showWorkspaceJira = false
+        state.showIssues = false
 
         let reloaded = AppState(userDefaults: defaults)
         XCTAssertFalse(reloaded.showWorkspaceReflog)
@@ -274,7 +274,7 @@ final class AppSettingsSnapshotTests: XCTestCase {
         XCTAssertFalse(reloaded.snapshot.showWorkspaceReflog)
         XCTAssertFalse(reloaded.snapshot.showWorkspacePullRequests)
         XCTAssertFalse(reloaded.snapshot.showWorkspaceGitLFS)
-        XCTAssertFalse(reloaded.showWorkspaceJira)
+        XCTAssertFalse(reloaded.showIssues)
         XCTAssertFalse(reloaded.snapshot.showWorkspaceJira)
     }
 

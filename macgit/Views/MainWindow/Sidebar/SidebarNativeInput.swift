@@ -40,7 +40,8 @@ extension SidebarView {
         SidebarNativeInput(
             trees: [visibleBranchRows, visibleTagRows, visibleRemoteRows, visibleSubmoduleRows],
             expanded: [expandedFolders, expandedTagFolders, expandedRemoteFolders, expandedSubmoduleFolders],
-            flags: [sectionStates.branchesExpanded, sectionStates.tagsExpanded, sectionStates.remotesExpanded,
+            flags: [sectionStates.issuesExpanded, appState.showIssues,
+                sectionStates.branchesExpanded, sectionStates.tagsExpanded, sectionStates.remotesExpanded,
                 sectionStates.worktreesExpanded, sectionStates.stashesExpanded, sectionStates.submodulesExpanded,
                 sectionStates.subtreesExpanded, appState.showTags, appState.showWorktrees, appState.showSubmodules,
                 appState.showSubtrees, appState.showGitFlow, appState.showWorkspaceReflog,

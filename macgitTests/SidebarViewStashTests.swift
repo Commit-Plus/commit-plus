@@ -60,6 +60,28 @@ final class SidebarViewStashTests: XCTestCase {
         XCTAssertTrue(decoded.submodulesExpanded)
     }
 
+    func testSidebarSectionStateDecodesMissingIssuesExpandedAsTrue() throws {
+        let data = #"{"branchesExpanded":true,"tagsExpanded":false}"#.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(SidebarSectionState.self, from: data)
+
+        XCTAssertTrue(decoded.issuesExpanded)
+    }
+
+    func testSidebarSettingsStorePersistsIssuesSectionToggle() {
+        let repositoryPath = "/tmp/sidebar-issues-\(UUID().uuidString)"
+
+        SidebarSettingsStore.shared.toggleSection(.issues, for: repositoryPath)
+
+        let updatedState = SidebarSettingsStore.shared.state(for: repositoryPath)
+        XCTAssertFalse(updatedState.issuesExpanded)
+        XCTAssertTrue(updatedState.stashesExpanded)
+    }
+
+    func testJiraMovesFromWorkspaceToIssuesSection() {
+        XCTAssertFalse(SidebarSection.workspace.items.contains(.jira))
+        XCTAssertEqual(SidebarSection.issues.items, [.jira])
+    }
+
     func testSidebarSettingsStorePersistsSubmodulesSectionToggle() {
         let repositoryPath = "/tmp/sidebar-submodule-\(UUID().uuidString)"
 

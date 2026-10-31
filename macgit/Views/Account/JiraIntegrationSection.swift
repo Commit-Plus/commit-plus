@@ -63,7 +63,7 @@ struct JiraIntegrationSection: View {
                     .frame(width: 16, height: 16)
             }
         } footer: {
-            Text("Connect a Jira Cloud site with an Atlassian API token to see your sprint issues in the Jira workspace screen. The token is stored only in this Mac's Keychain.")
+            Text("Connect a Jira Cloud site with an Atlassian API token to see your sprint issues under Issues in the repository sidebar. The token is stored only in this Mac's Keychain.")
         }
     }
 

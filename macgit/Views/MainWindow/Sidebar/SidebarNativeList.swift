@@ -651,6 +651,7 @@ struct SidebarNativeList: NSViewRepresentable {
         private func tint(_ value: String) -> NSColor {
             switch value {
             case "WORKSPACE", "blue": .systemBlue
+            case "ISSUES": .systemIndigo
             case "BRANCHES": .systemPurple
             case "WORKTREES", "orange": .systemOrange
             case "TAGS": .systemYellow

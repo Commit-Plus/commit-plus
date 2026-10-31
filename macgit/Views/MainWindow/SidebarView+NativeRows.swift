@@ -76,6 +76,16 @@ extension SidebarView {
             } else if item == .gitFlow { row.menu = nativeGitFlowMenu }
             result.append(row)
         }
+        if appState.showIssues {
+            header(.issues, expanded: sectionStates.issuesExpanded)
+            if sectionStates.issuesExpanded {
+                for item in SidebarSection.issues.items {
+                    result.append(.init(id: .init(section: .issues, kind: "item", key: item.rawValue),
+                        appearance: .init(title: item.rawValue, icon: item.icon), selection: .item(item),
+                        select: { if selection != .item(item) { selection = .item(item) } }))
+                }
+            }
+        }
         header(.branches, expanded: sectionStates.branchesExpanded, target: .branchesHeader)
         if sectionStates.branchesExpanded {
             if currentBranch.isEmpty && !headHash.isEmpty {

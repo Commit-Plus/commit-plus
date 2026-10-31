@@ -815,7 +815,7 @@ struct MainWindowView: View {
         .onChange(of: appState.autoFetchEnabled) { _, globalAutoFetchEnabled in
             startBackgroundSyncIfLoaded(globalAutoFetchEnabled: globalAutoFetchEnabled)
         }
-        .onChange(of: appState.showWorkspaceJira) { _, isVisible in
+        .onChange(of: appState.showIssues) { _, isVisible in
             // A hidden sidebar row cannot stay selected.
             if !isVisible, selectedItem == .item(.jira) { selectedItem = .item(.fileStatus) }
         }

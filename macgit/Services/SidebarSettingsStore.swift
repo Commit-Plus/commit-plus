@@ -23,6 +23,7 @@
 import Foundation
 
 struct SidebarSectionState: Codable {
+    var issuesExpanded: Bool = true
     var gitFlowExpanded: Bool = true
     var branchesExpanded: Bool = false
     var tagsExpanded: Bool = true
@@ -33,6 +34,7 @@ struct SidebarSectionState: Codable {
     var subtreesExpanded: Bool = true
 
     init(
+        issuesExpanded: Bool = true,
         gitFlowExpanded: Bool = true,
         branchesExpanded: Bool = false,
         tagsExpanded: Bool = true,
@@ -42,6 +44,7 @@ struct SidebarSectionState: Codable {
         submodulesExpanded: Bool = true,
         subtreesExpanded: Bool = true
     ) {
+        self.issuesExpanded = issuesExpanded
         self.gitFlowExpanded = gitFlowExpanded
         self.branchesExpanded = branchesExpanded
         self.tagsExpanded = tagsExpanded
@@ -54,6 +57,7 @@ struct SidebarSectionState: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        issuesExpanded = try container.decodeIfPresent(Bool.self, forKey: .issuesExpanded) ?? true
         gitFlowExpanded = try container.decodeIfPresent(Bool.self, forKey: .gitFlowExpanded) ?? true
         branchesExpanded = try container.decodeIfPresent(Bool.self, forKey: .branchesExpanded) ?? false
         tagsExpanded = try container.decodeIfPresent(Bool.self, forKey: .tagsExpanded) ?? true
@@ -87,6 +91,8 @@ final class SidebarSettingsStore {
     func toggleSection(_ section: SidebarSection, for repositoryPath: String) {
         var state = self.state(for: repositoryPath)
         switch section {
+        case .issues:
+            state.issuesExpanded.toggle()
         case .gitFlow:
             state.gitFlowExpanded.toggle()
         case .branches:
