@@ -381,7 +381,10 @@ final class RepositoryBookmarkTests: XCTestCase {
             remote.pullRequestsURL?.absoluteString,
             "https://dev.azure.com/Trantienthanh1998/ChatApp/_git/ChatApp/pullrequests"
         )
-        XCTAssertNil(remote.issuesURL)
+        XCTAssertEqual(
+            remote.issuesURL?.absoluteString,
+            "https://dev.azure.com/Trantienthanh1998/ChatApp/_workitems"
+        )
     }
 
     func testDocumentListSkipsBookmarksForUnknownProviders() throws {

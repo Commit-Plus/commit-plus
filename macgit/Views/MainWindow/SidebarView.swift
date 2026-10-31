@@ -34,6 +34,7 @@ struct SidebarView: View {
     @ObservedObject var branchMergeDetectionController: BranchMergeDetectionController
     @State var mergeEvidenceAssessment: BranchMergeAssessment?
     var showMergedBranchHints = true
+    var hostedIssueProvider: HostedIssueProvider?
 
     let repositoryURL: URL
     @Binding var selection: SidebarSelection?
@@ -235,6 +236,7 @@ struct SidebarView: View {
         canUpdateCurrentBranch: Bool = true,
         branchMergeDetectionController: BranchMergeDetectionController,
         showMergedBranchHints: Bool = true,
+        hostedIssueProvider: HostedIssueProvider? = nil,
         onRequestCheckout: @escaping (String, Bool) -> Void,
         onRequestRemoteBranchCheckout: @escaping (RemoteBranchCheckoutTarget) -> Void,
         onRequestFetchBranch: @escaping (String) -> Void,
@@ -318,6 +320,7 @@ struct SidebarView: View {
         self.canUpdateCurrentBranch = canUpdateCurrentBranch
         self.branchMergeDetectionController = branchMergeDetectionController
         self.showMergedBranchHints = showMergedBranchHints
+        self.hostedIssueProvider = hostedIssueProvider
         self.onRequestCheckout = onRequestCheckout
         self.onRequestRemoteBranchCheckout = onRequestRemoteBranchCheckout
         self.onRequestFetchBranch = onRequestFetchBranch

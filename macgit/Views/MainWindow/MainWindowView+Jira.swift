@@ -3,9 +3,10 @@
 import Foundation
 
 extension MainWindowView {
-    /// Opens the existing branch or Git Flow start flow with a name suggested from the issue; nothing is written to Jira.
-    func prepareCreateBranch(from issue: JiraIssue, target: JiraBranchTarget) {
-        let name = JiraBranchNameSuggester.name(key: issue.key, summary: issue.summary)
+    /// Opens the existing branch or Git Flow start flow with a name suggested from an issue;
+    /// nothing is written to the issue tracker.
+    func prepareCreateBranch(key: String, summary: String, target: IssueBranchTarget) {
+        let name = IssueBranchNameSuggester.name(key: key, summary: summary)
         switch target {
         case .gitFlow(let kind) where gitFlowConfiguration.isEnabled:
             pendingGitFlowStart = GitFlowStartPresentation(kind: kind, initialTopicName: name)

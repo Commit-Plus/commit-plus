@@ -21,7 +21,7 @@ import XCTest
 @MainActor
 final class BranchSheetInitialStateTests: XCTestCase {
     func testInitialBranchNameIsPrefilledAndAlreadySanitized() {
-        let suggested = JiraBranchNameSuggester.name(key: "PROJ-123", summary: "Fix login crash")
+        let suggested = IssueBranchNameSuggester.name(key: "PROJ-123", summary: "Fix login crash")
         let state = BranchSheetView.initialNameState(suggested)
 
         XCTAssertEqual(state.input, "PROJ-123-fix-login-crash")

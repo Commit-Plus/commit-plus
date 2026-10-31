@@ -67,6 +67,13 @@ final class FeatureAccessNoticeTests: XCTestCase {
         XCTAssertFalse(notice.message(isSignedIn: true).contains("repository"))
     }
 
+    func testHostedIssuesNoticeUsesRepositoryScopedUpgradeWording() {
+        let notice = FeatureAccessNotice(feature: .hostedIssues, denial: .requiresPro)
+
+        XCTAssertEqual(notice.message(isSignedIn: false), "Sign in to Commit+ to use issue tracking.")
+        XCTAssertTrue(notice.message(isSignedIn: true).contains("Issue tracking is not available for this repository on the Free plan"))
+    }
+
     func testDisabledNoticeDoesNotSuggestUpgrade() {
         let notice = FeatureAccessNotice(feature: .pullRequests, denial: .featureDisabled)
 

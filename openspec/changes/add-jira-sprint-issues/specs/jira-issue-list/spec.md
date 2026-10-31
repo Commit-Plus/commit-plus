@@ -2,23 +2,19 @@
 
 ## Purpose
 
-Defines the Pro-gated Jira item in the repository sidebar's Workspace section and its issue list screen, which shows the connected user's own Jira issues as a filterable flat list and lets them start a branch from an issue.
+Defines the Pro-gated Jira item in the repository sidebar's ISSUES section and its issue list screen, which shows the connected user's own Jira issues as a filterable flat list and lets them start a branch from an issue.
 
 ## ADDED Requirements
 
-### Requirement: Jira appears in the sidebar Workspace section
-The repository sidebar's Workspace section SHALL include a "Jira" item, shown by default. "Customize Workspace" SHALL include a "Jira" toggle that hides or shows it, and the choice SHALL persist across launches like the other Workspace toggles.
+### Requirement: Jira appears in the sidebar ISSUES section
+The repository sidebar SHALL list a "Jira" item first in the ISSUES section. Its visibility follows the single "Show Issues" setting, and selection falls back to File status when it disappears. Both are defined by the `repository-issues-section` capability. Jira SHALL NOT appear in the Workspace section.
 
 #### Scenario: Default visibility
-- **WHEN** the user opens a repository window for the first time after updating
-- **THEN** the Workspace section lists "Jira"
+- **WHEN** the user opens a repository window with Show Issues on
+- **THEN** the ISSUES section lists "Jira" and the Workspace section does not
 
-#### Scenario: Hide Jira
-- **WHEN** the user turns off "Jira" in "Customize Workspace"
-- **THEN** the Jira item disappears from the Workspace section in every repository window and stays hidden after relaunch
-
-#### Scenario: Hidden while selected
-- **WHEN** the user hides Jira while the Jira screen is selected
+#### Scenario: Hidden with the section
+- **WHEN** the user turns off Show Issues while the Jira screen is selected
 - **THEN** the window selects File status
 
 ### Requirement: The Jira issues screen requires Commit+ Pro

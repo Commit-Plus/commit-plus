@@ -3,13 +3,17 @@
 import XCTest
 @testable import macgit
 
-final class JiraBranchNameSuggesterTests: XCTestCase {
+final class IssueBranchNameSuggesterTests: XCTestCase {
     private func name(_ summary: String, key: String = "PROJ-123") -> String {
-        JiraBranchNameSuggester.name(key: key, summary: summary)
+        IssueBranchNameSuggester.name(key: key, summary: summary)
     }
 
     func testKeyAndSlug() {
         XCTAssertEqual(name("Fix login crash"), "PROJ-123-fix-login-crash")
+    }
+
+    func testHostedIssueNumberAsKey() {
+        XCTAssertEqual(name("Fix login on Safari", key: "42"), "42-fix-login-on-safari")
     }
 
     func testPunctuationCollapsesToSingleHyphens() {
@@ -32,7 +36,7 @@ final class JiraBranchNameSuggesterTests: XCTestCase {
 
     func testLongSummaryIsCutAtHyphenAndKeepsKey() {
         let result = name("Refactor the repository synchronization pipeline to support incremental background refreshes")
-        XCTAssertLessThanOrEqual(result.count, JiraBranchNameSuggester.maxLength)
+        XCTAssertLessThanOrEqual(result.count, IssueBranchNameSuggester.maxLength)
         XCTAssertTrue(result.hasPrefix("PROJ-123-refactor-the-repository"))
         XCTAssertFalse(result.hasSuffix("-"))
         XCTAssertTrue("Refactor the repository synchronization pipeline to support incremental background refreshes"
@@ -45,19 +49,19 @@ final class JiraBranchNameSuggesterTests: XCTestCase {
     }
 
     func testBugsSuggestBugfixAndOtherTypesSuggestFeature() {
-        XCTAssertEqual(JiraBranchTarget.suggested(forIssueType: "Bug", gitFlowEnabled: true), .gitFlow(.bugfix))
-        XCTAssertEqual(JiraBranchTarget.suggested(forIssueType: "Defect", gitFlowEnabled: true), .gitFlow(.bugfix))
-        XCTAssertEqual(JiraBranchTarget.suggested(forIssueType: "Story", gitFlowEnabled: true), .gitFlow(.feature))
-        XCTAssertEqual(JiraBranchTarget.suggested(forIssueType: "Task", gitFlowEnabled: true), .gitFlow(.feature))
+        XCTAssertEqual(IssueBranchTarget.suggested(forIssueType: "Bug", gitFlowEnabled: true), .gitFlow(.bugfix))
+        XCTAssertEqual(IssueBranchTarget.suggested(forIssueType: "Defect", gitFlowEnabled: true), .gitFlow(.bugfix))
+        XCTAssertEqual(IssueBranchTarget.suggested(forIssueType: "Story", gitFlowEnabled: true), .gitFlow(.feature))
+        XCTAssertEqual(IssueBranchTarget.suggested(forIssueType: "Task", gitFlowEnabled: true), .gitFlow(.feature))
     }
 
     func testWithoutGitFlowOnlyPlainBranchIsOffered() {
-        XCTAssertEqual(JiraBranchTarget.suggested(forIssueType: "Bug", gitFlowEnabled: false), .plainBranch)
-        XCTAssertEqual(JiraBranchTarget.options(gitFlowEnabled: false), [.plainBranch])
+        XCTAssertEqual(IssueBranchTarget.suggested(forIssueType: "Bug", gitFlowEnabled: false), .plainBranch)
+        XCTAssertEqual(IssueBranchTarget.options(gitFlowEnabled: false), [.plainBranch])
     }
 
     func testGitFlowOptionsExcludeReleaseAndKeepPlainBranch() {
-        let options = JiraBranchTarget.options(gitFlowEnabled: true)
+        let options = IssueBranchTarget.options(gitFlowEnabled: true)
         XCTAssertEqual(options, [.gitFlow(.feature), .gitFlow(.bugfix), .gitFlow(.hotfix), .plainBranch])
         XCTAssertEqual(options.map(\.title), ["Start Feature…", "Start Bugfix…", "Start Hotfix…", "New Branch…"])
     }

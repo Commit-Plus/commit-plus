@@ -85,7 +85,7 @@ enum SidebarSection: String, CaseIterable {
         case .workspace:
             return [.fileStatus, .history, .reflog, .pullRequests, .gitLFS, .search]
         case .issues:
-            return [.jira]
+            return [.jira, .hostedIssues]
         default:
             return []
         }
@@ -100,6 +100,14 @@ enum SidebarSection: String, CaseIterable {
             case .gitLFS: appState.showWorkspaceGitLFS
             default: true
             }
+        }
+    }
+
+    /// ISSUES rows with their titles and icons; the hosted row needs a recognized remote.
+    static func issueRows(hostedProvider: HostedIssueProvider?) -> [(item: SidebarItem, title: String, icon: String)] {
+        issues.items.compactMap { item in
+            guard item == .hostedIssues else { return (item, item.rawValue, item.icon) }
+            return hostedProvider.map { (item, $0.sidebarTitle, $0.iconName) }
         }
     }
 }

@@ -445,6 +445,34 @@ final class GitProviderAccountControllerTests: XCTestCase {
         )
     }
 
+    func testConnectBitbucketKeepsAtlassianEmailWithTokenOnly() async throws {
+        let store = FakeGitProviderAccountStore()
+        let vault = FakeGitProviderTokenVault()
+        let controller = GitProviderAccountController(store: store, tokenVault: vault)
+        await controller.updateMacgitAccount(makeMacgitAccount(uid: "macgit-user-1"), cloudSyncEnabled: true)
+
+        await controller.connectBitbucket(
+            username: "Trantienthanh2412",
+            apiToken: "bitbucket-api-token",
+            atlassianEmail: " me@example.com "
+        )
+
+        let account = try XCTUnwrap(controller.accounts.first)
+        XCTAssertEqual(try vault.readToken(for: account)?.apiUsername, "me@example.com")
+        XCTAssertEqual(controller.savedAPIUsername(for: account), "me@example.com")
+        XCTAssertTrue(account.scopes.contains("read:issue:bitbucket"))
+        // The synced metadata carries no email.
+        let encoded = String(decoding: try JSONEncoder().encode(account), as: UTF8.self)
+        XCTAssertFalse(encoded.contains("me@example.com"))
+    }
+
+    func testTokenSavedBeforeEmailFieldStillDecodes() throws {
+        let legacy = #"{"accessToken": "t", "tokenType": "Basic"}"#
+        let token = try JSONDecoder().decode(GitProviderToken.self, from: Data(legacy.utf8))
+        XCTAssertEqual(token.accessToken, "t")
+        XCTAssertNil(token.apiUsername)
+    }
+
     func testConnectBitbucketRejectsEmptyTokenWithoutSavingAccount() async {
         let events = EventRecorder()
         let controller = GitProviderAccountController(

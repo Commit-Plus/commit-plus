@@ -167,12 +167,19 @@ struct MainWindowView: View {
     @State private var hasOpenedPullRequests = false
     @State private var hasOpenedGitLFS = false
     @State private var hasOpenedJira = false
+    @State private var hasOpenedHostedIssues = false
     @StateObject var syncState = SyncState()
     @StateObject var undoManager = GitUndoManager()
     @StateObject var pullRequestController: PullRequestController
     @StateObject var jiraIssueListController: JiraIssueListController
+    @StateObject var hostedIssueController: HostedIssueController
     @StateObject var branchMergeDetectionController: BranchMergeDetectionController
     @State var pullRequestAccessDecision: FeatureAccessDecision?
+    /// The plan, policy, and accounts the current decision was made for.
+    @State private var pullRequestAccessContext: String?
+    @State var hostedIssueAccessDecision: FeatureAccessDecision?
+    /// The plan, policy, and remote the current decision was made for.
+    @State private var hostedIssueAccessContext: String?
     @State var featureAccessNotice: FeatureAccessNotice?
     @State var proUpgradePresentation: ProUpgradePresentation?
     @State var proUpgradeErrorMessage: String?
@@ -285,6 +292,19 @@ struct MainWindowView: View {
         _jiraIssueListController = StateObject(wrappedValue: JiraIssueListController(
             repositoryURL: repositoryURL,
             connectionController: jiraConnectionController
+        ))
+        _hostedIssueController = StateObject(wrappedValue: HostedIssueController(
+            repositoryURL: repositoryURL,
+            credentialResolver: GitProviderAPICredentialResolver(
+                providerAccountController: providerAccountController,
+                tokenVault: KeychainGitProviderTokenVault()
+            ),
+            services: [
+                .github: GitHubIssueService(),
+                .gitlab: GitLabIssueService(),
+                .bitbucket: BitbucketIssueService(),
+                .azureBoards: AzureBoardsWorkItemService(),
+            ]
         ))
         _branchMergeDetectionController = StateObject(wrappedValue: BranchMergeDetectionController(
             providerAccountController: providerAccountController
@@ -800,8 +820,27 @@ struct MainWindowView: View {
             }
             .task(id: pullRequestAccessTaskID) {
                 guard selectedItem == .item(.pullRequests) else { return }
-                pullRequestAccessDecision = nil
+                // Coming back to the screen re-checks quietly so the list is not torn down;
+                // only a plan, policy, or account change starts from a blank check.
+                if pullRequestAccessContext != pullRequestAccessContextKey {
+                    pullRequestAccessDecision = nil
+                    pullRequestAccessContext = pullRequestAccessContextKey
+                }
                 _ = await authorizePullRequestAccess(presentNotice: false)
+            }
+            .task(id: hostedIssueAccessTaskID) {
+                guard selectedItem == .item(.hostedIssues) else { return }
+                // Coming back to the screen re-checks quietly so the list is not torn down;
+                // only a new remote, plan, or policy starts from a blank check.
+                if hostedIssueAccessContext != hostedIssueAccessContextKey {
+                    hostedIssueAccessDecision = nil
+                    hostedIssueAccessContext = hostedIssueAccessContextKey
+                }
+                _ = await authorizeHostedIssueAccess(presentNotice: false)
+            }
+            .task(id: repositoryURL) {
+                hostedIssueController.authorizeWrite = { await authorizeHostedIssueAccess(presentNotice: false) }
+                await hostedIssueController.discoverRemotes()
             }
     }
 
@@ -817,7 +856,16 @@ struct MainWindowView: View {
         }
         .onChange(of: appState.showIssues) { _, isVisible in
             // A hidden sidebar row cannot stay selected.
-            if !isVisible, selectedItem == .item(.jira) { selectedItem = .item(.fileStatus) }
+            if !isVisible, selectedItem == .item(.jira) || selectedItem == .item(.hostedIssues) {
+                selectedItem = .item(.fileStatus)
+            }
+        }
+        .onChange(of: hostedIssueController.provider) { _, provider in
+            if provider == nil, selectedItem == .item(.hostedIssues) { selectedItem = .item(.fileStatus) }
+        }
+        .onChange(of: providerAccountController.accounts.map(\.id)) {
+            // Self-managed hosts are recognized only once an account for them exists.
+            Task { await hostedIssueController.discoverRemotes() }
         }
         .onChange(of: selectedItem) { _, newItem in
             if newItem != .item(.gitLFS) { lfsTrackingPath = nil }
@@ -1075,6 +1123,7 @@ struct MainWindowView: View {
             canUpdateCurrentBranch: canUpdateCurrentBranch,
             branchMergeDetectionController: branchMergeDetectionController,
             showMergedBranchHints: repoSettings.showMergedBranchHints,
+            hostedIssueProvider: hostedIssueController.provider,
             onRequestCheckout: { ref, isTag in
                 if isTag {
                     tagToCheckout = ref
@@ -1476,7 +1525,7 @@ struct MainWindowView: View {
                 }
             case .item(.reflog):
                 EmptyView()
-            case .item(.pullRequests), .item(.jira):
+            case .item(.pullRequests), .item(.jira), .item(.hostedIssues):
                 EmptyView()
             case .stash(let ref):
                 StashView(
@@ -1567,7 +1616,9 @@ struct MainWindowView: View {
                         isActive: selectedItem == .item(.jira),
                         onOpenJiraSettings: accountController.presentIntegrations,
                         gitFlowEnabled: gitFlowConfiguration.isEnabled,
-                        onCreateBranch: prepareCreateBranch(from:target:)
+                        onCreateBranch: { issue, target in
+                            prepareCreateBranch(key: issue.key, summary: issue.summary, target: target)
+                        }
                     )
                 case .denied(let denial):
                     FeatureAccessUnavailableView(
@@ -1581,6 +1632,40 @@ struct MainWindowView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onAppear { hasOpenedJira = true }
             .repositoryScreenVisibility(isActive: selectedItem == .item(.jira))
+        }
+
+        if selectedItem == .item(.hostedIssues) || hasOpenedHostedIssues {
+            Group {
+                switch hostedIssueAccessDecision {
+                case .allowed:
+                    HostedIssueListView(
+                        controller: hostedIssueController,
+                        isActive: selectedItem == .item(.hostedIssues),
+                        canManageGitHubOrganizationAccess: providerAccountController.canManageGitHubOrganizationAccess,
+                        onOpenConnections: onOpenConnections,
+                        onOpenGitHubOrganizationAccess: providerAccountController.openGitHubOrganizationAccess,
+                        gitFlowEnabled: gitFlowConfiguration.isEnabled,
+                        onCreateBranch: { key, summary, target in
+                            prepareCreateBranch(key: key, summary: summary, target: target)
+                        }
+                    )
+                case .denied(let denial):
+                    FeatureAccessUnavailableView(
+                        notice: FeatureAccessNotice(feature: .hostedIssues, denial: denial),
+                        isSignedIn: accountController.account != nil,
+                        onAccountAction: { presentFeatureAccessAccountAction(for: .hostedIssues) },
+                        onRetry: {
+                            Task { _ = await authorizeHostedIssueAccess(forceRefresh: true, presentNotice: false) }
+                        }
+                    )
+                case nil:
+                    ProgressView("Checking Issue access…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear { hasOpenedHostedIssues = true }
+            .repositoryScreenVisibility(isActive: selectedItem == .item(.hostedIssues))
         }
 
         if selectedItem == .item(.gitLFS) || hasOpenedGitLFS {
@@ -1709,12 +1794,29 @@ struct MainWindowView: View {
         }
     }
 
+    private var hostedIssueAccessTaskID: String {
+        String(describing: selectedItem) + "|" + hostedIssueAccessContextKey
+    }
+
+    private var hostedIssueAccessContextKey: String {
+        [
+            String(featureAccessController.policy.revision),
+            String(describing: featureAccessController.policy.rule(for: .hostedIssues)),
+            accountController.entitlement.plan.rawValue,
+            accountController.entitlement.access.rawValue,
+            hostedIssueController.selectedRemote?.name ?? "",
+        ].joined(separator: "|")
+    }
+
     private var pullRequestAccessTaskID: String {
+        String(describing: selectedItem) + "|" + pullRequestAccessContextKey
+    }
+
+    private var pullRequestAccessContextKey: String {
         let accounts = providerAccountController.accounts.map {
             "\($0.id)-\(String(describing: $0.tokenStatus))"
         }.joined(separator: ",")
         return [
-            String(describing: selectedItem),
             String(featureAccessController.policy.revision),
             String(describing: featureAccessController.policy.rule(for: .pullRequests)),
             accountController.entitlement.plan.rawValue,
@@ -1774,6 +1876,10 @@ struct MainWindowView: View {
         case .gitFlow:
             Task {
                 _ = await authorizeGitFlowAccess(forceRefresh: true)
+            }
+        case .hostedIssues:
+            Task {
+                _ = await authorizeHostedIssueAccess(forceRefresh: true)
             }
         case .privateRepositories, .gitLFS, .aiCommitMessage, .repositoryChat, .repositoryAIActions,
              .aiConflictResolution, .aiBringYourOwnKey, .multipleProviderAccounts, .branchMergeDetection,

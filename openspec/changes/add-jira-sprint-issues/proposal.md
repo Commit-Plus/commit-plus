@@ -7,7 +7,7 @@ Developers using Commit+ track their sprint work in Jira and switch to the brows
 ## What Changes
 
 - Add a Jira Cloud connection in Settings → Integrations using the user's site URL, Atlassian account email, and an Atlassian API token. This mirrors the existing Bitbucket connection, which also uses an Atlassian API token (it is not OAuth). A Bitbucket token cannot be reused: Jira needs its own token with Jira access. The connection is stored on this Mac only (metadata locally, token in the Keychain) and is not synced through Firebase.
-- Add a "Jira" item to the sidebar Workspace section, which the user can hide from "Customize Workspace" like Reflog, Pull Requests, and Git LFS.
+- Add a "Jira" item to the sidebar. It now lives in the ISSUES section, whose single "Show Issues" setting is defined by `add-hosted-issue-trackers` (`repository-issues-section`).
 - Selecting it opens a Jira issues screen: a flat list (no board) of issues assigned to the connected user, defaulting to issues in open sprints that are not done.
 - Filters: sprint (open sprints, a specific sprint, backlog, or any), status category, project, issue type, and text search on key or summary. The filter is remembered per repository.
 - Issue actions: open in Jira, copy key, copy key and summary, and create a branch from the issue. Branch creation prefills a name from the issue key and summary and uses the existing Git Flow start sheet when Git Flow is configured, otherwise the existing branch sheet. Nothing is written to Jira.
@@ -18,7 +18,7 @@ Developers using Commit+ track their sprint work in Jira and switch to the brows
 
 ### New Capabilities
 - `jira-account-connection`: Connecting, validating, reconnecting, and removing a Jira Cloud site with an Atlassian API token in Settings → Integrations, and keeping the credential local to this Mac.
-- `jira-issue-list`: The Pro-gated Jira item in the sidebar Workspace section and its issue list screen: which issues are shown, filtering, loading/error/empty states, and per-issue actions including creating a branch from an issue.
+- `jira-issue-list`: The Pro-gated Jira item in the sidebar ISSUES section and its issue list screen: which issues are shown, filtering, loading/error/empty states, and per-issue actions including creating a branch from an issue.
 
 ### Modified Capabilities
 <!-- None: no existing spec covers the sidebar Workspace items or plan feature keys. -->

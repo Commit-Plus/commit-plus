@@ -193,14 +193,18 @@ final class GitProviderAccountController: ObservableObject {
         }
     }
 
+    /// `atlassianEmail` is optional: Git works without it, but Bitbucket's REST API (issues)
+    /// authenticates API tokens with the Atlassian account email. It is kept with the token only.
     func connectBitbucket(
         username: String,
         apiToken: String,
+        atlassianEmail: String = "",
         replacing existingAccount: GitProviderAccount? = nil
     ) async {
         errorMessage = nil
         let normalizedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedToken = apiToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedEmail = atlassianEmail.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedUsername.isEmpty else {
             errorMessage = "Enter your case-sensitive Bitbucket username."
             return
@@ -227,7 +231,7 @@ final class GitProviderAccountController: ObservableObject {
             username: normalizedUsername,
             displayName: nil,
             avatarURL: nil,
-            scopes: ["read:repository:bitbucket", "write:repository:bitbucket"],
+            scopes: ["read:repository:bitbucket", "write:repository:bitbucket", "read:issue:bitbucket", "write:issue:bitbucket"],
             permissions: [:],
             tokenStatus: .valid,
             transportProtocol: .https,
@@ -243,13 +247,19 @@ final class GitProviderAccountController: ObservableObject {
                     accessToken: normalizedToken,
                     refreshToken: nil,
                     expiresAt: nil,
-                    tokenType: "Basic"
+                    tokenType: "Basic",
+                    apiUsername: normalizedEmail.isEmpty ? nil : normalizedEmail
                 ),
                 replacing: existingAccount
             )
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// The Atlassian email saved with a Bitbucket account's API token, to prefill the edit sheet.
+    func savedAPIUsername(for account: GitProviderAccount) -> String? {
+        (try? tokenVault.readToken(for: account))?.apiUsername
     }
 
     /// Connects one Azure DevOps organization with a personal access token.

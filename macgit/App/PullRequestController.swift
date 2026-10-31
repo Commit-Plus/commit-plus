@@ -111,7 +111,7 @@ final class PullRequestController: ObservableObject {
     @Published private(set) var accountConnectionHost: GitProviderHost?
 
     private let providerAccountController: GitProviderAccountController
-    private let tokenVault: GitProviderTokenVault
+    private let credentialResolver: GitProviderAPICredentialResolver
     private let services: [GitProviderKind: any PullRequestProviding]
     private let remoteNameProvider: (URL) async -> String?
     private let remoteURLProvider: (URL, String) async -> String?
@@ -219,7 +219,10 @@ final class PullRequestController: ObservableObject {
         diskCache: PullRequestDiskCache? = nil
     ) {
         self.providerAccountController = providerAccountController
-        self.tokenVault = tokenVault
+        self.credentialResolver = GitProviderAPICredentialResolver(
+            providerAccountController: providerAccountController,
+            tokenVault: tokenVault
+        )
         self.services = services
         self.remoteNameProvider = remoteNameProvider
         self.remoteURLProvider = remoteURLProvider
@@ -323,24 +326,11 @@ final class PullRequestController: ObservableObject {
             detailErrorMessage = "No remotes configured."
             return
         }
-        guard let remoteIdentity = GitRemoteIdentityResolver.identity(
-            from: remoteURLString,
-            knownGitLabHosts: connectedGitLabHosts,
-            knownHosts: providerAccountController.accounts.map {
-                GitProviderHost(kind: $0.provider, baseURL: $0.hostURL)
-            }
-        ) else {
+        guard let repository = credentialResolver.repository(forRemoteURL: remoteURLString) else {
             detailErrorMessage = PullRequestProviderError.unsupportedProvider.localizedDescription
             return
         }
-
-        let repository = GitRepositoryIdentity(
-            provider: remoteIdentity.provider,
-            hostURL: remoteIdentity.hostURL,
-            owner: remoteIdentity.ownerPath,
-            name: remoteIdentity.repositoryName
-        )
-        let matchingAccounts = matchingAccounts(for: repository)
+        let matchingAccounts = credentialResolver.matchingAccounts(for: repository)
         guard !matchingAccounts.isEmpty else {
             accountConnectionHost = GitProviderHost(
                 kind: repository.provider,
@@ -349,12 +339,12 @@ final class PullRequestController: ObservableObject {
             detailErrorMessage = "Connect Account..."
             return
         }
-        guard let apiCredential = apiCredential(for: matchingAccounts) else {
+        guard let apiCredential = credentialResolver.credential(for: matchingAccounts, preferredAccountID: selectedProviderAccountID) else {
             accountConnectionHost = GitProviderHost(
                 kind: repository.provider,
                 baseURL: repository.hostURL
             ).normalized
-            detailErrorMessage = matchingAccounts.contains(where: supportsProviderAPI)
+            detailErrorMessage = matchingAccounts.contains(where: GitProviderAPICredentialResolver.supportsProviderAPI)
                 ? "Reconnect..."
                 : "Connect Account..."
             return
@@ -409,11 +399,7 @@ final class PullRequestController: ObservableObject {
         accountConnectionHost = nil
         defer { if listLoadID == loadID { isLoading = false } }
 
-        guard let remoteIdentity = GitRemoteIdentityResolver.identity(
-            from: remoteURLString,
-            knownGitLabHosts: connectedGitLabHosts,
-            knownHosts: providerAccountController.accounts.map { GitProviderHost(kind: $0.provider, baseURL: $0.hostURL) }
-        ) else {
+        guard let repository = credentialResolver.repository(forRemoteURL: remoteURLString) else {
             hasLoadedList = false
             displayedListKey = nil
             items = []
@@ -425,16 +411,9 @@ final class PullRequestController: ObservableObject {
             errorMessage = PullRequestProviderError.unsupportedProvider.localizedDescription
             return
         }
-
-        let repository = GitRepositoryIdentity(
-            provider: remoteIdentity.provider,
-            hostURL: remoteIdentity.hostURL,
-            owner: remoteIdentity.ownerPath,
-            name: remoteIdentity.repositoryName
-        )
         activeRemoteURLString = remoteURLString
 
-        let matchingAccounts = matchingAccounts(for: repository)
+        let matchingAccounts = credentialResolver.matchingAccounts(for: repository)
         guard !matchingAccounts.isEmpty else {
             hasLoadedList = false
             displayedListKey = nil
@@ -448,7 +427,7 @@ final class PullRequestController: ObservableObject {
             return
         }
 
-        guard let apiCredential = apiCredential(for: matchingAccounts) else {
+        guard let apiCredential = credentialResolver.credential(for: matchingAccounts, preferredAccountID: selectedProviderAccountID) else {
             hasLoadedList = false
             displayedListKey = nil
             items = []
@@ -457,7 +436,7 @@ final class PullRequestController: ObservableObject {
             activeRepository = nil
             activeToken = nil
             accountConnectionHost = GitProviderHost(kind: repository.provider, baseURL: repository.hostURL).normalized
-            errorMessage = matchingAccounts.contains(where: supportsProviderAPI) ? "Reconnect..." : "Connect Account..."
+            errorMessage = matchingAccounts.contains(where: GitProviderAPICredentialResolver.supportsProviderAPI) ? "Reconnect..." : "Connect Account..."
             return
         }
         if selectedProviderAccountID != apiCredential.account.id
@@ -592,23 +571,10 @@ final class PullRequestController: ObservableObject {
         guard let remoteURLString = await remoteURLProvider(repositoryURL, remoteName) else {
             throw PullRequestProviderError.repositoryUnavailable
         }
-        guard let remoteIdentity = GitRemoteIdentityResolver.identity(
-            from: remoteURLString,
-            knownGitLabHosts: connectedGitLabHosts,
-            knownHosts: providerAccountController.accounts.map {
-                GitProviderHost(kind: $0.provider, baseURL: $0.hostURL)
-            }
-        ) else {
+        guard let repository = credentialResolver.repository(forRemoteURL: remoteURLString) else {
             throw PullRequestProviderError.unsupportedProvider
         }
-
-        let repository = GitRepositoryIdentity(
-            provider: remoteIdentity.provider,
-            hostURL: remoteIdentity.hostURL,
-            owner: remoteIdentity.ownerPath,
-            name: remoteIdentity.repositoryName
-        )
-        guard let credential = apiCredential(for: matchingAccounts(for: repository)) else {
+        guard let credential = credentialResolver.credential(for: credentialResolver.matchingAccounts(for: repository), preferredAccountID: selectedProviderAccountID) else {
             throw PullRequestProviderError.reauthorizationRequired
         }
         guard let service = services[repository.provider] else {
@@ -1121,13 +1087,6 @@ final class PullRequestController: ObservableObject {
         }
     }
 
-    private func matchingAccounts(for repository: GitRepositoryIdentity) -> [GitProviderAccount] {
-        let repositoryHost = normalizedHost(repository.hostURL)
-        return providerAccountController.accounts.filter { account in
-            account.provider == repository.provider && normalizedHost(account.hostURL) == repositoryHost
-        }
-    }
-
     private func apply(_ page: PullRequestListPage) {
         items = page.items
         currentPage = page.page
@@ -1179,52 +1138,10 @@ final class PullRequestController: ObservableObject {
         clearSelectedDetail()
     }
 
-    private func apiCredential(for accounts: [GitProviderAccount]) -> (
-        account: GitProviderAccount,
-        token: GitProviderToken
-    )? {
-        let prioritizedAccounts = prioritizedAccounts(accounts)
-        for account in prioritizedAccounts {
-            guard supportsProviderAPI(account) else { continue }
-            do {
-                guard let token = try tokenVault.readToken(for: account), !token.accessToken.isEmpty else {
-                    continue
-                }
-                return (account, token)
-            } catch {
-                continue
-            }
-        }
-        return nil
-    }
-
-    private func prioritizedAccounts(_ accounts: [GitProviderAccount]) -> [GitProviderAccount] {
-        guard let selectedProviderAccountID,
-              let selected = accounts.first(where: { $0.id == selectedProviderAccountID }) else {
-            return accounts
-        }
-        return [selected] + accounts.filter { $0.id != selected.id }
-    }
-
-    private func supportsProviderAPI(_ account: GitProviderAccount) -> Bool {
-        account.transportProtocol == .https || account.permissions["authentication"] == "personalAccessToken" || !account.scopes.isEmpty
-    }
-
     private func resetPagination() {
         currentPage = 1
         hasPreviousPage = false
         hasNextPage = false
-    }
-
-    private var connectedGitLabHosts: Set<String> {
-        Set(providerAccountController.accounts.compactMap { account in
-            guard account.provider == .gitlab else { return nil }
-            return normalizedHost(account.hostURL)
-        })
-    }
-
-    private func normalizedHost(_ url: URL) -> String {
-        GitProviderHost.identityKey(url)
     }
 
     private func suggestedTitle(for branch: String) -> String {

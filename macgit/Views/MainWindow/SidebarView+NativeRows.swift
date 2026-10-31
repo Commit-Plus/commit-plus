@@ -79,9 +79,9 @@ extension SidebarView {
         if appState.showIssues {
             header(.issues, expanded: sectionStates.issuesExpanded)
             if sectionStates.issuesExpanded {
-                for item in SidebarSection.issues.items {
+                for (item, title, icon) in SidebarSection.issueRows(hostedProvider: hostedIssueProvider) {
                     result.append(.init(id: .init(section: .issues, kind: "item", key: item.rawValue),
-                        appearance: .init(title: item.rawValue, icon: item.icon), selection: .item(item),
+                        appearance: .init(title: title, icon: icon), selection: .item(item),
                         select: { if selection != .item(item) { selection = .item(item) } }))
                 }
             }

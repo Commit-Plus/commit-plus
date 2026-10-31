@@ -35,6 +35,7 @@ struct GitProviderAddAccountSheet: View {
     @State private var connectedUsername = ""
     @State private var bitbucketUsername = ""
     @State private var bitbucketAPIToken = ""
+    @State private var bitbucketEmail = ""
     @State private var azureOrganization = ""
     @State private var sshKeyPath = ""
     @State private var connectionTask: Task<Void, Never>?
@@ -89,6 +90,7 @@ struct GitProviderAddAccountSheet: View {
                     personalAccessToken = ""
                     bitbucketUsername = ""
                     bitbucketAPIToken = ""
+                    bitbucketEmail = ""
                     azureOrganization = ""
                     selectedAuthType = GitProviderAddAccountPresentationPolicy.usesTokenOnly(selectedHost) ? .personalAccessToken : .oauth
                 }
@@ -155,7 +157,9 @@ struct GitProviderAddAccountSheet: View {
                         .disabled(editingAccount != nil)
                     if selectedProtocol == .https {
                         SecureField("API Token", text: $bitbucketAPIToken, prompt: savedTokenPrompt)
-                        Text("Requires read:repository:bitbucket and write:repository:bitbucket scopes.")
+                        TextField("Atlassian Email", text: $bitbucketEmail, prompt: Text(verbatim: "Optional, for Bitbucket Issues"))
+                            .textContentType(.emailAddress)
+                        Text("Requires read:repository:bitbucket and write:repository:bitbucket scopes. For Bitbucket Issues, also add read:issue:bitbucket and write:issue:bitbucket and enter your Atlassian account email; it stays on this Mac with the token.")
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                         Button("Get API Token", action: openBitbucketAPITokenPage)
@@ -478,6 +482,7 @@ struct GitProviderAddAccountSheet: View {
                         await controller.connectBitbucket(
                             username: bitbucketUsername,
                             apiToken: bitbucketAPIToken,
+                            atlassianEmail: bitbucketEmail,
                             replacing: editingAccount
                         )
                         if controller.errorMessage == nil {
@@ -611,6 +616,9 @@ struct GitProviderAddAccountSheet: View {
     }
 
     private func loadExistingSSHKey() {
+        if let editingAccount, editingAccount.provider == .bitbucket, bitbucketEmail.isEmpty {
+            bitbucketEmail = controller.savedAPIUsername(for: editingAccount) ?? ""
+        }
         guard let editingAccount,
               let key = try? controller.sshKey(for: editingAccount) else {
             return
