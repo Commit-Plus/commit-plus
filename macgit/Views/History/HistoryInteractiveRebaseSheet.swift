@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import AppKit
 import SwiftUI
 
 struct HistoryInteractiveRebaseSheet: View {
@@ -59,9 +60,19 @@ struct HistoryInteractiveRebaseSheet: View {
                             if entry.action == .reword {
                                 TextField("Commit message", text: $entry.message, axis: .vertical)
                                     .lineLimit(3...8).textFieldStyle(.roundedBorder)
+                                    .onKeyPress(.return, phases: .down) { keyPress in
+                                        guard keyPress.modifiers == .shift else { return .ignored }
+                                        insertNewlineInMessage()
+                                        return .handled
+                                    }
                             } else if entry.action == .squash {
                                 TextField("Leave empty to combine commit messages", text: $entry.squashMessage, axis: .vertical)
                                     .lineLimit(3...8).textFieldStyle(.roundedBorder)
+                                    .onKeyPress(.return, phases: .down) { keyPress in
+                                        guard keyPress.modifiers == .shift else { return .ignored }
+                                        insertNewlineInMessage()
+                                        return .handled
+                                    }
                             }
                         }
                         .padding(.horizontal, 8)
@@ -178,6 +189,11 @@ struct HistoryInteractiveRebaseSheet: View {
         case .fixup: "Fixup combines changes with the preceding commit and discards this message."
         case .drop: "Drop removes this commit and its changes from the branch."
         }
+    }
+
+    private func insertNewlineInMessage() {
+        // A field editor treats insertNewline as ending editing and selects the text again.
+        NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
     }
 
     private func move(_ hash: String, offset: Int) {

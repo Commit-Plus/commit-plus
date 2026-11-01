@@ -227,6 +227,12 @@ struct RepositoryAIChatView: View {
                 .frame(minHeight: 28, alignment: .topLeading)
                 .disabled(controller.isInteractionDisabled)
                 .onSubmit(submitDraft)
+                // Shift-Return starts a new line; Return sends.
+                .onKeyPress(.return, phases: .down) { keyPress in
+                    guard keyPress.modifiers == .shift else { return .ignored }
+                    insertNewlineInDraft()
+                    return .handled
+                }
 
             HStack(spacing: 8) {
                 Button("Quick actions", systemImage: "plus") {
@@ -455,6 +461,11 @@ struct RepositoryAIChatView: View {
 
     private func analyzePullRequest() {
         Task { await controller.analyzePullRequest() }
+    }
+
+    private func insertNewlineInDraft() {
+        // A field editor treats insertNewline as ending editing and selects the text again.
+        NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
     }
 
     private func submitDraft() {
