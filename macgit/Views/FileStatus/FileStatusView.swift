@@ -139,25 +139,6 @@ struct FileStatusView: View {
         )
     }
 
-    private func sectionCheckState(isStaged: Bool) -> NSControl.StateValue {
-        let files = isStaged ? gitStatus.staged : changedFiles
-        let selectedCount = selectedActionFileKeys.count { $0.isStaged == isStaged }
-        if selectedCount == 0 { return .off }
-        if selectedCount == files.count { return .on }
-        return .mixed
-    }
-
-    private func toggleSelectAll(isStaged: Bool, selectAll: Bool) {
-        let files = isStaged ? gitStatus.staged : changedFiles
-        let allKeys = Set(files.map { FileStatusSelectionKey(file: $0, isStaged: isStaged) })
-        if selectAll {
-            selectedActionFileKeys.formUnion(allKeys)
-        } else {
-            selectedActionFileKeys.subtract(allKeys)
-        }
-        actionSelectionAnchorKey = nil
-    }
-
     private func selectFileRow(
         file: StatusFile,
         isStaged: Bool,
@@ -422,10 +403,11 @@ struct FileStatusView: View {
                 path: \.path
             ) {
                 HStack(spacing: 8) {
-                    TriStateCheckbox(state: sectionCheckState(isStaged: true), accessibilityLabel: "Select all staged") { selectAll in
-                        toggleSelectAll(isStaged: true, selectAll: selectAll)
+                    TriStateCheckbox(state: gitStatus.staged.isEmpty ? .off : .on, accessibilityLabel: "Unstage all") { _ in
+                        Task { await unstageAll() }
                     }
                     .pointingHandCursor()
+                    .help("Unstage all")
                     .disabled(gitStatus.staged.isEmpty)
                     Text("Staged")
                         .font(.system(size: 11, weight: .semibold))
@@ -433,18 +415,13 @@ struct FileStatusView: View {
                         .textCase(.none)
                 }
             } trailing: {
-                    Button(actionSelection.title(for: .staged)) {
-                        Task {
-                            if actionSelection.selectedStagedFiles.isEmpty {
-                                await unstageAll()
-                            } else {
-                                await unstageSelected()
-                            }
+                    if let title = selection.selectedActionTitle(for: .staged) {
+                        Button(title) {
+                            Task { await unstageSelected() }
                         }
+                        .buttonStyle(GlassButtonStyle(tint: .yellow, fontSize: 10))
+                        .pointingHandCursor()
                     }
-                    .buttonStyle(GlassButtonStyle(tint: .yellow, fontSize: 10))
-                    .pointingHandCursor()
-                    .disabled(gitStatus.staged.isEmpty)
             } plainContent: {
                 nativeFileList(files: gitStatus.staged, isStaged: true, selection: selection)
             } treeContent: { rows, toggleFolder in
@@ -464,10 +441,11 @@ struct FileStatusView: View {
                 path: \.path
             ) {
                 HStack(spacing: 8) {
-                    TriStateCheckbox(state: sectionCheckState(isStaged: false), accessibilityLabel: "Select all changed") { selectAll in
-                        toggleSelectAll(isStaged: false, selectAll: selectAll)
+                    TriStateCheckbox(state: .off, accessibilityLabel: "Stage all") { _ in
+                        Task { await stageAll() }
                     }
                     .pointingHandCursor()
+                    .help("Stage all")
                     .disabled(changedFiles.isEmpty)
                     Text("Changed")
                         .font(.system(size: 11, weight: .semibold))
@@ -475,18 +453,13 @@ struct FileStatusView: View {
                         .textCase(.none)
                 }
             } trailing: {
-                    Button(actionSelection.title(for: .changed)) {
-                        Task {
-                            if actionSelection.selectedChangedFiles.isEmpty {
-                                await stageAll()
-                            } else {
-                                await stageSelected()
-                            }
+                    if let title = selection.selectedActionTitle(for: .changed) {
+                        Button(title) {
+                            Task { await stageSelected() }
                         }
+                        .buttonStyle(GlassButtonStyle(tint: .accentColor, fontSize: 10))
+                        .pointingHandCursor()
                     }
-                    .buttonStyle(GlassButtonStyle(tint: .accentColor, fontSize: 10))
-                    .pointingHandCursor()
-                    .disabled(changedFiles.isEmpty)
             } plainContent: {
                 nativeFileList(files: changedFiles, isStaged: false, selection: selection)
             } treeContent: { rows, toggleFolder in
@@ -502,21 +475,6 @@ struct FileStatusView: View {
         .background(Color(nsColor: .controlBackgroundColor))
     }
 
-    private func folderCheckState(files: [StatusFile], isStaged: Bool) -> NSControl.StateValue {
-        let keys = files.map { FileStatusSelectionKey(file: $0, isStaged: isStaged) }
-        let selectedCount = keys.count { selectedActionFileKeys.contains($0) }
-        if selectedCount == 0 { return .off }
-        if selectedCount == keys.count { return .on }
-        return .mixed
-    }
-
-    private func toggleFolderSelection(files: [StatusFile], isStaged: Bool, selectAll: Bool) {
-        let keys = Set(files.map { FileStatusSelectionKey(file: $0, isStaged: isStaged) })
-        if selectAll { selectedActionFileKeys.formUnion(keys) }
-        else { selectedActionFileKeys.subtract(keys) }
-        actionSelectionAnchorKey = nil
-    }
-
     private func nativeTreeList(
         rows: [FilePathTreeRow<StatusFile>],
         isStaged: Bool,
@@ -529,8 +487,7 @@ struct FileStatusView: View {
             switch row.content {
             case .folder(let path, let name, let files, let expanded):
                 return .init(id: row.id, depth: row.depth, content: .folder(
-                    path: path, name: name, files: files, isExpanded: expanded,
-                    checkState: folderCheckState(files: files, isStaged: isStaged)
+                    path: path, name: name, files: files, isExpanded: expanded
                 ))
             case .file(let file, let name):
                 let key = FileStatusSelectionKey(file: file, isStaged: isStaged)
@@ -545,11 +502,9 @@ struct FileStatusView: View {
         return FileStatusTreeNativeList(
             rows: nativeRows, isStaged: isStaged, textScale: textScale,
             onToggleFolder: toggleFolder,
-            onToggleFolderSelection: { toggleFolderSelection(files: $0, isStaged: isStaged, selectAll: $1) },
-            onFolderQuickAction: { files in Task { if isStaged { await unstage(files: files) } else { await stage(files: files) } } },
+            onToggleFolderStage: { files in Task { if isStaged { await unstage(files: files) } else { await stage(files: files) } } },
             onSelect: { selectFileRow(file: $0, isStaged: isStaged, modifierFlags: $1) },
-            onToggleSelection: { toggleFileSelection(file: $0, isStaged: isStaged, selected: $1) },
-            onQuickAction: { file in Task { if isStaged { await unstage(file: file) } else { await stage(file: file) } } },
+            onToggleStage: { file in Task { if isStaged { await unstage(file: file) } else { await stage(file: file) } } },
             onOpenPotentialConflict: presentPotentialConflictDetails,
             makeMoreMenu: { NSHostingMenu(rootView: fileMoreMenuContent(file: $0, isStaged: isStaged, selection: selection)) },
             makeContextMenu: { NSHostingMenu(rootView: completeFileContextMenu(file: $0, isStaged: isStaged, selection: selection)) },
@@ -592,10 +547,7 @@ struct FileStatusView: View {
                 onSelect: { file, flags in
                     selectFileRow(file: file, isStaged: isStaged, modifierFlags: flags)
                 },
-                onToggleSelection: { file, selected in
-                    toggleFileSelection(file: file, isStaged: isStaged, selected: selected)
-                },
-                onQuickAction: { file in
+                onToggleStage: { file in
                     Task {
                         if isStaged { await unstage(file: file) }
                         else { await stage(file: file) }
@@ -624,19 +576,6 @@ struct FileStatusView: View {
                     .foregroundStyle(.secondary)
                     .padding(10)
                     .allowsHitTesting(false)
-            }
-        }
-    }
-
-    private func toggleFileSelection(file: StatusFile, isStaged: Bool, selected: Bool) {
-        let key = FileStatusSelectionKey(file: file, isStaged: isStaged)
-        if selected {
-            selectedActionFileKeys.insert(key)
-            actionSelectionAnchorKey = key
-        } else {
-            selectedActionFileKeys.remove(key)
-            if actionSelectionAnchorKey == key {
-                actionSelectionAnchorKey = selectedActionFileKeys.first
             }
         }
     }

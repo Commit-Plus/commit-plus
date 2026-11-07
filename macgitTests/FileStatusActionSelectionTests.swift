@@ -30,18 +30,7 @@ final class FileStatusActionSelectionTests: XCTestCase {
         )
     }
 
-    func testSectionTitlesUseAllWhenNothingIsSelected() {
-        let policy = FileStatusActionSelection(
-            selectedKeys: [],
-            stagedFiles: [file("README.md", status: .staged)],
-            changedFiles: [file("Sources/App.swift", status: .modified)]
-        )
-
-        XCTAssertEqual(policy.title(for: .staged), "Unstage All")
-        XCTAssertEqual(policy.title(for: .changed), "Stage All")
-    }
-
-    func testSectionTitlesUseSelectedForSectionsWithSelectedFiles() {
+    func testSectionSelectedActionIsHiddenWithFewerThanTwoSelectedFiles() {
         let staged = file("README.md", status: .staged)
         let changed = file("Sources/App.swift", status: .modified)
         let policy = FileStatusActionSelection(
@@ -53,8 +42,28 @@ final class FileStatusActionSelectionTests: XCTestCase {
             changedFiles: [changed]
         )
 
-        XCTAssertEqual(policy.title(for: .staged), "Unstage selected")
-        XCTAssertEqual(policy.title(for: .changed), "Stage selected")
+        XCTAssertNil(policy.selectedActionTitle(for: .staged))
+        XCTAssertNil(policy.selectedActionTitle(for: .changed))
+    }
+
+    func testSectionSelectedActionAppearsForTwoOrMoreSelectedFilesInSection() {
+        let stagedFirst = file("README.md", status: .staged)
+        let stagedSecond = file("LICENSE", status: .staged)
+        let changedFirst = file("Sources/App.swift", status: .modified)
+        let changedSecond = file("Sources/Model.swift", status: .modified)
+        let policy = FileStatusActionSelection(
+            selectedKeys: [
+                FileStatusSelectionKey(file: stagedFirst, isStaged: true),
+                FileStatusSelectionKey(file: stagedSecond, isStaged: true),
+                FileStatusSelectionKey(file: changedFirst, isStaged: false),
+                FileStatusSelectionKey(file: changedSecond, isStaged: false)
+            ],
+            stagedFiles: [stagedFirst, stagedSecond],
+            changedFiles: [changedFirst, changedSecond]
+        )
+
+        XCTAssertEqual(policy.selectedActionTitle(for: .staged), "Unstage selected")
+        XCTAssertEqual(policy.selectedActionTitle(for: .changed), "Stage selected")
     }
 
     func testMenuTitlesUseSelectedWhenMultipleFilesAreSelected() {

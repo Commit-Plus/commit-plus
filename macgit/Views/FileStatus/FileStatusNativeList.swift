@@ -17,8 +17,8 @@ struct FileStatusNativeList: NSViewRepresentable {
     let isStaged: Bool
     let textScale: CGFloat
     let onSelect: (StatusFile, NSEvent.ModifierFlags) -> Void
-    let onToggleSelection: (StatusFile, Bool) -> Void
-    let onQuickAction: (StatusFile) -> Void
+    /// Stages an unstaged file or unstages a staged one (the row checkbox).
+    let onToggleStage: (StatusFile) -> Void
     let onDoubleClick: (StatusFile) -> Void
     let onOpenPotentialConflict: (StatusFile) -> Void
     let dragPaths: (StatusFile) -> [String]
@@ -156,8 +156,7 @@ struct FileStatusNativeList: NSViewRepresentable {
                 row: item,
                 isStaged: model.isStaged,
                 textScale: model.textScale,
-                onToggle: { [weak self] selected in self?.model?.onToggleSelection(item.file, selected) },
-                onQuick: { [weak self] in self?.model?.onQuickAction(item.file) },
+                onToggleStage: { [weak self] in self?.model?.onToggleStage(item.file) },
                 onMore: { [weak self, weak cell] in
                     guard let self, let cell else { return }
                     self.showMoreMenu(for: item.file, relativeTo: cell.moreButton)
@@ -319,22 +318,20 @@ private final class FileStatusNativeCell: NSTableCellView {
     private let content = FileChangeRowContentView()
     private let lfsLabel = NSTextField(labelWithString: "LFS")
     private let conflictButton = FileStatusPointingButton()
-    private let quickButton = FileStatusPointingButton()
-    private var onToggle: ((Bool) -> Void)?
-    private var onQuick: (() -> Void)?
+    private var onToggleStage: (() -> Void)?
     private var onMore: (() -> Void)?
     private var onPotentialConflict: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        for view in [checkbox, content, lfsLabel, conflictButton, quickButton, moreButton] {
+        for view in [checkbox, content, lfsLabel, conflictButton, moreButton] {
             addSubview(view)
         }
         checkbox.setButtonType(.switch)
         checkbox.isBordered = false
         checkbox.controlSize = .small
         checkbox.target = self
-        checkbox.action = #selector(toggleSelection)
+        checkbox.action = #selector(toggleStage)
         lfsLabel.alignment = .center
         lfsLabel.textColor = .secondaryLabelColor
         lfsLabel.wantsLayer = true
@@ -347,9 +344,6 @@ private final class FileStatusNativeCell: NSTableCellView {
         conflictButton.contentTintColor = .systemOrange
         conflictButton.target = self
         conflictButton.action = #selector(openPotentialConflict)
-        quickButton.isBordered = false
-        quickButton.target = self
-        quickButton.action = #selector(runQuickAction)
         moreButton.isBordered = false
         moreButton.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: "More actions")
         moreButton.target = self
@@ -359,14 +353,16 @@ private final class FileStatusNativeCell: NSTableCellView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func configure(row: FileStatusNativeList.Row, isStaged: Bool, textScale: CGFloat,
-                   onToggle: @escaping (Bool) -> Void, onQuick: @escaping () -> Void,
+                   onToggleStage: @escaping () -> Void,
                    onMore: @escaping () -> Void, onPotentialConflict: @escaping () -> Void) {
-        self.onToggle = onToggle
-        self.onQuick = onQuick
+        self.onToggleStage = onToggleStage
         self.onMore = onMore
         self.onPotentialConflict = onPotentialConflict
-        checkbox.state = row.isActionSelected ? .on : .off
-        checkbox.setAccessibilityLabel("Select \(row.file.displayName)")
+        checkbox.state = isStaged ? .on : .off
+        // Content inside a submodule is committed in the submodule itself.
+        checkbox.isEnabled = isStaged || !row.file.isSubmoduleContentOnlyChange
+        checkbox.toolTip = isStaged ? "Unstage" : "Stage"
+        checkbox.setAccessibilityLabel(isStaged ? "Unstage \(row.file.displayName)" : "Stage \(row.file.displayName)")
         content.configure(.init(
             path: row.file.path, name: row.file.displayName, status: row.file.status.changeStyle,
             subtitle: row.file.originalPath.map { "\($0) → \(row.file.path)" }
@@ -380,14 +376,6 @@ private final class FileStatusNativeCell: NSTableCellView {
         conflictButton.isHidden = !row.isPotentialConflict
         conflictButton.toolTip = row.isPotentialConflict ? "View potential conflict details" : nil
         conflictButton.setAccessibilityLabel("View potential conflict details")
-        quickButton.image = NSImage(
-            systemSymbolName: isStaged ? "minus" : "plus",
-            accessibilityDescription: isStaged ? "Unstage" : "Stage"
-        )
-        quickButton.toolTip = isStaged ? "Unstage" : "Stage"
-        // Content inside a submodule is committed in the submodule itself.
-        quickButton.isHidden = !isStaged && row.file.isSubmoduleContentOnlyChange
-        quickButton.setAccessibilityLabel(isStaged ? "Unstage" : "Stage")
         needsLayout = true
     }
 
@@ -396,8 +384,7 @@ private final class FileStatusNativeCell: NSTableCellView {
         let midY = bounds.midY
         checkbox.frame = NSRect(x: 5, y: midY - 9, width: 18, height: 18)
         moreButton.frame = NSRect(x: bounds.maxX - 24, y: midY - 11, width: 22, height: 22)
-        quickButton.frame = NSRect(x: moreButton.frame.minX - 22, y: midY - 11, width: 22, height: 22)
-        var accessoryX = quickButton.frame.minX
+        var accessoryX = moreButton.frame.minX
         if !conflictButton.isHidden {
             accessoryX -= 24
             conflictButton.frame = NSRect(x: accessoryX, y: midY - 11, width: 22, height: 22)
@@ -414,8 +401,11 @@ private final class FileStatusNativeCell: NSTableCellView {
         return "Submodule · \(change.contentSummary)"
     }
 
-    @objc private func toggleSelection() { onToggle?(checkbox.state == .on) }
-    @objc private func runQuickAction() { onQuick?() }
+    @objc private func toggleStage() {
+        // Keep showing the real stage state until the refreshed status moves the row.
+        checkbox.state = checkbox.state == .on ? .off : .on
+        onToggleStage?()
+    }
     @objc private func openMoreMenu() { onMore?() }
     @objc private func openPotentialConflict() { onPotentialConflict?() }
 }

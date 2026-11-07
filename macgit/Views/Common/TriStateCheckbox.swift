@@ -68,6 +68,9 @@ struct TriStateCheckbox: NSViewRepresentable {
 
         @objc func clicked(_ button: NSButton) {
             let selectAll = currentState != .on
+            // The owner's state is the source of truth; undo AppKit's own toggle
+            // so a failed or ignored change does not leave a stale checkmark.
+            button.state = currentState
             onChange?(selectAll)
         }
     }

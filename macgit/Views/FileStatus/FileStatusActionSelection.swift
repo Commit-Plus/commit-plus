@@ -68,12 +68,14 @@ struct FileStatusActionSelection {
         selectedKeys.count > 1
     }
 
-    func title(for section: FileStatusSelectionSection) -> String {
+    /// Title for the section header's bulk button, shown only when two or more
+    /// files are selected in that section. Staging everything is the header checkbox.
+    func selectedActionTitle(for section: FileStatusSelectionSection) -> String? {
         switch section {
         case .staged:
-            return hasSelectedFiles(isStaged: true) ? "Unstage selected" : "Unstage All"
+            return selectedStagedFiles.count >= 2 ? "Unstage selected" : nil
         case .changed:
-            return hasSelectedFiles(isStaged: false) ? "Stage selected" : "Stage All"
+            return selectedChangedFiles.count >= 2 ? "Stage selected" : nil
         }
     }
 

@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 struct FileStatusTreeNativeList: NSViewRepresentable {
     struct Row: Equatable, Identifiable {
         enum Content: Equatable {
-            case folder(path: String, name: String, files: [StatusFile], isExpanded: Bool, checkState: NSControl.StateValue)
+            case folder(path: String, name: String, files: [StatusFile], isExpanded: Bool)
             case file(FileStatusNativeList.Row, name: String)
         }
         let id: String
@@ -18,11 +18,11 @@ struct FileStatusTreeNativeList: NSViewRepresentable {
     let isStaged: Bool
     let textScale: CGFloat
     let onToggleFolder: (String) -> Void
-    let onToggleFolderSelection: ([StatusFile], Bool) -> Void
-    let onFolderQuickAction: ([StatusFile]) -> Void
+    /// Stages or unstages every file under a folder (the folder checkbox).
+    let onToggleFolderStage: ([StatusFile]) -> Void
     let onSelect: (StatusFile, NSEvent.ModifierFlags) -> Void
-    let onToggleSelection: (StatusFile, Bool) -> Void
-    let onQuickAction: (StatusFile) -> Void
+    /// Stages an unstaged file or unstages a staged one (the row checkbox, or double-click).
+    let onToggleStage: (StatusFile) -> Void
     let onOpenPotentialConflict: (StatusFile) -> Void
     let makeMoreMenu: (StatusFile) -> NSMenu
     let makeContextMenu: (StatusFile) -> NSMenu
@@ -85,17 +85,15 @@ struct FileStatusTreeNativeList: NSViewRepresentable {
             let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? StatusTreeCell ?? StatusTreeCell()
             cell.identifier = identifier
             switch item.content {
-            case .folder(let path, let name, let files, let expanded, let state):
-                cell.configureFolder(name: name, depth: item.depth, expanded: expanded, checkState: state,
+            case .folder(let path, let name, let files, let expanded):
+                cell.configureFolder(name: name, depth: item.depth, expanded: expanded,
                                      isStaged: model.isStaged, textScale: model.textScale,
-                                     onToggleSelection: { [weak self] selected in self?.model?.onToggleFolderSelection(files, selected) },
-                                     onQuick: { [weak self] in self?.model?.onFolderQuickAction(files) })
+                                     onToggleStage: { [weak self] in self?.model?.onToggleFolderStage(files) })
                 cell.toolTip = path
             case .file(let fileRow, let name):
                 cell.configureFile(row: fileRow, name: name, depth: item.depth, isStaged: model.isStaged,
                                    textScale: model.textScale,
-                                   onToggleSelection: { [weak self] selected in self?.model?.onToggleSelection(fileRow.file, selected) },
-                                   onQuick: { [weak self] in self?.model?.onQuickAction(fileRow.file) },
+                                   onToggleStage: { [weak self] in self?.model?.onToggleStage(fileRow.file) },
                                    onMore: { [weak self, weak cell] in
                                        guard let self, let cell else { return }
                                        self.showMenu(self.model?.makeMoreMenu(fileRow.file), at: cell.moreButton)
@@ -109,7 +107,7 @@ struct FileStatusTreeNativeList: NSViewRepresentable {
             let index = table.clickedRow
             guard rows.indices.contains(index), let model else { return }
             switch rows[index].content {
-            case .folder(let path, _, _, _, _): model.onToggleFolder(path)
+            case .folder(let path, _, _, _): model.onToggleFolder(path)
             case .file(let row, _): model.onSelect(row.file, NSApp.currentEvent?.modifierFlags ?? [])
             }
         }
@@ -117,7 +115,7 @@ struct FileStatusTreeNativeList: NSViewRepresentable {
         @objc private func doubleClickedRow() {
             let index = table.clickedRow
             guard rows.indices.contains(index), case .file(let row, _) = rows[index].content else { return }
-            model?.onQuickAction(row.file)
+            model?.onToggleStage(row.file)
         }
 
         private func contextMenu(_ index: Int) -> NSMenu? {
@@ -204,43 +202,44 @@ private final class StatusTreeCell: NSTableCellView {
     let moreButton = NSButton()
     private let checkbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
     private let chevron = NSImageView(), content = FileChangeRowContentView()
-    private let lfs = NSTextField(labelWithString: "LFS"), conflict = NSButton(), quick = NSButton()
-    private var onToggle: ((Bool) -> Void)?, onQuick: (() -> Void)?, onMore: (() -> Void)?, onConflict: (() -> Void)?
+    private let lfs = NSTextField(labelWithString: "LFS"), conflict = NSButton()
+    private var onToggleStage: (() -> Void)?, onMore: (() -> Void)?, onConflict: (() -> Void)?
     private var depth = 0
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        [checkbox, chevron, content, lfs, conflict, quick, moreButton].forEach(addSubview)
-        checkbox.setButtonType(.switch); checkbox.isBordered = false; checkbox.controlSize = .small; checkbox.target = self; checkbox.action = #selector(toggle)
+        [checkbox, chevron, content, lfs, conflict, moreButton].forEach(addSubview)
+        checkbox.setButtonType(.switch); checkbox.isBordered = false; checkbox.controlSize = .small; checkbox.target = self; checkbox.action = #selector(toggleStage)
         chevron.imageScaling = .scaleProportionallyDown
         lfs.textColor = .secondaryLabelColor; lfs.alignment = .center; lfs.wantsLayer = true; lfs.layer?.borderWidth = 1; lfs.layer?.cornerRadius = 3
-        [conflict, quick, moreButton].forEach { $0.isBordered = false }
+        [conflict, moreButton].forEach { $0.isBordered = false }
         conflict.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: "Potential conflict"); conflict.contentTintColor = .systemOrange
         moreButton.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: "More actions")
-        conflict.target = self; conflict.action = #selector(openConflict); quick.target = self; quick.action = #selector(runQuick); moreButton.target = self; moreButton.action = #selector(openMore)
+        conflict.target = self; conflict.action = #selector(openConflict); moreButton.target = self; moreButton.action = #selector(openMore)
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    func configureFolder(name title: String, depth: Int, expanded: Bool, checkState: NSControl.StateValue,
-                         isStaged: Bool, textScale: CGFloat, onToggleSelection: @escaping (Bool) -> Void,
-                         onQuick: @escaping () -> Void) {
-        self.depth = depth; self.onToggle = onToggleSelection; self.onQuick = onQuick
-        checkbox.state = checkState; checkbox.allowsMixedState = true
+    func configureFolder(name title: String, depth: Int, expanded: Bool,
+                         isStaged: Bool, textScale: CGFloat, onToggleStage: @escaping () -> Void) {
+        self.depth = depth; self.onToggleStage = onToggleStage
+        configureStageCheckbox(isStaged: isStaged, isEnabled: true, label: isStaged ? "Unstage folder \(title)" : "Stage folder \(title)")
         chevron.image = NSImage(systemSymbolName: expanded ? "chevron.down" : "chevron.right", accessibilityDescription: nil)
         content.configure(.init(path: title, name: title, isDirectory: true, isExpanded: expanded, nameFontSize: 13, textScale: textScale))
-        quick.image = NSImage(systemSymbolName: isStaged ? "minus" : "plus", accessibilityDescription: isStaged ? "Unstage folder" : "Stage folder")
-        chevron.isHidden = false; lfs.isHidden = true; conflict.isHidden = true; moreButton.isHidden = true; quick.isHidden = false
+        chevron.isHidden = false; lfs.isHidden = true; conflict.isHidden = true; moreButton.isHidden = true
+        layer?.backgroundColor = NSColor.clear.cgColor
         needsLayout = true
     }
 
     func configureFile(row: FileStatusNativeList.Row, name title: String, depth: Int, isStaged: Bool, textScale: CGFloat,
-                       onToggleSelection: @escaping (Bool) -> Void, onQuick: @escaping () -> Void,
+                       onToggleStage: @escaping () -> Void,
                        onMore: @escaping () -> Void, onConflict: @escaping () -> Void) {
-        self.depth = depth; self.onToggle = onToggleSelection; self.onQuick = onQuick; self.onMore = onMore; self.onConflict = onConflict
-        checkbox.state = row.isActionSelected ? .on : .off; checkbox.allowsMixedState = false; chevron.isHidden = true
+        self.depth = depth; self.onToggleStage = onToggleStage; self.onMore = onMore; self.onConflict = onConflict
+        // Content inside a submodule is committed in the submodule itself.
+        configureStageCheckbox(isStaged: isStaged, isEnabled: isStaged || !row.file.isSubmoduleContentOnlyChange,
+                               label: isStaged ? "Unstage \(title)" : "Stage \(title)")
+        chevron.isHidden = true
         content.configure(.init(path: row.file.path, name: title, status: row.file.status.changeStyle, count: row.count, nameFontSize: 13, textScale: textScale))
         lfs.isHidden = !row.isLFS; lfs.font = .systemFont(ofSize: 9 * textScale); conflict.isHidden = !row.isPotentialConflict; moreButton.isHidden = false
-        quick.isHidden = !isStaged && row.file.isSubmoduleContentOnlyChange; quick.image = NSImage(systemSymbolName: isStaged ? "minus" : "plus", accessibilityDescription: isStaged ? "Unstage" : "Stage")
         layer?.backgroundColor = row.isActionSelected ? NSColor.controlAccentColor.withAlphaComponent(0.16).cgColor : NSColor.clear.cgColor
         wantsLayer = true; needsLayout = true
     }
@@ -251,14 +250,23 @@ private final class StatusTreeCell: NSTableCellView {
         chevron.frame = .init(x: x + 20, y: y - 6, width: 10, height: 12)
         var right = bounds.maxX - 4
         moreButton.frame = .init(x: right - 22, y: y - 11, width: 22, height: 22); if !moreButton.isHidden { right -= 24 }
-        quick.frame = .init(x: right - 22, y: y - 11, width: 22, height: 22); right -= 24
         conflict.frame = .init(x: right - 22, y: y - 11, width: 22, height: 22); if !conflict.isHidden { right -= 24 }
         if !lfs.isHidden { lfs.frame = .init(x: right - 30, y: y - 9, width: 28, height: 18); right -= 34 }
         let contentX = x + (chevron.isHidden ? 20 : 33)
         content.frame = .init(x: contentX, y: 0, width: max(0, right - 2 - contentX), height: bounds.height)
     }
-    @objc private func toggle() { onToggle?(checkbox.state == .on) }
-    @objc private func runQuick() { onQuick?() }
+    private func configureStageCheckbox(isStaged: Bool, isEnabled: Bool, label: String) {
+        checkbox.allowsMixedState = false
+        checkbox.state = isStaged ? .on : .off
+        checkbox.isEnabled = isEnabled
+        checkbox.toolTip = isStaged ? "Unstage" : "Stage"
+        checkbox.setAccessibilityLabel(label)
+    }
+    @objc private func toggleStage() {
+        // Keep showing the real stage state until the refreshed status moves the row.
+        checkbox.state = checkbox.state == .on ? .off : .on
+        onToggleStage?()
+    }
     @objc private func openMore() { onMore?() }
     @objc private func openConflict() { onConflict?() }
 }
