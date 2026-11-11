@@ -111,8 +111,9 @@ final class YourRepositoriesStore: ObservableObject {
                 return true
             }
             var urls: [URL] = []
-            if manager.fileExists(atPath: root.appendingPathComponent(".git").path) { return ([root], nil) }
-            guard let enumerator else { return ([], "Could not enumerate folder.") }
+            // A root is an explicit user choice, so look inside it even when it is itself a repository.
+            if manager.fileExists(atPath: root.appendingPathComponent(".git").path) { urls.append(root.standardizedFileURL) }
+            guard let enumerator else { return (urls, "Could not enumerate folder.") }
             for case let url as URL in enumerator {
                 guard !Task.isCancelled else { return ([], "Scan cancelled.") }
                 let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])

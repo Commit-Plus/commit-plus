@@ -31,4 +31,29 @@ final class YourRepositoriesStoreTests: XCTestCase {
         XCTAssertEqual(result.map(\.url), [first, second])
         XCTAssertEqual(Set(result.map(\.url)).count, 2)
     }
+
+    func testScanFindsRepositoriesNestedInsideRootThatIsARepository() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("your-repositories-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let nested = root.appendingPathComponent("nested", isDirectory: true)
+        let deep = root.appendingPathComponent("group/deep", isDirectory: true)
+        let insideNested = nested.appendingPathComponent("inner", isDirectory: true)
+        for repository in [root, nested, deep, insideNested] {
+            try fileManager.createDirectory(
+                at: repository.appendingPathComponent(".git", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+
+        let result = YourRepositoriesStore.scanRoot(root)
+
+        XCTAssertNil(result.error)
+        XCTAssertEqual(
+            Set(result.urls.map { $0.standardizedFileURL.path }),
+            Set([root, nested, deep].map { $0.standardizedFileURL.path })
+        )
+    }
 }

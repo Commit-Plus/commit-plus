@@ -172,10 +172,9 @@ struct HistoryScreen: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh)) { notification in
             guard notification.userInfo?["repositoryURL"] as? URL == repositoryURL else { return }
-            // Worktrees can be added or removed outside the app without changing history.
-            // A pending reload fetches them anyway, and activation catches up when hidden.
-            guard isActive, !isWorkSuspended, !needsRefresh else { return }
-            Task { await listModel.refreshWorktreeBranches() }
+            // Local commits, amends and resets (here or in a terminal) move refs without a remote
+            // refresh. Worktrees can also change outside the app without changing history.
+            requestRefreshIfCommitSetChanged(includingWorktrees: true, markStaleWhenUnchanged: false)
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryRemoteRefsDidRefresh)) { notification in
             guard notification.userInfo?["repositoryURL"] as? URL == repositoryURL else { return }
@@ -251,15 +250,18 @@ struct HistoryScreen: View {
         }
     }
 
-    private func requestRefreshIfCommitSetChanged(includingWorktrees: Bool = false) {
+    /// `markStaleWhenUnchanged: false` keeps frequent local status refreshes from forcing a
+    /// full reload the next time a hidden History screen becomes active.
+    private func requestRefreshIfCommitSetChanged(includingWorktrees: Bool = false, markStaleWhenUnchanged: Bool = true) {
         Task {
             let fingerprint = await GitStatusService.shared.historyCommitSetFingerprint(in: repositoryURL)
             guard !Task.isCancelled else { return }
             guard historyCommitSetFingerprint != fingerprint else {
                 if isActive && !isWorkSuspended {
+                    guard !needsRefresh else { return }
                     await listModel.refreshRebaseAvailability()
                     if includingWorktrees { await listModel.refreshWorktreeBranches() }
-                } else {
+                } else if markStaleWhenUnchanged {
                     needsRefresh = true
                 }
                 return

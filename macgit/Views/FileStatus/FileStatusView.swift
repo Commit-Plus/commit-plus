@@ -1459,6 +1459,11 @@ struct FileStatusView: View {
                 }
             }
             await reloadRepositoryState()
+            // History and the branch sidebar reload on this; a message-only amend or an empty
+            // commit leaves the working tree unchanged, so no local-state refresh is posted.
+            await MainActor.run {
+                NotificationCenter.default.post(name: .repositoryDidChange, object: nil, userInfo: ["repositoryURL": repositoryURL])
+            }
         } catch {
             await MainActor.run {
                 errorMessage = error.localizedDescription
