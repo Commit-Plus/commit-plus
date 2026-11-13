@@ -3,8 +3,7 @@ import SwiftUI
 
 struct RevisionBrowserView: View {
     let controller: RevisionBrowserController
-    @State private var lfsRemotes: [String] = []
-    @State private var lfsRemote = ""
+    let actions: RevisionFileActionCenter
     let onCompare: (ComparisonPath, String) -> Void
 
     var body: some View {
@@ -24,7 +23,39 @@ struct RevisionBrowserView: View {
             }
             .padding(12)
             Divider()
-            if controller.isLoading {
+            RevisionTreeBrowser(controller: controller, autosaveName: "RevisionBrowserDetailSplit",
+                                actions: actions, onCompare: onCompare)
+        }
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+/// The tree and file preview of a repository at one revision. Shared by the
+/// revision browser window and the History detail "File Tree" tab.
+struct RevisionTreeBrowser: View {
+    let controller: RevisionBrowserController
+    let autosaveName: String
+    var actions: RevisionFileActionCenter? = nil
+    /// Delays the initial load so quickly stepping through commits does not load every tree.
+    var loadDelay: Duration = .zero
+    /// A path to select once the tree has loaded.
+    var initialPath: String? = nil
+    /// False when the owner keeps the controller loaded across appearances, such as tab switches.
+    var releasesOnDisappear = true
+    var onOpenFile: ((String) -> Void)? = nil
+    var onSelectFile: ((String) -> Void)? = nil
+    var onCompare: ((ComparisonPath, String) -> Void)? = nil
+    @State private var lfsRemotes: [String] = []
+    @State private var lfsRemote = ""
+    @Environment(\.appTextScale) private var textScale
+
+    var body: some View {
+        Group {
+            if controller.isLoading || (controller.snapshot == nil && controller.error == nil) {
                 ProgressView("Loading repository…").frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = controller.error {
                 VStack {
@@ -34,103 +65,107 @@ struct RevisionBrowserView: View {
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 PersistentHSplit(
-                    autosaveName: "RevisionBrowserDetailSplit",
-                    left: { tree.frame(minWidth: 220, idealWidth: 300, maxWidth: 500) },
-                    right: { filePreview.frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity) }
+                    autosaveName: autosaveName,
+                    // Explicit limits keep AppKit from re-measuring the tree and file on every scroll update.
+                    minimumLeftWidth: 220, minimumRightWidth: 320,
+                    left: { tree.frame(maxWidth: .infinity, maxHeight: .infinity) },
+                    right: { filePreview.frame(maxWidth: .infinity, maxHeight: .infinity) }
                 )
             }
         }
+        // Restarts when the requested path changes, so the newest request wins even while loading.
+        .task(id: initialPath) {
+            if controller.snapshot == nil {
+                if loadDelay > .zero {
+                    do { try await Task.sleep(for: loadDelay) } catch { return }
+                }
+                controller.load()
+            }
+            if let initialPath, controller.selectedEntry?.path != initialPath {
+                await controller.reveal(path: initialPath)
+            }
+        }
         .task {
-            controller.load()
             lfsRemotes = await GitStatusService.shared.remotes(in: controller.repositoryURL)
             if lfsRemotes.count == 1 { lfsRemote = lfsRemotes[0] }
         }
-        .onDisappear { controller.releaseResources() }
+        .onDisappear { if releasesOnDisappear { controller.releaseResources() } }
     }
 
-    private var tree: some View {
-        List {
-            if controller.children[""]?.isEmpty == true {
-                Text("This revision contains no files.").foregroundStyle(.secondary)
-            }
-            ForEach(controller.visibleEntries) { entry in
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        if entry.isDirectory {
-                            Button {
-                                controller.toggle(entry)
-                            } label: {
-                                Image(systemName: controller.expanded.contains(entry.path) ? "chevron.down" : "chevron.right")
-                                    .frame(width: 16, height: 22).contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .pointingHandCursor()
-                            .accessibilityLabel("\(controller.expanded.contains(entry.path) ? "Collapse" : "Expand") \(entry.name)")
-                        } else {
-                            Color.clear.frame(width: 16, height: 1)
-                        }
-                        Button {
-                            controller.select(entry)
-                            if entry.isDirectory { controller.toggle(entry) }
-                        } label: {
-                            HStack {
-                                RevisionTreeIcon(entry: entry, isExpanded: controller.expanded.contains(entry.path))
-                                Text(entry.name)
-                                    .fontWeight(isChanged(entry) ? .semibold : .regular)
-                                    .foregroundStyle(isChanged(entry) ? Color.accentColor : Color.primary)
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                                if isChanged(entry) {
-                                    Image(systemName: "circle.fill")
-                                        .font(.system(size: 6))
-                                        .foregroundStyle(Color.accentColor)
-                                        .accessibilityLabel(entry.isDirectory ? "Contains changes in this commit" : "Changed in this commit")
-                                }
-                            }.contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .pointingHandCursor()
-                        .accessibilityHint(entry.isDirectory ? "Expand or collapse folder" : "Preview file")
-                        if controller.loadingFolders.contains(entry.path) { ProgressView().controlSize(.small) }
-                    }
-                    .padding(.leading, CGFloat(min(entry.path.split(separator: "/").count - 1, 20)) * 14)
-                    if controller.expanded.contains(entry.path) {
-                        if let error = controller.folderErrors[entry.path] {
-                            Text(error + " Collapse and expand to retry.").font(.caption).foregroundStyle(.secondary)
-                        } else if controller.children[entry.path]?.isEmpty == true {
-                            Text("Empty folder").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .listRowBackground(controller.selectedEntry?.id == entry.id ? Color.accentColor.opacity(0.18) : Color.clear)
-                .contextMenu {
-                    Button("Copy Path") { copy(entry.path) }
-                    Button("Copy Object ID") { copy(entry.objectID) }
-                    Button("Compare with Revision…") { compare(entry) }
-                }
-                .help(entry.path)
-            }
+    @ViewBuilder private var tree: some View {
+        if controller.children[""]?.isEmpty == true {
+            Text("This revision contains no files.").foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            RevisionTreeNativeList(rows: treeRows, selectedID: controller.selectedEntry?.id,
+                reveal: controller.revealRequest, textScale: textScale,
+                onSelect: { entry in
+                    controller.select(entry)
+                    if !entry.isDirectory { onSelectFile?(entry.path) }
+                },
+                onToggle: { controller.toggle($0) },
+                makeContextMenu: { entry in NSHostingMenu(rootView: treeMenu(for: entry)) })
         }
-        .listStyle(.sidebar)
+    }
+
+    private var treeRows: [RevisionTreeNativeList.Row] {
+        controller.visibleEntries.map { entry in
+            let expanded = controller.expanded.contains(entry.path)
+            var note: String?
+            if expanded {
+                if let error = controller.folderErrors[entry.path] {
+                    note = error + " Collapse and expand to retry."
+                } else if controller.children[entry.path]?.isEmpty == true {
+                    note = "Empty folder"
+                }
+            }
+            return .init(entry: entry, depth: entry.path.split(separator: "/").count - 1, isExpanded: expanded,
+                isLoading: controller.loadingFolders.contains(entry.path), note: note)
+        }
+    }
+
+    @ViewBuilder private func treeMenu(for entry: RevisionTreeEntry) -> some View {
+        if let actions, let snapshot = controller.snapshot, !entry.isDirectory, !entry.isSubmodule {
+            RevisionFileMenuItems(actions: actions, path: entry.path, revision: snapshot.commitID,
+                onOpen: onOpenFile.map { open in { open(entry.path) } })
+        } else {
+            Button("Copy Path") { copy(entry.path) }
+        }
+        Button("Copy Object ID") { copy(entry.objectID) }
+        if onCompare != nil {
+            Button("Compare with Revision…") { compare(entry) }
+        }
     }
 
     @ViewBuilder private var filePreview: some View {
         if let entry = controller.selectedEntry {
             VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(entry.path).font(.headline).textSelection(.enabled)
-                    Text("\(entry.objectType) · mode \(entry.mode)\(entry.size.map { " · \($0) bytes" } ?? "")\n\(entry.objectID)")
-                        .font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                    HStack {
-                        Button("Copy Path") { copy(entry.path) }
-                            .pointingHandCursor()
-                        Button("Copy Contents") { if let text = controller.preview?.text { copy(text) } }
-                            .pointingHandCursor()
-                            .disabled(controller.preview?.text == nil)
-                        Button("Compare with Revision…") { compare(entry) }
-                            .pointingHandCursor()
+                HStack(spacing: 6) {
+                    RevisionTreeIcon(entry: entry, isExpanded: false).frame(width: 16, height: 16)
+                    Text(entry.path).font(.system(size: 12, weight: .medium))
+                        .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                    if let size = entry.size {
+                        Text(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
+                            .font(.caption).foregroundStyle(.secondary).fixedSize()
                     }
-                }.padding(12)
+                    Spacer(minLength: 8)
+                    Group {
+                        Button("Copy Path", systemImage: "doc.on.doc") { copy(entry.path) }
+                            .help("Copy path")
+                        Button("Copy Contents", systemImage: "doc.on.clipboard") {
+                            if let text = controller.preview?.text { copy(text) }
+                        }
+                        .disabled(controller.preview?.text == nil)
+                        .help("Copy file contents")
+                        if onCompare != nil {
+                            Button("Compare with Revision…", systemImage: "arrow.left.arrow.right") { compare(entry) }
+                                .help("Compare with revision…")
+                        }
+                    }
+                    .labelStyle(.iconOnly).buttonStyle(.borderless).pointingHandCursor()
+                }
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .help("\(entry.path)\n\(entry.objectType) · mode \(entry.mode)\n\(entry.objectID)")
                 if controller.preview?.lfsPointer != nil {
                     HStack {
                         Picker("Download remote", selection: $lfsRemote) {
@@ -152,7 +187,7 @@ struct RevisionBrowserView: View {
                 } else if let message = controller.preview?.message {
                     ScrollView { Text(message).textSelection(.enabled).padding().frame(maxWidth: .infinity, alignment: .leading) }
                 } else if let preview = controller.preview {
-                    CommitFilePreviewContent(lines: preview.lines, fileExtension: SyntaxHighlighter.syntaxIdentifier(forFilePath: entry.path))
+                    CommitFilePreviewContent(lines: preview.lines, fileExtension: SyntaxHighlighter.syntaxIdentifier(forFilePath: entry.path), embedded: true)
                         .id(entry.id)
                 } else {
                     EmptyStateView(icon: "folder", message: "Expand this folder to browse its files")
@@ -163,13 +198,9 @@ struct RevisionBrowserView: View {
         }
     }
 
-    private func isChanged(_ entry: RevisionTreeEntry) -> Bool {
-        controller.snapshot?.changedNodePaths.contains(entry.path) == true
-    }
-
     private func compare(_ entry: RevisionTreeEntry) {
         guard let snapshot = controller.snapshot else { return }
-        onCompare(ComparisonPath(path: entry.path, isDirectory: entry.isDirectory), snapshot.commitID)
+        onCompare?(ComparisonPath(path: entry.path, isDirectory: entry.isDirectory), snapshot.commitID)
     }
 
     private func copy(_ text: String) {

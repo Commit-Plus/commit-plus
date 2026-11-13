@@ -28,7 +28,15 @@ extension GitStatusService {
     }
 
     /// Like `diff(for:in:in:)`, but throws when git fails so callers can tell an error from an empty diff.
-    func commitDiff(for file: String, in commit: String, in repositoryURL: URL) async throws -> [DiffHunk] {
+    /// Pass `oldPath` for a rename or copy so git can pair both sides instead of showing an added file.
+    func commitDiff(for file: String, oldPath: String? = nil, in commit: String, in repositoryURL: URL) async throws -> [DiffHunk] {
+        if let oldPath, oldPath != file, !isStashRef(commit) {
+            let output = try await runGit(
+                arguments: ["show", "--no-color", "--first-parent", "-p", "-U3", "-M", "--format=", commit, "--", oldPath, file],
+                in: repositoryURL
+            )
+            return DiffParser.parse(output)
+        }
         if isStashRef(commit) {
             let output = try await runGit(arguments: ["diff", "--no-color", "-U3", "\(commit)^1", commit, "--", file], in: repositoryURL)
             return DiffParser.parse(output)

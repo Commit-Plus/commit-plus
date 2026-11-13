@@ -20,6 +20,7 @@ final class RevisionBrowserWindowController: NSWindowController, NSWindowDelegat
         let browser = RevisionBrowserController(repositoryURL: repositoryURL, revision: revision)
         browser.lfsCredentialResolver = credentialResolver
         self.browser = browser
+        let fileActions = RevisionFileActionCenter(repositoryURL: repositoryURL)
         let screen = NSApp.keyWindow?.screen ?? NSScreen.main
         let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)
         let size = NSSize(width: min(1100, visibleFrame.width - 40),
@@ -32,7 +33,7 @@ final class RevisionBrowserWindowController: NSWindowController, NSWindowDelegat
         window.contentMinSize = NSSize(width: min(760, size.width), height: min(420, size.height))
         window.delegate = self
         let hostingView = NSHostingView(rootView: GeometryReader { geometry in
-            RevisionBrowserView(controller: browser, onCompare: { [weak self] path, sha in
+            RevisionBrowserView(controller: browser, actions: fileActions, onCompare: { [weak self] path, sha in
                 self?.comparisonWindow.show(path: path, in: repositoryURL, target: .revision(sha))
             })
                 .frame(width: geometry.size.width, height: geometry.size.height)

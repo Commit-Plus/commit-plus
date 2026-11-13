@@ -12,6 +12,8 @@ struct CommitFileListView: View {
     var onOpenFile: ((CommitFileChange) -> Void)? = nil
     var onPatch: (([CommitFileChange], CommitPatchRequest.Direction) -> Void)? = nil
     var patchDisabledReason: (([CommitFileChange]) -> String?)? = nil
+    /// Extra per-file context menu items shown above the patch actions.
+    var fileMenu: ((CommitFileChange) -> AnyView)? = nil
     @State private var selectedFiles: Set<CommitFileChange> = []
 
     @ViewBuilder
@@ -57,9 +59,7 @@ struct CommitFileListView: View {
             textScale: textScale,
             onSelectionChange: updateSelection,
             onOpenFile: onOpenFile,
-            makeContextMenu: onPatch == nil ? nil : { change in
-                NSHostingMenu(rootView: patchMenu(for: change))
-            }
+            makeContextMenu: makeContextMenu
         )
     }
 
@@ -80,7 +80,7 @@ struct CommitFileListView: View {
             onToggleFolder: toggleFolder, onSelect: { file in
                 selectTreeFile(file, in: rows)
             }, onOpenFile: onOpenFile,
-            makeContextMenu: onPatch == nil ? nil : { change in NSHostingMenu(rootView: patchMenu(for: change)) }
+            makeContextMenu: makeContextMenu
         )
     }
 
@@ -126,6 +126,20 @@ struct CommitFileListView: View {
             selectedFiles = []
             if selectedFile != nil { selectedFile = nil }
         }
+    }
+
+    private var makeContextMenu: ((CommitFileChange) -> NSMenu?)? {
+        guard onPatch != nil || fileMenu != nil else { return nil }
+        return { change in NSHostingMenu(rootView: contextMenu(for: change)) }
+    }
+
+    @ViewBuilder
+    private func contextMenu(for change: CommitFileChange) -> some View {
+        if let fileMenu {
+            fileMenu(change)
+            if onPatch != nil { Divider() }
+        }
+        if onPatch != nil { patchMenu(for: change) }
     }
 
     @ViewBuilder

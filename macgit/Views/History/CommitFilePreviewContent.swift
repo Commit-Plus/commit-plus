@@ -17,95 +17,27 @@
 //
 import SwiftUI
 
-/// Uses fixed-height rows so two-axis scrolling never needs to lay out the full file.
+/// Read-only file content with line numbers, backed by a native table so large files scroll smoothly.
 struct CommitFilePreviewContent: View {
     @ObservedObject private var advancedSettings = AdvancedSettingsStore.shared
     let lines: [DiffLine]
     let fileExtension: String
-    @State private var visibleRange = 0..<0
-    @State private var contentWidth: CGFloat = 0
-    @State private var horizontalViewport = CGRect(x: 0, y: 0, width: 1_024, height: 0)
-    @State private var highlightCache = CommitFilePreviewHighlightCache()
-
-    private let rowHeight = CommitFilePreviewViewport.rowHeight
+    /// Drops the card chrome so the content can sit flush next to other panes.
+    var embedded = false
+    var onVerticalOffsetChange: ((CGFloat) -> Void)? = nil
 
     var body: some View {
-        GeometryReader { geometry in
-            let range = visibleRange.isEmpty
-                ? CommitFilePreviewViewport.rows(offset: 0, height: geometry.size.height, count: lines.count)
-                : visibleRange
-            ScrollView([.horizontal, .vertical]) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Color.clear.frame(height: CGFloat(range.lowerBound) * rowHeight)
-                    ForEach(range, id: \.self) { index in
-                        let line = lines[index]
-                        DiffLineView(
-                            line: line,
-                            fileExtension: fileExtension,
-                            isSelected: false,
-                            cachedHighlightedText: advancedSettings.diffSyntaxHighlighting
-                                ? highlightCache.text(for: line, fileExtension: fileExtension)
-                                : nil,
-                            showsDiffGutter: false,
-                            horizontalViewport: horizontalViewport
-                        )
-                        .frame(height: rowHeight)
-                        .textSelection(.enabled)
-                    }
-                    Color.clear.frame(height: CGFloat(lines.count - range.upperBound) * rowHeight)
+        CodeLinesNativeView(lines: lines, fileExtension: fileExtension,
+            highlightsSyntax: advancedSettings.diffSyntaxHighlighting,
+            onVerticalOffsetChange: onVerticalOffsetChange)
+            .background(.secondary.opacity(embedded ? 0 : 0.06))
+            .clipShape(RoundedRectangle(cornerRadius: embedded ? 0 : 8, style: .continuous))
+            .overlay {
+                if !embedded {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(.separator.opacity(0.5), lineWidth: 0.5)
                 }
-                .frame(width: max(geometry.size.width, contentWidth), alignment: .topLeading)
             }
-            .defaultScrollAnchor(.topLeading)
-            .onScrollGeometryChange(for: CGRect.self) { scroll in
-                CGRect(
-                    x: floor(max(0, scroll.contentOffset.x) / 256) * 256,
-                    y: 0,
-                    width: ceil(scroll.containerSize.width / 256) * 256,
-                    height: 0
-                )
-            } action: { _, viewport in
-                horizontalViewport = viewport
-            }
-            .onScrollGeometryChange(for: Range<Int>.self) { scroll in
-                CommitFilePreviewViewport.rows(
-                    offset: scroll.contentOffset.y,
-                    height: scroll.containerSize.height,
-                    count: lines.count
-                )
-            } action: { _, range in
-                visibleRange = range
-            }
-        }
-        .background(.secondary.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(.separator.opacity(0.5), lineWidth: 0.5)
-        }
-        .padding(12)
-        .task {
-            // Measure plain text only; regex highlighting is reserved for visible rows.
-            // Yield between batches so opening a large file does not block the sheet.
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-            ]
-            var width: CGFloat = 0
-            for (index, line) in lines.enumerated() {
-                guard !Task.isCancelled else { return }
-                if DiffLongLineLayout.isLong(line.text) {
-                    let layout = await DiffLongLineLayout.load(
-                        text: line.text,
-                        fontName: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).fontName
-                    )
-                    guard !Task.isCancelled else { return }
-                    width = max(width, layout?.width ?? 0)
-                } else {
-                    width = max(width, (line.text as NSString).size(withAttributes: attributes).width)
-                }
-                if index.isMultiple(of: 128) { await Task.yield() }
-            }
-            contentWidth = ceil(width) + 74
-        }
+            .padding(embedded ? 0 : 12)
     }
 }

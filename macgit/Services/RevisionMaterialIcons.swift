@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import Foundation
+import AppKit
+import UniformTypeIdentifiers
 
 nonisolated struct RevisionMaterialIcons: Decodable, Sendable {
     let fileNames: [String: String]
     let fileExtensions: [String: String]
     let file: String
-    let folder: String
-    let folderExpanded: String
     let light: Overrides
 
     struct Overrides: Decodable, Sendable {
@@ -21,11 +20,9 @@ nonisolated struct RevisionMaterialIcons: Decodable, Sendable {
         return try? JSONDecoder().decode(Self.self, from: data)
     }()
 
-    func icon(for path: String, isDirectory: Bool, isExpanded: Bool, isLight: Bool) -> String {
+    /// The Material icon for a file. Folders use `SystemFolderIcon` instead.
+    func icon(for path: String, isLight: Bool) -> String {
         let name = String(path.split(separator: "/").last ?? "").lowercased()
-        if isDirectory {
-            return isExpanded ? folderExpanded : folder
-        }
         if let exact = (isLight ? light.fileNames?[name] : nil) ?? fileNames[name] { return exact }
         // Prefer compound extensions such as d.ts and test.js before ts or js.
         let parts = name.split(separator: ".", omittingEmptySubsequences: false)
@@ -37,4 +34,10 @@ nonisolated struct RevisionMaterialIcons: Decodable, Sendable {
         }
         return (isLight ? light.file : nil) ?? file
     }
+}
+
+/// The standard macOS (Finder) folder icon, used for every folder in file trees.
+@MainActor
+enum SystemFolderIcon {
+    static let image: NSImage = NSWorkspace.shared.icon(for: .folder)
 }

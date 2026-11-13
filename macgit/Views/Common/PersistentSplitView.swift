@@ -141,6 +141,9 @@ struct PersistentVSplit<Top: View, Bottom: View>: NSViewControllerRepresentable 
     let autosaveName: String
     var minimumTopHeight: CGFloat? = nil
     var minimumBottomHeight: CGFloat? = nil
+    /// When set, the bottom pane is pinned to this height (for example, just its header)
+    /// and the height it had before is restored once this returns to nil.
+    var collapsedBottomHeight: CGFloat? = nil
     @ViewBuilder let top: () -> Top
     @ViewBuilder let bottom: () -> Bottom
 
@@ -151,6 +154,40 @@ struct PersistentVSplit<Top: View, Bottom: View>: NSViewControllerRepresentable 
     class Coordinator {
         var topController: NSHostingController<Top>?
         var bottomController: NSHostingController<Bottom>?
+        var appliedCollapsedHeight: CGFloat?
+    }
+
+    private var expandedHeightKey: String { "PersistentVSplit.\(autosaveName).expandedBottomHeight" }
+
+    private func applyCollapse(to controller: NSSplitViewController, coordinator: Coordinator) {
+        guard coordinator.appliedCollapsedHeight != collapsedBottomHeight,
+              controller.splitViewItems.count == 2 else { return }
+        let wasCollapsed = coordinator.appliedCollapsedHeight != nil
+        coordinator.appliedCollapsedHeight = collapsedBottomHeight
+        let item = controller.splitViewItems[1]
+        let splitView = controller.splitView
+        if let collapsedBottomHeight {
+            // Remember the open height (also across launches) before pinning the pane.
+            let current = item.viewController.view.frame.height
+            if !wasCollapsed, current > collapsedBottomHeight + 1 {
+                UserDefaults.standard.set(Double(current), forKey: expandedHeightKey)
+            }
+            item.minimumThickness = collapsedBottomHeight
+            item.maximumThickness = collapsedBottomHeight
+        } else {
+            item.maximumThickness = NSSplitViewItem.unspecifiedDimension
+            item.minimumThickness = minimumBottomHeight ?? NSSplitViewItem.unspecifiedDimension
+            let saved = CGFloat(UserDefaults.standard.double(forKey: expandedHeightKey))
+            let minimumTop = minimumTopHeight ?? 0
+            let minimumBottom = minimumBottomHeight ?? 0
+            DispatchQueue.main.async {
+                let total = splitView.bounds.height
+                guard total > 0 else { return }
+                let wanted = saved > 0 ? saved : total * 0.45
+                let height = min(max(wanted, minimumBottom), max(0, total - minimumTop))
+                splitView.setPosition(total - height - splitView.dividerThickness, ofDividerAt: 0)
+            }
+        }
     }
 
     func makeNSViewController(context: Context) -> NSSplitViewController {
@@ -188,6 +225,7 @@ struct PersistentVSplit<Top: View, Bottom: View>: NSViewControllerRepresentable 
     func updateNSViewController(_ controller: NSSplitViewController, context: Context) {
         context.coordinator.topController?.rootView = top()
         context.coordinator.bottomController?.rootView = bottom()
+        applyCollapse(to: controller, coordinator: context.coordinator)
     }
 }
 

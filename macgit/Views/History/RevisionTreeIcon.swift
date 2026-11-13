@@ -31,13 +31,16 @@ struct RevisionTreeIcon: View {
                 Image(systemName: "shippingbox")
             } else if isSymlink {
                 Image(systemName: "link")
+            } else if isDirectory {
+                Image(nsImage: SystemFolderIcon.image)
+                    .resizable()
+                    .scaledToFit()
             } else if let icons = RevisionMaterialIcons.shared {
-                Image("revision-material-" + icons.icon(for: path, isDirectory: isDirectory,
-                    isExpanded: isExpanded, isLight: colorScheme == .light))
+                Image("revision-material-" + icons.icon(for: path, isLight: colorScheme == .light))
                     .resizable()
                     .scaledToFit()
             } else {
-                Image(systemName: isDirectory ? "folder" : "doc.text")
+                Image(systemName: "doc.text")
             }
         }
         .frame(width: 18, height: 18)

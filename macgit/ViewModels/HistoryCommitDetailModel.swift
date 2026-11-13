@@ -45,7 +45,10 @@ final class HistoryCommitDetailModel {
     private(set) var diff: (commit: String, path: String, hunks: [DiffHunk])?
     private(set) var fullMessage: String?
     private(set) var isLoadingFullMessage = false
-    var showingCommitInfo = false
+    /// True while the full message is on screen (the Commit tab), so it loads with each commit.
+    var needsFullMessage = false {
+        didSet { if needsFullMessage, !oldValue, fullMessage == nil { loadFullMessage() } }
+    }
     let patchController = CommitPatchController()
 
     @ObservationIgnored private let repositoryURL: URL
@@ -71,9 +74,9 @@ final class HistoryCommitDetailModel {
         cancelTasks()
         previousFile = selectedFile ?? previousFile
         self.commit = commit
-        showingCommitInfo = false
         fullMessage = nil
         diff = nil
+        if needsFullMessage { loadFullMessage(debounce: debounce) }
         if let commit, let snapshot = snapshotCache.value(for: commit.hash) {
             fileChanges = snapshot.fileChanges
             lineCounts = snapshot.lineCounts
@@ -109,7 +112,7 @@ final class HistoryCommitDetailModel {
         suspended = false
         startLoading(debounce: false)
         loadDiff()
-        if showingCommitInfo, fullMessage == nil { loadFullMessage() }
+        if needsFullMessage, fullMessage == nil { loadFullMessage() }
     }
 
     func clearCache() {
@@ -207,13 +210,16 @@ final class HistoryCommitDetailModel {
         }
     }
 
-    func loadFullMessage() {
+    func loadFullMessage(debounce: Bool = false) {
         guard !suspended, let commit else { return }
         messageTask?.cancel()
         let token = UUID()
         messageGeneration = token
         isLoadingFullMessage = true
         messageTask = Task { [self] in
+            if debounce {
+                do { try await Task.sleep(for: .milliseconds(80)) } catch { return }
+            }
             let message = await GitStatusService.shared.fullCommitMessage(for: commit.hash, in: repositoryURL)
             guard !Task.isCancelled, !suspended, messageGeneration == token,
                   self.commit?.hash == commit.hash else { return }

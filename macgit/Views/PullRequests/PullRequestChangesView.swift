@@ -117,8 +117,10 @@ struct PullRequestChangesView: View {
                             } label: {
                                 HStack(spacing: 6) {
                                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                                    Image(systemName: "folder")
-                                        .foregroundStyle(.blue)
+                                    Image(nsImage: SystemFolderIcon.image)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 16, height: 16)
                                     Text(name)
                                         .lineLimit(1)
                                 }

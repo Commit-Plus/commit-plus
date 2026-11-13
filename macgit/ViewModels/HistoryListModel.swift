@@ -295,6 +295,15 @@ final class HistoryListModel {
         storeSnapshot()
     }
 
+    /// Selects and scrolls to a commit that is already loaded, such as a parent link target.
+    @discardableResult
+    func selectLoadedCommit(_ hash: String) -> Bool {
+        guard let target = commit(hash) else { return false }
+        select(target, focus: true)
+        storeSnapshot()
+        return true
+    }
+
     func selectReferenceTipIfLoaded(_ reference: String) -> Bool {
         // `rows` may still be showing the previous scope while a filter change is
         // invalidating `loadKey`. Prefer those visible decorations immediately;

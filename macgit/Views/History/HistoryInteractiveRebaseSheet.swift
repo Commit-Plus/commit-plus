@@ -150,7 +150,8 @@ struct HistoryInteractiveRebaseSheet: View {
                         repositoryURL: controller.dependencies.repositoryURL,
                         undoManager: controller.dependencies.undoManager,
                         syncState: controller.dependencies.syncState,
-                        runOperation: controller.dependencies.runOperation, onOpenFile: { _, _ in })
+                        runOperation: controller.dependencies.runOperation, onOpenFile: { _, _ in },
+                        showsTabs: false)
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 10) {

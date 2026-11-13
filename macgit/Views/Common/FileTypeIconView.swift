@@ -10,7 +10,6 @@ final class FileTypeIconView: NSView {
     private let fileIcon = NSImageView()
     private var path = ""
     private var isDirectory = false
-    private var isExpanded = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -31,7 +30,6 @@ final class FileTypeIconView: NSView {
                    statusSymbol: String? = nil, statusColor: NSColor? = nil, statusLabel: String? = nil) {
         self.path = path
         self.isDirectory = isDirectory
-        self.isExpanded = isExpanded
         updateFileIcon()
         if let statusSymbol {
             statusIcon.image = NSImage(systemSymbolName: statusSymbol, accessibilityDescription: statusLabel)
@@ -62,12 +60,14 @@ final class FileTypeIconView: NSView {
 
     private func updateFileIcon() {
         let isLight = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua
-        if let icons = RevisionMaterialIcons.shared {
-            fileIcon.image = NSImage(named: "revision-material-" + icons.icon(
-                for: path, isDirectory: isDirectory, isExpanded: isExpanded, isLight: isLight))
+        if isDirectory {
+            fileIcon.image = SystemFolderIcon.image
+            fileIcon.contentTintColor = nil
+        } else if let icons = RevisionMaterialIcons.shared {
+            fileIcon.image = NSImage(named: "revision-material-" + icons.icon(for: path, isLight: isLight))
             fileIcon.contentTintColor = nil
         } else {
-            fileIcon.image = NSImage(systemSymbolName: isDirectory ? "folder" : "doc.text", accessibilityDescription: nil)
+            fileIcon.image = NSImage(systemSymbolName: "doc.text", accessibilityDescription: nil)
             fileIcon.contentTintColor = .secondaryLabelColor
         }
     }

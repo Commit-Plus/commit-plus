@@ -9,15 +9,8 @@ extension GitStatusService: RevisionBrowserServing {
     func browserSnapshot(revision: String, in repositoryURL: URL) async throws -> RevisionBrowserSnapshot {
         let sha = try await resolveComparisonRef(revision, branchesOnly: false, in: repositoryURL)
         let subject = try await runGit(arguments: ["show", "-s", "--format=%s", "--no-notes", sha, "--"], in: repositoryURL)
-        let changesData = try await runGitRaw(arguments: [
-            "show", "--name-status", "-z", "--first-parent", "--root", "--format=",
-            "--find-renames", "--no-ext-diff", "--no-textconv", sha, "--"
-        ], in: repositoryURL, environment: ProcessInfo.processInfo.environment, outputByteLimit: 8_000_000)
-        let changes = try Self.parseComparisonFiles(changesData)
         try Task.checkCancellation()
-        // Include the old path so surviving ancestors of deletions/renames are marked too.
-        return RevisionBrowserSnapshot(commitID: sha, subject: subject.trimmingCharacters(in: .newlines),
-            changedPaths: changes.flatMap { [$0.path, $0.oldPath].compactMap { $0 } })
+        return RevisionBrowserSnapshot(commitID: sha, subject: subject.trimmingCharacters(in: .newlines))
     }
 
     func browserEntries(treeID: String, parentPath: String, in repositoryURL: URL) async throws -> [RevisionTreeEntry] {

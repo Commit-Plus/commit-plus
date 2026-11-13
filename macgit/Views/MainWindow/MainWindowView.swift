@@ -30,7 +30,8 @@ struct WindowWidthKey: PreferenceKey {
     }
 }
 
-private extension View {
+extension View {
+    /// Keeps an inactive screen or tab mounted, so its state and scroll position survive switching away.
     func repositoryScreenVisibility(isActive: Bool) -> some View {
         opacity(isActive ? 1 : 0)
             .allowsHitTesting(isActive)

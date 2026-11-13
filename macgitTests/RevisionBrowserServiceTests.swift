@@ -24,9 +24,6 @@ final class RevisionBrowserServiceTests: XCTestCase {
         let headBefore = try git(["rev-parse", "HEAD"], in: repo)
         let root = try await service.browserEntries(treeID: snapshot.commitID, parentPath: "", in: repo)
         XCTAssertEqual(root.map(\.path), ["nested"])
-        XCTAssertTrue(snapshot.changedNodePaths.contains("nested"))
-        XCTAssertTrue(snapshot.changedNodePaths.contains("nested/deep"))
-        for name in names { XCTAssertTrue(snapshot.changedNodePaths.contains("nested/deep/" + name)) }
         let nested = try await service.browserEntries(treeID: XCTUnwrap(root.first).objectID, parentPath: "nested", in: repo)
         let files = try await service.browserEntries(treeID: XCTUnwrap(nested.first).objectID, parentPath: "nested/deep", in: repo)
         XCTAssertEqual(Set(files.map(\.name)), Set(names))
@@ -87,42 +84,6 @@ final class RevisionBrowserServiceTests: XCTestCase {
             _ = try await service.browserPreview(entry: RevisionTreeEntry(path: "missing", objectID: String(repeating: "a", count: 40), mode: "100644", objectType: "blob", size: 1), in: repo)
             XCTFail("Missing object")
         } catch {}
-    }
-
-    func testChangedNodesIncludeRenameAndDeletionAncestorsButNotUnchangedFiles() async throws {
-        let repo = try makeRepository()
-        for folder in ["old", "new", "deleted"] {
-            try FileManager.default.createDirectory(at: repo.appendingPathComponent(folder), withIntermediateDirectories: true)
-            try "unchanged".write(to: repo.appendingPathComponent(folder + "/keep"), atomically: true, encoding: .utf8)
-        }
-        try "rename content".write(to: repo.appendingPathComponent("old/file"), atomically: true, encoding: .utf8)
-        try "delete".write(to: repo.appendingPathComponent("deleted/file"), atomically: true, encoding: .utf8)
-        try git(["add", "."], in: repo)
-        try git(["commit", "-m", "initial"], in: repo)
-        try git(["mv", "old/file", "new/file"], in: repo)
-        try git(["rm", "deleted/file"], in: repo)
-        try git(["commit", "-m", "rename and delete"], in: repo)
-        let snapshot = try await service.browserSnapshot(revision: "HEAD", in: repo)
-        XCTAssertEqual(snapshot.changedNodePaths, ["old", "old/file", "new", "new/file", "deleted", "deleted/file"])
-        try git(["commit", "--allow-empty", "-m", "empty"], in: repo)
-        let empty = try await service.browserSnapshot(revision: "HEAD", in: repo)
-        XCTAssertTrue(empty.changedNodePaths.isEmpty)
-    }
-
-    func testMergeHighlightsChangesRelativeToFirstParent() async throws {
-        let repo = try makeRepository()
-        try git(["commit", "--allow-empty", "-m", "initial"], in: repo)
-        try git(["checkout", "-b", "feature"], in: repo)
-        try "feature".write(to: repo.appendingPathComponent("feature.txt"), atomically: true, encoding: .utf8)
-        try git(["add", "."], in: repo)
-        try git(["commit", "-m", "feature"], in: repo)
-        try git(["checkout", "main"], in: repo)
-        try "main".write(to: repo.appendingPathComponent("main.txt"), atomically: true, encoding: .utf8)
-        try git(["add", "."], in: repo)
-        try git(["commit", "-m", "main"], in: repo)
-        try git(["merge", "--no-ff", "feature", "-m", "merge"], in: repo)
-        let snapshot = try await service.browserSnapshot(revision: "HEAD", in: repo)
-        XCTAssertEqual(snapshot.changedNodePaths, ["feature.txt"])
     }
 
     func testMalformedTreeAndTextLimits() throws {

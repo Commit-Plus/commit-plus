@@ -13,6 +13,8 @@ final class RevisionBrowserController {
     private(set) var loadingFolders: Set<String> = []
     private(set) var folderErrors: [String: String] = [:]
     private(set) var selectedEntry: RevisionTreeEntry?
+    /// Set when `reveal(path:)` selects an entry, so the tree can scroll it into view.
+    private(set) var revealRequest: (path: String, token: UUID)?
     private(set) var preview: RevisionFilePreview?
     private(set) var previewError: String?
     private(set) var isLoadingPreview = false
@@ -130,6 +132,32 @@ final class RevisionBrowserController {
                 isLoadingPreview = false
             }
         }
+    }
+
+    /// Expands the folders leading to `path` and selects it. Returns false when the
+    /// revision has no such entry or the browser was reloaded meanwhile.
+    @discardableResult
+    func reveal(path: String) async -> Bool {
+        await loadTask?.value
+        guard !Task.isCancelled else { return false }
+        let id = generation
+        let components = path.split(separator: "/").map(String.init)
+        var parent = ""
+        for (index, name) in components.enumerated() {
+            let current = parent.isEmpty ? name : parent + "/" + name
+            guard let entry = children[parent]?.first(where: { $0.path == current }) else { return false }
+            if index == components.count - 1 {
+                select(entry)
+                revealRequest = (current, UUID())
+                return true
+            }
+            guard entry.isDirectory else { return false }
+            if !expanded.contains(current) { toggle(entry) }
+            if let task = folderTasks[current] { await task.value }
+            guard generation == id, !Task.isCancelled else { return false }
+            parent = current
+        }
+        return false
     }
 
     func downloadLFSPreview(remote: String) {

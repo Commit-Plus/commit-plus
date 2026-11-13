@@ -18,6 +18,9 @@ struct HistoryScreen: View {
     @State private var listModel: HistoryListModel
     @State private var detailModel: HistoryCommitDetailModel
     @State private var actions: HistoryCommitActionController
+    @State private var fileActions: RevisionFileActionCenter
+    /// Per window; the last choice is saved only as the default for windows opened later.
+    @State private var detailCollapsed = UserDefaults.standard.bool(forKey: "history.detailCollapsed")
     @State private var onlyThisBranch = false
     @State private var baseBranch: String?
     @State private var searchText = ""
@@ -45,6 +48,7 @@ struct HistoryScreen: View {
         _listModel = State(initialValue: list)
         _detailModel = State(initialValue: HistoryCommitDetailModel(repositoryURL: repositoryURL))
         _actions = State(initialValue: HistoryCommitActionController(dependencies: dependencies))
+        _fileActions = State(initialValue: RevisionFileActionCenter(repositoryURL: repositoryURL))
     }
 
     var body: some View {
@@ -73,6 +77,8 @@ struct HistoryScreen: View {
                 ZStack(alignment: .top) {
                     PersistentVSplit(autosaveName: "HistoryMainSplit", minimumTopHeight: 200,
                         minimumBottomHeight: 180,
+                        collapsedBottomHeight: detailCollapsed
+                            ? HistoryCommitDetailView.collapsedHeight(textScale: textScale) : nil,
                         top: {
                             Group {
                                 if listModel.rows.commits.isEmpty {
@@ -95,7 +101,17 @@ struct HistoryScreen: View {
                         }, bottom: {
                             HistoryCommitDetailView(model: detailModel, repositoryURL: repositoryURL,
                                 undoManager: dependencies.undoManager, syncState: dependencies.syncState,
-                                runOperation: dependencies.runOperation, onOpenFile: onOpenFile).frame(minHeight: 180)
+                                runOperation: dependencies.runOperation, fileActions: fileActions,
+                                onOpenFile: onOpenFile, isCollapsed: Binding(
+                                    get: { detailCollapsed },
+                                    set: {
+                                        detailCollapsed = $0
+                                        UserDefaults.standard.set($0, forKey: "history.detailCollapsed")
+                                    }),
+                                onBrowseRevision: dependencies.requestBrowseRevision,
+                                onSelectCommit: { hash in
+                                    if !listModel.selectLoadedCommit(hash) { NSSound.beep() }
+                                }).frame(minHeight: detailCollapsed ? nil : 180)
                         })
                     if listModel.phase == .refreshing {
                         HStack(spacing: 8) {
