@@ -14,12 +14,14 @@ swiftc -parse-as-library \
   macgit/Services/RepositoryCatalogStore.swift \
   macgit/Services/RecentRepositoriesStore.swift \
   macgit/Models/YourRepository.swift \
+  macgit/Services/RepositoryRootWatcher.swift \
   macgit/Services/YourRepositoriesStore.swift \
   macgit/ViewModels/RepositoryDetailModel.swift \
   macgit/Models/RepositoryStatistics.swift \
   macgit/Services/RepositoryStatisticsAggregator.swift \
   macgit/Models/RepositoryBookmark.swift \
   macgit/Models/RepositoryBookmarkRemote.swift \
+  macgit/Services/AzureReposRemote.swift \
   macgit/Services/GitStatusService+RepositoryBookmark.swift \
   macgit/Models/RepoPickerStatusSnapshot.swift \
   macgit/Services/GitStatusService+RepositoryDetail.swift \

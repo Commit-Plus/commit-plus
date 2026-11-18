@@ -28,8 +28,8 @@ final class YourRepositoriesStoreTests: XCTestCase {
 
         let result = YourRepositoriesStore.scanRepositories(in: [root, group])
 
-        XCTAssertEqual(result.map(\.url), [first, second])
-        XCTAssertEqual(Set(result.map(\.url)).count, 2)
+        XCTAssertEqual(result.map(\.url), [first, nestedInsideRepository, second])
+        XCTAssertEqual(Set(result.map(\.url)).count, 3)
     }
 
     func testScanFindsRepositoriesNestedInsideRootThatIsARepository() throws {
@@ -53,7 +53,37 @@ final class YourRepositoriesStoreTests: XCTestCase {
         XCTAssertNil(result.error)
         XCTAssertEqual(
             Set(result.urls.map { $0.standardizedFileURL.path }),
-            Set([root, nested, deep].map { $0.standardizedFileURL.path })
+            Set([root, nested, deep, insideNested].map { $0.standardizedFileURL.path })
+        )
+    }
+
+    func testScanDescendsIntoRepositoriesUpToDepthLimitAndSkipsSubmodules() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("your-repositories-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let parent = root.appendingPathComponent("parent", isDirectory: true)
+        let child = parent.appendingPathComponent("child", isDirectory: true)
+        let atLimit = root.appendingPathComponent("a/b/c/d", isDirectory: true)
+        let beyondLimit = root.appendingPathComponent("a/b/c/d/e", isDirectory: true)
+        let inNodeModules = parent.appendingPathComponent("node_modules/dependency", isDirectory: true)
+        for repository in [parent, child, atLimit, beyondLimit, inNodeModules] {
+            try fileManager.createDirectory(
+                at: repository.appendingPathComponent(".git", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+        let submodule = child.appendingPathComponent("core", isDirectory: true)
+        try fileManager.createDirectory(at: submodule, withIntermediateDirectories: true)
+        try Data("gitdir: ../.git/modules/core\n".utf8).write(to: submodule.appendingPathComponent(".git"))
+
+        let result = YourRepositoriesStore.scanRoot(root)
+
+        XCTAssertNil(result.error)
+        XCTAssertEqual(
+            Set(result.urls.map { $0.standardizedFileURL.path }),
+            Set([parent, child, atLimit].map { $0.standardizedFileURL.path })
         )
     }
 }

@@ -248,6 +248,8 @@ struct RepoPickerView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             bookmarkRefreshGeneration += 1
+            // Repositories may have been cloned or created in another app; skip the 30-second scan throttle.
+            Task { await yourRepositoriesStore.scan(force: true) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryLocalStateDidRefresh)) { _ in bookmarkRefreshGeneration += 1 }
         .onReceive(NotificationCenter.default.publisher(for: .repositoryDidChange)) { _ in bookmarkRefreshGeneration += 1 }

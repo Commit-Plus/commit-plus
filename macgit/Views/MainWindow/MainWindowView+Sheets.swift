@@ -167,25 +167,22 @@ extension MainWindowView {
         )
     }
 
-    @ViewBuilder
-    var tagSheet: some View {
-        if let startPoint = tagStartPoint {
-            CreateTagAtReferenceSheet(
-                startPoint: startPoint, name: $tagNameInput,
-                onCancel: { showingTagSheet = false },
-                onCreate: { name in
-                    try await createTagAtReference(name: name, startPoint: startPoint)
-                },
-                onCompleted: {
-                    showingTagSheet = false
-                    Task {
-                        await syncState.refresh(repositoryURL: repositoryURL)
-                        NotificationCenter.default.post(name: .repositoryDidChange, object: nil,
-                                                        userInfo: ["repositoryURL": repositoryURL])
-                    }
+    func tagSheet(startPoint: TagStartPoint) -> some View {
+        CreateTagAtReferenceSheet(
+            startPoint: startPoint, name: $tagNameInput,
+            onCancel: { tagStartPoint = nil },
+            onCreate: { name in
+                try await createTagAtReference(name: name, startPoint: startPoint)
+            },
+            onCompleted: {
+                tagStartPoint = nil
+                Task {
+                    await syncState.refresh(repositoryURL: repositoryURL)
+                    NotificationCenter.default.post(name: .repositoryDidChange, object: nil,
+                                                    userInfo: ["repositoryURL": repositoryURL])
                 }
-            )
-        }
+            }
+        )
     }
 
     @ViewBuilder

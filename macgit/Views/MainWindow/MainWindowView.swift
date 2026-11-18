@@ -92,7 +92,8 @@ struct PendingSubtreeOperation: Identifiable, Equatable {
     }
 }
 
-struct TagStartPoint: Equatable {
+struct TagStartPoint: Equatable, Identifiable {
+    let id = UUID()
     let hash: String
     let message: String
     var isBranch = false
@@ -141,7 +142,6 @@ struct MainWindowView: View {
     @State var showingAddSubmoduleSheet = false
     @State var showingAddLinkSubtreeSheet = false
     @State var branchSheetPresentation: BranchSheetPresentation?
-    @State var showingTagSheet = false
     @State var showingNewTagSheet = false
     @State var tagNameInput = ""
     @State var tagStartPoint: TagStartPoint?
@@ -498,7 +498,7 @@ struct MainWindowView: View {
             .replacingSheet(item: $branchSheetPresentation) { presentation in
                 branchSheet(startPoint: presentation.startPoint, initialBranchName: presentation.initialBranchName)
             }
-            .replacingSheet(isPresented: $showingTagSheet, onDismiss: resetTagSheet) { tagSheet }
+            .replacingSheet(item: $tagStartPoint) { tagSheet(startPoint: $0) }
             .replacingSheet(isPresented: $showingNewTagSheet) { newTagSheet }
             .replacingSheet(isPresented: tagDetailsSheetPresented) {
                 if let request = displayedTagDetails {
@@ -2803,8 +2803,9 @@ struct MainWindowView: View {
     }
 
     private func presentTagSheet(startPoint: TagStartPoint) {
+        // Item-driven so the sheet never renders before its start point exists.
+        tagNameInput = ""
         tagStartPoint = startPoint
-        showingTagSheet = true
     }
 
     func presentTagMoveConfirmation(tagName: String, commit: GitDraggedCommit) {
@@ -2932,11 +2933,6 @@ struct MainWindowView: View {
             NotificationCenter.default.post(name: .repositoryDidChange, object: nil,
                                             userInfo: ["repositoryURL": repositoryURL])
         }
-    }
-
-    private func resetTagSheet() {
-        tagNameInput = ""
-        tagStartPoint = nil
     }
 
 }
