@@ -866,7 +866,10 @@ struct RepoPickerView: View {
             if let folder = item.folder {
                 recentFolderRow(folder, count: item.count)
                     .contextMenu {
-                        if yourRepositoriesStore.folders.contains(folder) {
+                        if selectedTab == .recent {
+                            // Recent folders are grouped by path, not scan roots, so act on the recents inside.
+                            Button("Remove from Recents", role: .destructive) { removeRecents(in: folder) }
+                        } else if yourRepositoriesStore.folders.contains(folder) {
                             Button("Remove Folder") { folderToRemove = folder }
                         }
                     }
@@ -1093,6 +1096,18 @@ struct RepoPickerView: View {
     private func viewRepositoryDetails(_ repo: RecentRepository) {
         if let onRepositoryViewed { onRepositoryViewed(repo.url) }
         else { localPreview = repo.url }
+    }
+
+    private func removeRecents(in folder: URL) {
+        let prefix = folder.path == "/" ? "/" : folder.path + "/"
+        // A bookmark keeps a missing folder listed, so unlink it the same way the missing-repository alert does.
+        for bookmark in bookmarkController.bookmarks {
+            guard let localURL = bookmarkController.localURL(for: bookmark),
+                  localURL.path == folder.path || localURL.path.hasPrefix(prefix),
+                  rowStates[localURL]?.isMissing == true else { continue }
+            Task { await bookmarkController.unlinkLocalFolder(for: bookmark) }
+        }
+        store.remove(under: folder)
     }
 
     private func openRecentRepository(_ repo: RecentRepository) {

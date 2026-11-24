@@ -74,6 +74,16 @@ final class RecentRepositoriesStore: ObservableObject {
         RepositoryCatalogStore.shared.removeRecent([RepositoryCatalogSnapshot.path(repo.url)])
     }
 
+    /// Removes every recent repository at or below `folder`, including ones that no longer exist.
+    func remove(under folder: URL) {
+        let folderPath = RepositoryCatalogSnapshot.path(folder)
+        let prefix = folderPath == "/" ? "/" : folderPath + "/"
+        let paths = repositories.map { RepositoryCatalogSnapshot.path($0.url) }
+            .filter { $0 == folderPath || $0.hasPrefix(prefix) }
+        guard !paths.isEmpty else { return }
+        RepositoryCatalogStore.shared.removeRecent(Set(paths))
+    }
+
     func removeAll() {
         RepositoryCatalogStore.shared.removeRecent(Set(repositories.map { RepositoryCatalogSnapshot.path($0.url) }))
     }

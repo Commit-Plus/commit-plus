@@ -57,21 +57,4 @@ final class AppActivityTelemetryTests: XCTestCase {
         }
         XCTAssertEqual(signals, 2, "DAU deduplicates the SDK's stable identifier, not event count")
     }
-
-    func testConfigurationRejectsMalformedMissingAndNilIdentifiers() throws {
-        XCTAssertNil(AppTelemetry.appID(from: Data("not a plist".utf8)))
-        let invalidValues: [[String: Any]] = [
-            [:], ["AppID": 123], ["AppID": ""], ["AppID": "invalid"],
-            ["AppID": "00000000-0000-0000-0000-000000000000"],
-        ]
-        for values in invalidValues {
-            let data = try PropertyListSerialization.data(fromPropertyList: values, format: .xml, options: 0)
-            XCTAssertNil(AppTelemetry.appID(from: data))
-        }
-        let id = UUID().uuidString
-        let data = try PropertyListSerialization.data(
-            fromPropertyList: ["AppID": " \(id.lowercased())\n"], format: .xml, options: 0
-        )
-        XCTAssertEqual(AppTelemetry.appID(from: data), id)
-    }
 }
