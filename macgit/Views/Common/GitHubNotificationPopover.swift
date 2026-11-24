@@ -67,13 +67,31 @@ struct GitHubNotificationPopover: View {
                 .frame(minHeight: 0, maxHeight: .infinity)
                 if !appNotificationController.notifications.isEmpty {
                     Divider()
-                    HStack {
-                        Spacer()
-                        Button("Delete All", systemImage: "trash", role: .destructive) {
-                            isConfirmingDeleteAllAppNotifications = true
+                    // Confirm inline: a dialog takes key focus, which closes the menu bar panel or
+                    // transient popover before its button runs, so nothing would be deleted.
+                    HStack(spacing: 10) {
+                        if isConfirmingDeleteAllAppNotifications {
+                            Text("Delete all app notifications? This can't be undone.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                            Spacer(minLength: 8)
+                            Button("Cancel") { isConfirmingDeleteAllAppNotifications = false }
+                                .controlSize(.small)
+                            Button("Delete All", role: .destructive) {
+                                isConfirmingDeleteAllAppNotifications = false
+                                Task { await appNotificationController.deleteAll() }
+                            }
+                            .controlSize(.small)
+                            .keyboardShortcut(.defaultAction)
+                        } else {
+                            Spacer()
+                            Button("Delete All", systemImage: "trash", role: .destructive) {
+                                isConfirmingDeleteAllAppNotifications = true
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Delete all app notifications")
                         }
-                        .buttonStyle(.borderless)
-                        .help("Delete all app notifications")
                     }
                     .padding(.horizontal, 18)
                     .padding(.vertical, 12)
@@ -188,22 +206,12 @@ struct GitHubNotificationPopover: View {
         } message: {
             Text("Could not load the release notes for this version. Please try again later.")
         }
-        .confirmationDialog(
-            "Delete all app notifications?",
-            isPresented: $isConfirmingDeleteAllAppNotifications
-        ) {
-            Button("Delete All", role: .destructive) {
-                Task { await appNotificationController.deleteAll() }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This action cannot be undone.")
-        }
         .task {
             controller.opened()
             await appNotificationController.load()
         }
         .onChange(of: notificationSource) { _, source in
+            isConfirmingDeleteAllAppNotifications = false
             if source == .github { controller.opened() }
         }
         .onChange(of: controller.selectedAccountKey) { _, _ in
