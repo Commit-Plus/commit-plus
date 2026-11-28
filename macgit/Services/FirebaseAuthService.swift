@@ -138,7 +138,7 @@ final class FirebaseAuthService: AccountAuthenticating {
 
     func deleteAccount() async throws {
         do {
-            _ = try await Functions.functions().httpsCallable("deleteAccount").call()
+            _ = try await Functions.functions(region: "asia-southeast1").httpsCallable("deleteAccount").call()
             try? Auth.auth().signOut()
             GIDSignIn.sharedInstance.signOut()
             pendingGoogleCredential = nil

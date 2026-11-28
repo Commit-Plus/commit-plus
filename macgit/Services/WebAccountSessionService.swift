@@ -121,7 +121,7 @@ final class FirebaseWebAccountSessionService: WebAccountSessionProviding {
     private let baseURLProvider: () throws -> URL
 
     init(
-        functions: Functions = .functions(),
+        functions: Functions = .functions(region: "asia-southeast1"),
         baseURLProvider: @escaping () throws -> URL = { try CommitPlusWebConfiguration.baseURL() }
     ) {
         self.functions = functions
